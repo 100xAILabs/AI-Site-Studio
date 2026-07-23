@@ -101,9 +101,11 @@ class UserRepository:
             await self.db.refresh(user)
         else:
             # Create new user
+            base_username = email.split("@")[0]
+            unique_username = await self.get_unique_username(base_username)
             kwargs = {
                 "email": email,
-                "username": email.split("@")[0],
+                "username": unique_username,
                 "full_name": full_name,
                 "avatar_url": avatar_url,
                 "role": UserRole.SELLER if role.lower() == "seller" else UserRole.BUYER
@@ -120,3 +122,17 @@ class UserRepository:
             await self.db.flush()
             await self.db.refresh(user)
         return user
+
+    async def get_unique_username(self, base_username: str) -> str:
+        import re
+        cleaned = re.sub(r'[^a-zA-Z0-9_]', '', base_username)
+        if not cleaned:
+            cleaned = "user"
+        username = cleaned
+        counter = 1
+        while True:
+            result = await self.db.execute(select(User).where(User.username == username))
+            if not result.scalar_one_or_none():
+                return username
+            username = f"{cleaned}_{counter}"
+            counter += 1

@@ -5,6 +5,7 @@ AI routes — content generation, SEO, color palettes, template recommendations.
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from app.core.dependencies import get_current_user
@@ -100,6 +101,52 @@ async def chat_assistant(
     request: ChatRequest,
 ):
     """Chat with the AI Site Studio assistant."""
-    return await ai_service.chat_with_assistant(
-        message=request.message,
-    )
+    try:
+        res = await ai_service.chat_with_assistant(
+            message=request.message,
+        )
+        
+        # Generate audio for the reply in the same request to optimize latency
+        try:
+            audio_data = await ai_service.generate_speech(text=res["reply"])
+            import base64
+            res["audio"] = base64.b64encode(audio_data).decode("utf-8")
+        except ValueError as ve:
+            print(f"TTS Warning during chat: {ve}")
+            res["audio"] = None
+        except Exception as e:
+            import traceback
+            print("Failed to generate TTS audio during chat response:")
+            traceback.print_exc()
+            res["audio"] = None
+            
+        return res
+    except Exception as e:
+        import traceback
+        print("Error in /chat endpoint:")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class TTSRequest(BaseModel):
+    text: str
+    voice: str = "Puck"
+
+
+@router.post("/text-to-speech")
+async def text_to_speech(request: TTSRequest):
+    """Convert text to speech using Gemini."""
+    try:
+        audio_data = await ai_service.generate_speech(
+            text=request.text,
+            voice=request.voice
+        )
+        return Response(content=audio_data, media_type="audio/wav")
+    except ValueError as ve:
+        print(f"TTS Warning: {ve}")
+        raise HTTPException(status_code=429, detail=str(ve))
+    except Exception as e:
+        import traceback
+        print("Error in /text-to-speech endpoint:")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))

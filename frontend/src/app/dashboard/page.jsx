@@ -155,7 +155,7 @@ function Dashboard() {
   const { data: templateResponse, isLoading: templatesLoading } = useQuery({
     queryKey: ["seller-templates"],
     queryFn: () => api.get("/templates/my-templates", authToken ?? undefined),
-    enabled: !!authToken && isSeller,
+    enabled: !!authToken && (isSeller || isAdmin),
   });
 
   // Fetch Marketplace Templates for Dashboard Recommendations
@@ -769,7 +769,7 @@ function Dashboard() {
         is_responsive: analysisResult ? !!analysisResult.responsive_analysis?.mobile : true,
         is_rtl_supported: false,
         is_ai_ready: !!analysisResult,
-        compatibility: analysisResult ? [analysisResult.framework_detected] : [],
+        compatibility: ["Chrome", "Firefox", "Safari", "Edge"],
         version: "1.0.0",
         license_type: licenseType === "extended" ? "extended" : "regular",
         is_featured: false,
@@ -931,6 +931,8 @@ function Dashboard() {
                   ? [
                     { id: "admin-users", label: "Users", icon: User },
                     { id: "admin-templates", label: "Templates Queue", icon: Code },
+                    { id: "seller-templates", label: "My Templates", icon: Folder },
+                    { id: "seller-upload", label: "Upload Template", icon: Plus },
                     { id: "admin-payments", label: "Payments Ledger", icon: CreditCard },
                     { id: "admin-categories", label: "Categories", icon: LayoutDashboard },
                     { id: "admin-reports", label: "Reports", icon: HelpCircle },
@@ -2728,7 +2730,7 @@ function Dashboard() {
                                 u.status === "Active" ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500"
                               )}>{u.status}</span>
                             </td>
-                            <td className="py-2.5 text-right">
+                            <td className="py-2.5 text-right" style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
                               <button
                                 onClick={async () => {
                                   const newStatus = u.status === "Active" ? "Suspended" : "Active";
@@ -2753,6 +2755,32 @@ function Dashboard() {
                                 className="text-xs text-primary font-bold hover:underline"
                               >
                                 Toggle Block
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  if (!window.confirm(`Are you sure you want to permanently delete user ${u.name || u.email}? This action is irreversible.`)) return;
+                                  try {
+                                    const res = await fetch(`http://localhost:8000/api/v1/admin/users/${u.id}`, {
+                                      method: "DELETE",
+                                      headers: {
+                                        "Authorization": `Bearer ${authToken}`
+                                      }
+                                    });
+                                    if (res.ok) {
+                                      setAdminUsers(adminUsers.filter(x => x.id !== u.id));
+                                      alert("User account permanently deleted!");
+                                    } else {
+                                      const errData = await res.json();
+                                      alert(errData.detail || "Failed to delete user");
+                                    }
+                                  } catch (err) {
+                                    console.error("Failed to delete user", err);
+                                    alert("Error deleting user account");
+                                  }
+                                }}
+                                className="text-xs text-red-500 font-bold hover:underline"
+                              >
+                                Delete
                               </button>
                             </td>
                           </tr>
@@ -3027,7 +3055,7 @@ function Dashboard() {
                       <h3 className="font-bold text-lg">Platform Notifications</h3>
                       <p className="text-sm text-muted-foreground">Receive real-time sales reports and updates.</p>
                     </div>
-                    <button className="text-xs text-primary font-semibold hover:underline">Mark all read</button>
+                    <button className="text-xs text-primary font-semibold hover:underline bg-transparent border-none p-0 cursor-pointer">Mark all read</button>
                   </div>
                   <div className="p-8 text-center text-muted-foreground text-sm border border-border/40 rounded-xl">
                     No new notifications.

@@ -164,48 +164,8 @@ const TECHNOLOGIES = [
   { label: "Chakra UI",    value: "chakra" },
 ];
 
-const DEVICE_SUPPORT = [
-  { label: "Mobile",      value: "mobile" },
-  { label: "Tablet",      value: "tablet" },
-  { label: "Desktop",     value: "desktop" },
-  { label: "Responsive",  value: "responsive" },
-  { label: "PWA",         value: "pwa" },
-];
 
-const LANGUAGE_SUPPORT = [
-  { label: "English",  value: "english" },
-  { label: "Tamil",    value: "tamil" },
-  { label: "Hindi",    value: "hindi" },
-  { label: "Arabic",   value: "arabic" },
-  { label: "French",   value: "french" },
-  { label: "German",   value: "german" },
-  { label: "Spanish",  value: "spanish" },
-  { label: "Japanese", value: "japanese" },
-  { label: "Chinese",  value: "chinese" },
-];
 
-const FEATURES = [
-  { label: "Dark Mode",          value: "dark-mode" },
-  { label: "AI Ready",           value: "ai-ready" },
-  { label: "CMS Ready",          value: "cms-ready" },
-  { label: "SEO Optimized",      value: "seo-optimized" },
-  { label: "Fast Loading",       value: "fast-loading" },
-  { label: "Responsive",         value: "responsive" },
-  { label: "Blog Included",      value: "blog-included" },
-  { label: "Ecommerce Ready",    value: "ecommerce-ready" },
-  { label: "RTL Support",        value: "rtl-support" },
-  { label: "Accessibility Ready",value: "accessibility" },
-  { label: "Animation",          value: "animation" },
-  { label: "One Page",           value: "one-page" },
-  { label: "Multi Page",         value: "multi-page" },
-  { label: "Multi Language",     value: "multi-language" },
-  { label: "Admin Panel",        value: "admin-panel" },
-  { label: "Dashboard",          value: "dashboard" },
-  { label: "Authentication",     value: "auth" },
-  { label: "Payment Integration",value: "payment" },
-  { label: "Chat Support",       value: "chat" },
-  { label: "Analytics",          value: "analytics" },
-];
 
 const SALES_TIERS = [
   { label: "No sales",   value: "no-sales" },
@@ -353,53 +313,7 @@ export default function SidebarFilters({ categories }) {
           </div>
         </FilterSection>
 
-        {/* ── Features ──────────────────────────────── */}
-        <FilterSection title="Features" defaultOpen={false}>
-          <div className="filters-options-container">
-            {FEATURES.map((feat) => (
-              <CheckboxOption
-                key={feat.value}
-                label={feat.label}
-                checked={(filters.features ?? []).includes(feat.value)}
-                onChange={(v) => {
-                  const cur = filters.features ?? [];
-                  setFilter(
-                    "features",
-                    v ? [...cur, feat.value] : cur.filter((f) => f !== feat.value)
-                  );
-                }}
-              />
-            ))}
-          </div>
-        </FilterSection>
 
-        {/* ── Device Support ────────────────────────── */}
-        <FilterSection title="Device Support" defaultOpen={false}>
-          <div className="filters-options-container">
-            {DEVICE_SUPPORT.map((dev) => (
-              <CheckboxOption
-                key={dev.value}
-                label={dev.label}
-                checked={filters.device === dev.value}
-                onChange={(v) => setFilter("device", v ? dev.value : undefined)}
-              />
-            ))}
-          </div>
-        </FilterSection>
-
-        {/* ── Language Support ──────────────────────── */}
-        <FilterSection title="Language Support" defaultOpen={false}>
-          <div className="filters-options-container">
-            {LANGUAGE_SUPPORT.map((lang) => (
-              <CheckboxOption
-                key={lang.value}
-                label={lang.label}
-                checked={filters.language === lang.value}
-                onChange={(v) => setFilter("language", v ? lang.value : undefined)}
-              />
-            ))}
-          </div>
-        </FilterSection>
 
         {/* ── Price ─────────────────────────────────── */}
         <FilterSection title="Price">

@@ -69,13 +69,13 @@ async def get_current_user(
     user = await repo.get_by_id(UUID(user_id))
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account not found or deleted.",
         )
     if not user.is_active:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account is deactivated",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Account is deactivated.",
         )
     return user
 

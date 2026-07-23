@@ -12,7 +12,7 @@ from app.models.user import UserRole
 
 
 class UserBase(BaseModel):
-    email: EmailStr
+    email: str
     username: Optional[str] = None
     full_name: Optional[str] = None
     avatar_url: Optional[str] = None
@@ -20,6 +20,7 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
+    email: EmailStr
     google_id: Optional[str] = None
     facebook_id: Optional[str] = None
 

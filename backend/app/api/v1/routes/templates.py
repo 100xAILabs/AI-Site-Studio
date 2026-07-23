@@ -97,7 +97,7 @@ async def get_featured_templates(
 @router.get("/my-templates", response_model=list[TemplateResponse])
 async def list_my_templates(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_seller_or_admin),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Get all templates permanently linked to the current seller's account.
@@ -508,10 +508,16 @@ Return ONLY valid JSON. Do not include markdown code block notation (```json) or
         raise HTTPException(status_code=500, detail=f"Failed to generate template properties using AI: {str(e)}")
 
     # Extract chosen category UUID and other attributes
+    category_uuid = None
     try:
-        category_uuid = uuid.UUID(data.get("category_id"))
+        parsed_uuid = uuid.UUID(data.get("category_id"))
+        if any(c.id == parsed_uuid for c in categories):
+            category_uuid = parsed_uuid
     except Exception:
-        # Fallback to first category if invalid UUID returned
+        pass
+
+    if not category_uuid:
+        # Fallback to first category if invalid or nonexistent UUID returned
         category_uuid = categories[0].id
 
     # Find the chosen category name for search indexing metadata

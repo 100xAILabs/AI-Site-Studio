@@ -20,6 +20,8 @@ import PreviewPage from './app/preview/page.jsx'
 import PricingPage from './app/pricing/page.jsx'
 import AboutPage from './app/about/page.jsx'
 import ContactPage from './app/contact/page.jsx'
+import VerifyOTPPage from './app/verify-otp/page.jsx'
+import ForgotPasswordPage from './app/forgot-password/page.jsx'
 
 /** Handles the post-OAuth soft redirect without a full page reload */
 function OAuthRedirectHandler() {
@@ -37,8 +39,8 @@ function OAuthRedirectHandler() {
   return null;
 }
 
-function ProtectedRoute({ children }) {
-  const { isSignedIn, isLoaded } = useAppUser();
+function ProtectedRoute({ children, requiredRole }) {
+  const { user, isSignedIn, isLoaded } = useAppUser();
   const location = useLocation();
   if (!isLoaded) {
     return (
@@ -52,6 +54,10 @@ function ProtectedRoute({ children }) {
   }
   if (!isSignedIn) {
     return <Navigate to={`/sign-in?from=${encodeURIComponent(location.pathname)}`} replace />;
+  }
+  if (requiredRole && user?.role !== requiredRole && user?.role !== 'admin') {
+    // Basic role restriction (admin bypasses)
+    return <Navigate to="/dashboard" replace />;
   }
   return children;
 }
@@ -78,11 +84,13 @@ function App() {
           <Route path="/sign-in" element={<SignIn />} />
           <Route path="/sign-up" element={<Navigate to="/register" replace />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/verify-otp" element={<VerifyOTPPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/preview" element={<PreviewPage />} />
           <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/admin" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
+          <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPanel /></ProtectedRoute>} />
         </Routes>
         <Toaster richColors position="top-center" theme="dark" />
       </div>

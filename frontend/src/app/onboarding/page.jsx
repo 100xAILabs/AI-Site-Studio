@@ -64,9 +64,15 @@ export default function OnboardingPage() {
       return;
     }
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 700));
-    completeOnboarding({ ...form, role });
-    navigate(from, { replace: true });
+    setError("");
+    try {
+      await completeOnboarding({ ...form, role });
+      navigate(from, { replace: true });
+    } catch (err) {
+      setError(err?.message || "Failed to save profile. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

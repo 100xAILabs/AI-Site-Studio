@@ -5,17 +5,21 @@ All values are read from environment variables (or .env file).
 """
 
 from functools import lru_cache
+from pathlib import Path
 from typing import List
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+BASE_DIR = Path(__file__).resolve().parents[2]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=BASE_DIR / ".env",
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",
+        secrets_dir="/run/secrets",
     )
 
     # ── App ───────────────────────────────────────────────────────────────────
@@ -33,7 +37,7 @@ class Settings(BaseSettings):
     # ── Security ──────────────────────────────────────────────────────────────
     SECRET_KEY: str = "change-me-in-production-must-be-at-least-32-characters"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 525600  # 365 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 21600  # 15 days
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     # ── OAuth (Google / Facebook) ─────────────────────────────────────────────
@@ -52,22 +56,22 @@ class Settings(BaseSettings):
     # ── Gemini ────────────────────────────────────────────────────────────────
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-3.1-flash-lite"
-    GEMINI_EMBEDDING_MODEL: str = "gemini-embedding-2"
+    GEMINI_EMBEDDING_MODEL: str = "text-embedding-004"
 
     # Separate Gemini models per feature
-    GEMINI_MODEL_AI_CHAT_ASSISTANT: str = "gemini-3.5-flash"
-    GEMINI_MODEL_WEBSITE_CONTENT_GENERATION: str = "gemini-3.5-flash"
-    GEMINI_MODEL_SEO_GENERATOR: str = "gemini-3.5-flash"
-    GEMINI_MODEL_SEMANTIC_SEARCH: str = "gemini-embedding-2"
-    GEMINI_MODEL_TEMPLATE_RECOMMENDATION: str = "gemini-embedding-2"
-    GEMINI_MODEL_ACCESSIBILITY_REVIEW: str = "gemini-3.5-flash"
-    GEMINI_MODEL_CODE_ASSISTANT: str = "gemini-3.5-flash"
-    GEMINI_MODEL_PROJECT_ZIP_ANALYSIS: str = "gemini-3.5-flash"
-    GEMINI_MODEL_TRANSLATION: str = "gemini-3.5-flash"
-    GEMINI_MODEL_BUSINESS_ANALYSIS: str = "gemini-3.5-flash"
-    GEMINI_MODEL_LOGO_IDEAS: str = "gemini-3.5-flash"
+    GEMINI_MODEL_AI_CHAT_ASSISTANT: str = "gemini-3.1-flash-lite"
+    GEMINI_MODEL_WEBSITE_CONTENT_GENERATION: str = "gemini-3.1-flash-lite"
+    GEMINI_MODEL_SEO_GENERATOR: str = "gemini-3.1-flash-lite"
+    GEMINI_MODEL_SEMANTIC_SEARCH: str = "text-embedding-004"
+    GEMINI_MODEL_TEMPLATE_RECOMMENDATION: str = "text-embedding-004"
+    GEMINI_MODEL_ACCESSIBILITY_REVIEW: str = "gemini-3.1-flash-lite"
+    GEMINI_MODEL_CODE_ASSISTANT: str = "gemini-3.1-flash-lite"
+    GEMINI_MODEL_PROJECT_ZIP_ANALYSIS: str = "gemini-3.1-flash-lite"
+    GEMINI_MODEL_TRANSLATION: str = "gemini-3.1-flash-lite"
+    GEMINI_MODEL_BUSINESS_ANALYSIS: str = "gemini-3.1-flash-lite"
+    GEMINI_MODEL_LOGO_IDEAS: str = "gemini-3.1-flash-lite"
     GEMINI_MODEL_IMAGE_GENERATION: str = "flux"
-    GEMINI_MODEL_OCR_DOCUMENT_UNDERSTANDING: str = "gemini-3.5-flash"
+    GEMINI_MODEL_OCR_DOCUMENT_UNDERSTANDING: str = "gemini-3.1-flash-lite"
 
     # Alternative models per feature
     ALT_MODEL_AI_CHAT_ASSISTANT: str = "gpt-4o-mini"
@@ -131,6 +135,14 @@ class Settings(BaseSettings):
     STRIPE_SECRET_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
     STRIPE_PUBLISHABLE_KEY: str = ""
+
+    # ── SMTP Settings ──────────────────────────────────────────────────────────
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = "noreply@aisitestudio.com"
+    SMTP_USE_TLS: bool = True
 
     # ── CORS ──────────────────────────────────────────────────────────────────
     FRONTEND_URL: str = "http://localhost:3000"

@@ -84,9 +84,36 @@ if (typeof window !== "undefined") {
 
   useAuthStore.subscribe((state) => {
     const userId = state.user?.id || "guest";
-    const storedCart = localStorage.getItem(`cart_items_${userId}`);
-    useCartStore.setState({
-      items: storedCart ? JSON.parse(storedCart) : [],
-    });
+    
+    // Read stored cart for this user
+    let storedCart = [];
+    try {
+      const storedStr = localStorage.getItem(`cart_items_${userId}`);
+      storedCart = storedStr ? JSON.parse(storedStr) : [];
+    } catch (e) {
+      storedCart = [];
+    }
+    
+    if (userId !== "guest") {
+      // If we just logged in, merge any items in 'guest' cart
+      let guestCart = [];
+      try {
+        const guestStr = localStorage.getItem("cart_items_guest");
+        guestCart = guestStr ? JSON.parse(guestStr) : [];
+      } catch (e) {}
+      
+      if (guestCart.length > 0) {
+        const userTemplateIds = new Set(storedCart.map(i => i.templateId));
+        const newGuestItems = guestCart.filter(i => !userTemplateIds.has(i.templateId));
+        if (newGuestItems.length > 0) {
+          storedCart = [...storedCart, ...newGuestItems];
+          localStorage.setItem(`cart_items_${userId}`, JSON.stringify(storedCart));
+        }
+        // Clear guest cart
+        localStorage.setItem("cart_items_guest", JSON.stringify([]));
+      }
+    }
+    
+    useCartStore.setState({ items: storedCart });
   });
 }

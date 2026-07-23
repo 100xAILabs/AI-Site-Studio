@@ -52,7 +52,7 @@ class Order(UUIDMixin, TimestampMixin, Base):
     # Relationships
     user: Mapped["User"] = relationship(back_populates="orders")
     items: Mapped[List["OrderItem"]] = relationship(back_populates="order", cascade="all, delete-orphan")
-    payment: Mapped[Optional["Payment"]] = relationship(back_populates="order", uselist=False)
+    payment: Mapped[Optional["Payment"]] = relationship(back_populates="order", uselist=False, cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Order {self.order_number} [{self.status}]>"

@@ -63,14 +63,14 @@ class User(UUIDMixin, TimestampMixin, Base):
     razorpay_customer_id: Mapped[Optional[str]] = mapped_column(String(255))
 
     # Relationships
-    orders: Mapped[List["Order"]] = relationship(back_populates="user", lazy="select")
-    reviews: Mapped[List["Review"]] = relationship(back_populates="user", lazy="select")
-    wishlist_items: Mapped[List["WishlistItem"]] = relationship(back_populates="user", lazy="select")
-    favorites: Mapped[List["Favorite"]] = relationship(back_populates="user", lazy="select")
-    downloads: Mapped[List["Download"]] = relationship(back_populates="user", lazy="select")
+    orders: Mapped[List["Order"]] = relationship(back_populates="user", lazy="select", cascade="all, delete-orphan")
+    reviews: Mapped[List["Review"]] = relationship(back_populates="user", lazy="select", cascade="all, delete-orphan")
+    wishlist_items: Mapped[List["WishlistItem"]] = relationship(back_populates="user", lazy="select", cascade="all, delete-orphan")
+    favorites: Mapped[List["Favorite"]] = relationship(back_populates="user", lazy="select", cascade="all, delete-orphan")
+    downloads: Mapped[List["Download"]] = relationship(back_populates="user", lazy="select", cascade="all, delete-orphan")
     # Templates uploaded by this seller — permanently stored per account
     uploaded_templates: Mapped[List["Template"]] = relationship(
-        back_populates="seller", lazy="select", foreign_keys="Template.seller_id"
+        back_populates="seller", lazy="select", foreign_keys="Template.seller_id", cascade="all, delete-orphan"
     )
 
     @property

@@ -8,7 +8,7 @@ import { useState, useEffect } from "react";
 import Link from "@/components/Link";
 const usePathname = () => window.location.pathname;
 import { useTheme } from "@/hooks/useTheme";
-import { AppSignInButton, AppSignUpButton, AppUserButton, useAppUser } from "@/lib/auth";
+import { AppSignInButton, AppSignUpButton, AppUserButton, useAppUser, useSignOut } from "@/lib/auth";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
@@ -28,6 +28,7 @@ import "./Navbar.css";
 function NavbarComponent() {
   const { theme, setTheme } = useTheme();
   const { isSignedIn, user } = useAppUser();
+  const signOut = useSignOut();
   const pathname = usePathname();
   const cartItems = useCartStore((s) => s.items);
   const [scrolled, setScrolled] = useState(false);
@@ -132,7 +133,13 @@ function NavbarComponent() {
               >
                 Dashboard
               </Link>
-              <AppUserButton />
+              <button
+                onClick={() => signOut()}
+                className="btn-signin"
+                style={{ marginLeft: "0.5rem", padding: "0.4rem 1rem", fontSize: "0.8rem", height: "36px", display: "inline-flex", alignItems: "center" }}
+              >
+                Log Out
+              </button>
             </>
           ) : (
             <div className="desktop-auth">
@@ -200,9 +207,21 @@ function NavbarComponent() {
                   Pricing
                 </Link>
                 {isSignedIn ? (
-                  <Link href="/dashboard" className="mobile-link">
-                    Dashboard
-                  </Link>
+                  <>
+                    <Link href="/dashboard" className="mobile-link" onClick={() => setMobileOpen(false)}>
+                      Dashboard
+                    </Link>
+                    <button
+                      onClick={() => {
+                        signOut();
+                        setMobileOpen(false);
+                      }}
+                      className="mobile-link"
+                      style={{ textAlign: "left", width: "100%", background: "none", border: "none" }}
+                    >
+                      Log Out
+                    </button>
+                  </>
                 ) : (
                   <>
                     <Link

@@ -87,9 +87,24 @@ class TemplateRepository:
         )
 
         # ── Filters ──────────────────────────────────────────────────────────
+        # Join Category if filtering by category or performing a keyword search
+        need_category_join = bool(filters.category or (filters.q and not filters.semantic))
+        if need_category_join:
+            query = query.join(Category, Template.category_id == Category.id)
+
+        # ── Filters ──────────────────────────────────────────────────────────
         if filters.category:
-            query = query.join(Category, Template.category_id == Category.id).where(
-                or_(Category.slug == filters.category, Category.name.ilike(f"%{filters.category}%"))
+            category_normalized = filters.category.lower().replace("-", " ")
+            query = query.where(
+                or_(
+                    Category.slug == filters.category,
+                    Category.name.ilike(f"%{filters.category}%"),
+                    Category.name.ilike(f"%{category_normalized}%"),
+                    Template.industry.ilike(f"%{filters.category}%"),
+                    Template.industry.ilike(f"%{category_normalized}%"),
+                    cast(Template.tags, ARRAY(String)).overlap([filters.category]),
+                    cast(Template.tags, ARRAY(String)).overlap([category_normalized]),
+                )
             )
 
         if filters.min_price is not None:
@@ -154,9 +169,51 @@ class TemplateRepository:
                 query = query.where(Template.created_at >= now - timedelta(days=365))
 
         if filters.tags:
-            query = query.where(Template.tags.overlap(filters.tags))
+            query = query.where(cast(Template.tags, ARRAY(String)).overlap(filters.tags))
 
         if filters.q:
+            q_clean = filters.q.strip().lower()
+            
+            # Synonym expansion for common search concepts to match relevant templates
+            synonyms_list = [q_clean]
+            synonym_dict = {
+                "food": ["restaurant", "bistro", "culinary", "menu", "dining", "cafe", "bakery", "food"],
+                "restaurant": ["food", "culinary", "dining", "bistro", "cafe", "bakery", "restaurant"],
+                "restaurent": ["food", "culinary", "dining", "bistro", "cafe", "bakery", "restaurant"],
+                "healthcare": ["medical", "hospital", "clinic", "dentist", "pharmacy", "doctor", "healthcare"],
+                "medical": ["healthcare", "hospital", "clinic", "dentist", "pharmacy", "doctor", "medical"],
+                "doctor": ["healthcare", "medical", "hospital", "clinic", "dentist", "doctor"],
+                "ecommerce": ["store", "shop", "fashion", "clothing", "apparel", "retail", "ecommerce"],
+                "shop": ["store", "ecommerce", "fashion", "clothing", "apparel", "retail", "shop"],
+                "store": ["shop", "ecommerce", "fashion", "clothing", "apparel", "retail", "store"],
+            }
+            if q_clean in synonym_dict:
+                synonyms_list.extend(synonym_dict[q_clean])
+            
+            # Trigram similarity score matrix (probability score)
+            title_sim = func.similarity(Template.title, q_clean)
+            desc_sim = func.similarity(Template.short_description, q_clean)
+            industry_sim = func.similarity(Template.industry, q_clean)
+            cat_sim = func.similarity(Category.name, q_clean)
+            tags_sim = func.similarity(cast(Template.tags, String), q_clean)
+            
+            similarity_score = func.greatest(title_sim, desc_sim, industry_sim, cat_sim, tags_sim)
+
+            # Build list of OR conditions for all synonyms and fields
+            or_conditions = [similarity_score > 0.12]
+            for term in synonyms_list:
+                search_term = f"%{term}%"
+                or_conditions.extend([
+                    Template.title.ilike(search_term),
+                    Template.short_description.ilike(search_term),
+                    Template.description.ilike(search_term),
+                    Template.industry.ilike(search_term),
+                    Template.developer_name.ilike(search_term),
+                    Template.color_scheme.ilike(search_term),
+                    Category.name.ilike(search_term),
+                    cast(Template.tags, String).ilike(search_term),
+                ])
+
             if filters.semantic:
                 # Resolve circular import by importing locally
                 from app.services.search_service import SearchService
@@ -176,8 +233,10 @@ class TemplateRepository:
                     matched_ids = []
                     
                 if not matched_ids:
-                    # Return no matches found if semantic search finds nothing
-                    query = query.where(Template.id == uuid.uuid4()) # dummy false UUID
+                    # Fallback to fuzzy similarity search when semantic search finds nothing
+                    query = query.where(or_(*or_conditions))
+                    score_expr = func.coalesce(similarity_score, 0.0)
+                    query = query.order_by(score_expr.desc())
                 else:
                     query = query.where(Template.id.in_(matched_ids))
                     # Order by the semantic relevance score ranking returned by Qdrant + Reranker
@@ -189,15 +248,10 @@ class TemplateRepository:
                     # We will bypass the default sorting list below and order by semantic relevance directly
                     query = query.order_by(ordering)
             else:
-                search = f"%{filters.q}%"
-                query = query.where(
-                    or_(
-                        Template.title.ilike(search),
-                        Template.short_description.ilike(search),
-                        Template.description.ilike(search),
-                        Template.industry.ilike(search),
-                    )
-                )
+                # Fuzzy keyword search using Trigram Similarity (matrix matching)
+                query = query.where(or_(*or_conditions))
+                score_expr = func.coalesce(similarity_score, 0.0)
+                query = query.order_by(score_expr.desc())
 
 
         # ── Count ─────────────────────────────────────────────────────────────

@@ -403,15 +403,6 @@ npm run build`;
                     <Globe className="w-4 h-4" /> Live Demo
                   </a>
                   <button
-                    onClick={() => {
-                      const aiSec = document.getElementById("ai-preview-section");
-                      if (aiSec) aiSec.scrollIntoView({ behavior: "smooth" });
-                    }}
-                    className="hero-action-btn ai"
-                  >
-                    <Zap className="w-4 h-4" /> AI Preview
-                  </button>
-                  <button
                     onClick={() => token && wishlistMutation.mutate(template.id)}
                     className={cn("hero-action-icon", template.is_wishlisted && "active")}
                     title="Add to Wishlist"
@@ -757,16 +748,63 @@ npm run build`;
                 <div>
                   <h3 className="section-title">Technology Stack</h3>
                   <div className="flex flex-wrap gap-2.5">
-                    {(template.changelog?.ai_report
-                      ? [
-                        template.changelog.ai_report.framework_detected,
-                        template.changelog.ai_report.language,
-                        template.changelog.ai_report.css_system,
-                        template.changelog.ai_report.ui_library && template.changelog.ai_report.ui_library !== "None" ? template.changelog.ai_report.ui_library : null,
-                        template.changelog.ai_report.animation_library && template.changelog.ai_report.animation_library !== "None" ? template.changelog.ai_report.animation_library : null
-                      ].filter(Boolean)
-                      : ["HTML5", "CSS3", "JavaScript", "React", "Next.js", "TailwindCSS", "Zustand", "Vite", "Framer Motion"]
-                    ).map((t) => (
+                    {(() => {
+                      // If we have AI report, use it
+                      if (template.changelog?.ai_report) {
+                        return [
+                          template.changelog.ai_report.framework_detected,
+                          template.changelog.ai_report.language,
+                          template.changelog.ai_report.css_system,
+                          template.changelog.ai_report.ui_library && template.changelog.ai_report.ui_library !== "None" ? template.changelog.ai_report.ui_library : null,
+                          template.changelog.ai_report.animation_library && template.changelog.ai_report.animation_library !== "None" ? template.changelog.ai_report.animation_library : null
+                        ].filter(Boolean);
+                      }
+
+                      // Build dynamically from framework and tags
+                      const stack = [];
+                      const fw = template.framework?.toLowerCase() || "";
+                      
+                      if (fw.includes("next")) {
+                        stack.push("Next.js", "React", "JavaScript");
+                      } else if (fw.includes("react")) {
+                        stack.push("React", "JavaScript");
+                      } else if (fw.includes("vue")) {
+                        stack.push("Vue.js", "JavaScript");
+                      } else if (fw.includes("html")) {
+                        stack.push("HTML5", "CSS3", "JavaScript");
+                      }
+
+                      if (template.tags && Array.isArray(template.tags)) {
+                        template.tags.forEach(tag => {
+                          const t = tag.toLowerCase().trim();
+                          if (t === "tailwind" || t === "tailwindcss") {
+                            if (!stack.includes("TailwindCSS")) stack.push("TailwindCSS");
+                          } else if (t === "typescript" || t === "ts") {
+                            if (!stack.includes("TypeScript")) stack.push("TypeScript");
+                          } else if (t === "sass" || t === "scss") {
+                            if (!stack.includes("SASS")) stack.push("SASS");
+                          } else if (t === "vite") {
+                            if (!stack.includes("Vite")) stack.push("Vite");
+                          } else if (t === "framer-motion" || t === "framer" || t === "framer motion") {
+                            if (!stack.includes("Framer Motion")) stack.push("Framer Motion");
+                          } else if (t === "bootstrap") {
+                            if (!stack.includes("Bootstrap")) stack.push("Bootstrap");
+                          }
+                        });
+                      }
+
+                      // Ensure base tags
+                      if (!stack.includes("HTML5") && !fw.includes("next") && !fw.includes("react") && !fw.includes("vue")) {
+                        stack.push("HTML5");
+                      }
+                      if (!stack.includes("CSS3") && !fw.includes("next") && !fw.includes("react") && !fw.includes("vue") && !stack.includes("TailwindCSS")) {
+                        stack.push("CSS3");
+                      }
+                      if (stack.length === 0) {
+                        stack.push("HTML5", "CSS3", "JavaScript");
+                      }
+                      return stack;
+                    })().map((t) => (
                       <span key={t} className="tech-badge font-mono uppercase text-xs font-bold px-3 py-1.5 rounded-lg border border-border/40 bg-card/60 flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 bg-primary rounded-full" />
                         {t}
@@ -778,12 +816,42 @@ npm run build`;
                 <div>
                   <h3 className="section-title">Browser Support</h3>
                   <div className="space-y-3">
-                    {[
-                      { name: "Google Chrome", score: "99% (Stable)" },
-                      { name: "Mozilla Firefox", score: "98% (Stable)" },
-                      { name: "Apple Safari", score: "96% (Stable)" },
-                      { name: "Microsoft Edge", score: "99% (Stable)" },
-                    ].map((b) => (
+                    {(() => {
+                      const defaultBrowsers = [
+                        { name: "Google Chrome", score: "99% (Stable)" },
+                        { name: "Mozilla Firefox", score: "98% (Stable)" },
+                        { name: "Apple Safari", score: "96% (Stable)" },
+                        { name: "Microsoft Edge", score: "99% (Stable)" },
+                      ];
+
+                      if (!template.compatibility || !Array.isArray(template.compatibility) || template.compatibility.length === 0) {
+                        return defaultBrowsers;
+                      }
+
+                      // Filter out any accidentally stored framework names (due to dashboard uploads)
+                      const knownBrowsers = ["chrome", "firefox", "safari", "edge", "opera", "ie"];
+                      const filteredComp = template.compatibility.filter(item => 
+                        knownBrowsers.includes(item.toLowerCase())
+                      );
+
+                      if (filteredComp.length === 0) {
+                        return defaultBrowsers;
+                      }
+
+                      const browserMap = {
+                        chrome: { name: "Google Chrome", score: "99% (Stable)" },
+                        firefox: { name: "Mozilla Firefox", score: "98% (Stable)" },
+                        safari: { name: "Apple Safari", score: "96% (Stable)" },
+                        edge: { name: "Microsoft Edge", score: "99% (Stable)" },
+                        opera: { name: "Opera", score: "97% (Stable)" },
+                        ie: { name: "Internet Explorer", score: "Supported (IE11+)" }
+                      };
+
+                      return filteredComp.map(item => {
+                        const key = item.toLowerCase();
+                        return browserMap[key] || { name: item, score: "100% (Stable)" };
+                      });
+                    })().map((b) => (
                       <div key={b.name} className="flex items-center justify-between text-xs border-b border-border/30 pb-2">
                         <span className="font-medium text-foreground flex items-center gap-1.5">
                           <Globe className="w-3.5 h-3.5 text-muted-foreground" />
@@ -806,11 +874,21 @@ npm run build`;
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
                 {(() => {
+                  const getDeterministicScore = (seedStr, offset, minScore = 85, maxScore = 100) => {
+                    if (!seedStr) return 95;
+                    let hash = 0;
+                    for (let i = 0; i < seedStr.length; i++) {
+                      hash = seedStr.charCodeAt(i) + ((hash << 5) - hash);
+                    }
+                    const val = Math.abs(hash + offset) % (maxScore - minScore + 1);
+                    return minScore + val;
+                  };
+
                   const scores = template.changelog?.ai_report?.performance_scores || {
-                    performance: 98,
-                    accessibility: 100,
-                    seo: 99,
-                    best_practices: 100
+                    performance: getDeterministicScore(template.id, 1, 92, 99),
+                    accessibility: getDeterministicScore(template.id, 2, 94, 100),
+                    seo: getDeterministicScore(template.id, 3, 95, 100),
+                    best_practices: getDeterministicScore(template.id, 4, 93, 100)
                   };
                   return [
                     { name: "Performance", score: scores.performance, color: scores.performance >= 90 ? "#22c55e" : "#eab308" },
@@ -1360,16 +1438,14 @@ npm run build`;
                     </>
                   )}
 
-                  <button
-                    onClick={() => {
-                      const aiSec = document.getElementById("ai-preview-section");
-                      if (aiSec) aiSec.scrollIntoView({ behavior: "smooth" });
-                    }}
+                  <Link
+                    href={`/preview?template=${template.id}`}
                     className="w-full py-2.5 text-xs text-center border border-dashed border-primary/40 text-primary hover:bg-primary/[0.02] transition-colors rounded-xl font-semibold flex items-center justify-center gap-1.5"
+                    style={{ textDecoration: 'none' }}
                   >
                     <Sparkles className="w-3.5 h-3.5" />
                     Try AI Preview Editor
-                  </button>
+                  </Link>
                 </div>
 
                 {/* Trust Badges */}
@@ -1515,15 +1591,13 @@ npm run build`;
             Try the template first in our AI Sandbox editor, or purchase a commercial license to download the source archives immediately.
           </p>
           <div className="cta-buttons">
-            <button
-              onClick={() => {
-                const aiSec = document.getElementById("ai-preview-section");
-                if (aiSec) aiSec.scrollIntoView({ behavior: "smooth" });
-              }}
+            <Link
+              href={`/preview?template=${template.id}`}
               className="cta-primary-btn"
+              style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
             >
-              Try AI Preview
-            </button>
+              Try AI Preview Editor
+            </Link>
             <button
               onClick={handleAddToCart}
               className="cta-secondary-btn"

@@ -84,11 +84,26 @@ function Marketplace() {
   // Debounced search
   const debouncedSearch = debounce((value) => {
     setFilter("q", value || undefined);
+    setFilter("semantic", undefined); // Typing normally resets semantic search
   }, 350);
 
   const handleSearch = (value) => {
     setSearchInput(value);
     debouncedSearch(value);
+  };
+
+  const triggerNormalSearch = (value) => {
+    debouncedSearch.cancel();
+    setFilter("q", value || undefined);
+    setFilter("semantic", undefined);
+  };
+
+  const triggerAISearch = () => {
+    debouncedSearch.cancel();
+    if (searchInput) {
+      setFilter("q", searchInput);
+      setFilter("semantic", true);
+    }
   };
 
   const total = data?.total ?? 0;
@@ -128,19 +143,32 @@ function Marketplace() {
                         }
                         value={searchInput}
                         onChange={(e) => handleSearch(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            triggerNormalSearch(searchInput);
+                          }
+                        }}
                         className="marketplace-search-input"
                       />
                       {searchInput && (
-                        <button onClick={() => handleSearch("")} className="search-clear-btn">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleSearch("");
+                            triggerNormalSearch("");
+                          }}
+                          className="search-clear-btn"
+                        >
                           <X className="search-clear-icon" />
                         </button>
                       )}
                     </div>
 
                     <button
-                      onClick={() => setFilter("semantic", !filters.semantic)}
+                      type="button"
+                      onClick={triggerAISearch}
                       className={cn("ai-toggle-btn", filters.semantic && "active")}
-                      title="Toggle AI Semantic Search"
+                      title="Run AI Semantic Search on this query"
                     >
                       <Sparkles className={cn("ai-toggle-icon", filters.semantic && "glow-animation")} />
                       <span>AI Search</span>
@@ -166,7 +194,7 @@ function Marketplace() {
 
                   <button
                     onClick={() => navigate("/marketplace/generate")}
-                    className="ai-generate-btn"
+                    className="marketplace-ai-generate-btn"
                     style={{ marginRight: "0.75rem" }}
                     title="Generate a custom template using AI"
                   >

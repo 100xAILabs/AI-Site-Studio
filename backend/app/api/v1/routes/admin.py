@@ -152,6 +152,24 @@ async def update_user(
     return UserResponse.model_validate(user)
 
 
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """[Admin] Delete a user account permanently."""
+    repo = UserRepository(db)
+    user = await repo.get_by_id(user_id)
+    from fastapi import HTTPException
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    await repo.delete(user)
+    await db.commit()
+    return {"success": True, "message": "User account permanently deleted"}
+
+
 @router.get("/orders")
 async def list_all_orders(
     db: AsyncSession = Depends(get_db),

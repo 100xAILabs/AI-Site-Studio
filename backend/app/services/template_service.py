@@ -90,6 +90,12 @@ class TemplateService:
     ) -> TemplateResponse:
         template = await self.repo.get_by_slug(slug)
         if not template:
+            try:
+                template_id = uuid.UUID(slug)
+                template = await self.repo.get_by_id(template_id)
+            except ValueError:
+                pass
+        if not template:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
 
         # Increment view count (fire-and-forget style in real app)

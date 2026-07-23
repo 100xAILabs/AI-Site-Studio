@@ -21,31 +21,56 @@ from app.models.template import Template
 from sqlalchemy import select
 
 
+# ── Module-level singleton Qdrant client ──────────────────────────────────
+# Qdrant's local-disk mode uses an exclusive file lock on the storage folder.
+# Creating a new client per request causes lock contention. We initialise once
+# at module load time and reuse the same client for every SearchService instance.
+_qdrant_client: Optional[AsyncQdrantClient] = None
+
+
+def _get_shared_qdrant_client() -> AsyncQdrantClient:
+    """Return (and lazily create) a process-wide Qdrant client singleton."""
+    global _qdrant_client
+    if _qdrant_client is None:
+        url = settings.QDRANT_URL
+        if url and "localhost" not in url and "127.0.0.1" not in url:
+            _qdrant_client = AsyncQdrantClient(
+                url=url,
+                api_key=settings.QDRANT_API_KEY or None,
+            )
+        else:
+            db_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                "qdrant_storage"
+            )
+            os.makedirs(db_dir, exist_ok=True)
+            # Remove stale lock files left by unclean shutdowns
+            lock_file = os.path.join(db_dir, ".lock")
+            if os.path.exists(lock_file):
+                try:
+                    os.remove(lock_file)
+                    logger.info(f"Removed stale Qdrant .lock file at: {lock_file}")
+                except OSError:
+                    pass
+            logger.info(f"Using local disk-based Qdrant persistence at: {db_dir}")
+            try:
+                _qdrant_client = AsyncQdrantClient(path=db_dir)
+            except Exception as e:
+                logger.warning(
+                    f"Local Qdrant storage locked ({e}). Falling back to in-memory client."
+                )
+                _qdrant_client = AsyncQdrantClient(location=":memory:")
+    return _qdrant_client
+
+
 class SearchService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.template_repo = TemplateRepository(db)
-        self._qdrant: Optional[AsyncQdrantClient] = None
 
     @property
     def qdrant(self) -> AsyncQdrantClient:
-        if not self._qdrant:
-            url = settings.QDRANT_URL
-            # If Qdrant URL is local and not active, or not specified, fall back to local disk persistence
-            if url and "localhost" not in url and "127.0.0.1" not in url:
-                self._qdrant = AsyncQdrantClient(
-                    url=url,
-                    api_key=settings.QDRANT_API_KEY or None,
-                )
-            else:
-                db_dir = os.path.join(
-                    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                    "qdrant_storage"
-                )
-                os.makedirs(db_dir, exist_ok=True)
-                logger.info(f"Using local disk-based Qdrant persistence at: {db_dir}")
-                self._qdrant = AsyncQdrantClient(path=db_dir)
-        return self._qdrant
+        return _get_shared_qdrant_client()
 
 
     async def _get_gemini_embedding(self, text: str) -> List[float]:

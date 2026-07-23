@@ -150,11 +150,11 @@ FEATURE_MODELS = {
         "alternative": "gpt-4o-mini",
     },
     "semantic_search": {
-        "gemini": "gemini-embedding-2",  # Map to Gemini embedding (or text-embedding-004)
+        "gemini": "text-embedding-004",  # Gemini embedding model
         "alternative": "cohere-embed",
     },
     "template_recommendation": {
-        "gemini": "gemini-embedding-2",
+        "gemini": "text-embedding-004",
         "alternative": "cohere-embed",
     },
     "accessibility_review": {
@@ -224,7 +224,7 @@ class AIService:
             # If the resolved model is text-embedding-3-small but we are using Gemini provider,
             # map it to the Gemini embedding model setting to prevent errors.
             if model == "text-embedding-3-small":
-                return settings.GEMINI_EMBEDDING_MODEL or "gemini-embedding-2"
+                return settings.GEMINI_EMBEDDING_MODEL or "text-embedding-004"
             return model
         else:
             # Dynamically fetch the ALT_MODEL_X setting, e.g. settings.ALT_MODEL_AI_CHAT_ASSISTANT
@@ -644,6 +644,67 @@ Return ONLY valid JSON. Do not include markdown code block notation (```json) or
             prompt, response_mime_type="application/json", feature_name="ai_chat_assistant"
         )
         return robust_json_loads(response_text)
+
+    async def generate_speech(self, text: str, voice: str = "Puck") -> bytes:
+        """
+        Convert text to speech using Gemini TTS (gemini-3.1-flash-tts-preview).
+        """
+        import base64
+        import io
+        import wave
+
+        if not settings.GEMINI_API_KEY:
+            raise ValueError("GEMINI_API_KEY is not configured.")
+
+        # Map some common voice names to Gemini voices if necessary
+        gemini_voices = ["Puck", "Charon", "Aoede", "Fenrir", "Breezy", "Kore"]
+        voice_capitalized = voice.capitalize()
+        target_voice = voice_capitalized if voice_capitalized in gemini_voices else "Puck"
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key={settings.GEMINI_API_KEY}"
+        
+        payload = {
+            "contents": [{
+                "parts": [{"text": text}]
+            }],
+            "generationConfig": {
+                "responseModalities": ["AUDIO"],
+                "speechConfig": {
+                    "voiceConfig": {
+                        "prebuiltVoiceConfig": {
+                            "voiceName": target_voice
+                        }
+                    }
+                }
+            }
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=60.0)
+            if response.status_code == 200:
+                data = response.json()
+                try:
+                    part = data["candidates"][0]["content"]["parts"][0]
+                    if "inlineData" in part:
+                        pcm_bytes = base64.b64decode(part['inlineData']['data'])
+                        
+                        # Convert raw PCM (16-bit, 24kHz mono) to WAV
+                        wav_io = io.BytesIO()
+                        with wave.open(wav_io, 'wb') as wav_file:
+                            wav_file.setnchannels(1)       # Mono
+                            wav_file.setsampwidth(2)      # 16-bit = 2 bytes
+                            wav_file.setframerate(24000)  # 24kHz
+                            wav_file.writeframes(pcm_bytes)
+                        
+                        return wav_io.getvalue()
+                    else:
+                        raise RuntimeError("Gemini TTS response did not contain inline audio data.")
+                except Exception as ex:
+                    raise RuntimeError(f"Failed to parse Gemini TTS response: {ex}. Response: {response.text[:500]}")
+            elif response.status_code == 429:
+                raise ValueError("Gemini API rate limit exceeded (429). Please retry later.")
+            else:
+                raise RuntimeError(f"Gemini TTS API returned status {response.status_code}: {response.text}")
 
 
 def repair_truncated_jsx(code: str) -> str:

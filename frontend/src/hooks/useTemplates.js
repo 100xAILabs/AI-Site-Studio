@@ -78,15 +78,43 @@ export function useSearch(query, semantic = false, token) {
   });
 }
 
-/**
- * Toggle favorite mutation.
- */
 export function useToggleFavorite(token) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (templateId) =>
       api.post(`/favorites/${templateId}`, {}, token),
-    onSuccess: () => {
+    onMutate: async (templateId) => {
+      await qc.cancelQueries({ queryKey: templateKeys.all });
+      const previousTemplates = qc.getQueryData(templateKeys.all);
+
+      // Optimistically update lists
+      qc.setQueriesData({ queryKey: ["templates", "list"] }, (old) => {
+        if (!old || !old.items) return old;
+        return {
+          ...old,
+          items: old.items.map((t) =>
+            t.id === templateId ? { ...t, is_favorited: !t.is_favorited } : t
+          ),
+        };
+      });
+
+      // Optimistically update details
+      qc.setQueriesData({ queryKey: ["templates", "detail"] }, (old) => {
+        if (!old) return old;
+        if (old.id === templateId) {
+          return { ...old, is_favorited: !old.is_favorited };
+        }
+        return old;
+      });
+
+      return { previousTemplates };
+    },
+    onError: (err, templateId, context) => {
+      if (context?.previousTemplates) {
+        qc.setQueryData(templateKeys.all, context.previousTemplates);
+      }
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: templateKeys.all });
       qc.invalidateQueries({ queryKey: ["favorites"] });
     },
@@ -99,9 +127,41 @@ export function useToggleFavorite(token) {
 export function useToggleWishlist(token) {
   const qc = useQueryClient();
   return useMutation({
+    pointer: "toggleWishlist",
     mutationFn: (templateId) =>
       api.post(`/wishlist/${templateId}`, {}, token),
-    onSuccess: () => {
+    onMutate: async (templateId) => {
+      await qc.cancelQueries({ queryKey: templateKeys.all });
+      const previousTemplates = qc.getQueryData(templateKeys.all);
+
+      // Optimistically update lists
+      qc.setQueriesData({ queryKey: ["templates", "list"] }, (old) => {
+        if (!old || !old.items) return old;
+        return {
+          ...old,
+          items: old.items.map((t) =>
+            t.id === templateId ? { ...t, is_wishlisted: !t.is_wishlisted } : t
+          ),
+        };
+      });
+
+      // Optimistically update details
+      qc.setQueriesData({ queryKey: ["templates", "detail"] }, (old) => {
+        if (!old) return old;
+        if (old.id === templateId) {
+          return { ...old, is_wishlisted: !old.is_wishlisted };
+        }
+        return old;
+      });
+
+      return { previousTemplates };
+    },
+    onError: (err, templateId, context) => {
+      if (context?.previousTemplates) {
+        qc.setQueryData(templateKeys.all, context.previousTemplates);
+      }
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: templateKeys.all });
       qc.invalidateQueries({ queryKey: ["wishlist"] });
     },

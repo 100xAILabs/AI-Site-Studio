@@ -426,7 +426,7 @@
 /* ═══════════════════════════════════════════════════════════════
    AI Creator Toolbar Button Styles
    ═══════════════════════════════════════════════════════════════ */
-.ai-generate-btn {
+.marketplace-ai-generate-btn {
   display: flex;
   align-items: center;
   gap: 0.4375rem;
@@ -445,7 +445,7 @@
   flex-shrink: 0;
 }
 
-.ai-generate-btn:hover {
+.marketplace-ai-generate-btn:hover {
   transform: translateY(-1px);
   border-color: hsl(var(--primary) / 0.7);
   background: linear-gradient(135deg, hsl(var(--primary) / 0.25) 0%, hsl(var(--secondary) / 0.1) 100%);
@@ -460,7 +460,7 @@
   transition: transform 0.3s ease;
 }
 
-.ai-generate-btn:hover .ai-generate-icon {
+.marketplace-ai-generate-btn:hover .ai-generate-icon {
   transform: scale(1.1) rotate(15deg);
   color: hsl(var(--foreground));
 }

@@ -542,9 +542,417 @@ async def serve_live_preview(
                 html_content = html_content.replace("<html>", f"<html>\n  {sandbox_script}", 1)
             else:
                 html_content = sandbox_script + "\n" + html_content
-            
+
+            # Inject Watermarks & Copy/Inspect/Print Restrictions before </body>
+            watermark_payload = """
+<!-- Injected Watermark Grid Overlay -->
+<div class="preview-watermark-grid"></div>
+
+<!-- Injected Purchase Footer Banner -->
+<div class="preview-purchase-footer-banner">
+  <span>🔒 Watermarked Draft Preview. Purchase this template to download clean project assets.</span>
+  <a href="/marketplace" target="_parent">Purchase Template &rarr;</a>
+</div>
+
+<style>
+  /* Disable text selection across all elements */
+  * {
+    user-select: none !important;
+    -webkit-user-select: none !important;
+    -moz-user-select: none !important;
+    -ms-user-select: none !important;
+  }
+
+  /* Watermark grid covering full page with pointer-events disabled */
+  .preview-watermark-grid {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    pointer-events: none !important;
+    z-index: 999999 !important;
+    opacity: 0.65 !important;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='250' height='250' viewBox='0 0 250 250'><text x='20' y='150' fill='rgba(15, 23, 42, 0.035)' font-size='13' font-weight='800' font-family='sans-serif' transform='rotate(-30 20 150)'>AI SITE STUDIO PREVIEW</text></svg>") !important;
+    background-repeat: repeat !important;
+  }
+
+  /* Bottom floating warning banner */
+  .preview-purchase-footer-banner {
+    position: fixed !important;
+    bottom: 1.5rem !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    background: rgba(15, 23, 42, 0.96) !important;
+    backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    color: #ffffff !important;
+    padding: 0.625rem 1.25rem !important;
+    font-size: 0.75rem !important;
+    font-weight: 700 !important;
+    border-radius: 9999px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 1rem !important;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4) !important;
+    z-index: 999998 !important;
+    white-space: nowrap !important;
+    font-family: system-ui, -apple-system, sans-serif !important;
+  }
+
+  .preview-purchase-footer-banner a {
+    color: #38bdf8 !important;
+    text-decoration: none !important;
+    font-weight: 800 !important;
+    border-left: 1px solid rgba(255, 255, 255, 0.2) !important;
+    padding-left: 1rem !important;
+    transition: color 0.2s ease !important;
+  }
+
+  .preview-purchase-footer-banner a:hover {
+    color: #0ea5e9 !important;
+  }
+
+  /* Block PDF printing */
+  @media print {
+    body {
+      display: none !important;
+    }
+  }
+</style>
+
+<script>
+  (function() {
+    // 1. Disable Right-Click Context Menu
+    document.addEventListener('contextmenu', function(e) {
+      e.preventDefault();
+    }, true);
+
+    // 2. Intercept Inspector, View-Source, Copy and Save keys
+    document.addEventListener('keydown', function(e) {
+      if (
+        e.key === 'F12' ||
+        (e.ctrlKey && e.shiftKey && e.key === 'I') ||
+        (e.ctrlKey && e.shiftKey && e.key === 'C') ||
+        (e.ctrlKey && e.shiftKey && e.key === 'J') ||
+        (e.ctrlKey && e.key === 'u') ||
+        (e.ctrlKey && e.key === 'c') ||
+        (e.ctrlKey && e.key === 's')
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+    }, true);
+  })();
+</script>
+"""
+            if "</body>" in html_content:
+                html_content = html_content.replace("</body>", f"{watermark_payload}\n</body>", 1)
+            else:
+                html_content = html_content + "\n" + watermark_payload
+
             content = html_content.encode("utf-8")
         except Exception:
             pass
         
     return Response(content=content, media_type=mime_type)
+
+
+class ManualEditRequest(BaseModel):
+    business_name: str
+    about: str
+    primary_color: str
+    secondary_color: str
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+
+
+class AIEditRequest(BaseModel):
+    prompt: str
+
+
+@router.post("/live/{template_id}/edit-manual")
+async def edit_live_preview_manual(
+    template_id: uuid.UUID,
+    request: ManualEditRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    import zipfile
+    import io
+    import shutil
+    import tempfile
+    from app.models.template import Template, TemplateStatus
+    from app.core.storage import storage
+    
+    template_repo = TemplateRepository(db)
+    template = await template_repo.get_by_id(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+        
+    # If the template is PUBLISHED, clone it so the user modifies their own private DRAFT copy
+    if template.status == TemplateStatus.PUBLISHED:
+        new_template = Template(
+            title=f"Customized {template.title}",
+            description=template.description,
+            slug=f"{template.slug}-custom-{uuid.uuid4().hex[:6]}",
+            price=template.price,
+            category_id=template.category_id,
+            status=TemplateStatus.DRAFT,
+            developer_id=current_user.id if current_user else template.developer_id,
+            thumbnail_url=template.thumbnail_url,
+            demo_url=template.demo_url,
+            features=template.features,
+            tags=template.tags,
+            framework=template.framework,
+            download_assets=template.download_assets.copy() if template.download_assets else {}
+        )
+        db.add(new_template)
+        await db.flush()
+        template = new_template
+        template_id = new_template.id
+
+    download_assets = template.download_assets or {}
+    zip_url = download_assets.get("zip")
+    if not zip_url:
+        raise HTTPException(status_code=400, detail="Template does not have source ZIP assets")
+        
+    file_id_str = zip_url.split("/")[-1]
+    try:
+        file_id = uuid.UUID(file_id_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="External/Invalid zip storage format")
+        
+    from app.models.stored_file import StoredFile
+    from sqlalchemy import select
+    result = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
+    stored_file = result.scalar_one_or_none()
+    if not stored_file:
+        raise HTTPException(status_code=404, detail="Source template archive file not found")
+        
+    zip_data = stored_file.data
+    
+    # 1. Inspect the ZIP content to find the main code file
+    target_file = None
+    with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
+        namelist = z_in.namelist()
+        if "src/App.jsx" in namelist:
+            target_file = "src/App.jsx"
+        elif "index.html" in namelist:
+            target_file = "index.html"
+        else:
+            for name in namelist:
+                if name.endswith(".html") or name.endswith(".jsx") or name.endswith(".js"):
+                    target_file = name
+                    break
+                    
+    if not target_file:
+        raise HTTPException(status_code=400, detail="Could not locate code files in template archive")
+        
+    # 2. Extract target file content
+    with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
+        original_code = z_in.read(target_file).decode("utf-8", errors="ignore")
+        
+    # 3. Use Gemini to do simple content/styling updates
+    edit_prompt = f"""You are a specialized React/HTML code refactoring tool.
+Your task is to take the provided code and replace specific business fields and styles with these new values:
+- Business Name: {request.business_name}
+- About Description: {request.about}
+- Primary Theme Color Accent: {request.primary_color}
+- Secondary Theme Color Accent: {request.secondary_color}
+- Contact Email: {request.contact_email or ""}
+- Contact Phone: {request.contact_phone or ""}
+
+Rules:
+1. Preserve all page layouts, logic, hooks, routing, icons, and components exactly.
+2. Only replace text labels, headers, descriptions, contact details, and theme color Hex codes/Tailwind colors.
+3. Return ONLY the complete modified source code. Do not include markdown code block syntax (like ```jsx or ```html) or explanations.
+
+Here is the source code:
+{original_code}
+"""
+    def clean_code_response(text: str, language: str) -> str:
+        text = text.strip()
+        if text.startswith(f"```{language}"):
+            text = text.replace(f"```{language}", "", 1)
+        elif text.startswith("```"):
+            text = text.replace("```", "", 1)
+        if text.endswith("```"):
+            text = text[:-3]
+        return text.strip()
+
+    try:
+        raw_code = await ai_service._generate_content(edit_prompt, response_mime_type="text/plain", feature_name="code_assistant")
+        updated_code = clean_code_response(raw_code, "jsx")
+        updated_code = clean_code_response(updated_code, "javascript")
+        updated_code = clean_code_response(updated_code, "html")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to refactor template code: {str(e)}")
+        
+    # 4. Overwrite file in ZIP
+    new_zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
+        with zipfile.ZipFile(new_zip_buffer, "w", zipfile.ZIP_DEFLATED) as z_out:
+            for item in z_in.infolist():
+                content = z_in.read(item.filename)
+                if item.filename == target_file:
+                    content = updated_code.encode("utf-8")
+                z_out.writestr(item, content)
+                
+    new_zip_bytes = new_zip_buffer.getvalue()
+    
+    # 5. Save the updated ZIP back to the database
+    stored_file.data = new_zip_bytes
+    stored_file.size = len(new_zip_bytes)
+    db.add(stored_file)
+    await db.flush()
+    
+    # 6. Clear local preview directory cache to force a rebuild on the next preview request
+    preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
+    shutil.rmtree(preview_dir, ignore_errors=True)
+    
+    # Commit session changes
+    await db.commit()
+    
+    return {"status": "success", "template_id": str(template_id)}
+
+
+@router.post("/live/{template_id}/edit-ai")
+async def edit_live_preview_ai(
+    template_id: uuid.UUID,
+    request: AIEditRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    import zipfile
+    import io
+    import shutil
+    import tempfile
+    from app.models.template import Template, TemplateStatus
+    from app.core.storage import storage
+    
+    template_repo = TemplateRepository(db)
+    template = await template_repo.get_by_id(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+        
+    # If the template is PUBLISHED, clone it so the user modifies their own private DRAFT copy
+    if template.status == TemplateStatus.PUBLISHED:
+        new_template = Template(
+            title=f"Customized {template.title}",
+            description=template.description,
+            slug=f"{template.slug}-custom-{uuid.uuid4().hex[:6]}",
+            price=template.price,
+            category_id=template.category_id,
+            status=TemplateStatus.DRAFT,
+            developer_id=current_user.id if current_user else template.developer_id,
+            thumbnail_url=template.thumbnail_url,
+            demo_url=template.demo_url,
+            features=template.features,
+            tags=template.tags,
+            framework=template.framework,
+            download_assets=template.download_assets.copy() if template.download_assets else {}
+        )
+        db.add(new_template)
+        await db.flush()
+        template = new_template
+        template_id = new_template.id
+
+    download_assets = template.download_assets or {}
+    zip_url = download_assets.get("zip")
+    if not zip_url:
+        raise HTTPException(status_code=400, detail="Template does not have source ZIP assets")
+        
+    file_id_str = zip_url.split("/")[-1]
+    try:
+        file_id = uuid.UUID(file_id_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="External/Invalid zip storage format")
+        
+    from app.models.stored_file import StoredFile
+    from sqlalchemy import select
+    result = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
+    stored_file = result.scalar_one_or_none()
+    if not stored_file:
+        raise HTTPException(status_code=404, detail="Source template archive file not found")
+        
+    zip_data = stored_file.data
+    
+    # 1. Inspect the ZIP content to find the main code file
+    target_file = None
+    with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
+        namelist = z_in.namelist()
+        if "src/App.jsx" in namelist:
+            target_file = "src/App.jsx"
+        elif "index.html" in namelist:
+            target_file = "index.html"
+        else:
+            for name in namelist:
+                if name.endswith(".html") or name.endswith(".jsx") or name.endswith(".js"):
+                    target_file = name
+                    break
+                    
+    if not target_file:
+        raise HTTPException(status_code=400, detail="Could not locate code files in template archive")
+        
+    # 2. Extract target file content
+    with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
+        original_code = z_in.read(target_file).decode("utf-8", errors="ignore")
+        
+    # 3. Use Gemini to do AI editing/refinement
+    ai_prompt = f"""You are a senior lead web developer.
+Refine the provided code according to this user request: "{request.prompt}".
+
+Rules:
+1. Fully implement the modifications requested by the user.
+2. Ensure the code compiles and remains valid React/HTML. Keep all existing styles/utilities unless explicitly requested to change.
+3. Return ONLY the complete modified source code. Do not include markdown code block syntax (like ```jsx or ```html) or explanations.
+
+Here is the source code:
+{original_code}
+"""
+    def clean_code_response(text: str, language: str) -> str:
+        text = text.strip()
+        if text.startswith(f"```{language}"):
+            text = text.replace(f"```{language}", "", 1)
+        elif text.startswith("```"):
+            text = text.replace("```", "", 1)
+        if text.endswith("```"):
+            text = text[:-3]
+        return text.strip()
+
+    try:
+        raw_code = await ai_service._generate_content(ai_prompt, response_mime_type="text/plain", feature_name="code_assistant")
+        updated_code = clean_code_response(raw_code, "jsx")
+        updated_code = clean_code_response(updated_code, "javascript")
+        updated_code = clean_code_response(updated_code, "html")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to refine template code via AI: {str(e)}")
+        
+    # 4. Overwrite file in ZIP
+    new_zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
+        with zipfile.ZipFile(new_zip_buffer, "w", zipfile.ZIP_DEFLATED) as z_out:
+            for item in z_in.infolist():
+                content = z_in.read(item.filename)
+                if item.filename == target_file:
+                    content = updated_code.encode("utf-8")
+                z_out.writestr(item, content)
+                
+    new_zip_bytes = new_zip_buffer.getvalue()
+    
+    # 5. Save the updated ZIP back to the database
+    stored_file.data = new_zip_bytes
+    stored_file.size = len(new_zip_bytes)
+    db.add(stored_file)
+    await db.flush()
+    
+    # 6. Clear local preview directory cache to force a rebuild on the next preview request
+    preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
+    shutil.rmtree(preview_dir, ignore_errors=True)
+    
+    # Commit session changes
+    await db.commit()
+    
+    return {"status": "success", "template_id": str(template_id)}
+
