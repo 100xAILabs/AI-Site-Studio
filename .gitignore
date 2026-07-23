@@ -36,9 +36,27 @@ coverage.xml
 .env
 .env.*
 !.env.example
+!.env.sample
+!.env.template
+.envrc
+*.local
+*.local.*
+secrets/
+**/secrets/
 *.pem
-*.key
 *.p12
+*.pfx
+*.key
+*.crt
+*.csr
+*.ppk
+*.token
+*.secret
+*.service-account.json
+service-account*.json
+google-services.json
+firebase*.json
+credentials*.json
 
 # ==================== IDEs ====================
 .vscode/
