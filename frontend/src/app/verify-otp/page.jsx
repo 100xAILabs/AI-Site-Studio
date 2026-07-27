@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ShieldCheck, AlertCircle, ArrowLeft } from "lucide-react";
 import { motion } from "framer-motion";
 import { useAuthStore } from "@/store/authStore";
@@ -21,7 +21,7 @@ export default function VerifyOTPPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [resendTimer, setResendTimer] = useState(30);
-  
+
   const inputRefs = useRef([]);
   const verifyOtp = useAuthStore((s) => s.verifyOtp); // We need to add this
   const resendOtp = useAuthStore((s) => s.resendOtp); // Optional
@@ -72,13 +72,13 @@ export default function VerifyOTPPage() {
     e.preventDefault();
     const pastedData = e.clipboardData.getData("text").slice(0, 6).split("");
     if (pastedData.some(char => !/^\d$/.test(char))) return;
-    
+
     const newOtp = [...otp];
     pastedData.forEach((char, i) => {
       newOtp[i] = char;
     });
     setOtp(newOtp);
-    
+
     // Focus the next empty input, or the last one
     const nextIndex = Math.min(pastedData.length, 5);
     inputRefs.current[nextIndex]?.focus();
@@ -135,8 +135,8 @@ export default function VerifyOTPPage() {
       <div className="otp-glow-bottom" />
 
       <motion.div {...fadeUp(0)} className="otp-card">
-        <button 
-          onClick={() => navigate("/sign-in")} 
+        <button
+          onClick={() => navigate("/sign-in")}
           className="absolute top-6 left-6 text-muted-foreground hover:text-white transition-colors"
           style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
         >
@@ -188,9 +188,9 @@ export default function VerifyOTPPage() {
         </form>
 
         <div className="otp-resend-wrapper">
-          Didn't receive the code? 
-          <button 
-            type="button" 
+          Didn't receive the code?
+          <button
+            type="button"
             className="otp-resend-btn"
             onClick={handleResend}
             disabled={resendTimer > 0}

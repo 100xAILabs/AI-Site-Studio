@@ -10,6 +10,7 @@ import { useState, useEffect, useRef } from "react";
 import JSZip from "jszip";
 import { useAppAuth, useAppUser, useSignOut } from "@/lib/auth";
 import { useAuthStore } from "@/store/authStore";
+import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
@@ -60,7 +61,6 @@ import {
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { api } from "@/lib/api";
-import { useSearchParams } from "react-router";
 import { cn, formatPrice } from "@/lib/utils";
 import Image from "@/components/Image";
 import Link from "@/components/Link";
@@ -354,17 +354,17 @@ function Dashboard() {
   const sellerTotalViews = sellerTemplatesList.reduce((sum, t) => sum + (t.views_count || 0), 0);
   const sellerTotalDownloads = sellerTemplatesList.reduce((sum, t) => sum + (t.downloads_count || 0), 0);
   const sellerRatedTemplates = sellerTemplatesList.filter(t => (t.rating_count || 0) > 0);
-  const sellerAverageRating = sellerRatedTemplates.length > 0 
+  const sellerAverageRating = sellerRatedTemplates.length > 0
     ? (sellerRatedTemplates.reduce((sum, t) => sum + (t.rating_avg || 0), 0) / sellerRatedTemplates.length).toFixed(1)
     : "0.0";
-  const sellerConversionRate = sellerTotalViews > 0 
-    ? ((sellerTotalDownloads / sellerTotalViews) * 100).toFixed(1) + "%" 
+  const sellerConversionRate = sellerTotalViews > 0
+    ? ((sellerTotalDownloads / sellerTotalViews) * 100).toFixed(1) + "%"
     : "0.0%";
 
   // Auto-detect build configurations based on selected template framework
   useEffect(() => {
     if (!deployTemplateId) return;
-    
+
     if (deployTemplateId === "mock-project-id") {
       setDeployBranch("main");
       setDeployBuildCommand("none");
@@ -703,7 +703,7 @@ function Dashboard() {
       setSlug((data.project_name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-"));
       setShortDesc(data.ai_description || "");
       setDesc(data.ai_description || "");
-      
+
       const fw = (data.framework_detected || "html").toLowerCase();
       if (fw.includes("next")) setFramework("nextjs");
       else if (fw.includes("react")) setFramework("react");
@@ -734,11 +734,11 @@ function Dashboard() {
         setCategoryId("");
       }
 
-      const isZipIncomplete = 
-        !data.project_name || 
-        !data.ai_description || 
-        !data.framework_detected || 
-        !data.categories || 
+      const isZipIncomplete =
+        !data.project_name ||
+        !data.ai_description ||
+        !data.framework_detected ||
+        !data.categories ||
         Object.keys(data.categories).length === 0 ||
         !categoryMatched;
 
@@ -818,7 +818,7 @@ function Dashboard() {
       setSlug((data.project_name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-"));
       setShortDesc(data.ai_description || "");
       setDesc(data.ai_description || "");
-      
+
       const fw = (data.framework_detected || "html").toLowerCase();
       if (fw.includes("next")) setFramework("nextjs");
       else if (fw.includes("react")) setFramework("react");
@@ -851,11 +851,11 @@ function Dashboard() {
         setCategoryId("");
       }
 
-      const isGitIncomplete = 
-        !data.project_name || 
-        !data.ai_description || 
-        !data.framework_detected || 
-        !data.categories || 
+      const isGitIncomplete =
+        !data.project_name ||
+        !data.ai_description ||
+        !data.framework_detected ||
+        !data.categories ||
         Object.keys(data.categories).length === 0 ||
         !categoryMatched;
 
@@ -1454,22 +1454,20 @@ function Dashboard() {
                         <button
                           type="button"
                           onClick={() => setTemplatesSubTab("purchased")}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                            templatesSubTab === "purchased"
-                              ? "bg-primary text-white shadow-lg shadow-primary/20"
-                              : "text-muted-foreground hover:text-white"
-                          }`}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${templatesSubTab === "purchased"
+                            ? "bg-primary text-white shadow-lg shadow-primary/20"
+                            : "text-muted-foreground hover:text-white"
+                            }`}
                         >
                           Purchased
                         </button>
                         <button
                           type="button"
                           onClick={() => setTemplatesSubTab("uploaded")}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                            templatesSubTab === "uploaded"
-                              ? "bg-primary text-white shadow-lg shadow-primary/20"
-                              : "text-muted-foreground hover:text-white"
-                          }`}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${templatesSubTab === "uploaded"
+                            ? "bg-primary text-white shadow-lg shadow-primary/20"
+                            : "text-muted-foreground hover:text-white"
+                            }`}
                         >
                           Uploaded
                         </button>
@@ -1651,11 +1649,11 @@ function Dashboard() {
                         <div>
                           <h4 className="font-bold text-lg text-foreground mb-2">Create New Project.</h4>
                           <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
-                            Choose a responsive template designed for food services, then customize it using our AI editor to match your branding. For your site generation, try this prompt: <br/><br/>
+                            Choose a responsive template designed for food services, then customize it using our AI editor to match your branding. For your site generation, try this prompt: <br /><br />
                             <span className="italic text-primary/90 block border-l-2 border-primary/50 pl-3">
                               'Create a professional, modern cafeteria website featuring a digital menu, a daily specials section, an online ordering integration, and a clean, high-contrast aesthetic that highlights food photography.'
                             </span>
-                            <br/>
+                            <br />
                             Our AI will then generate the structure and layout for you.
                           </p>
                         </div>
@@ -1957,7 +1955,7 @@ function Dashboard() {
                                 {deploy.status === "building" ? "Building" : deploy.status === "success" ? "Ready" : "Failed"}
                               </span>
                             </div>
-                            
+
                             <div className="text-xs space-y-1.5 text-slate-300">
                               <div className="flex items-center gap-1.5">
                                 <span className="text-muted-foreground">Provider:</span>
@@ -1979,7 +1977,7 @@ function Dashboard() {
                               </div>
                               <div className="flex items-center gap-1.5">
                                 <span className="text-muted-foreground">Created:</span>
-                                <span>{new Date(deploy.created_at).toLocaleDateString()} {new Date(deploy.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                <span>{new Date(deploy.created_at).toLocaleDateString()} {new Date(deploy.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                               </div>
                             </div>
                           </div>
@@ -2008,7 +2006,7 @@ function Dashboard() {
                                 <Terminal className="w-3.5 h-3.5" /> {deploy.status === "building" ? "View Build" : "View Logs"}
                               </button>
                             </div>
-                            
+
                             <div className="flex gap-2">
                               {deploy.status !== "building" && (
                                 <button
@@ -2209,9 +2207,8 @@ function Dashboard() {
                                     {[1, 2, 3, 4, 5].map((s) => (
                                       <Star
                                         key={s}
-                                        className={`w-3.5 h-3.5 ${
-                                          s <= review.rating ? "fill-yellow-400 text-yellow-400" : "text-slate-600"
-                                        }`}
+                                        className={`w-3.5 h-3.5 ${s <= review.rating ? "fill-yellow-400 text-yellow-400" : "text-slate-600"
+                                          }`}
                                       />
                                     ))}
                                   </div>
@@ -2240,9 +2237,9 @@ function Dashboard() {
                           </div>
 
                           <div className="db-review-divider">
-                             <h5 className="font-bold text-xs text-foreground">{review.title}</h5>
-                             <p className="text-xs text-muted-foreground leading-relaxed">{review.body}</p>
-                           </div>
+                            <h5 className="font-bold text-xs text-foreground">{review.title}</h5>
+                            <p className="text-xs text-muted-foreground leading-relaxed">{review.body}</p>
+                          </div>
 
                           {review.admin_reply && (
                             <div className="p-3 bg-primary/5 border-l-2 border-primary rounded-r-lg space-y-1 mt-2">
@@ -2321,22 +2318,20 @@ function Dashboard() {
                       <button
                         type="button"
                         onClick={() => setTemplatesSubTab("purchased")}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                          templatesSubTab === "purchased"
-                            ? "bg-primary text-white shadow-lg shadow-primary/20"
-                            : "text-muted-foreground hover:text-white"
-                        }`}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${templatesSubTab === "purchased"
+                          ? "bg-primary text-white shadow-lg shadow-primary/20"
+                          : "text-muted-foreground hover:text-white"
+                          }`}
                       >
                         Purchased ({orders.filter(o => o.status === "completed").flatMap(o => o.items).length})
                       </button>
                       <button
                         type="button"
                         onClick={() => setTemplatesSubTab("uploaded")}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                          templatesSubTab === "uploaded"
-                            ? "bg-primary text-white shadow-lg shadow-primary/20"
-                            : "text-muted-foreground hover:text-white"
-                        }`}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${templatesSubTab === "uploaded"
+                          ? "bg-primary text-white shadow-lg shadow-primary/20"
+                          : "text-muted-foreground hover:text-white"
+                          }`}
                       >
                         Uploaded ({templateResponse?.length || 0})
                       </button>
@@ -2543,7 +2538,7 @@ function Dashboard() {
                         </div>
 
                         {uploadType === "zip" ? (
-                          <div 
+                          <div
                             className="db-upload-dropzone"
                             onDragOver={(e) => e.preventDefault()}
                             onDrop={(e) => {
@@ -2560,11 +2555,11 @@ function Dashboard() {
                               <FileUp className="w-12 h-12 text-primary animate-pulse mb-4 mx-auto" />
                               <h4 className="font-bold text-base text-foreground mb-1">Upload Website Template</h4>
                               <p className="text-xs text-muted-foreground mb-4">Drag & Drop ZIP File or click to browse</p>
-                              <input 
-                                type="file" 
-                                accept=".zip" 
+                              <input
+                                type="file"
+                                accept=".zip"
                                 id="zip-uploader"
-                                className="hidden" 
+                                className="hidden"
                                 onChange={(e) => {
                                   const file = e.target.files[0];
                                   if (file) handleZipAnalysis(file);
@@ -2574,7 +2569,7 @@ function Dashboard() {
                                 Browse Files
                               </label>
                             </div>
-                            
+
                             <div className="db-upload-tech-grid">
                               <div className="db-upload-tech-title">Supported Frameworks & Layouts</div>
                               <div className="db-upload-tech-badges">
@@ -2594,7 +2589,7 @@ function Dashboard() {
                                 <div className="relative">
                                   <div className="w-20 h-20 rounded-3xl bg-[#24292e] flex items-center justify-center shadow-2xl shadow-black/30">
                                     <svg className="w-11 h-11 text-white" viewBox="0 0 24 24" fill="currentColor">
-                                      <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+                                      <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
                                     </svg>
                                   </div>
                                   {/* animated ring */}
@@ -2619,7 +2614,7 @@ function Dashboard() {
                                     className="w-full py-3 bg-[#24292e] hover:bg-[#1a1e23] text-white text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-2.5 shadow-lg shadow-black/20 hover:shadow-black/30 hover:-translate-y-0.5"
                                   >
                                     <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                                      <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+                                      <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
                                     </svg>
                                     Continue with GitHub
                                   </button>
@@ -2643,7 +2638,7 @@ function Dashboard() {
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-2">
                                     <div className="w-7 h-7 rounded-lg bg-[#24292e] flex items-center justify-center">
-                                      <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
+                                      <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" /></svg>
                                     </div>
                                     <div>
                                       <p className="text-sm font-bold text-foreground">Your Repositories</p>
@@ -2801,7 +2796,7 @@ function Dashboard() {
                               <Sparkles className="w-12 h-12 text-yellow-500 animate-spin" />
                             </div>
                             <h4 className="font-bold text-base text-foreground text-center">🤖 AI is analyzing your project...</h4>
-                            
+
                             <div className="db-scanner-progress-bar-container">
                               <div className="db-scanner-progress-bar-ascii">
                                 {"█".repeat(Math.round(analysisProgress / 5.5)) + "░".repeat(18 - Math.round(analysisProgress / 5.5))}
@@ -2944,11 +2939,11 @@ function Dashboard() {
                                     <h4 className="db-report-block-title">Brand Colors</h4>
                                     <div className="db-palette-row">
                                       {analysisResult.color_palette.map((color, i) => (
-                                        <div 
-                                          key={i} 
-                                          className="db-palette-chip" 
-                                          style={{ backgroundColor: color }} 
-                                          title={color} 
+                                        <div
+                                          key={i}
+                                          className="db-palette-chip"
+                                          style={{ backgroundColor: color }}
+                                          title={color}
                                         />
                                       ))}
                                     </div>
@@ -3013,17 +3008,17 @@ function Dashboard() {
                                 </div>
                               </div>
                             </div>
-                            
+
                             <div className="flex justify-between items-center pt-4 border-t border-border/40">
-                              <button 
-                                type="button" 
+                              <button
+                                type="button"
                                 onClick={() => setWizardStep(1)}
                                 className="px-4 py-2 border border-border hover:border-slate-500 rounded-xl text-xs font-semibold transition-all"
                               >
                                 Back to Source Selection
                               </button>
-                              <button 
-                                type="button" 
+                              <button
+                                type="button"
                                 onClick={() => setWizardStep(3)}
                                 className="px-5 py-2.5 bg-primary text-white rounded-xl text-xs font-semibold hover:bg-primary/95 transition-all"
                               >
@@ -3186,7 +3181,7 @@ function Dashboard() {
                         {user?.has_github_token && (
                           <div className="p-4 border border-primary/20 bg-primary/5 rounded-xl space-y-2">
                             <label className="block text-xs font-semibold text-primary uppercase mb-1 flex items-center gap-1.5">
-                              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
+                              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" /></svg>
                               Video Preview (GitHub Connected)
                             </label>
                             <p className="text-[10px] text-muted-foreground">Upload a walkthrough video of your template. Buyers will see this on the product page.</p>
@@ -3423,9 +3418,8 @@ function Dashboard() {
                                     {[1, 2, 3, 4, 5].map((s) => (
                                       <Star
                                         key={s}
-                                        className={`w-3.5 h-3.5 ${
-                                          s <= review.rating ? "fill-yellow-400 text-yellow-400" : "text-slate-600"
-                                        }`}
+                                        className={`w-3.5 h-3.5 ${s <= review.rating ? "fill-yellow-400 text-yellow-400" : "text-slate-600"
+                                          }`}
                                       />
                                     ))}
                                   </div>

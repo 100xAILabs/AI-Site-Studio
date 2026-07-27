@@ -1,4 +1,4 @@
-import { Link as RouterLink } from 'react-router';
+import { Link as RouterLink } from "react-router-dom";
 
 export default function Link({ href, children, className, ...props }) {
   if (typeof href === 'string' && href.startsWith('http')) {

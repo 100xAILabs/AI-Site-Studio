@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Link, useNavigate, useLocation } from "react-router";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Sparkles, AlertCircle, Eye, EyeOff, Lock } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { useAppUser } from "@/lib/auth";
@@ -444,8 +444,8 @@ export default function SignInPage({ isRegister = false }) {
                     {duplicateAccountInfo.signupMethod === "google"
                       ? "This account was created using Google Sign-In."
                       : duplicateAccountInfo.signupMethod === "email"
-                      ? "This account uses email & password login."
-                      : "This account was created using a social login."}
+                        ? "This account uses email & password login."
+                        : "This account was created using a social login."}
                   </p>
                 </div>
               </div>

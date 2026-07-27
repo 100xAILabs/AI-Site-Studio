@@ -1,4 +1,12 @@
-import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router'
+// import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router'
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  useLocation,
+  useNavigate
+} from "react-router-dom";
 import { useEffect } from 'react'
 import { Toaster } from 'sonner'
 import { useAppUser } from './lib/auth.jsx'
@@ -94,7 +102,7 @@ function App() {
         </Routes>
         <Toaster richColors position="top-center" theme="dark" />
       </div>
-        <SupportButton />
+      <SupportButton />
     </BrowserRouter>
   )
 }

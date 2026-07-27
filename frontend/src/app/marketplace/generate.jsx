@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Sparkles, ArrowLeft, ArrowRight, Loader2, CheckCircle2, Image as ImageIcon, Globe, Shield } from "lucide-react";
-import { Link, useNavigate, useLocation } from "react-router";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import Navbar from "@/components/layout/Navbar";
