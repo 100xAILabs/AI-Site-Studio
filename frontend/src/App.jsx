@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router'
 import { useEffect } from 'react'
 import { Toaster } from 'sonner'
 import { useAppUser } from './lib/auth.jsx'

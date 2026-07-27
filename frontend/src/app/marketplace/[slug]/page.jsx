@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useParams } from "react-router";
 import Image from "@/components/Image";
 import Link, { navigate } from "@/components/Link";
 import { useAppAuth, useAppUser } from "@/lib/auth";

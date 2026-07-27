@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router";
 import { ShieldCheck, AlertCircle, ArrowLeft } from "lucide-react";
 import { motion } from "framer-motion";
 import { useAuthStore } from "@/store/authStore";

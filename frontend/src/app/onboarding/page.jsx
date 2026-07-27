@@ -5,7 +5,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router";
 import {
   User, Phone, Sparkles, ArrowRight, Building2, Globe, AlertCircle,
 } from "lucide-react";

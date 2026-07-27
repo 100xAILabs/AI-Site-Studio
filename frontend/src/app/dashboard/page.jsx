@@ -60,7 +60,7 @@ import {
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { api } from "@/lib/api";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 import { cn, formatPrice } from "@/lib/utils";
 import Image from "@/components/Image";
 import Link from "@/components/Link";

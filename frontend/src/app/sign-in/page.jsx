@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router";
 import { Sparkles, AlertCircle, Eye, EyeOff, Lock } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { useAppUser } from "@/lib/auth";
