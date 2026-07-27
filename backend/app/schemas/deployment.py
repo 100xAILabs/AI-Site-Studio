@@ -27,6 +27,7 @@ class DeploymentResponse(DeploymentBase):
     status: str  # building, success, failed
     subdomain: str
     live_url: Optional[str] = None
+    custom_domain: Optional[str] = None
     logs: Optional[str] = None
     created_at: datetime
     updated_at: datetime

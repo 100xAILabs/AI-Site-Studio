@@ -1,4 +1,4 @@
-/* Navbar custom vanilla styles */
+/* Navbar custom vanilla styles — SERENITY Light Theme */
 .navbar-header {
   position: fixed;
   top: 0;
@@ -7,17 +7,17 @@
   z-index: 50;
   transition: all 0.3s ease;
   background-color: transparent;
-  padding-top: 1.25rem; /* py-5 */
+  padding-top: 1.25rem;
   padding-bottom: 1.25rem;
 }
 
 .navbar-header.scrolled {
-  background: hsl(var(--card) / 0.8);
+  background: hsl(var(--card) / 0.9);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  border-bottom: 1px solid hsl(var(--border) / 0.6);
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-  padding-top: 0.75rem; /* py-3 */
+  border-bottom: 1px solid hsl(var(--border) / 0.8);
+  box-shadow: 0 4px 24px rgba(99, 102, 241, 0.06);
+  padding-top: 0.75rem;
   padding-bottom: 0.75rem;
 }
 
@@ -29,7 +29,7 @@
   gap: 0.5rem;
 }
 
-/* Logo image — circular, monochrome eagle style */
+/* Logo image */
 .navbar-logo-img {
   width: 36px;
   height: 36px;
@@ -37,14 +37,14 @@
   border-radius: 50%;
   flex-shrink: 0;
   overflow: hidden;
-  border: 2px solid hsl(var(--foreground) / 0.25);
-  box-shadow: 0 2px 8px hsl(var(--foreground) / 0.1);
+  border: 2px solid hsl(var(--primary) / 0.25);
+  box-shadow: 0 2px 8px hsl(var(--primary) / 0.1);
   transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 .navbar-logo-img:hover {
-  border-color: hsl(var(--foreground) / 0.65);
-  box-shadow: 0 4px 16px hsl(var(--foreground) / 0.18);
+  border-color: hsl(var(--primary) / 0.6);
+  box-shadow: 0 4px 16px hsl(var(--primary) / 0.18);
 }
 
 /* Navigation items & buttons */
@@ -136,20 +136,20 @@
 }
 
 .btn-getstarted {
-  padding: 0.5rem 1rem;
+  padding: 0.5rem 1.25rem;
   font-size: 0.875rem;
   font-weight: 600;
   border-radius: var(--radius);
-  background-color: hsl(var(--primary));
+  background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(231 58% 62%) 100%);
   color: hsl(var(--primary-foreground));
-  box-shadow: 0 4px 6px -1px hsl(var(--primary) / 0.15);
-  transition: background-color 0.15s, box-shadow 0.15s;
+  box-shadow: 0 2px 12px hsl(var(--primary) / 0.25);
+  transition: background-color 0.15s, box-shadow 0.15s, transform 0.15s;
   text-decoration: none;
 }
 
 .btn-getstarted:hover {
-  background-color: hsl(var(--secondary));
-  color: hsl(var(--secondary-foreground));
+  box-shadow: 0 4px 20px hsl(var(--primary) / 0.35);
+  transform: translateY(-1px);
 }
 
 /* Mobile responsive menu */
@@ -177,14 +177,15 @@
 }
 
 .mobile-dropdown {
-  border-top: 1px solid hsla(var(--border) / 0.5);
+  border-top: 1px solid hsl(var(--border) / 0.6);
   margin-top: 0.5rem;
-  background: hsl(var(--card) / 0.8);
+  background: hsl(var(--card) / 0.97);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   border-bottom-left-radius: 1rem;
   border-bottom-right-radius: 1rem;
   overflow: hidden;
+  box-shadow: 0 12px 32px rgba(99, 102, 241, 0.08);
 }
 
 @media (min-width: 768px) {
@@ -220,14 +221,14 @@
   font-size: 0.875rem;
   font-weight: 500;
   text-align: left;
-  color: #94a3b8;
+  color: hsl(var(--muted-foreground));
   transition: background-color 0.15s, color 0.15s;
   text-decoration: none;
 }
 
 .mobile-link-signin:hover {
-  background-color: rgba(255, 255, 255, 0.05);
-  color: #e2e8f0;
+  background-color: hsl(var(--accent));
+  color: hsl(var(--foreground));
 }
 
 .mobile-link-getstarted {
@@ -242,10 +243,10 @@
 }
 
 .mobile-link-getstarted:hover {
-  background-color: hsl(var(--primary) / 0.1);
+  background-color: hsl(var(--primary) / 0.08);
 }
 
-/* Extracted custom styling rules replacing Tailwind utility tags */
+/* Extracted custom styling rules */
 .navbar-inner {
   display: flex;
   align-items: center;
@@ -261,6 +262,7 @@
   font-weight: 700;
   font-size: 1.125rem;
   letter-spacing: -0.025em;
+  color: hsl(var(--foreground));
 }
 
 .navbar-actions {
@@ -296,14 +298,14 @@
   gap: 0.25rem;
 }
 
-/* Left side nav links (Home, Marketplace) */
+/* Left side nav links */
 .navbar-left-nav {
   display: none;
   align-items: center;
   gap: 0.125rem;
   margin-left: 0.625rem;
   padding-left: 0.75rem;
-  border-left: 1px solid hsl(var(--border) / 0.5);
+  border-left: 1px solid hsl(var(--border) / 0.6);
 }
 
 @media (min-width: 768px) {
@@ -328,9 +330,9 @@
   background-color: hsl(var(--accent));
 }
 
-/* Active state — current page indicator */
+/* Active state */
 .nav-link-active {
-  color: hsl(var(--foreground)) !important;
+  color: hsl(var(--primary)) !important;
   font-weight: 600;
   position: relative;
 }
@@ -352,4 +354,3 @@
   font-weight: 600;
   background-color: hsl(var(--primary) / 0.06);
 }
-

@@ -47,6 +47,7 @@ class Deployment(UUIDMixin, TimestampMixin, Base):
     # Deployment Outputs
     logs: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     live_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    custom_domain: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # Relationships
     user: Mapped["User"] = relationship(lazy="select")

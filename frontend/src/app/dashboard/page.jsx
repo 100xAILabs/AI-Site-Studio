@@ -86,6 +86,21 @@ function Dashboard() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [templatesSubTab, setTemplatesSubTab] = useState("purchased");
 
+  // Review Modal state
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  const [reviewTemplateId, setReviewTemplateId] = useState("");
+  const [reviewTemplateTitle, setReviewTemplateTitle] = useState("");
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewTitle, setReviewTitle] = useState("");
+  const [reviewBody, setReviewBody] = useState("");
+  const [submitReviewError, setSubmitReviewError] = useState("");
+
+  // Custom Domain Mapping state
+  const [linkDomainModalOpen, setLinkDomainModalOpen] = useState(false);
+  const [linkDomainDeploymentId, setLinkDomainDeploymentId] = useState("");
+  const [customDomainInput, setCustomDomainInput] = useState("");
+  const [linkDomainError, setLinkDomainError] = useState("");
+
   // Deployments state
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [isConsoleOpen, setIsConsoleOpen] = useState(false);
@@ -184,11 +199,102 @@ function Dashboard() {
     enabled: !!authToken,
   });
 
+  // Fetch Followers
+  const { data: followers = [], isLoading: followersLoading } = useQuery({
+    queryKey: ["followers"],
+    queryFn: () => api.get("/follows/followers", authToken ?? undefined),
+    enabled: !!authToken && isSeller,
+  });
+
+  // Fetch Following
+  const { data: following = [], isLoading: followingLoading } = useQuery({
+    queryKey: ["following"],
+    queryFn: () => api.get("/follows/following", authToken ?? undefined),
+    enabled: !!authToken,
+  });
+
   // Fetch Seller/Buyer Templates
   const { data: templateResponse, isLoading: templatesLoading } = useQuery({
     queryKey: ["seller-templates"],
     queryFn: () => api.get("/templates/my-templates", authToken ?? undefined),
     enabled: !!authToken,
+  });
+
+  // Fetch Buyer Reviews
+  const { data: buyerReviewsData, isLoading: buyerReviewsLoading } = useQuery({
+    queryKey: ["buyer-reviews"],
+    queryFn: () => api.get("/reviews/buyer?page_size=50", authToken ?? undefined),
+    enabled: !!authToken,
+  });
+  const buyerReviewsList = buyerReviewsData?.items || [];
+
+  // Fetch Seller Reviews
+  const { data: sellerReviewsData, isLoading: sellerReviewsLoading } = useQuery({
+    queryKey: ["seller-reviews"],
+    queryFn: () => api.get("/reviews/seller?page_size=50", authToken ?? undefined),
+    enabled: !!authToken && isSeller,
+  });
+  const sellerReviewsList = sellerReviewsData?.items || [];
+
+  // Delete Review Mutation
+  const deleteReviewMutation = useMutation({
+    mutationFn: (reviewId) => api.delete(`/reviews/${reviewId}`, authToken ?? undefined),
+    onSuccess: () => {
+      qc.invalidateQueries(["buyer-reviews"]);
+      qc.invalidateQueries(["seller-reviews"]);
+      qc.invalidateQueries(["dashboard-stats"]);
+      alert("Review deleted successfully!");
+    },
+  });
+
+  // Create Review Mutation
+  const createReviewMutation = useMutation({
+    mutationFn: (data) => api.post("/reviews", data, authToken ?? undefined),
+    onSuccess: () => {
+      qc.invalidateQueries(["buyer-reviews"]);
+      qc.invalidateQueries(["seller-reviews"]);
+      qc.invalidateQueries(["dashboard-stats"]);
+      alert("Review submitted successfully!");
+      setReviewModalOpen(false);
+      // Reset form fields
+      setReviewRating(5);
+      setReviewTitle("");
+      setReviewBody("");
+      setReviewTemplateId("");
+      setReviewTemplateTitle("");
+    },
+    onError: (err) => {
+      setSubmitReviewError(err.message || "Failed to submit review");
+    }
+  });
+
+  // Link Custom Domain Mutation
+  const linkDomainMutation = useMutation({
+    mutationFn: ({ deploymentId, customDomain }) =>
+      api.patch(`/deployments/${deploymentId}/domain?custom_domain=${encodeURIComponent(customDomain)}`, {}, authToken ?? undefined),
+    onSuccess: () => {
+      qc.invalidateQueries(["deployments"]);
+      alert("Custom domain linked successfully!");
+      setLinkDomainModalOpen(false);
+      setCustomDomainInput("");
+      setLinkDomainDeploymentId("");
+    },
+    onError: (err) => {
+      setLinkDomainError(err.message || "Failed to link custom domain");
+    }
+  });
+
+  // Unlink Custom Domain Mutation
+  const unlinkDomainMutation = useMutation({
+    mutationFn: (deploymentId) =>
+      api.patch(`/deployments/${deploymentId}/domain`, {}, authToken ?? undefined),
+    onSuccess: () => {
+      qc.invalidateQueries(["deployments"]);
+      alert("Custom domain unlinked successfully!");
+    },
+    onError: (err) => {
+      alert("Failed to unlink domain: " + err.message);
+    }
   });
 
   // Fetch Marketplace Templates for Dashboard Recommendations
@@ -443,6 +549,7 @@ function Dashboard() {
   const [zipFile, setZipFile] = useState(null);
   const [folderFiles, setFolderFiles] = useState(null);
   const [videoFile, setVideoFile] = useState(null);
+  const [thumbnailFile, setThumbnailFile] = useState(null);
 
   // ── 9-step wizard extended state ──────────────────────────────────────────
   const [wizardCategory, setWizardCategory] = useState("");
@@ -1140,6 +1247,7 @@ function Dashboard() {
                       { id: "my-websites", label: "My Websites", icon: Globe },
                       { id: "deployments", label: "Deployments", icon: Zap, comingSoon: true },
                       { id: "wishlist", label: "Wishlist", icon: Heart },
+                      { id: "buyer-following", label: "Following Sellers", icon: Users },
                       { id: "orders", label: "Orders", icon: CreditCard },
                       { id: "reviews", label: "Reviews", icon: Star },
                       { id: "settings", label: "Profile Settings", icon: Settings },
@@ -1334,7 +1442,7 @@ function Dashboard() {
 
               {/* === BUYER TEMPLATES (UNIFIED MY TEMPLATES) === */}
               {activeTab === "buyer-templates" && (
-                <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
+                <div className="glass-premium p-8 space-y-6">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/20 pb-4">
                     <div>
                       <h3 className="font-bold text-lg">My Templates</h3>
@@ -1374,13 +1482,13 @@ function Dashboard() {
                       {orders.filter(o => o.status === "completed").flatMap(o => o.items).length === 0 ? (
                         <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-card/5">
                           <Folder className="w-8 h-8 text-primary mx-auto mb-3 opacity-60" />
-                          <p className="text-sm font-semibold text-white">No purchased templates</p>
+                          <p className="text-sm font-semibold text-foreground">No purchased templates</p>
                           <p className="text-xs text-muted-foreground mt-1">
                             Browse the marketplace and purchase templates to see them here.
                           </p>
                           <Link
                             href="/marketplace"
-                            className="mt-4 inline-block px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/95 transition-colors text-decoration-none"
+                            className="mt-4 btn-primary"
                           >
                             Explore Marketplace
                           </Link>
@@ -1388,7 +1496,7 @@ function Dashboard() {
                       ) : (
                         <div className="grid sm:grid-cols-2 gap-4">
                           {orders.filter(o => o.status === "completed").flatMap(o => o.items).map((item) => (
-                            <div key={item.id} className="p-4 border border-border/40 rounded-xl flex gap-4 bg-muted/5 hover:bg-muted/10 transition-colors">
+                            <div key={item.id} className="glass-premium p-4 flex gap-4 hover:border-primary/25">
                               {item.thumbnail_url && (
                                 <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-border/40 flex-shrink-0">
                                   <Image
@@ -1404,14 +1512,30 @@ function Dashboard() {
                                   <div className="font-bold text-sm truncate text-foreground/90">
                                     {item.title || "Template Package"}
                                   </div>
-                                  <span className="text-[10px] text-muted-foreground bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full inline-block mt-1 font-semibold uppercase tracking-wider">
-                                    {item.license_type} License
-                                  </span>
+                                  <div className="flex items-center justify-between mt-1 flex-wrap gap-2">
+                                    <span className="text-[10px] text-muted-foreground bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full inline-block font-semibold uppercase tracking-wider">
+                                      {item.license_type} License
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setReviewTemplateId(item.template_id);
+                                        setReviewTemplateTitle(item.title || "Template Package");
+                                        setReviewRating(5);
+                                        setReviewTitle("");
+                                        setReviewBody("");
+                                        setReviewModalOpen(true);
+                                      }}
+                                      className="text-[11px] text-primary hover:text-primary/80 transition-colors flex items-center gap-1 font-semibold border-none bg-transparent cursor-pointer p-0"
+                                    >
+                                      <Star className="w-3 h-3 fill-primary" /> Leave Review
+                                    </button>
+                                  </div>
                                 </div>
                                 <div className="flex gap-2 mt-2">
                                   <button
                                     onClick={() => triggerDownload.mutate({ templateId: item.template_id, format: "zip" })}
-                                    className="flex-1 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
+                                    className="flex-1 btn-secondary"
                                   >
                                     <Download className="w-3.5 h-3.5" /> Source Code
                                   </button>
@@ -1419,7 +1543,7 @@ function Dashboard() {
                                     href={item.preview_url || `http://localhost:8000/api/v1/preview/live/${item.template_id}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="flex-1 py-1.5 bg-primary text-white hover:bg-primary/95 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors text-center text-decoration-none"
+                                    className="flex-1 btn-primary"
                                   >
                                     <Globe className="w-3.5 h-3.5" /> Live Demo
                                   </a>
@@ -1500,7 +1624,7 @@ function Dashboard() {
 
               {/* === AI PROJECTS === */}
               {activeTab === "ai-projects" && (
-                <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
+                <div className="glass-premium p-8 space-y-6">
                   <div className="flex justify-between items-center">
                     <div>
                       <h3 className="font-bold text-lg text-foreground">AI Generated Website Projects</h3>
@@ -1517,7 +1641,7 @@ function Dashboard() {
                     <div className="grid md:grid-cols-2 gap-6">
                       <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-muted/5 flex flex-col justify-center items-center">
                         <Cpu className="w-8 h-8 text-primary mx-auto mb-3 opacity-60" />
-                        <p className="text-sm font-semibold text-white">No AI Generated Projects</p>
+                        <p className="text-sm font-semibold text-foreground">No AI Generated Projects</p>
                         <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
                           You haven't generated any AI prototype workspaces yet. Explore templates in the marketplace to start customizing them with AI.
                         </p>
@@ -1525,8 +1649,8 @@ function Dashboard() {
 
                       <div className="glass p-6 rounded-xl border border-primary/30 bg-primary/5 flex flex-col justify-between">
                         <div>
-                          <h4 className="font-bold text-lg text-white mb-2">Create New Project.</h4>
-                          <p className="text-sm text-slate-300 mb-4 leading-relaxed">
+                          <h4 className="font-bold text-lg text-foreground mb-2">Create New Project.</h4>
+                          <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
                             Choose a responsive template designed for food services, then customize it using our AI editor to match your branding. For your site generation, try this prompt: <br/><br/>
                             <span className="italic text-primary/90 block border-l-2 border-primary/50 pl-3">
                               'Create a professional, modern cafeteria website featuring a digital menu, a daily specials section, an online ordering integration, and a clean, high-contrast aesthetic that highlights food photography.'
@@ -1550,9 +1674,9 @@ function Dashboard() {
                       {templateResponse.map((item) => (
                         <div key={item.id} className="glass p-5 rounded-xl border border-border/40 flex flex-col justify-between hover:border-primary/45 transition-all bg-card/10">
                           <div>
-                            <div className="relative w-full h-32 rounded-lg overflow-hidden border border-border/40 mb-4 bg-muted/20 flex items-center justify-center">
+                            <div className="relative w-full rounded-lg overflow-hidden border border-border/40 mb-4 bg-muted/20 flex-shrink-0" style={{ height: '180px' }}>
                               {item.thumbnail_url ? (
-                                <img src={item.thumbnail_url} alt="" className="object-cover w-full h-full" />
+                                <img src={item.thumbnail_url} alt="" className="object-cover w-full h-full absolute inset-0" />
                               ) : (
                                 <Cpu className="w-8 h-8 text-muted-foreground opacity-50" />
                               )}
@@ -1560,10 +1684,10 @@ function Dashboard() {
                                 {item.framework || "HTML"}
                               </span>
                             </div>
-                            <h4 className="font-bold text-base text-white truncate mb-1" title={item.title}>
+                            <h4 className="font-bold text-sm text-foreground mb-1.5" style={{ height: '40px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: '1.4' }} title={item.title}>
                               {item.title}
                             </h4>
-                            <p className="text-xs text-muted-foreground line-clamp-2 mb-4">
+                            <p className="text-[11px] text-muted-foreground mb-4" style={{ height: '32px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: '1.4' }}>
                               {item.short_description || "AI generated workspace template project."}
                             </p>
                           </div>
@@ -1571,7 +1695,7 @@ function Dashboard() {
                             <div className="flex gap-2">
                               <Link
                                 to={`/preview?template=${item.id}`}
-                                className="flex-1 py-1.5 bg-primary text-white hover:bg-primary/90 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors text-center"
+                                className="btn-primary flex-1"
                                 style={{ textDecoration: "none" }}
                               >
                                 <Wand2 className="w-3.5 h-3.5" /> AI Editor
@@ -1580,7 +1704,7 @@ function Dashboard() {
                                 href={`http://localhost:8000/api/v1/preview/live/${item.id}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="flex-1 py-1.5 bg-muted hover:bg-muted/80 text-foreground border border-border/40 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors text-center"
+                                className="btn-secondary flex-1"
                                 style={{ textDecoration: "none" }}
                               >
                                 <ExternalLink className="w-3.5 h-3.5" /> Live Demo
@@ -1592,7 +1716,7 @@ function Dashboard() {
                                   deleteMutation.mutate(item.id);
                                 }
                               }}
-                              className="w-full py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors border border-red-500/10"
+                              className="btn-danger w-full"
                             >
                               <Trash2 className="w-3.5 h-3.5" /> Delete Project
                             </button>
@@ -1606,22 +1730,160 @@ function Dashboard() {
 
               {/* === MY WEBSITES === */}
               {activeTab === "my-websites" && (
-                <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
-                  <div>
-                    <h3 className="font-bold text-lg">Live Websites</h3>
-                    <p className="text-sm text-muted-foreground">View and map custom domains for your deployed templates.</p>
+                <div className="glass-premium p-8 space-y-6">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-border/20 pb-4">
+                    <div>
+                      <h3 className="font-bold text-lg text-foreground">Live Websites & Domains</h3>
+                      <p className="text-sm text-muted-foreground">Directly publish your template deployments to your own custom domain.</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setLinkDomainError("");
+                        setCustomDomainInput("");
+                        // Set default selected deployment if available
+                        const readyDeploys = deploymentsData.filter(d => d.status === "success");
+                        if (readyDeploys.length > 0) {
+                          setLinkDomainDeploymentId(readyDeploys[0].id);
+                        } else {
+                          setLinkDomainDeploymentId("");
+                        }
+                        setLinkDomainModalOpen(true);
+                      }}
+                      className="btn-primary border-none"
+                    >
+                      <Plus className="w-4 h-4" /> Link Custom Domain
+                    </button>
                   </div>
-                  <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl">
-                    <p className="text-sm">No live websites mapped.</p>
-                    <p className="text-xs text-muted-foreground mt-1">Configure a custom domain for your deployed templates from the &quot;My Templates&quot; tab.</p>
-                  </div>
+
+                  {deploymentsLoading ? (
+                    <div className="text-center py-12">
+                      <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+                      <p className="text-xs text-muted-foreground mt-2">Loading mapped websites...</p>
+                    </div>
+                  ) : deploymentsData.filter(d => d.custom_domain).length === 0 ? (
+                    <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-card/5">
+                      <Globe className="w-8 h-8 text-primary mx-auto mb-3 opacity-60 animate-pulse" />
+                      <p className="text-sm font-semibold text-foreground">No custom domains mapped yet</p>
+                      <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto leading-relaxed">
+                        Publish your website directly under your custom brand. Enter your domain, point your DNS records to our server, and we will handle the deployment SSL certificates and hosting routing.
+                      </p>
+                      <button
+                        onClick={() => {
+                          setLinkDomainError("");
+                          setCustomDomainInput("");
+                          const readyDeploys = deploymentsData.filter(d => d.status === "success");
+                          if (readyDeploys.length > 0) {
+                            setLinkDomainDeploymentId(readyDeploys[0].id);
+                          } else {
+                            setLinkDomainDeploymentId("");
+                          }
+                          setLinkDomainModalOpen(true);
+                        }}
+                        className="mt-4 px-3.5 py-1.5 bg-muted border border-border/40 hover:bg-muted/80 text-foreground text-xs font-semibold rounded-lg transition-all cursor-pointer"
+                      >
+                        Link a Custom Domain Now
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                          <thead>
+                            <tr className="border-b border-border/50 text-xs font-semibold text-muted-foreground uppercase">
+                              <th className="pb-3">Custom Domain</th>
+                              <th className="pb-3">Target Project</th>
+                              <th className="pb-3">Provider</th>
+                              <th className="pb-3">Status</th>
+                              <th className="pb-3 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {deploymentsData.filter(d => d.custom_domain).map((deploy) => (
+                              <tr key={deploy.id} className="border-b border-border/40 hover:bg-muted/5 transition-colors">
+                                <td className="py-4">
+                                  <a
+                                    href={deploy.live_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="font-bold text-sm text-primary hover:underline flex items-center gap-1.5 text-decoration-none"
+                                  >
+                                    <Globe className="w-3.5 h-3.5" />
+                                    {deploy.custom_domain}
+                                    <ExternalLink className="w-3 h-3 text-muted-foreground" />
+                                  </a>
+                                </td>
+                                <td className="py-4">
+                                  <div className="font-semibold text-foreground">{deploy.project_name}</div>
+                                  <div className="text-[10px] text-muted-foreground">ID: {deploy.id.slice(0, 8)}...</div>
+                                </td>
+                                <td className="py-4">
+                                  <span className="text-xs capitalize font-medium text-slate-300">
+                                    {deploy.provider === "vercel" ? "▲ Vercel" : deploy.provider === "netlify" ? "⧉ Netlify" : "🕮 Pages"}
+                                  </span>
+                                </td>
+                                <td className="py-4">
+                                  <span className={`status-badge ${deploy.status} inline-flex items-center gap-1`}>
+                                    {deploy.status === "building" && <Loader2 className="w-2.5 h-2.5 animate-spin" />}
+                                    {deploy.status === "success" && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                                    {deploy.status === "failed" && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
+                                    {deploy.status === "building" ? "Building" : deploy.status === "success" ? "Active" : "Failed"}
+                                  </span>
+                                </td>
+                                <td className="py-4 text-right">
+                                  <button
+                                    onClick={() => {
+                                      if (confirm(`Are you sure you want to unlink the custom domain "${deploy.custom_domain}" from this website?`)) {
+                                        unlinkDomainMutation.mutate(deploy.id);
+                                      }
+                                    }}
+                                    disabled={unlinkDomainMutation.isPending}
+                                    className="btn-danger"
+                                  >
+                                    Unlink Domain
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* DNS Records Guide */}
+                      <div className="p-5 border border-primary/20 bg-primary/5 rounded-xl space-y-3">
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                          <Info className="w-4 h-4" /> DNS Configuration Guide
+                        </h4>
+                        <p className="text-xs text-slate-300 leading-relaxed">
+                          To complete linking your custom domains, log into your domain registrar dashboard (e.g. GoDaddy, Namecheap) and create the following DNS records:
+                        </p>
+                        <div className="grid sm:grid-cols-2 gap-4 text-xs">
+                          <div className="p-3 bg-slate-900/60 rounded-lg border border-border/40">
+                            <span className="font-bold text-foreground block mb-1">A Record (for root domain, e.g. mybrand.com)</span>
+                            <div className="space-y-1 font-mono text-[11px] text-slate-300">
+                              <div>Host: <span className="text-primary">@</span></div>
+                              <div>Value / Points to: <span className="text-primary">76.76.21.21</span></div>
+                              <div>TTL: <span className="text-muted-foreground">Automatic / 3600</span></div>
+                            </div>
+                          </div>
+                          <div className="p-3 bg-slate-900/60 rounded-lg border border-border/40">
+                            <span className="font-bold text-foreground block mb-1">CNAME Record (for www subdomain, e.g. www.mybrand.com)</span>
+                            <div className="space-y-1 font-mono text-[11px] text-slate-300">
+                              <div>Host: <span className="text-primary">www</span></div>
+                              <div>Value / Points to: <span className="text-primary">publish.aisitestudio.com</span></div>
+                              <div>TTL: <span className="text-muted-foreground">Automatic / 3600</span></div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
 
               {/* === DEPLOYMENTS === */}
               {activeTab === "deployments" && (
-                <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
+                <div className="glass-premium p-8 space-y-6">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
                       <div className="flex items-center gap-2">
@@ -1644,7 +1906,7 @@ function Dashboard() {
                         }
                         setIsDeployModalOpen(true);
                       }}
-                      className="px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/95 transition-colors flex items-center gap-1.5"
+                      className="btn-primary"
                     >
                       <Plus className="w-4 h-4" /> Deploy a Project
                     </button>
@@ -1658,7 +1920,7 @@ function Dashboard() {
                   ) : deploymentsData.length === 0 ? (
                     <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-card/5">
                       <Zap className="w-8 h-8 text-primary mx-auto mb-3 opacity-60" />
-                      <p className="text-sm font-semibold text-white">No active deployments</p>
+                      <p className="text-sm font-semibold text-foreground">No active deployments</p>
                       <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
                         Connect a project template or an AI generated sandbox to start building and hosting.
                       </p>
@@ -1674,7 +1936,7 @@ function Dashboard() {
                           }
                           setIsDeployModalOpen(true);
                         }}
-                        className="mt-4 px-3.5 py-1.5 bg-muted border border-border/40 hover:bg-muted/80 text-foreground text-xs font-semibold rounded-lg transition-all"
+                        className="mt-4 btn-secondary"
                       >
                         Create First Deployment
                       </button>
@@ -1685,7 +1947,7 @@ function Dashboard() {
                         <div key={deploy.id} className="deploy-card glass border border-border/40 rounded-xl p-5 flex flex-col justify-between space-y-4 bg-card/10">
                           <div className="space-y-2">
                             <div className="flex justify-between items-start">
-                              <h4 className="font-bold text-white text-base truncate max-w-[180px]" title={deploy.project_name}>
+                              <h4 className="font-bold text-foreground text-base truncate max-w-[180px]" title={deploy.project_name}>
                                 {deploy.project_name}
                               </h4>
                               <span className={`status-badge ${deploy.status}`}>
@@ -1699,7 +1961,7 @@ function Dashboard() {
                             <div className="text-xs space-y-1.5 text-slate-300">
                               <div className="flex items-center gap-1.5">
                                 <span className="text-muted-foreground">Provider:</span>
-                                <span className="font-medium capitalize text-white flex items-center gap-1">
+                                <span className="font-medium capitalize text-foreground flex items-center gap-1">
                                   {deploy.provider === "vercel" && "▲ Vercel"}
                                   {deploy.provider === "netlify" && "⧉ Netlify"}
                                   {deploy.provider === "github_pages" && "🕮 GitHub Pages"}
@@ -1711,7 +1973,7 @@ function Dashboard() {
                               </div>
                               <div className="flex items-center gap-1.5">
                                 <span className="text-muted-foreground">Subdomain:</span>
-                                <span className="text-white truncate font-mono max-w-[200px]" title={deploy.subdomain}>
+                                <span className="text-foreground truncate font-mono max-w-[200px]" title={deploy.subdomain}>
                                   {deploy.subdomain}
                                 </span>
                               </div>
@@ -1818,6 +2080,42 @@ function Dashboard() {
                 </div>
               )}
 
+              {/* === BUYER FOLLOWING === */}
+              {activeTab === "buyer-following" && (
+                <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
+                  <div>
+                    <h3 className="font-bold text-lg">Following Sellers</h3>
+                    <p className="text-sm text-muted-foreground">Manage and view updates from the sellers you follow.</p>
+                  </div>
+                  {followingLoading ? (
+                    <div className="text-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" />
+                    </div>
+                  ) : !following || following.length === 0 ? (
+                    <div className="p-8 text-center text-muted-foreground text-sm border border-border/40 rounded-xl">
+                      You are not following any sellers yet.
+                    </div>
+                  ) : (
+                    <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4">
+                      {following.map((seller) => (
+                        <div key={seller.id} className="p-4 rounded-xl border border-border/40 bg-card/10 flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <img src={seller.avatar_url || "https://picsum.photos/seed/avatar/100/100"} alt="" className="w-10 h-10 rounded-full object-cover bg-muted" />
+                            <div>
+                              <div className="font-bold text-sm text-foreground">{seller.full_name || seller.username}</div>
+                              <span className="text-[10px] text-muted-foreground">@{seller.username || "seller"}</span>
+                            </div>
+                          </div>
+                          <Link href={`/marketplace?developer=${seller.full_name || seller.username}`} className="px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary text-xs font-semibold rounded-lg text-decoration-none">
+                            View Items
+                          </Link>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* === ORDERS === */}
               {activeTab === "orders" && (
                 <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
@@ -1865,14 +2163,97 @@ function Dashboard() {
 
               {/* === REVIEWS === */}
               {activeTab === "reviews" && (
-                <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
+                <div className="glass-premium p-8 space-y-6">
                   <div>
                     <h3 className="font-bold text-lg">Reviews & Feedback</h3>
-                    <p className="text-sm text-muted-foreground">Rate templates you purchased and share your thoughts.</p>
+                    <p className="text-sm text-muted-foreground">Rate templates you purchased and manage your reviews.</p>
                   </div>
-                  <div className="p-8 text-center text-muted-foreground text-sm border border-border/40 rounded-xl">
-                    You haven&apos;t written any reviews yet.
-                  </div>
+
+                  {buyerReviewsLoading ? (
+                    <div className="text-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" />
+                    </div>
+                  ) : buyerReviewsList.length === 0 ? (
+                    <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-card/5">
+                      <Star className="w-8 h-8 text-primary mx-auto mb-3 opacity-60 animate-pulse" />
+                      <p className="text-sm font-semibold text-foreground">No reviews written yet</p>
+                      <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto leading-relaxed">
+                        You haven't written any reviews yet. Leave reviews for your purchased templates from the "My Templates" tab to build your buyer rating.
+                      </p>
+                      <button
+                        onClick={() => setActiveTab("buyer-templates")}
+                        className="mt-4 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/95 transition-colors border-none cursor-pointer"
+                      >
+                        View My Templates
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {buyerReviewsList.map((review) => (
+                        <div key={review.id} className="db-review-card">
+                          <div className="flex justify-between items-start gap-4">
+                            <div className="flex items-center gap-3">
+                              {review.template?.thumbnail_url && (
+                                <img
+                                  src={review.template.thumbnail_url}
+                                  alt=""
+                                  className="w-12 h-12 rounded-lg object-cover border border-border/40 shrink-0 bg-muted"
+                                />
+                              )}
+                              <div>
+                                <h4 className="font-bold text-sm text-foreground">
+                                  {review.template?.title || "Template Package"}
+                                </h4>
+                                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                  <div className="flex">
+                                    {[1, 2, 3, 4, 5].map((s) => (
+                                      <Star
+                                        key={s}
+                                        className={`w-3.5 h-3.5 ${
+                                          s <= review.rating ? "fill-yellow-400 text-yellow-400" : "text-slate-600"
+                                        }`}
+                                      />
+                                    ))}
+                                  </div>
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {new Date(review.created_at).toLocaleDateString()}
+                                  </span>
+                                  {review.is_verified_purchase && (
+                                    <span className="text-[9px] bg-green-500/10 text-green-500 border border-green-500/20 px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider scale-90">
+                                      Verified
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => {
+                                if (confirm("Are you sure you want to delete this review?")) {
+                                  deleteReviewMutation.mutate(review.id);
+                                }
+                              }}
+                              className="p-1.5 text-muted-foreground hover:text-red-400 transition-colors border border-transparent bg-transparent cursor-pointer rounded-lg hover:bg-red-500/10"
+                              title="Delete Review"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          <div className="db-review-divider">
+                             <h5 className="font-bold text-xs text-foreground">{review.title}</h5>
+                             <p className="text-xs text-muted-foreground leading-relaxed">{review.body}</p>
+                           </div>
+
+                          {review.admin_reply && (
+                            <div className="p-3 bg-primary/5 border-l-2 border-primary rounded-r-lg space-y-1 mt-2">
+                              <span className="text-[10px] font-bold text-primary uppercase">Seller Reply:</span>
+                              <p className="text-xs text-slate-300 italic">{review.admin_reply}</p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1889,7 +2270,7 @@ function Dashboard() {
                       { label: "Pending Reviews", value: 0, icon: Star },
                       { label: "Average Rating", value: `${sellerAverageRating} ★`, icon: Sparkles },
                       { label: "Profile Views", value: sellerTotalViews.toString(), icon: Eye },
-                      { label: "Followers", value: "0", icon: Users },
+                      { label: "Followers", value: followers.length.toString(), icon: Users },
                       { label: "Conversion Rate", value: sellerConversionRate, icon: TrendingUp },
                     ].map(({ label, value, icon: Icon }) => (
                       <div key={label} className="glass p-5 rounded-2xl border border-border/40 space-y-2">
@@ -1997,9 +2378,25 @@ function Dashboard() {
                                   <div className="font-bold text-sm truncate text-foreground/90">
                                     {item.title || "Template Package"}
                                   </div>
-                                  <span className="text-[10px] text-muted-foreground bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full inline-block mt-1 font-semibold uppercase tracking-wider">
-                                    {item.license_type} License
-                                  </span>
+                                  <div className="flex items-center justify-between mt-1 flex-wrap gap-2">
+                                    <span className="text-[10px] text-muted-foreground bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full inline-block font-semibold uppercase tracking-wider">
+                                      {item.license_type} License
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setReviewTemplateId(item.template_id);
+                                        setReviewTemplateTitle(item.title || "Template Package");
+                                        setReviewRating(5);
+                                        setReviewTitle("");
+                                        setReviewBody("");
+                                        setReviewModalOpen(true);
+                                      }}
+                                      className="text-[11px] text-primary hover:text-primary/80 transition-colors flex items-center gap-1 font-semibold border-none bg-transparent cursor-pointer p-0"
+                                    >
+                                      <Star className="w-3 h-3 fill-primary" /> Leave Review
+                                    </button>
+                                  </div>
                                 </div>
                                 <div className="flex gap-2 mt-2">
                                   <button
@@ -2983,11 +3380,76 @@ function Dashboard() {
                 <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
                   <div>
                     <h3 className="font-bold text-lg">Client Template Reviews</h3>
-                    <p className="text-sm text-muted-foreground">Monitor product feedback and respond directly to clients.</p>
+                    <p className="text-sm text-muted-foreground">Monitor product feedback and reviews received on your templates.</p>
                   </div>
-                  <div className="p-8 text-center text-muted-foreground text-sm border border-border/40 rounded-xl">
-                    No customer reviews found for your templates.
-                  </div>
+
+                  {sellerReviewsLoading ? (
+                    <div className="text-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" />
+                    </div>
+                  ) : sellerReviewsList.length === 0 ? (
+                    <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-card/5">
+                      <Star className="w-8 h-8 text-primary mx-auto mb-3 opacity-60 animate-pulse" />
+                      <p className="text-sm font-semibold text-white">No customer reviews yet</p>
+                      <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                        When buyers purchase and review your uploaded templates, their comments and ratings will automatically appear here.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {sellerReviewsList.map((review) => (
+                        <div key={review.id} className="p-5 border border-border/45 rounded-xl space-y-3 bg-muted/5 hover:bg-muted/10 transition-all duration-200">
+                          <div className="flex justify-between items-start gap-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-full bg-slate-700 overflow-hidden flex items-center justify-center border border-border/40 shrink-0">
+                                {review.user?.avatar_url ? (
+                                  <img
+                                    src={review.user.avatar_url}
+                                    alt=""
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <span className="font-bold text-xs text-slate-300">
+                                    {review.user?.fullName?.[0] ?? review.user?.username?.[0] ?? "U"}
+                                  </span>
+                                )}
+                              </div>
+                              <div>
+                                <div className="font-bold text-xs text-white">
+                                  {review.user?.fullName || review.user?.username || "Anonymous Client"}
+                                </div>
+                                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                  <div className="flex">
+                                    {[1, 2, 3, 4, 5].map((s) => (
+                                      <Star
+                                        key={s}
+                                        className={`w-3.5 h-3.5 ${
+                                          s <= review.rating ? "fill-yellow-400 text-yellow-400" : "text-slate-600"
+                                        }`}
+                                      />
+                                    ))}
+                                  </div>
+                                  <span className="text-[10px] text-muted-foreground">
+                                    on <strong className="text-slate-300">{review.template?.title || "Template"}</strong> &bull; {new Date(review.created_at).toLocaleDateString()}
+                                  </span>
+                                  {review.is_verified_purchase && (
+                                    <span className="text-[9px] bg-green-500/10 text-green-500 border border-green-500/20 px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider scale-90">
+                                      Verified Purchase
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="pt-2 border-t border-border/10 space-y-1">
+                            <h5 className="font-bold text-xs text-slate-200">{review.title}</h5>
+                            <p className="text-xs text-muted-foreground leading-relaxed">{review.body}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -3053,9 +3515,27 @@ function Dashboard() {
                     <h3 className="font-bold text-lg">Sellers Followers</h3>
                     <p className="text-sm text-muted-foreground">Track profiles and users who follow your updates.</p>
                   </div>
-                  <div className="p-8 text-center text-muted-foreground text-sm border border-border/40 rounded-xl">
-                    No followers yet.
-                  </div>
+                  {followersLoading ? (
+                    <div className="text-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" />
+                    </div>
+                  ) : !followers || followers.length === 0 ? (
+                    <div className="p-8 text-center text-muted-foreground text-sm border border-border/40 rounded-xl">
+                      No followers yet.
+                    </div>
+                  ) : (
+                    <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4">
+                      {followers.map((follower) => (
+                        <div key={follower.id} className="p-4 rounded-xl border border-border/40 bg-card/10 flex items-center gap-3">
+                          <img src={follower.avatar_url || "https://picsum.photos/seed/avatar/100/100"} alt="" className="w-10 h-10 rounded-full object-cover bg-muted" />
+                          <div>
+                            <div className="font-bold text-sm text-white">{follower.full_name || follower.username}</div>
+                            <span className="text-[10px] text-muted-foreground">@{follower.username || "user"}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -3995,6 +4475,198 @@ function Dashboard() {
                         </button>
                       </div>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* === WRITE REVIEW MODAL === */}
+              {reviewModalOpen && (
+                <div className="modal-backdrop">
+                  <div className="modal-content glass border border-border/40 p-6 rounded-2xl max-w-md w-full space-y-4">
+                    <div className="flex justify-between items-center border-b border-border/20 pb-3">
+                      <div>
+                        <h3 className="font-bold text-lg text-white">Write a Review</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">Template: {reviewTemplateTitle}</p>
+                      </div>
+                      <button
+                        onClick={() => setReviewModalOpen(false)}
+                        className="text-muted-foreground hover:text-white transition-colors bg-transparent border-none text-xl cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </div>
+
+                    <form onSubmit={(e) => {
+                      e.preventDefault();
+                      setSubmitReviewError("");
+                      createReviewMutation.mutate({
+                        template_id: reviewTemplateId,
+                        rating: Number(reviewRating),
+                        title: reviewTitle.trim() || "Review",
+                        body: reviewBody.trim(),
+                      });
+                    }} className="space-y-4">
+                      {submitReviewError && (
+                        <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 p-2.5 rounded-lg">
+                          {submitReviewError}
+                        </div>
+                      )}
+
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-semibold text-muted-foreground uppercase">Rating</label>
+                        <div className="flex gap-2">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <button
+                              key={star}
+                              type="button"
+                              onClick={() => setReviewRating(star)}
+                              className="bg-transparent border-none p-0 cursor-pointer"
+                            >
+                              <Star className={`w-6 h-6 ${star <= reviewRating ? "fill-yellow-400 text-yellow-400" : "text-slate-600"}`} />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-semibold text-muted-foreground uppercase">Title</label>
+                        <input
+                          type="text"
+                          value={reviewTitle}
+                          onChange={(e) => setReviewTitle(e.target.value)}
+                          placeholder="Summarize your feedback..."
+                          className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50 text-white"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-semibold text-muted-foreground uppercase">Review Body *</label>
+                        <textarea
+                          rows={4}
+                          required
+                          value={reviewBody}
+                          onChange={(e) => setReviewBody(e.target.value)}
+                          placeholder="What did you think of the design, usability, code quality, and documentation?"
+                          className="w-full px-4 py-2.5 text-white bg-slate-900/80 border border-border/40 rounded-xl p-2.5 text-sm focus:outline-none focus:border-primary h-24"
+                        />
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-3 border-t border-border/20">
+                        <button
+                          type="button"
+                          onClick={() => setReviewModalOpen(false)}
+                          className="px-4 py-2 bg-muted border border-border/40 hover:bg-muted/80 text-foreground text-xs font-semibold rounded-xl transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={createReviewMutation.isPending}
+                          className="px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/95 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                        >
+                          {createReviewMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                          Submit Review
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+
+              {/* === LINK CUSTOM DOMAIN MODAL === */}
+              {linkDomainModalOpen && (
+                <div className="modal-backdrop">
+                  <div className="modal-content glass border border-border/40 p-6 rounded-2xl max-w-md w-full space-y-4">
+                    <div className="flex justify-between items-center border-b border-border/20 pb-3">
+                      <div>
+                        <h3 className="font-bold text-lg text-white">Link Custom Domain</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">Publish your live deployment directly to your own domain.</p>
+                      </div>
+                      <button
+                        onClick={() => setLinkDomainModalOpen(false)}
+                        className="text-muted-foreground hover:text-white transition-colors bg-transparent border-none text-xl cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </div>
+
+                    <form onSubmit={(e) => {
+                      e.preventDefault();
+                      setLinkDomainError("");
+                      if (!linkDomainDeploymentId) {
+                        setLinkDomainError("Please select a deployment project.");
+                        return;
+                      }
+                      if (!customDomainInput.trim()) {
+                        setLinkDomainError("Please input your custom domain name.");
+                        return;
+                      }
+                      linkDomainMutation.mutate({
+                        deploymentId: linkDomainDeploymentId,
+                        customDomain: customDomainInput.trim()
+                      });
+                    }} className="space-y-4">
+                      {linkDomainError && (
+                        <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 p-2.5 rounded-lg">
+                          {linkDomainError}
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <label className="block text-xs font-semibold text-muted-foreground uppercase">Select Active Deployment *</label>
+                        <select
+                          required
+                          value={linkDomainDeploymentId}
+                          onChange={(e) => setLinkDomainDeploymentId(e.target.value)}
+                          className="w-full px-4 py-2.5 rounded-xl border border-border/45 text-sm focus:outline-none focus:border-primary bg-slate-950/90 text-white cursor-pointer"
+                        >
+                          <option value="" style={{ backgroundColor: "#0b0f19", color: "#ffffff" }}>Select a deployment project</option>
+                          {deploymentsData.filter(d => d.status === "success").map((d) => (
+                            <option key={d.id} value={d.id} style={{ backgroundColor: "#0b0f19", color: "#ffffff" }}>
+                              {d.project_name} ({d.provider === "vercel" ? "Vercel" : d.provider === "netlify" ? "Netlify" : "GitHub Pages"})
+                            </option>
+                          ))}
+                        </select>
+                        {deploymentsData.filter(d => d.status === "success").length === 0 && (
+                          <span className="text-[10px] text-amber-400 block mt-2 leading-relaxed bg-amber-500/10 border border-amber-500/25 p-2 rounded-lg">
+                            ⚠️ You must have at least one successful template deployment to map a custom domain.
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="block text-xs font-semibold text-muted-foreground uppercase">Custom Domain Name *</label>
+                        <input
+                          type="text"
+                          required
+                          value={customDomainInput}
+                          onChange={(e) => setCustomDomainInput(e.target.value)}
+                          placeholder="e.g. www.mybrand.com"
+                          className="w-full px-4 py-2.5 rounded-xl border border-border/45 text-sm focus:outline-none focus:border-primary bg-slate-950/90 text-white"
+                        />
+                        <span className="text-[10px] text-muted-foreground block mt-1">
+                          Input the full domain name (including www or custom subdomains).
+                        </span>
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-3 border-t border-border/20">
+                        <button
+                          type="button"
+                          onClick={() => setLinkDomainModalOpen(false)}
+                          className="px-4 py-2 bg-muted border border-border/40 hover:bg-muted/80 text-foreground text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={linkDomainMutation.isPending || deploymentsData.filter(d => d.status === "success").length === 0}
+                          className="px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/95 transition-colors disabled:opacity-50 flex items-center gap-1.5 border-none cursor-pointer"
+                        >
+                          {linkDomainMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                          Connect Domain
+                        </button>
+                      </div>
+                    </form>
                   </div>
                 </div>
               )}

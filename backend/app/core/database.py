@@ -59,10 +59,20 @@ async def init_db() -> None:
     """
     import app.models  # noqa: F401 — register all ORM models
     from app.models.category import Category
-    from sqlalchemy import select
+    from sqlalchemy import select, text
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        
+        # Self-healing migration: Ensure deployments table has custom_domain column
+        try:
+            if conn.dialect.name == "sqlite":
+                await conn.execute(text("ALTER TABLE deployments ADD COLUMN custom_domain VARCHAR(255)"))
+            else:
+                await conn.execute(text("ALTER TABLE deployments ADD COLUMN IF NOT EXISTS custom_domain VARCHAR(255)"))
+        except Exception:
+            pass # Column already exists, safe to ignore
+
     print("Database connected and tables verified")
 
     async with AsyncSessionLocal() as db:

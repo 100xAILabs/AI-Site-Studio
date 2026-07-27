@@ -25,7 +25,7 @@
   width: 40%;
   height: 40%;
   border-radius: 9999px;
-  background-color: hsl(var(--primary) / 0.2);
+  background-color: hsl(var(--primary) / 0.05);
   filter: blur(120px);
   pointer-events: none;
 }
@@ -37,7 +37,7 @@
   width: 30%;
   height: 30%;
   border-radius: 9999px;
-  background-color: rgba(168, 85, 247, 0.2); /* purple-500/20 */
+  background-color: hsl(var(--secondary) / 0.06); /* teal accent, very subtle */
   filter: blur(120px);
   pointer-events: none;
 }

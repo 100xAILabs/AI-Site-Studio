@@ -99,3 +99,19 @@ async def get_followers(
     )
     followers = result.scalars().all()
     return followers
+
+
+@router.get("/following", response_model=List[UserPublicResponse])
+async def get_following(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get the list of sellers/profiles that the current user follows."""
+    result = await db.execute(
+        select(User)
+        .join(Follow, Follow.seller_id == User.id)
+        .where(Follow.follower_id == current_user.id)
+        .order_by(Follow.created_at.desc())
+    )
+    following = result.scalars().all()
+    return following

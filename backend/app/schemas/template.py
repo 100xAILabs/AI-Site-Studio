@@ -142,6 +142,8 @@ class TemplateResponse(BaseModel):
 
     # Seller / Ownership
     seller_id: Optional[uuid.UUID] = None
+    seller_templates_count: Optional[int] = 0
+    seller_total_sales: Optional[int] = 0
 
     model_config = {"from_attributes": True}
 
@@ -210,4 +212,5 @@ class TemplateFilterParams(BaseModel):
     page_size: int = Field(20, ge=1, le=100)
     q: Optional[str] = None  # text search query
     semantic: Optional[bool] = False
+    developer: Optional[str] = None
 

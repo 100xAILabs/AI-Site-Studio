@@ -56,8 +56,21 @@ async def create_review(
             detail="You have already reviewed this template",
         )
 
-    # Check if verified purchase (basic check — could be enhanced)
-    is_verified = False  # TODO: check orders table in Phase 2
+    # Check if verified purchase
+    from app.models.order import Order, OrderItem, OrderStatus
+    from sqlalchemy import select
+
+    verified_stmt = (
+        select(OrderItem.id)
+        .join(Order)
+        .where(
+            Order.user_id == current_user.id,
+            Order.status == OrderStatus.COMPLETED,
+            OrderItem.template_id == data.template_id
+        )
+    )
+    verified_res = await db.execute(verified_stmt)
+    is_verified = verified_res.first() is not None
 
     review = await repo.create(current_user.id, data, is_verified)
 
@@ -67,6 +80,25 @@ async def create_review(
     await template_repo.update_rating(data.template_id, avg, count)
 
     return ReviewResponse.model_validate(review)
+
+
+@router.get("/buyer", response_model=PaginatedResponse[ReviewResponse])
+async def get_buyer_reviews(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get paginated reviews submitted by the current buyer/user."""
+    repo = ReviewRepository(db)
+    reviews, total = await repo.get_by_user(current_user.id, page, page_size)
+    return PaginatedResponse(
+        items=[ReviewResponse.model_validate(r) for r in reviews],
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=ceil(total / page_size) if total else 1,
+    )
 
 
 @router.get("/seller", response_model=PaginatedResponse[ReviewResponse])

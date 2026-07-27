@@ -135,7 +135,7 @@ class TemplateService:
                         
                         pages = []
                         for name in namelist:
-                            if name.startswith(base_dir) and (name.endswith(".html") or name.endswith(".jsx") or name.endswith(".js")):
+                            if name.startswith(base_dir) and (name.endswith(".html") or name.endswith(".jsx") or name.endswith(".js") or name.endswith(".tsx") or name.endswith(".ts")):
                                 rel_name = name[len(base_dir):]
                                 if "/" not in rel_name and rel_name != "" and not rel_name.startswith("__MACOSX"):
                                     pages.append(rel_name)
@@ -147,6 +147,34 @@ class TemplateService:
             except Exception as e:
                 print("Failed to dynamically extract included_pages:", e)
                 
+        # Get developer stats
+        templates_count = 0
+        total_sales = 0
+        if template.seller_id or template.developer_name:
+            from sqlalchemy import select, func
+            from app.models.template import TemplateStatus
+
+            count_cond = (
+                Template.seller_id == template.seller_id 
+                if template.seller_id 
+                else Template.developer_name == template.developer_name
+            )
+            count_query = select(func.count(Template.id)).where(
+                count_cond,
+                Template.status == TemplateStatus.PUBLISHED
+            )
+            count_result = await self.db.execute(count_query)
+            templates_count = count_result.scalar() or 0
+
+            sales_query = select(func.sum(Template.downloads_count)).where(
+                count_cond,
+                Template.status == TemplateStatus.PUBLISHED
+            )
+            sales_result = await self.db.execute(sales_query)
+            total_sales = sales_result.scalar() or 0
+
+        response.seller_templates_count = templates_count
+        response.seller_total_sales = total_sales
         response.is_favorited = is_favorited
         response.is_wishlisted = is_wishlisted
         return response

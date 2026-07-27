@@ -63,6 +63,7 @@ async def list_templates(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     semantic: bool = Query(False, description="Use AI semantic search"),
+    developer: Optional[str] = Query(None, description="Developer/seller name"),
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
@@ -78,6 +79,7 @@ async def list_templates(
         license_type=license_type, sales=sales, compatibility=compatibility, language=language,
         date_added=date_added,
         sort=sort, page=page, page_size=page_size, semantic=semantic,
+        developer=developer,
     )
 
     service = TemplateService(db)

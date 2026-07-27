@@ -1,6 +1,7 @@
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "sonner";
 import "./globals.css";
+import "./tailwind.css";
 import "./Layout.css";
 import Providers from "@/components/providers/Providers";
 import { AppAuthProvider } from "@/lib/auth";

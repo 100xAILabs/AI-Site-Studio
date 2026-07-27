@@ -7,88 +7,61 @@
 
 :root {
   /* ═══════════════════════════════════════════════════
-     EAGLE MONOCHROME — Unified Theme (Always Dark)
+     SERENITY — Professional Calm Light Theme
      ═══════════════════════════════════════════════════ */
-  --background: 0 0% 4%;            /* Near pure black */
-  --foreground: 0 0% 96%;           /* Near pure white */
-  --card: 0 0% 7%;
-  --card-foreground: 0 0% 96%;
-  --popover: 0 0% 7%;
-  --popover-foreground: 0 0% 96%;
-  --primary: 0 0% 94%;              /* Near white */
-  --primary-foreground: 0 0% 6%;    /* Near black */
-  --secondary: 0 0% 72%;            /* Light grey */
-  --secondary-foreground: 0 0% 6%;
-  --muted: 0 0% 12%;
-  --muted-foreground: 0 0% 58%;
-  --accent: 0 0% 14%;
-  --accent-foreground: 0 0% 90%;
-  --destructive: 0 62% 50%;
+  --background: 210 20% 98%;           /* Soft cloud white */
+  --foreground: 222 39% 18%;           /* Deep slate navy */
+  --card: 0 0% 100%;                   /* Pure white cards */
+  --card-foreground: 222 39% 18%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 39% 18%;
+  --primary: 231 58% 55%;              /* Calm indigo */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 197 71% 52%;            /* Muted teal accent */
+  --secondary-foreground: 0 0% 100%;
+  --muted: 210 20% 94%;                /* Very light slate */
+  --muted-foreground: 215 16% 47%;     /* Medium slate grey */
+  --accent: 210 20% 94%;
+  --accent-foreground: 222 39% 18%;
+  --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
-  --border: 0 0% 16%;
-  --input: 0 0% 16%;
-  --ring: 0 0% 85%;
+  --border: 214 20% 88%;               /* Soft dividers */
+  --input: 214 20% 88%;
+  --ring: 231 58% 55%;
   --radius: 0.75rem;
-  --brand: 0 0% 94%;
+  --brand: 231 58% 55%;
 
-  /* Greyscale Palette */
-  --brand-50:  #fafafa;
-  --brand-100: #f4f4f5;
-  --brand-200: #e4e4e7;
-  --brand-300: #d1d1d6;
-  --brand-400: #a1a1aa;
-  --brand-500: #71717a;
-  --brand-600: #52525b;
-  --brand-700: #3f3f46;
-  --brand-800: #27272a;
-  --brand-900: #18181b;
-  --brand-950: #09090b;
+  /* Brand Palette — Indigo */
+  --brand-50:  #eef2ff;
+  --brand-100: #e0e7ff;
+  --brand-200: #c7d2fe;
+  --brand-300: #a5b4fc;
+  --brand-400: #818cf8;
+  --brand-500: #6366f1;
+  --brand-600: #4f46e5;
+  --brand-700: #4338ca;
+  --brand-800: #3730a3;
+  --brand-900: #312e81;
+  --brand-950: #1e1b4b;
 
-  --neutral-50:  #fafafa;
-  --neutral-100: #f4f4f5;
-  --neutral-200: #e4e4e7;
-  --neutral-300: #d1d1d6;
-  --neutral-400: #a1a1aa;
-  --neutral-500: #71717a;
-  --neutral-600: #52525b;
-  --neutral-700: #3f3f46;
-  --neutral-800: #27272a;
-  --neutral-900: #18181b;
-  --neutral-950: #09090b;
+  /* Neutral Palette — Slate */
+  --neutral-50:  #f8fafc;
+  --neutral-100: #f1f5f9;
+  --neutral-200: #e2e8f0;
+  --neutral-300: #cbd5e1;
+  --neutral-400: #94a3b8;
+  --neutral-500: #64748b;
+  --neutral-600: #475569;
+  --neutral-700: #334155;
+  --neutral-800: #1e293b;
+  --neutral-900: #0f172a;
+  --neutral-950: #020617;
 
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'Geist Mono', monospace;
 }
 
-/* ═══════════════════════════════════════════════════
-   EAGLE MONOCHROME — Dark Mode (Black + White)
-═══════════════════════════════════════════════════ */
-.dark {
-  --background: 0 0% 4%;            /* Near pure black */
-  --foreground: 0 0% 96%;           /* Near pure white */
-  --card: 0 0% 7%;
-  --card-foreground: 0 0% 96%;
-  --popover: 0 0% 7%;
-  --popover-foreground: 0 0% 96%;
-  --primary: 0 0% 94%;              /* Near white */
-  --primary-foreground: 0 0% 6%;    /* Near black */
-  --secondary: 0 0% 72%;            /* Light grey */
-  --secondary-foreground: 0 0% 6%;
-  --muted: 0 0% 12%;
-  --muted-foreground: 0 0% 58%;
-  --accent: 0 0% 14%;
-  --accent-foreground: 0 0% 90%;
-  --destructive: 0 62% 50%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 0 0% 16%;
-  --input: 0 0% 16%;
-  --ring: 0 0% 85%;
-  --brand: 0 0% 94%;
-}
-
-
-
-
+/* Light mode is the only mode */
 
 * {
   border-color: hsl(var(--border));
@@ -111,52 +84,51 @@ html, body {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: hsl(var(--muted));
 }
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted-foreground) / 0.3);
+  background: hsl(var(--muted-foreground) / 0.35);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.5);
+  background: hsl(var(--muted-foreground) / 0.6);
 }
 
 /* Glass card */
 .glass {
-  background: hsl(var(--card) / 0.6);
+  background: hsl(var(--card) / 0.8);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid hsl(var(--border) / 0.5);
+  border: 1px solid hsl(var(--border) / 0.7);
 }
 
 .glass-strong {
-  background: hsl(var(--card) / 0.8);
+  background: hsl(var(--card) / 0.95);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  border: 1px solid hsl(var(--border) / 0.6);
+  border: 1px solid hsl(var(--border) / 0.85);
 }
 
-/* Gradient text — monochrome eagle style */
+/* Gradient text — calm indigo/teal */
 .gradient-text {
-  background: linear-gradient(135deg, hsl(var(--foreground)) 0%, hsl(var(--muted-foreground)) 100%);
+  background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--secondary)) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
 .gradient-text-gold {
-  background: linear-gradient(135deg, #e5e5e5 0%, #a1a1aa 100%);
+  background: linear-gradient(135deg, hsl(var(--primary)) 0%, #818cf8 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
 /* ═══════════════════════════════════════════════════
-   EAGLE DESIGN — Decorative Elements
-   Use these classes to add eagle-themed visual flair
+   SERENITY DESIGN — Decorative Elements
 ═══════════════════════════════════════════════════ */
 
-/* Wing-sweep divider: two feather-like sweeping lines flanking content */
+/* Wing-sweep divider */
 .eagle-divider {
   display: flex;
   align-items: center;
@@ -167,20 +139,18 @@ html, body {
 .eagle-divider::after {
   content: '';
   flex: 1;
-  height: 1.5px;
+  height: 1px;
   background: linear-gradient(90deg,
     transparent 0%,
-    hsl(var(--foreground) / 0.15) 30%,
-    hsl(var(--foreground) / 0.6) 70%,
-    hsl(var(--foreground) / 0.8) 100%
+    hsl(var(--border)) 40%,
+    hsl(var(--primary) / 0.3) 100%
   );
-  clip-path: polygon(0 50%, 2% 0%, 100% 50%, 2% 100%);
 }
 .eagle-divider::after {
   transform: scaleX(-1);
 }
 
-/* Eagle talon underline — bold angular underline for headings */
+/* Accent underline */
 .eagle-underline {
   position: relative;
   display: inline-block;
@@ -195,16 +165,16 @@ html, body {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    hsl(var(--foreground)) 20%,
-    hsl(var(--foreground)) 80%,
+    hsl(var(--primary)) 20%,
+    hsl(var(--secondary)) 80%,
     transparent 100%
   );
-  clip-path: polygon(0 100%, 3% 0%, 97% 0%, 100% 100%);
+  border-radius: 9999px;
 }
 
-/* Eagle feather border — angular left-side accent border */
+/* Left border accent */
 .eagle-border-left {
-  border-left: 3px solid hsl(var(--foreground) / 0.8);
+  border-left: 3px solid hsl(var(--primary) / 0.6);
   padding-left: 1rem;
   position: relative;
 }
@@ -218,22 +188,22 @@ html, body {
   background: linear-gradient(
     180deg,
     transparent,
-    hsl(var(--foreground)) 20%,
-    hsl(var(--foreground)) 80%,
+    hsl(var(--primary)) 20%,
+    hsl(var(--secondary)) 80%,
     transparent
   );
 }
 
-/* Subtle repeating eagle feather dot pattern for backgrounds */
+/* Subtle dot pattern for backgrounds */
 .eagle-pattern-bg {
   background-image:
-    radial-gradient(circle, hsl(var(--foreground) / 0.06) 1px, transparent 1px),
-    radial-gradient(circle, hsl(var(--foreground) / 0.03) 1px, transparent 1px);
+    radial-gradient(circle, hsl(var(--primary) / 0.05) 1px, transparent 1px),
+    radial-gradient(circle, hsl(var(--primary) / 0.03) 1px, transparent 1px);
   background-size: 24px 24px, 12px 12px;
   background-position: 0 0, 6px 6px;
 }
 
-/* Eagle wing sweep — full-width decorative arc for section tops/bottoms */
+/* Wing-sweep top border */
 .eagle-wing-top {
   position: relative;
 }
@@ -243,44 +213,43 @@ html, body {
   top: 0;
   left: 0;
   right: 0;
-  height: 3px;
+  height: 2px;
   background: linear-gradient(
     90deg,
     transparent 0%,
-    hsl(var(--foreground) / 0.2) 15%,
-    hsl(var(--foreground) / 0.8) 50%,
-    hsl(var(--foreground) / 0.2) 85%,
+    hsl(var(--primary) / 0.3) 15%,
+    hsl(var(--primary)) 50%,
+    hsl(var(--primary) / 0.3) 85%,
     transparent 100%
   );
-  clip-path: polygon(0 100%, 5% 0%, 50% 40%, 95% 0%, 100% 100%);
 }
 
-/* Eagle glow — pulsing box-shadow in monochrome */
+/* Soft glow */
 .eagle-glow {
-  box-shadow: 0 0 0 1px hsl(var(--foreground) / 0.1),
-              0 4px 24px hsl(var(--foreground) / 0.06);
+  box-shadow: 0 0 0 1px hsl(var(--primary) / 0.08),
+              0 4px 24px hsl(var(--primary) / 0.08);
   transition: box-shadow 0.3s ease;
 }
 .eagle-glow:hover {
-  box-shadow: 0 0 0 1px hsl(var(--foreground) / 0.25),
-              0 8px 40px hsl(var(--foreground) / 0.12),
-              0 2px 8px hsl(var(--foreground) / 0.1);
+  box-shadow: 0 0 0 1px hsl(var(--primary) / 0.2),
+              0 8px 40px hsl(var(--primary) / 0.12),
+              0 2px 8px hsl(var(--primary) / 0.08);
 }
 
-/* Eagle badge — circular monochrome badge style */
+/* Badge */
 .eagle-badge {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
   padding: 0.25rem 0.75rem;
   border-radius: 9999px;
-  border: 1px solid hsl(var(--foreground) / 0.25);
-  background: hsl(var(--foreground) / 0.05);
+  border: 1px solid hsl(var(--primary) / 0.25);
+  background: hsl(var(--primary) / 0.06);
   font-size: 0.75rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: hsl(var(--foreground) / 0.75);
+  color: hsl(var(--primary));
 }
 
 /* Shimmer skeleton loader */
@@ -288,7 +257,7 @@ html, body {
   background: linear-gradient(
     90deg,
     hsl(var(--muted)) 25%,
-    hsl(var(--muted-foreground) / 0.1) 50%,
+    hsl(var(--border)) 50%,
     hsl(var(--muted)) 75%
   );
   background-size: 200% 100%;
@@ -297,11 +266,11 @@ html, body {
 
 /* Glow button */
 .btn-glow {
-  box-shadow: 0 0 20px hsl(var(--primary) / 0.4);
+  box-shadow: 0 0 20px hsl(var(--primary) / 0.25);
   transition: box-shadow 0.3s ease;
 }
 .btn-glow:hover {
-  box-shadow: 0 0 35px hsl(var(--primary) / 0.6), 0 0 70px hsl(var(--primary) / 0.2);
+  box-shadow: 0 0 35px hsl(var(--primary) / 0.4), 0 0 70px hsl(var(--primary) / 0.15);
 }
 
 /* Card hover */
@@ -310,7 +279,7 @@ html, body {
 }
 .card-hover:hover {
   transform: translateY(-4px);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 20px 60px rgba(99, 102, 241, 0.1);
 }
 
 /* Focus ring */
@@ -379,11 +348,21 @@ html, body {
 }
 
 @keyframes glow {
-  0% { box-shadow: 0 0 20px rgba(255, 0, 0, 0.3); }
-  100% { box-shadow: 0 0 40px rgba(255, 253, 253, 0.6), 0 0 80px rgba(108,99,250,0.2); }
+  0% { box-shadow: 0 0 20px hsl(var(--primary) / 0.2); }
+  100% { box-shadow: 0 0 40px hsl(var(--primary) / 0.4), 0 0 80px hsl(var(--secondary) / 0.15); }
 }
 
-/* Generic Layout & Spacing helper classes matching Tailwind names to ensure basic fallback */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .5; }
+}
+
+/* Generic Layout & Spacing helper classes */
 .flex { display: flex; }
 .inline-flex { display: inline-flex; }
 .flex-col { flex-direction: column; }
@@ -397,7 +376,6 @@ html, body {
 
 .grid { display: grid; }
 
-/* Grid columns helper classes */
 .grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
 .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -574,25 +552,15 @@ html, body {
 .mb-12 { margin-bottom: 3rem; }
 .mt-4 { margin-top: 1rem; }
 
-.shadow-lg { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
+.shadow-lg { box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.08), 0 4px 6px -2px rgba(99, 102, 241, 0.04); }
 
 .animate-spin { animation: spin 1s linear infinite; }
 .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
 
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: .5; }
-}
-
 /* Theme variables standard defaults */
 :root {
-  --hero-glow: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(37, 99, 235, 0.05), transparent);
-  --card-glow: radial-gradient(ellipse 80% 80% at 50% -40%, rgba(13, 148, 136, 0.03), transparent);
+  --hero-glow: radial-gradient(ellipse 80% 50% at 50% -20%, hsl(var(--primary) / 0.08), transparent);
+  --card-glow: radial-gradient(ellipse 80% 80% at 50% -40%, hsl(var(--secondary) / 0.05), transparent);
 }
 .bg-hero-glow {
   background-image: var(--hero-glow);

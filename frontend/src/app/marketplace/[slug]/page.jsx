@@ -127,7 +127,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
     let base = template?.preview_url && !template.preview_url.includes("example.com")
       ? template.preview_url
       : `${API_URL}/preview/live/${template?.id}`;
-    
+
     if (isGenerated) {
       const q = new URLSearchParams();
       q.set("businessName", aiForm.businessName || "");
@@ -153,6 +153,18 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
   const { data: followStatusData } = useFollowStatus(template?.seller_id, token);
   const isFollowing = !!followStatusData?.is_following;
   const toggleFollowMutation = useToggleFollow(token);
+
+  const handleFollowToggle = () => {
+    if (!isSignedIn || !token) {
+      alert("Please sign in to follow this seller.");
+      return;
+    }
+    if (!template?.seller_id) {
+      alert("Seller information is not available.");
+      return;
+    }
+    toggleFollowMutation.mutate(template.seller_id);
+  };
 
   const isSeller = isSignedIn && (user?.role === "seller" || user?.role === "SELLER");
 
@@ -436,7 +448,7 @@ npm run build`;
           {/* ── Left Column: Media & Info ────────────────────────────────── */}
           <div className="details-left-panel">
 
-            {/* 3. Template Hero Section */}
+            {/* 1. Template Hero Section */}
             <div className="details-hero-block card-container">
 
               {/* ── Tab Switcher Row (ABOVE the viewport) ── */}
@@ -701,7 +713,7 @@ npm run build`;
               {/* Compare Tray Removed */}
             </div>
 
-            {/* 4. Template Information */}
+            {/* 2. Template Information */}
             <div className="details-info-block card-container">
               <div className="details-info-header">
                 <div>
@@ -752,7 +764,7 @@ npm run build`;
               </div>
             </div>
 
-            {/* Description Details */}
+            {/* 3. Description Details */}
             <div className="details-desc-card card-container">
               <h3 className="section-title">About this template</h3>
               <div className="details-markdown-content text-muted-foreground text-sm leading-relaxed space-y-4">
@@ -767,7 +779,7 @@ npm run build`;
 
 
 
-            {/* 7. Screenshots Gallery */}
+            {/* 4. Screenshots Gallery */}
             <div className="details-gallery-block card-container">
               <h3 className="section-title">Screenshots Gallery</h3>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -787,7 +799,7 @@ npm run build`;
               </div>
             </div>
 
-            {/* 8. Pages Included */}
+            {/* 5. Pages Included */}
             <div className="details-pages-included-block card-container">
               <h3 className="section-title">Pages & Layouts Included</h3>
               <p className="text-xs text-muted-foreground mb-4">
@@ -806,7 +818,7 @@ npm run build`;
               </div>
             </div>
 
-            {/* 9. Features Section */}
+            {/* 6. Features Section */}
             <div className="details-features-block card-container">
               <h3 className="section-title">Utility & Design Features</h3>
               <div className="grid sm:grid-cols-2 gap-4">
@@ -827,7 +839,7 @@ npm run build`;
               </div>
             </div>
 
-            {/* 10. Technology Stack & Browser Support */}
+            {/* 7. Technology Stack & Browser Support */}
             <div className="details-tech-stack-block card-container">
               <div className="grid md:grid-cols-2 gap-6">
                 <div>
@@ -848,7 +860,7 @@ npm run build`;
                       // Build dynamically from framework and tags
                       const stack = [];
                       const fw = template.framework?.toLowerCase() || "";
-                      
+
                       if (fw.includes("next")) {
                         stack.push("Next.js", "React", "JavaScript");
                       } else if (fw.includes("react")) {
@@ -915,7 +927,7 @@ npm run build`;
 
                       // Filter out any accidentally stored framework names (due to dashboard uploads)
                       const knownBrowsers = ["chrome", "firefox", "safari", "edge", "opera", "ie"];
-                      const filteredComp = template.compatibility.filter(item => 
+                      const filteredComp = template.compatibility.filter(item =>
                         knownBrowsers.includes(item.toLowerCase())
                       );
 
@@ -950,7 +962,7 @@ npm run build`;
               </div>
             </div>
 
-            {/* 11. Performance Scores */}
+            {/* 8. Performance Scores */}
             <div className="details-performance-block card-container">
               <h3 className="section-title">Google Lighthouse Audits</h3>
               <p className="text-xs text-muted-foreground mb-6">
@@ -1009,7 +1021,7 @@ npm run build`;
               </div>
             </div>
 
-            {/* 12. Customization Options */}
+            {/* 9. Customization Options */}
             <div className="details-customization-options-block card-container">
               <h3 className="section-title">Design Customization Options</h3>
               <div className="grid sm:grid-cols-2 gap-4">
@@ -1030,31 +1042,7 @@ npm run build`;
               </div>
             </div>
 
-            {/* 13. AI Features */}
-            <div className="details-ai-features-block card-container border border-yellow-500/10 bg-yellow-500/[0.02]">
-              <h3 className="section-title text-yellow-500 flex items-center gap-1.5">
-                <Sparkles className="w-5 h-5" />
-                Integrated AI Capabilities
-              </h3>
-              <p className="text-xs text-muted-foreground mb-4">
-                Automatically generate business-specific copy, localized meta settings, and customized images.
-              </p>
-
-              <div className="flex flex-wrap gap-2 mb-4">
-                {(template.changelog?.ai_report?.features_detected || [
-                  "AI Content Generation", "AI Custom Images", "AI SEO Metadata", "AI Support Chat Agent", "AI Blog Autopopulate"
-                ]).map((b) => (
-                  <span key={b} className="text-[10px] font-bold text-yellow-500 bg-yellow-500/10 border border-yellow-500/20 px-2.5 py-1 rounded-full uppercase tracking-wider">
-                    {b}
-                  </span>
-                ))}
-              </div>
-              <p className="text-[11px] text-muted-foreground">
-                * To enable full AI integrations, make sure you configure your OpenAI or Anthropic API Keys in the environment variables after cloning down the source repositories.
-              </p>
-            </div>
-
-            {/* 14. Template Specifications */}
+            {/* 10. Template Specifications */}
             <div className="details-specs-block card-container">
               <h3 className="section-title">Technical Specifications</h3>
               <div className="overflow-x-auto">
@@ -1109,7 +1097,7 @@ npm run build`;
               </div>
             </div>
 
-            {/* 15. What's Included */}
+            {/* 11. What's Included */}
             <div className="details-whats-included-block card-container">
               <h3 className="section-title">What&apos;s Included in the Archive</h3>
               <div className="grid sm:grid-cols-2 gap-3">
@@ -1131,7 +1119,7 @@ npm run build`;
               </div>
             </div>
 
-            {/* 17. Reviews */}
+            {/* 12. Reviews */}
             <div className="details-reviews-block card-container">
               <h3 className="section-title">Verified Buyer Reviews</h3>
 
@@ -1306,7 +1294,7 @@ npm run build`;
               )}
             </div>
 
-            {/* 20. Changelog */}
+            {/* 13. Changelog */}
             <div className="details-changelog-block card-container">
               <h3 className="section-title">Template Release Changelog</h3>
 
@@ -1356,7 +1344,7 @@ npm run build`;
               </div>
             </div>
 
-            {/* 21. Documentation Preview */}
+            {/* 14. Documentation Preview */}
             <div className="details-docs-preview-block card-container">
               <h3 className="section-title">Documentation Preview</h3>
 
@@ -1395,11 +1383,11 @@ npm run build`;
               </div>
             </div>
 
-            {/* License Comparison Removed */}
+            {/* 15. License Comparison Removed */}
 
           </div>
 
-          {/* ── Right Column: Purchase Sidebar (Sticky) ────────────────── */}
+          {/* 16. Right Column: Purchase Sidebar (Sticky) ────────────────── */}
           <div className="details-right-panel">
             <div className="details-sidebar">
 
@@ -1504,21 +1492,24 @@ npm run build`;
                 <div className="seller-stats">
                   <div className="seller-stat">
                     <span className="seller-stat-label">Published</span>
-                    <span className="seller-stat-val">42 Templates</span>
+                    <span className="seller-stat-val">{template.seller_templates_count || 0} Templates</span>
                   </div>
                   <div className="seller-stat">
                     <span className="seller-stat-label">Total Sales</span>
-                    <span className="seller-stat-val">3,428 orders</span>
+                    <span className="seller-stat-val">{(template.seller_total_sales || 0).toLocaleString()} orders</span>
                   </div>
                 </div>
 
                 <div className="seller-actions">
-                  <button
-                    onClick={() => setIsFollowing(!isFollowing)}
-                    className={cn("seller-follow-btn", isFollowing ? "following" : "")}
-                  >
-                    {isFollowing ? "Following" : "Follow"}
-                  </button>
+                  {user?.id !== template.seller_id && (
+                    <button
+                      onClick={handleFollowToggle}
+                      className={cn("seller-follow-btn", isFollowing ? "following" : "")}
+                      disabled={toggleFollowMutation.isPending}
+                    >
+                      {toggleFollowMutation.isPending ? "Loading..." : (isFollowing ? "Following" : "Follow")}
+                    </button>
+                  )}
                   <Link href={`/marketplace?developer=${template.developer_name}`} className="seller-more-link">More Items</Link>
                 </div>
               </div>
@@ -1526,31 +1517,9 @@ npm run build`;
             </div>
           </div>
         </div>
-        {/* 24. Recently Viewed */}
-        {recentlyViewed.length > 0 && (
-          <div className="details-recently-viewed-block pt-12 border-t border-border/40 mt-12">
-            <h3 className="section-title text-base flex items-center gap-1.5 mb-6 text-muted-foreground">
-              <Clock className="w-4 h-4" />
-              Recently Viewed Templates
-            </h3>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
-              {recentlyViewed.map((t) => (
-                <Link key={t.id} href={`/marketplace/${t.slug}`} className="group block space-y-2 border border-border/30 rounded-lg p-2 hover:border-primary/20 transition-all bg-card/25">
-                  <div className="relative aspect-video rounded overflow-hidden bg-muted">
-                    <Image src={t.thumbnail_url} alt={t.title} fill className="object-cover group-hover:scale-105 transition-transform" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-xs text-foreground truncate group-hover:text-primary transition-colors">{t.title}</h4>
-                    <span className="text-[10px] text-muted-foreground font-medium">{formatPrice(t.price)}</span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
-        )}
 
-        {/* 25. FAQ Section */}
+        {/* 17. FAQ Section */}
         <div className="details-faq-block pt-12 border-t border-border/40 mt-12 max-w-3xl mx-auto">
           <h3 className="section-title text-center text-lg mb-8">Frequently Asked Questions</h3>
 
@@ -1595,7 +1564,7 @@ npm run build`;
           </div>
         </div>
 
-        {/* 26. Footer CTA Banner */}
+        {/* 18. Footer CTA Banner */}
         <div className="details-footer-cta-block">
           <div className="cta-glow" />
           <h2 className="cta-heading">Ready to build your professional site?</h2>
@@ -1620,7 +1589,7 @@ npm run build`;
         </div>
       </div>
 
-      {/* Screenshot Lightbox Modal */}
+      {/* 19. Screenshot Lightbox Modal */}
       <AnimatePresence>
         {lightboxImg && (
           <motion.div
@@ -1640,7 +1609,7 @@ npm run build`;
         )}
       </AnimatePresence>
 
-      {/* Share Template Modal */}
+      {/* 20. Share Template Modal */}
       <AnimatePresence>
         {showShareModal && (
           <motion.div
@@ -1700,7 +1669,7 @@ npm run build`;
 
               {/* Description */}
               <p style={{ fontSize: "0.875rem", color: "hsl(var(--muted-foreground))", margin: 0 }}>
-                {isGenerated 
+                {isGenerated
                   ? "Share this customized version of the template with others. It includes your custom colors, copy, and settings."
                   : "Share this template with others."
                 }

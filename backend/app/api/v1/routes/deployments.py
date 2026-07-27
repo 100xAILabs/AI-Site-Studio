@@ -12,7 +12,7 @@ import io
 import httpx
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 # Resolve static directory relative to this file (backend/app/api/v1/routes/ → backend/static/)
 _STATIC_ROOT = Path(__file__).resolve().parents[4] / "static"
@@ -438,10 +438,46 @@ async def delete_deployment(
         raise HTTPException(status_code=404, detail="Deployment not found")
 
     # Clean up static files directory
-    deploy_dir = os.path.join("static", "deployments", str(id))
+    deploy_dir = str(_DEPLOYMENTS_ROOT / str(id))
     if os.path.exists(deploy_dir):
         shutil.rmtree(deploy_dir, ignore_errors=True)
 
     await db.delete(deployment)
     await db.commit()
     return
+
+
+@router.patch("/{id}/domain", response_model=DeploymentResponse)
+async def update_custom_domain(
+    id: uuid.UUID,
+    custom_domain: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Link or unlink a custom domain to/from an existing deployment."""
+    stmt = select(Deployment).where(Deployment.id == id, Deployment.user_id == current_user.id)
+    res = await db.execute(stmt)
+    deployment = res.scalar_one_or_none()
+
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+
+    if custom_domain:
+        domain_clean = custom_domain.strip().lower()
+        if not domain_clean or "." not in domain_clean or len(domain_clean) < 4:
+            raise HTTPException(status_code=400, detail="Invalid custom domain format")
+        
+        deployment.custom_domain = domain_clean
+        # Update live_url to point to custom domain (ensuring http/https prefix)
+        if not (domain_clean.startswith("http://") or domain_clean.startswith("https://")):
+            deployment.live_url = f"http://{domain_clean}"
+        else:
+            deployment.live_url = domain_clean
+    else:
+        deployment.custom_domain = None
+        # Revert live_url to default subdomain
+        deployment.live_url = f"http://{deployment.subdomain}"
+
+    await db.commit()
+    await db.refresh(deployment)
+    return deployment

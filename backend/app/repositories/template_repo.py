@@ -176,6 +176,9 @@ class TemplateRepository:
             elif filters.date_added == "last-year":
                 query = query.where(Template.created_at >= now - timedelta(days=365))
 
+        if filters.developer:
+            query = query.where(Template.developer_name == filters.developer)
+
         if filters.tags:
             query = query.where(cast(Template.tags, ARRAY(String)).overlap(filters.tags))
 

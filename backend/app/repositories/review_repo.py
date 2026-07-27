@@ -64,15 +64,25 @@ class ReviewRepository:
         )
         self.db.add(review)
         await self.db.flush()
-        await self.db.refresh(review)
-        return review
+        # Re-fetch with eager loading so relationships are available
+        # without triggering lazy loads (which fail in async context)
+        result = await self.db.execute(
+            select(Review)
+            .options(selectinload(Review.user), selectinload(Review.template))
+            .where(Review.id == review.id)
+        )
+        return result.scalar_one()
 
     async def update(self, review: Review, data: ReviewUpdate) -> Review:
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(review, field, value)
         await self.db.flush()
-        await self.db.refresh(review)
-        return review
+        result = await self.db.execute(
+            select(Review)
+            .options(selectinload(Review.user), selectinload(Review.template))
+            .where(Review.id == review.id)
+        )
+        return result.scalar_one()
 
     async def delete(self, review: Review) -> None:
         await self.db.delete(review)
@@ -123,6 +133,25 @@ class ReviewRepository:
         result = await self.db.execute(
             select(Review)
             .options(selectinload(Review.user), selectinload(Review.template))
+            .order_by(Review.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        return list(result.scalars().all()), total
+
+    async def get_by_user(
+        self, user_id: uuid.UUID, page: int = 1, page_size: int = 20
+    ) -> Tuple[List[Review], int]:
+        """Get reviews submitted by a specific user (buyer)."""
+        count_result = await self.db.execute(
+            select(func.count(Review.id)).where(Review.user_id == user_id)
+        )
+        total = count_result.scalar_one()
+
+        result = await self.db.execute(
+            select(Review)
+            .options(selectinload(Review.user), selectinload(Review.template))
+            .where(Review.user_id == user_id)
             .order_by(Review.created_at.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)

@@ -60,6 +60,7 @@ function Marketplace() {
         compatibility: params.compatibility,
         language: params.language,
         date_added: params.date_added,
+        developer: params.developer,
       });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -220,10 +221,22 @@ function Marketplace() {
               </div>
 
               {/* ── Result count ──────────────────────────────────── */}
-              <div className="result-count-bar">
+              <div className="result-count-bar flex justify-between items-center flex-wrap gap-2" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
                 <p className="result-count-text">
                   {isLoading ? "Loading…" : `${total.toLocaleString()} templates found`}
                 </p>
+                {filters.developer && (
+                  <div className="flex items-center gap-1.5 bg-primary/20 text-primary border border-primary/30 px-3 py-1 rounded-full text-xs font-semibold" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                    <span>Developer: {filters.developer}</span>
+                    <button 
+                      type="button" 
+                      onClick={() => setFilter("developer", undefined)}
+                      className="hover:text-white transition-colors ml-1 focus:outline-none bg-transparent border-none p-0 cursor-pointer text-primary flex items-center"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* ── Template grid ─────────────────────────────────── */}

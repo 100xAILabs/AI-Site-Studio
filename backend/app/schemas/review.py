@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 
 from app.schemas.user import UserPublicResponse
 
-
 class ReviewBase(BaseModel):
     rating: int = Field(..., ge=1, le=5)
     title: Optional[str] = Field(None, max_length=200)
