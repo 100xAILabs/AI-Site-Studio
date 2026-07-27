@@ -87,3 +87,8 @@ yarn-error.log*
 *.tmp
 .venv_backup/
 uploads/
+
+# ==================== Executables / Media ====================
+*.exe
+*.mp3
+*.wav

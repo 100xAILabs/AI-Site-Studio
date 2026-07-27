@@ -1205,3 +1205,170 @@
   box-shadow: 0 0 6px rgba(139, 92, 246, 0.5);
   cursor: pointer;
 }
+
+/* ── Continuous Deployments ── */
+.deployments-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.5rem;
+}
+
+.deploy-card {
+  transition: all 0.2s ease-in-out;
+}
+
+.deploy-card:hover {
+  transform: translateY(-2px);
+  border-color: hsla(var(--primary) / 0.35) !important;
+}
+
+/* Status Badges */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.status-badge.building {
+  background-color: hsla(217, 91%, 60%, 0.1);
+  color: #3b82f6;
+  border: 1px solid hsla(217, 91%, 60%, 0.15);
+}
+
+.status-badge.success {
+  background-color: hsla(142, 70%, 45%, 0.1);
+  color: #10b981;
+  border: 1px solid hsla(142, 70%, 45%, 0.15);
+}
+
+.status-badge.failed {
+  background-color: hsla(0, 84%, 60%, 0.1);
+  color: #ef4444;
+  border: 1px solid hsla(0, 84%, 60%, 0.15);
+}
+
+/* Modals */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1.5rem;
+}
+
+.modal-content {
+  width: 100%;
+  max-width: 550px;
+  max-height: 90vh;
+  overflow-y: auto;
+  animation: modalSlideUp 0.3s ease-out;
+}
+
+.modal-content.large {
+  max-width: 750px;
+}
+
+@keyframes modalSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Providers Select Grid */
+.provider-select-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+}
+
+.provider-card {
+  cursor: pointer;
+  border: 1px solid hsl(var(--border) / 0.3);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  text-align: center;
+  transition: all 0.2s ease;
+  background-color: hsl(var(--card) / 0.2);
+}
+
+.provider-card:hover {
+  background-color: hsl(var(--card) / 0.4);
+  border-color: hsl(var(--border) / 0.6);
+}
+
+.provider-card.selected {
+  border-color: hsl(var(--primary));
+  background-color: hsla(var(--primary) / 0.08);
+}
+
+/* Terminal Console styling */
+.terminal-window {
+  background-color: #0b0f19;
+  border: 1px solid #1e293b;
+  border-radius: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  overflow: hidden;
+}
+
+.terminal-header {
+  background-color: #151d30;
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #1e293b;
+}
+
+.terminal-dots {
+  display: flex;
+  gap: 0.375rem;
+}
+
+.terminal-dot {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 9999px;
+}
+
+.terminal-body {
+  padding: 1.25rem;
+  height: 350px;
+  overflow-y: auto;
+  color: #e2e8f0;
+  font-size: 0.825rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.terminal-log-line {
+  margin-bottom: 0.25rem;
+}
+
+.terminal-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 15px;
+  background-color: #06b6d4;
+  animation: terminalBlink 1s infinite;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+
+@keyframes terminalBlink {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}

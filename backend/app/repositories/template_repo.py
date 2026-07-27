@@ -95,15 +95,23 @@ class TemplateRepository:
         # ── Filters ──────────────────────────────────────────────────────────
         if filters.category:
             category_normalized = filters.category.lower().replace("-", " ")
+            parts = filters.category.split("-")
+            slug_conditions = [Category.slug == filters.category]
+            for p in parts:
+                if len(p) > 3:
+                    slug_conditions.append(Category.slug == p)
+                    slug_conditions.append(Category.slug.ilike(f"%{p}%"))
             query = query.where(
                 or_(
-                    Category.slug == filters.category,
+                    *slug_conditions,
                     Category.name.ilike(f"%{filters.category}%"),
                     Category.name.ilike(f"%{category_normalized}%"),
+                    *[Category.name.ilike(f"%{p}%") for p in parts if len(p) > 3],
                     Template.industry.ilike(f"%{filters.category}%"),
                     Template.industry.ilike(f"%{category_normalized}%"),
                     cast(Template.tags, ARRAY(String)).overlap([filters.category]),
                     cast(Template.tags, ARRAY(String)).overlap([category_normalized]),
+                    *[cast(Template.tags, ARRAY(String)).overlap([p]) for p in parts if len(p) > 3]
                 )
             )
 

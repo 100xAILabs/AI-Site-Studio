@@ -43,7 +43,7 @@ const AI_PRESETS = [
 function PreviewEditorInner() {
   const searchParams = useSearchParams();
   const rawParam = searchParams.get("template") || searchParams.get("slug");
-  const templateId = rawParam || "default";
+  const [activeTemplateId, setActiveTemplateId] = useState(rawParam || "default");
 
   // Template metadata state from backend API
   const [templateData, setTemplateData] = useState(null);
@@ -65,6 +65,7 @@ function PreviewEditorInner() {
 
   // Manual Edit Sub-Tab State
   const [manualTab, setManualTab] = useState("brand");
+  const [pageEdits, setPageEdits] = useState({});
 
   // Master Brand & Content State (Synced Live to Preview Canvas)
   const [brand, setBrand] = useState({
@@ -74,6 +75,8 @@ function PreviewEditorInner() {
     primary_color: "#6366f1",
     secondary_color: "#ec4899",
     font_family: "Inter",
+    contact_email: "support@aisitestudio.com",
+    contact_phone: "+1 (555) 019-2834",
   });
 
   const [pages, setPages] = useState({
@@ -170,25 +173,61 @@ function PreviewEditorInner() {
 
   // Fetch Template Details from Backend API on mount
   useEffect(() => {
-    if (templateId && templateId !== "default") {
+    if (activeTemplateId && activeTemplateId !== "default") {
       setLoadingTemplate(true);
-      api.get(`/templates/${templateId}`)
+      api.get(`/templates/${activeTemplateId}`)
         .then((data) => {
           if (data) {
             setTemplateData(data);
-            if (data.title) {
-              setBrand((prev) => ({
-                ...prev,
-                business_name: data.title,
-                logo_text: data.title.toUpperCase().slice(0, 8),
-              }));
+            
+            let primaryColor = "#6366f1";
+            let secondaryColor = "#ec4899";
+            
+            if (data.color_scheme) {
+              const schemeLower = data.color_scheme.toLowerCase();
+              if (schemeLower.includes("red")) {
+                primaryColor = "#dc2626";
+                secondaryColor = "#f8fafc";
+              } else if (schemeLower.includes("green")) {
+                primaryColor = "#059669";
+                secondaryColor = "#10b981";
+              } else if (schemeLower.includes("blue")) {
+                primaryColor = "#2563eb";
+                secondaryColor = "#3b82f6";
+              }
+            } else if (data.title && (data.title.toLowerCase().includes("blood") || data.title.toLowerCase().includes("lifelink") || data.title.toLowerCase().includes("emergency"))) {
+              primaryColor = "#dc2626";
+              secondaryColor = "#f5f5f5";
             }
+            
+            setBrand((prev) => ({
+              ...prev,
+              business_name: data.title || prev.business_name,
+              logo_text: data.title ? data.title.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8) : prev.logo_text,
+              tagline: data.short_description || prev.tagline,
+              primary_color: primaryColor,
+              secondary_color: secondaryColor,
+            }));
+            
+            setPages((prev) => ({
+              ...prev,
+              home: {
+                ...prev.home,
+                hero_title: data.title ? `Welcome to ${data.title}` : prev.home.hero_title,
+                hero_subtitle: data.short_description || prev.home.hero_subtitle,
+              },
+              about: {
+                ...prev.about,
+                title: `About ${data.title || "Us"}`,
+                story: data.description || prev.about.story,
+              }
+            }));
           }
         })
         .catch((err) => console.log("Failed to fetch template detail", err))
         .finally(() => setLoadingTemplate(false));
     }
-  }, [templateId]);
+  }, [activeTemplateId]);
 
   // AI Prompt Edit State (Claude / Antigravity IDE style)
   const [aiInput, setAiInput] = useState("");
@@ -232,15 +271,23 @@ function PreviewEditorInner() {
     setSavingManual(true);
     setEditNotice(null);
     try {
-      if (templateId !== "default") {
-        await api.post(`/preview/live/${templateId}/edit-manual`, {
+      if (activeTemplateId !== "default") {
+        const res = await api.post(`/preview/live/${activeTemplateId}/edit-manual`, {
           business_name: brand.business_name,
-          about: pages.about.story,
+          about: brand.tagline,
           primary_color: brand.primary_color,
           secondary_color: brand.secondary_color,
-          contact_email: pages.contact.email,
-          contact_phone: pages.contact.phone,
+          contact_email: brand.contact_email || "",
+          contact_phone: brand.contact_phone || "",
+          page_edits: pageEdits,
         });
+
+        if (res && res.template_id && res.template_id !== activeTemplateId) {
+          setActiveTemplateId(res.template_id);
+          const params = new URLSearchParams(window.location.search);
+          params.set("template", res.template_id);
+          window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
+        }
 
         // Trigger iframe reload to render freshly updated template code
         setIframeLoading(true);
@@ -291,11 +338,17 @@ function PreviewEditorInner() {
       setAiLogs((prev) => [...prev, logSteps[i]]);
     }
 
-    // Call backend edit-ai endpoint if templateId is real UUID
+    // Call backend edit-ai endpoint if activeTemplateId is real UUID
     let diffBadge = "✨ Code Refactored";
-    if (templateId !== "default") {
+    if (activeTemplateId !== "default") {
       try {
-        await api.post(`/preview/live/${templateId}/edit-ai`, { prompt: query });
+        const res = await api.post(`/preview/live/${activeTemplateId}/edit-ai`, { prompt: query });
+        if (res && res.template_id && res.template_id !== activeTemplateId) {
+          setActiveTemplateId(res.template_id);
+          const params = new URLSearchParams(window.location.search);
+          params.set("template", res.template_id);
+          window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
+        }
         setIframeLoading(true);
         setIframeKey((prev) => prev + 1);
         diffBadge = "⚡ Live Template Recompiled";
@@ -396,8 +449,30 @@ function PreviewEditorInner() {
     setTimeout(() => setIsRefreshing(false), 600);
   };
 
-  const liveServerUrl = templateId !== "default"
-    ? `http://localhost:8000/api/v1/preview/live/${templateId}/`
+  const getPageLabel = (filename) => {
+    if (filename === "index.html") return "Home Page";
+    const nameWithoutExt = filename.replace(/\.(html|jsx|js)$/, "");
+    return nameWithoutExt
+      .split(/[-_]/)
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+  };
+
+  const filesList = templateData?.included_pages && templateData.included_pages.length > 0
+    ? templateData.included_pages
+    : ["index.html"];
+
+  const dynamicTabs = [
+    { key: "brand", label: "Brand & Palette", icon: Palette },
+    ...filesList.map(filename => ({
+      key: filename,
+      label: getPageLabel(filename),
+      icon: FileText
+    }))
+  ];
+
+  const liveServerUrl = activeTemplateId !== "default"
+    ? `http://localhost:8000/api/v1/preview/live/${activeTemplateId}/${manualTab === "brand" ? "" : manualTab}`
     : null;
 
   return (
@@ -509,7 +584,7 @@ function PreviewEditorInner() {
               )}
 
               <a
-                href={templateId !== "default" ? `/marketplace/${templateId}` : "/marketplace"}
+                href={activeTemplateId !== "default" ? `/marketplace/${activeTemplateId}` : "/marketplace"}
                 className="purchase-cta-btn"
               >
                 <ShoppingBag className="w-3.5 h-3.5" />
@@ -544,7 +619,7 @@ function PreviewEditorInner() {
               {/* ──────────────────────────────────────────────────────────
                  VIEW 1: REAL COMPILED LIVE DEMO IFRAME
               ──────────────────────────────────────────────────────────── */}
-              {viewMode === "live" && templateId !== "default" && !iframeError ? (
+              {viewMode === "live" && activeTemplateId !== "default" && !iframeError ? (
                 <div className="relative w-full flex-1 bg-card flex flex-col overflow-hidden">
                   {iframeLoading && (
                     <div className="absolute inset-0 z-10 bg-card/90 backdrop-blur-sm flex flex-col items-center justify-center gap-3">
@@ -839,13 +914,7 @@ function PreviewEditorInner() {
             <div className="studio-tab-content">
               {/* Page Sub-Tabs */}
               <div className="manual-subtabs-row">
-                {[
-                  { key: "brand", label: "Brand & Palette", icon: Palette },
-                  { key: "home", label: "Home Hero", icon: Layers },
-                  { key: "about", label: "About Page", icon: FileText },
-                  { key: "services", label: "Services", icon: Zap },
-                  { key: "contact", label: "Contact Info", icon: Mail },
-                ].map((st) => {
+                {dynamicTabs.map((st) => {
                   const Icon = st.icon;
                   return (
                     <button
@@ -901,201 +970,110 @@ function PreviewEditorInner() {
                       />
                     </div>
 
-                    <h4 className="manual-group-title pt-2">Theme Colors</h4>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-3 pt-2">
                       <div>
-                        <label className="manual-label">Primary Color</label>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="color"
-                            value={brand.primary_color}
-                            onChange={(e) => handleBrandChange("primary_color", e.target.value)}
-                            className="color-swatch-input"
-                          />
-                          <input
-                            value={brand.primary_color}
-                            onChange={(e) => handleBrandChange("primary_color", e.target.value)}
-                            className="manual-input font-mono text-xs"
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="manual-label">Secondary Color</label>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="color"
-                            value={brand.secondary_color}
-                            onChange={(e) => handleBrandChange("secondary_color", e.target.value)}
-                            className="color-swatch-input"
-                          />
-                          <input
-                            value={brand.secondary_color}
-                            onChange={(e) => handleBrandChange("secondary_color", e.target.value)}
-                            className="manual-input font-mono text-xs"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Sub-Tab B: Home Page */}
-                {manualTab === "home" && (
-                  <div className="manual-form-group space-y-4">
-                    <h4 className="manual-group-title">Home Page Hero Copy</h4>
-
-                    <div>
-                      <label className="manual-label">Hero Headline Title</label>
-                      <textarea
-                        value={pages.home.hero_title}
-                        onChange={(e) => handlePageChange("home", "hero_title", e.target.value)}
-                        rows={2}
-                        className="manual-textarea"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="manual-label">Hero Subtitle</label>
-                      <textarea
-                        value={pages.home.hero_subtitle}
-                        onChange={(e) => handlePageChange("home", "hero_subtitle", e.target.value)}
-                        rows={3}
-                        className="manual-textarea"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="manual-label">Primary CTA Button</label>
+                        <label className="manual-label">Contact Email</label>
                         <input
-                          value={pages.home.cta_primary}
-                          onChange={(e) => handlePageChange("home", "cta_primary", e.target.value)}
-                          className="manual-input"
+                          value={brand.contact_email || ""}
+                          onChange={(e) => handleBrandChange("contact_email", e.target.value)}
+                          placeholder="e.g. hello@agency.com"
+                          className="manual-input text-xs"
                         />
                       </div>
                       <div>
-                        <label className="manual-label">Secondary Button</label>
+                        <label className="manual-label">Contact Phone</label>
                         <input
-                          value={pages.home.cta_secondary}
-                          onChange={(e) => handlePageChange("home", "cta_secondary", e.target.value)}
-                          className="manual-input"
+                          value={brand.contact_phone || ""}
+                          onChange={(e) => handleBrandChange("contact_phone", e.target.value)}
+                          placeholder="e.g. +1 555-0199"
+                          className="manual-input text-xs"
                         />
                       </div>
                     </div>
                   </div>
                 )}
 
-                {/* Sub-Tab C: About Page */}
-                {manualTab === "about" && (
+                {/* Dynamic Page Content Overrides Editor */}
+                {manualTab !== "brand" && (
                   <div className="manual-form-group space-y-4">
-                    <h4 className="manual-group-title">About Page Details</h4>
-
+                    <h4 className="manual-group-title">Customize {getPageLabel(manualTab)}</h4>
+                    
                     <div>
-                      <label className="manual-label">About Headline Title</label>
+                      <label className="manual-label">Page Headline / Main Header</label>
                       <input
-                        value={pages.about.title}
-                        onChange={(e) => handlePageChange("about", "title", e.target.value)}
+                        value={pageEdits[manualTab]?.title || ""}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setPageEdits(prev => ({
+                            ...prev,
+                            [manualTab]: {
+                              ...prev[manualTab],
+                              title: val
+                            }
+                          }));
+                        }}
+                        placeholder="e.g. Welcome to our Platform"
                         className="manual-input"
                       />
                     </div>
 
                     <div>
-                      <label className="manual-label">Company Story / Description</label>
+                      <label className="manual-label">Page Content / Description</label>
                       <textarea
-                        value={pages.about.story}
-                        onChange={(e) => handlePageChange("about", "story", e.target.value)}
-                        rows={4}
+                        value={pageEdits[manualTab]?.description || ""}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setPageEdits(prev => ({
+                            ...prev,
+                            [manualTab]: {
+                              ...prev[manualTab],
+                              description: val
+                            }
+                          }));
+                        }}
+                        placeholder="e.g. Provide custom text or description for this page."
+                        rows={6}
                         className="manual-textarea"
                       />
                     </div>
 
-                    <div>
-                      <label className="manual-label">Company Mission Statement</label>
-                      <textarea
-                        value={pages.about.mission}
-                        onChange={(e) => handlePageChange("about", "mission", e.target.value)}
-                        rows={3}
-                        className="manual-textarea"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* Sub-Tab D: Services Page */}
-                {manualTab === "services" && (
-                  <div className="manual-form-group space-y-4">
-                    <h4 className="manual-group-title">Services & Capabilities</h4>
-
-                    <div>
-                      <label className="manual-label">Services Section Header</label>
-                      <input
-                        value={pages.services.title}
-                        onChange={(e) => handlePageChange("services", "title", e.target.value)}
-                        className="manual-input"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="manual-label">Service 01 Title & Description</label>
-                      <input
-                        value={pages.services.s1_title}
-                        onChange={(e) => handlePageChange("services", "s1_title", e.target.value)}
-                        className="manual-input mb-1"
-                      />
-                      <input
-                        value={pages.services.s1_desc}
-                        onChange={(e) => handlePageChange("services", "s1_desc", e.target.value)}
-                        className="manual-input text-xs text-muted-foreground"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="manual-label">Service 02 Title & Description</label>
-                      <input
-                        value={pages.services.s2_title}
-                        onChange={(e) => handlePageChange("services", "s2_title", e.target.value)}
-                        className="manual-input mb-1"
-                      />
-                      <input
-                        value={pages.services.s2_desc}
-                        onChange={(e) => handlePageChange("services", "s2_desc", e.target.value)}
-                        className="manual-input text-xs text-muted-foreground"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* Sub-Tab E: Contact Page */}
-                {manualTab === "contact" && (
-                  <div className="manual-form-group space-y-4">
-                    <h4 className="manual-group-title">Contact & Location</h4>
-
-                    <div>
-                      <label className="manual-label">Contact Email</label>
-                      <input
-                        value={pages.contact.email}
-                        onChange={(e) => handlePageChange("contact", "email", e.target.value)}
-                        className="manual-input"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="manual-label">Phone Number</label>
-                      <input
-                        value={pages.contact.phone}
-                        onChange={(e) => handlePageChange("contact", "phone", e.target.value)}
-                        className="manual-input"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="manual-label">Physical Address</label>
-                      <input
-                        value={pages.contact.address}
-                        onChange={(e) => handlePageChange("contact", "address", e.target.value)}
-                        className="manual-input"
-                      />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="manual-label">Button / CTA Text</label>
+                        <input
+                          value={pageEdits[manualTab]?.cta_text || ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setPageEdits(prev => ({
+                              ...prev,
+                              [manualTab]: {
+                                ...prev[manualTab],
+                                cta_text: val
+                              }
+                            }));
+                          }}
+                          placeholder="e.g. Action Button"
+                          className="manual-input text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="manual-label">Button Link / Action</label>
+                        <input
+                          value={pageEdits[manualTab]?.cta_link || ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setPageEdits(prev => ({
+                              ...prev,
+                              [manualTab]: {
+                                ...prev[manualTab],
+                                cta_link: val
+                              }
+                            }));
+                          }}
+                          placeholder="e.g. booking.html"
+                          className="manual-input text-xs"
+                        />
+                      </div>
                     </div>
                   </div>
                 )}

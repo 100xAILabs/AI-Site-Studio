@@ -19,9 +19,8 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",
-        secrets_dir="/run/secrets",
     )
-
+    
     # ── App ───────────────────────────────────────────────────────────────────
     APP_NAME: str = "AI Site Studio"
     APP_VERSION: str = "1.0.0"

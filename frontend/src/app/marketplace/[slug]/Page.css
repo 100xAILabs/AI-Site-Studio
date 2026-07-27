@@ -295,14 +295,12 @@
   flex: 1;
   background: #fff;
   position: relative;
-  overflow: auto;
-  -webkit-overflow-scrolling: touch;
+  overflow: hidden;
 }
 
 .iphone-screen iframe {
-  width: 1px;
-  min-width: 100%;
-  height: 100%;
+  width: 100% !important;
+  height: 100% !important;
   border: none;
 }
 
@@ -558,8 +556,7 @@
 .device-preview-body {
   flex: 1;
   position: relative;
-  overflow: auto;
-  -webkit-overflow-scrolling: touch;
+  overflow: hidden;
   min-height: 0;
 }
 
@@ -575,9 +572,8 @@
 .device-preview-body iframe {
   position: absolute;
   inset: 0;
-  width: 1px;
-  min-width: 100%;
-  height: 100%;
+  width: 100% !important;
+  height: 100% !important;
   border: none;
 }
 

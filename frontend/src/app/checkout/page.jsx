@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 import { useState, useEffect } from "react";
 import { useAppAuth, useAppUser } from "@/lib/auth";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { navigate } from "@/components/Link";
 const useRouter = () => ({
   push: (to) => navigate(to),
@@ -32,6 +32,7 @@ import "./Page.css";
 import Link from "@/components/Link";
 
 function Checkout() {
+  const qc = useQueryClient();
   const { getToken } = useAppAuth();
   const { user } = useAppUser();
   const router = useRouter();
@@ -168,10 +169,14 @@ function Checkout() {
         }
       }
 
+      // Invalidate react-query cache to force refetching of orders and dashboard stats
+      qc.invalidateQueries({ queryKey: ["orders"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
+
       setPaymentStep("success");
       clearCart();
       setTimeout(() => {
-        router.push("/dashboard");
+        router.push("/dashboard?tab=buyer-templates");
       }, 3000);
     } catch (err) {
       console.error(err);
@@ -310,7 +315,7 @@ function Checkout() {
                             </div>
                             <div>
                               <h3 className="checkout-item-title">{item.title}</h3>
-                              <span className="checkout-item-license">{item.licenseType} License</span>
+                              <span className="checkout-item-license">Lifetime Access</span>
                             </div>
                           </div>
                           <div className="checkout-item-right">

@@ -230,32 +230,7 @@ export default function SignInPage({ isRegister = false }) {
             </p>
           </motion.div>
 
-          <motion.div {...fadeUp(0.04)} className="role-selection-wrapper">
-            <label className="auth-label">
-              I want to use AI Site Studio as a:
-            </label>
-            <div className="role-btn-group">
-              <button
-                onClick={() => setRole("buyer")}
-                className={cn(
-                  "auth-role-btn",
-                  role === "buyer" && "active buyer"
-                )}
-              >
-                Buyer
-              </button>
-              <button
-                onClick={() => setRole("seller")}
-                className={cn(
-                  "auth-role-btn",
-                  role === "seller" && "active seller"
-                )}
-              >
-                Seller
-              </button>
-            </div>
 
-          </motion.div>
 
           {/* Social Buttons */}
           <motion.div {...fadeUp(0.08)} className="auth-social-group">

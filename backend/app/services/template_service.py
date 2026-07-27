@@ -108,6 +108,45 @@ class TemplateService:
             is_wishlisted = await self.wishlist.is_wishlisted(current_user.id, template.id)
 
         response = TemplateResponse.model_validate(template)
+        
+        # Dynamically inspect ZIP files if included_pages is empty or only shows index.html (self-healing for auto-seeded templates)
+        if (not response.included_pages or response.included_pages == ["index.html"]) and response.download_assets and "zip" in response.download_assets:
+            try:
+                zip_url = response.download_assets["zip"]
+                file_id_str = zip_url.split("/")[-1]
+                file_id = uuid.UUID(file_id_str)
+                from app.models.stored_file import StoredFile
+                from sqlalchemy import select
+                result = await self.db.execute(select(StoredFile).where(StoredFile.id == file_id))
+                stored_file = result.scalar_one_or_none()
+                if stored_file:
+                    import zipfile
+                    import io
+                    with zipfile.ZipFile(io.BytesIO(stored_file.data), "r") as z_in:
+                        namelist = z_in.namelist()
+                        
+                        # Find base directory of index.html
+                        base_dir = ""
+                        for name in namelist:
+                            if name.endswith("index.html"):
+                                if "/" in name:
+                                    base_dir = name.rsplit("index.html", 1)[0]
+                                break
+                        
+                        pages = []
+                        for name in namelist:
+                            if name.startswith(base_dir) and (name.endswith(".html") or name.endswith(".jsx") or name.endswith(".js")):
+                                rel_name = name[len(base_dir):]
+                                if "/" not in rel_name and rel_name != "" and not rel_name.startswith("__MACOSX"):
+                                    pages.append(rel_name)
+                        if pages:
+                            response.included_pages = sorted(pages)
+                            # Cache in database
+                            template.included_pages = response.included_pages
+                            await self.db.flush()
+            except Exception as e:
+                print("Failed to dynamically extract included_pages:", e)
+                
         response.is_favorited = is_favorited
         response.is_wishlisted = is_wishlisted
         return response

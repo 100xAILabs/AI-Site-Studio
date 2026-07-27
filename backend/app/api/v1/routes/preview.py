@@ -2,6 +2,7 @@
 Preview routes — create preview sessions and serve watermarked previews.
 """
 
+import os
 import uuid
 from typing import Optional
 
@@ -483,10 +484,63 @@ async def serve_live_preview(
         try:
             html_content = content.decode("utf-8", errors="ignore")
             
-            # 1. Rewrite absolute resources (e.g. /vite.svg, /assets/index.js) to relative FIRST
+            # 1. Rewrite absolute references to relative on all HTML preview pages
             import re
             html_content = re.sub(r'src="/(?![/])', 'src="./', html_content)
             html_content = re.sub(r'href="/(?![/])', 'href="./', html_content)
+
+            # 1a. Ensure viewport meta tag exists for proper mobile/tablet responsiveness in iframe
+            if "<meta name=\"viewport\"" not in html_content.lower() and "<meta name='viewport'" not in html_content.lower():
+                viewport_meta = '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+                if "<head>" in html_content:
+                    html_content = html_content.replace("<head>", f"<head>\n  {viewport_meta}", 1)
+                elif "<html>" in html_content:
+                    html_content = html_content.replace("<html>", f"<html>\n  <head>{viewport_meta}</head>", 1)
+                else:
+                    html_content = f"<head>{viewport_meta}</head>\n" + html_content
+
+            # 1b. Inject dynamic query parameter customizations into HTML for live preview customization
+            customized = request.query_params.get("customized") == "true"
+            if customized:
+                business_name = request.query_params.get("businessName")
+                primary_color = request.query_params.get("primaryColor")
+                custom_title = request.query_params.get("title")
+                custom_subtitle = request.query_params.get("subtitle")
+                custom_cta = request.query_params.get("ctaText")
+                logo_text = request.query_params.get("logoText")
+
+                # Override primary theme colors in CSS variables dynamically
+                if primary_color:
+                    color_override_style = f"""
+                    <style>
+                      :root {{
+                        --primary: {primary_color} !important;
+                        --primary-color: {primary_color} !important;
+                        --theme-color: {primary_color} !important;
+                        --accent: {primary_color} !important;
+                        --accent-color: {primary_color} !important;
+                        --cta-bg: {primary_color} !important;
+                      }}
+                      a, button, .btn-primary, .bg-primary {{
+                        background-color: {primary_color} !important;
+                        border-color: {primary_color} !important;
+                      }}
+                      .text-primary, a:hover {{
+                        color: {primary_color} !important;
+                      }}
+                    </style>
+                    """
+                    if "</head>" in html_content:
+                        html_content = html_content.replace("</head>", f"{color_override_style}\n</head>", 1)
+
+                # Simple text/copy replacements
+                if business_name:
+                    html_content = re.sub(r'<title>.*?</title>', f'<title>{business_name} - Preview</title>', html_content, flags=re.IGNORECASE)
+                if custom_title and template.title:
+                    html_content = html_content.replace(template.title, custom_title)
+            
+            from app.models.template import TemplateFramework
+            should_rewrite_history = "true" if template.framework != TemplateFramework.HTML else "false"
             
             # 2. Inject client-side routing and location sandboxing script (including absolute <base> tag)
             sandbox_script = f"""<base href="/api/v1/preview/live/{template_id}/" />
@@ -496,7 +550,7 @@ async def serve_live_preview(
     
     // 1. Instantly rewrite history state to relative path so client-side routers match the root route
     try {{
-      if (window.location.pathname.startsWith(basePrefix)) {{
+      if ({should_rewrite_history} && window.location.pathname.startsWith(basePrefix)) {{
         let targetPath = window.location.pathname.slice(basePrefix.length);
         if (!targetPath.startsWith('/')) {{
           targetPath = '/' + targetPath;
@@ -665,6 +719,7 @@ class ManualEditRequest(BaseModel):
     secondary_color: str
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
+    page_edits: Optional[dict] = None
 
 
 class AIEditRequest(BaseModel):
@@ -675,8 +730,8 @@ class AIEditRequest(BaseModel):
 async def edit_live_preview_manual(
     template_id: uuid.UUID,
     request: ManualEditRequest,
-    db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db)
 ):
     import zipfile
     import io
@@ -694,17 +749,32 @@ async def edit_live_preview_manual(
     if template.status == TemplateStatus.PUBLISHED:
         new_template = Template(
             title=f"Customized {template.title}",
+            short_description=template.short_description,
             description=template.description,
             slug=f"{template.slug}-custom-{uuid.uuid4().hex[:6]}",
             price=template.price,
+            original_price=template.original_price,
+            is_free=template.is_free,
+            is_on_sale=template.is_on_sale,
             category_id=template.category_id,
             status=TemplateStatus.DRAFT,
-            developer_id=current_user.id if current_user else template.developer_id,
+            seller_id=current_user.id if current_user else template.seller_id,
             thumbnail_url=template.thumbnail_url,
-            demo_url=template.demo_url,
-            features=template.features,
+            preview_url=template.preview_url,
             tags=template.tags,
             framework=template.framework,
+            pages_count=template.pages_count,
+            has_dark_mode=template.has_dark_mode,
+            is_responsive=template.is_responsive,
+            is_rtl_supported=template.is_rtl_supported,
+            is_ai_ready=template.is_ai_ready,
+            compatibility=template.compatibility,
+            version=template.version,
+            license_type=template.license_type,
+            industry=template.industry,
+            color_scheme=template.color_scheme,
+            seo_keywords=template.seo_keywords,
+            included_pages=template.included_pages,
             download_assets=template.download_assets.copy() if template.download_assets else {}
         )
         db.add(new_template)
@@ -732,44 +802,61 @@ async def edit_live_preview_manual(
         
     zip_data = stored_file.data
     
-    # 1. Inspect the ZIP content to find the main code file
-    target_file = None
+    # 1. Read all editable files in the ZIP (HTML, JS, JSX, CSS)
+    files_dict = {}
     with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
-        namelist = z_in.namelist()
-        if "src/App.jsx" in namelist:
-            target_file = "src/App.jsx"
-        elif "index.html" in namelist:
-            target_file = "index.html"
-        else:
-            for name in namelist:
-                if name.endswith(".html") or name.endswith(".jsx") or name.endswith(".js"):
-                    target_file = name
-                    break
-                    
-    if not target_file:
+        for name in z_in.namelist():
+            if name.endswith(".html") or name.endswith(".jsx") or name.endswith(".js") or name.endswith(".css"):
+                try:
+                    files_dict[name] = z_in.read(name).decode("utf-8", errors="ignore")
+                except Exception:
+                    pass
+
+    if not files_dict:
         raise HTTPException(status_code=400, detail="Could not locate code files in template archive")
         
-    # 2. Extract target file content
-    with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
-        original_code = z_in.read(target_file).decode("utf-8", errors="ignore")
-        
-    # 3. Use Gemini to do simple content/styling updates
+    # 2. Use Gemini to do simple content/styling updates across all files
+    files_str = ""
+    for name, content in files_dict.items():
+        files_str += f"\n--- FILE: {name} ---\n{content}\n"
+
+    page_edits_str = ""
+    if request.page_edits:
+        page_edits_str = "\nAlso apply these page-specific content overrides:\n"
+        for page_name, edits in request.page_edits.items():
+            page_edits_str += f"- For file '{page_name}':\n"
+            if edits.get("title"):
+                page_edits_str += f"  * Set main page title/header/headline to: \"{edits['title']}\"\n"
+            if edits.get("description"):
+                page_edits_str += f"  * Set main body content/description/story to: \"{edits['description']}\"\n"
+            if edits.get("cta_text"):
+                page_edits_str += f"  * Set primary Call to Action (CTA) button text to: \"{edits['cta_text']}\"\n"
+            if edits.get("cta_link"):
+                page_edits_str += f"  * Set primary Call to Action (CTA) button link/href/action to: \"{edits['cta_link']}\"\n"
+
     edit_prompt = f"""You are a specialized React/HTML code refactoring tool.
-Your task is to take the provided code and replace specific business fields and styles with these new values:
+Your task is to take the provided website template files and replace specific business fields and styles with these new values:
 - Business Name: {request.business_name}
 - About Description: {request.about}
 - Primary Theme Color Accent: {request.primary_color}
 - Secondary Theme Color Accent: {request.secondary_color}
 - Contact Email: {request.contact_email or ""}
 - Contact Phone: {request.contact_phone or ""}
+{page_edits_str}
 
 Rules:
-1. Preserve all page layouts, logic, hooks, routing, icons, and components exactly.
+1. Modify ONLY the files that need to be updated. Keep all layouts, logic, routing, and design system components exactly.
 2. Only replace text labels, headers, descriptions, contact details, and theme color Hex codes/Tailwind colors.
-3. Return ONLY the complete modified source code. Do not include markdown code block syntax (like ```jsx or ```html) or explanations.
+3. Return ONLY a valid JSON object mapping the modified filenames to their complete new code string. Do not include markdown code block formatting (like ```json) or explanations.
+4. If no changes are needed for a file, you do not need to include it in the returned JSON.
 
-Here is the source code:
-{original_code}
+Format the JSON response exactly like this:
+{{
+  "filename.html": "complete updated code..."
+}}
+
+Here are the codebase files:
+{files_str}
 """
     def clean_code_response(text: str, language: str) -> str:
         text = text.strip()
@@ -782,26 +869,25 @@ Here is the source code:
         return text.strip()
 
     try:
-        raw_code = await ai_service._generate_content(edit_prompt, response_mime_type="text/plain", feature_name="code_assistant")
-        updated_code = clean_code_response(raw_code, "jsx")
-        updated_code = clean_code_response(updated_code, "javascript")
-        updated_code = clean_code_response(updated_code, "html")
+        import json
+        raw_code = await ai_service._generate_content(edit_prompt, response_mime_type="application/json", feature_name="code_assistant")
+        updated_files = json.loads(clean_code_response(raw_code, "json"))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to refactor template code: {str(e)}")
         
-    # 4. Overwrite file in ZIP
+    # 3. Overwrite files in ZIP
     new_zip_buffer = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
         with zipfile.ZipFile(new_zip_buffer, "w", zipfile.ZIP_DEFLATED) as z_out:
             for item in z_in.infolist():
                 content = z_in.read(item.filename)
-                if item.filename == target_file:
-                    content = updated_code.encode("utf-8")
+                if item.filename in updated_files:
+                    content = updated_files[item.filename].encode("utf-8")
                 z_out.writestr(item, content)
                 
     new_zip_bytes = new_zip_buffer.getvalue()
     
-    # 5. Save the updated ZIP back to the database
+    # 4. Save the updated ZIP back to the database
     stored_file.data = new_zip_bytes
     stored_file.size = len(new_zip_bytes)
     db.add(stored_file)
@@ -840,17 +926,32 @@ async def edit_live_preview_ai(
     if template.status == TemplateStatus.PUBLISHED:
         new_template = Template(
             title=f"Customized {template.title}",
+            short_description=template.short_description,
             description=template.description,
             slug=f"{template.slug}-custom-{uuid.uuid4().hex[:6]}",
             price=template.price,
+            original_price=template.original_price,
+            is_free=template.is_free,
+            is_on_sale=template.is_on_sale,
             category_id=template.category_id,
             status=TemplateStatus.DRAFT,
-            developer_id=current_user.id if current_user else template.developer_id,
+            seller_id=current_user.id if current_user else template.seller_id,
             thumbnail_url=template.thumbnail_url,
-            demo_url=template.demo_url,
-            features=template.features,
+            preview_url=template.preview_url,
             tags=template.tags,
             framework=template.framework,
+            pages_count=template.pages_count,
+            has_dark_mode=template.has_dark_mode,
+            is_responsive=template.is_responsive,
+            is_rtl_supported=template.is_rtl_supported,
+            is_ai_ready=template.is_ai_ready,
+            compatibility=template.compatibility,
+            version=template.version,
+            license_type=template.license_type,
+            industry=template.industry,
+            color_scheme=template.color_scheme,
+            seo_keywords=template.seo_keywords,
+            included_pages=template.included_pages,
             download_assets=template.download_assets.copy() if template.download_assets else {}
         )
         db.add(new_template)
@@ -878,38 +979,41 @@ async def edit_live_preview_ai(
         
     zip_data = stored_file.data
     
-    # 1. Inspect the ZIP content to find the main code file
-    target_file = None
+    # 1. Read all editable files in the ZIP (HTML, JS, JSX, CSS)
+    files_dict = {}
     with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
-        namelist = z_in.namelist()
-        if "src/App.jsx" in namelist:
-            target_file = "src/App.jsx"
-        elif "index.html" in namelist:
-            target_file = "index.html"
-        else:
-            for name in namelist:
-                if name.endswith(".html") or name.endswith(".jsx") or name.endswith(".js"):
-                    target_file = name
-                    break
-                    
-    if not target_file:
+        for name in z_in.namelist():
+            if name.endswith(".html") or name.endswith(".jsx") or name.endswith(".js") or name.endswith(".css"):
+                try:
+                    files_dict[name] = z_in.read(name).decode("utf-8", errors="ignore")
+                except Exception:
+                    pass
+
+    if not files_dict:
         raise HTTPException(status_code=400, detail="Could not locate code files in template archive")
         
-    # 2. Extract target file content
-    with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
-        original_code = z_in.read(target_file).decode("utf-8", errors="ignore")
-        
-    # 3. Use Gemini to do AI editing/refinement
+    # 2. Use Gemini to do AI editing/refinement across the codebase
+    files_str = ""
+    for name, content in files_dict.items():
+        files_str += f"\n--- FILE: {name} ---\n{content}\n"
+
     ai_prompt = f"""You are a senior lead web developer.
-Refine the provided code according to this user request: "{request.prompt}".
+Refine the provided website template files according to this user request: "{request.prompt}".
 
 Rules:
-1. Fully implement the modifications requested by the user.
-2. Ensure the code compiles and remains valid React/HTML. Keep all existing styles/utilities unless explicitly requested to change.
-3. Return ONLY the complete modified source code. Do not include markdown code block syntax (like ```jsx or ```html) or explanations.
+1. Modify ONLY the files that need to be updated. Keep all other files exactly as they are.
+2. If the user request relates to changing visual texts, labels, or content (e.g. changing names/titles), apply it consistently across all relevant pages (e.g. index.html, about.html, portal.html, etc.).
+3. Ensure the code compiles and remains valid React/HTML. Keep all existing styles/utilities (like Tailwind classes) unless explicitly requested to change.
+4. Return ONLY a valid JSON object mapping the modified filenames to their complete new code string. Do not include markdown code block formatting (like ```json) or explanations.
+5. If no changes are needed for a file, you do not need to include it in the returned JSON.
 
-Here is the source code:
-{original_code}
+Format the JSON response exactly like this:
+{{
+  "filename.html": "complete updated code..."
+}}
+
+Here are the codebase files:
+{files_str}
 """
     def clean_code_response(text: str, language: str) -> str:
         text = text.strip()
@@ -922,26 +1026,25 @@ Here is the source code:
         return text.strip()
 
     try:
-        raw_code = await ai_service._generate_content(ai_prompt, response_mime_type="text/plain", feature_name="code_assistant")
-        updated_code = clean_code_response(raw_code, "jsx")
-        updated_code = clean_code_response(updated_code, "javascript")
-        updated_code = clean_code_response(updated_code, "html")
+        import json
+        raw_code = await ai_service._generate_content(ai_prompt, response_mime_type="application/json", feature_name="code_assistant")
+        updated_files = json.loads(clean_code_response(raw_code, "json"))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to refine template code via AI: {str(e)}")
         
-    # 4. Overwrite file in ZIP
+    # 3. Overwrite files in ZIP
     new_zip_buffer = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
         with zipfile.ZipFile(new_zip_buffer, "w", zipfile.ZIP_DEFLATED) as z_out:
             for item in z_in.infolist():
                 content = z_in.read(item.filename)
-                if item.filename == target_file:
-                    content = updated_code.encode("utf-8")
+                if item.filename in updated_files:
+                    content = updated_files[item.filename].encode("utf-8")
                 z_out.writestr(item, content)
                 
     new_zip_bytes = new_zip_buffer.getvalue()
     
-    # 5. Save the updated ZIP back to the database
+    # 4. Save the updated ZIP back to the database
     stored_file.data = new_zip_bytes
     stored_file.size = len(new_zip_bytes)
     db.add(stored_file)

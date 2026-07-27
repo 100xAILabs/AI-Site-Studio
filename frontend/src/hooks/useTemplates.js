@@ -10,9 +10,9 @@ import { api } from "@/lib/api";
 export const templateKeys = {
   all: ["templates"],
   lists: () => [...templateKeys.all, "list"],
-  list: (filters) => [...templateKeys.lists(), filters],
+  list: (filters, token) => [...templateKeys.lists(), filters, { authenticated: !!token }],
   details: () => [...templateKeys.all, "detail"],
-  detail: (slug) => [...templateKeys.details(), slug],
+  detail: (slug, token) => [...templateKeys.details(), slug, { authenticated: !!token }],
   featured: () => [...templateKeys.all, "featured"],
 };
 
@@ -30,7 +30,7 @@ export function useTemplates(filters, token) {
   });
 
   return useQuery({
-    queryKey: templateKeys.list(filters),
+    queryKey: templateKeys.list(filters, token),
     queryFn: () =>
       api.get(`/templates?${params.toString()}`, token),
     placeholderData: (prev) => prev,
@@ -43,7 +43,7 @@ export function useTemplates(filters, token) {
  */
 export function useTemplate(slug, token) {
   return useQuery({
-    queryKey: templateKeys.detail(slug),
+    queryKey: templateKeys.detail(slug, token),
     queryFn: () => api.get(`/templates/${slug}`, token),
     staleTime: 1000 * 60 * 5,
     enabled: !!slug,

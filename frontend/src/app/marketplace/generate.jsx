@@ -189,20 +189,17 @@ export default function GenerateTemplatePage() {
                 {error && <p className="error-text mb-4">{error}</p>}
 
                 {/* Questions */}
-                <div className="space-y-4 mb-6">
+                <div className="questions-container">
                   {questions.map((q) => (
-                    <div key={q.id} className="form-group">
-                      <label className="prompt-label font-medium">{q.question}</label>
-                      <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div key={q.id} className="question-group">
+                      <label className="prompt-label">{q.question}</label>
+                      <div className="options-grid">
                         {q.options.map((opt) => (
                           <button
                             key={opt}
                             type="button"
                             onClick={() => setAnswers(prev => ({ ...prev, [q.id]: opt }))}
-                            className={`px-3 py-2 text-sm rounded-lg border text-left transition-all ${answers[q.id] === opt
-                                ? "bg-primary/20 border-primary text-white font-medium shadow-lg shadow-primary/10"
-                                : "bg-slate-900/60 border-white/10 text-slate-300 hover:border-white/20"
-                              }`}
+                            className={`option-button ${answers[q.id] === opt ? "active" : ""}`}
                           >
                             {opt}
                           </button>
@@ -214,11 +211,11 @@ export default function GenerateTemplatePage() {
 
                 {/* Pages checklist */}
                 <div className="form-group mb-6">
-                  <label className="prompt-label font-medium mb-2 block">Select Pages to Generate</label>
-                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  <label className="prompt-label">Select Pages to Generate</label>
+                  <div className="pages-list-container">
                     {pages.map((p, idx) => (
-                      <div key={p.filename} className="flex items-center justify-between bg-slate-900/50 p-2.5 rounded-lg border border-white/5 hover:border-white/10">
-                        <label className="flex items-center space-x-3 cursor-pointer text-sm text-slate-200">
+                      <div key={p.filename} className="page-item-row">
+                        <label className="page-item-label">
                           <input
                             type="checkbox"
                             checked={p.selected !== false}
@@ -228,11 +225,11 @@ export default function GenerateTemplatePage() {
                               updated[idx] = { ...updated[idx], selected: e.target.checked };
                               setPages(updated);
                             }}
-                            className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-primary focus:ring-primary focus:ring-offset-slate-900"
+                            className="page-item-checkbox"
                           />
                           <span>{p.name}</span>
                         </label>
-                        <span className="text-xs text-slate-500 font-mono">{p.filename}</span>
+                        <span className="page-item-filename">{p.filename}</span>
                       </div>
                     ))}
                   </div>

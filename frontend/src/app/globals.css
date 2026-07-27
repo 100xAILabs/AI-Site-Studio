@@ -7,29 +7,29 @@
 
 :root {
   /* ═══════════════════════════════════════════════════
-     EAGLE MONOCHROME — Light Mode (White + Black)
-  ═══════════════════════════════════════════════════ */
-  --background: 0 0% 100%;           /* Pure white */
-  --foreground: 0 0% 6%;             /* Near black */
-  --card: 0 0% 99%;
-  --card-foreground: 0 0% 6%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 0 0% 6%;
-  --primary: 0 0% 8%;                /* Near black — eagle feather */
-  --primary-foreground: 0 0% 100%;   /* White */
-  --secondary: 0 0% 28%;             /* Dark grey */
-  --secondary-foreground: 0 0% 100%;
-  --muted: 0 0% 94%;
-  --muted-foreground: 0 0% 44%;      /* Mid grey */
-  --accent: 0 0% 92%;
-  --accent-foreground: 0 0% 10%;
-  --destructive: 0 72% 45%;
+     EAGLE MONOCHROME — Unified Theme (Always Dark)
+     ═══════════════════════════════════════════════════ */
+  --background: 0 0% 4%;            /* Near pure black */
+  --foreground: 0 0% 96%;           /* Near pure white */
+  --card: 0 0% 7%;
+  --card-foreground: 0 0% 96%;
+  --popover: 0 0% 7%;
+  --popover-foreground: 0 0% 96%;
+  --primary: 0 0% 94%;              /* Near white */
+  --primary-foreground: 0 0% 6%;    /* Near black */
+  --secondary: 0 0% 72%;            /* Light grey */
+  --secondary-foreground: 0 0% 6%;
+  --muted: 0 0% 12%;
+  --muted-foreground: 0 0% 58%;
+  --accent: 0 0% 14%;
+  --accent-foreground: 0 0% 90%;
+  --destructive: 0 62% 50%;
   --destructive-foreground: 0 0% 100%;
-  --border: 0 0% 87%;
-  --input: 0 0% 87%;
-  --ring: 0 0% 10%;
+  --border: 0 0% 16%;
+  --input: 0 0% 16%;
+  --ring: 0 0% 85%;
   --radius: 0.75rem;
-  --brand: 0 0% 8%;
+  --brand: 0 0% 94%;
 
   /* Greyscale Palette */
   --brand-50:  #fafafa;

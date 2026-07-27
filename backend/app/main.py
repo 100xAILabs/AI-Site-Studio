@@ -105,6 +105,11 @@ def create_application() -> FastAPI:
     # ── Routes ────────────────────────────────────────────────────────────────
     app.include_router(api_router, prefix="/api/v1")
 
+    from fastapi.staticfiles import StaticFiles
+    import os
+    os.makedirs("static", exist_ok=True)
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+
     @app.get("/", tags=["Root"])
     async def root() -> dict:
         return {

@@ -167,7 +167,7 @@ INDUSTRIES = {
 
 
 async def seed():
-    print("🌱 Seeding database...")
+    print("[START] Seeding database...")
 
     engine = create_async_engine(settings.DATABASE_URL, echo=False)
     SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
@@ -183,7 +183,7 @@ async def seed():
 
             if existing:
                 cat_map[cat_data["slug"]] = existing
-                print(f"  ↪ Category already exists: {cat_data['name']}")
+                print(f"  [EXISTING] Category already exists: {cat_data['name']}")
                 continue
 
             cat = Category(
@@ -199,7 +199,7 @@ async def seed():
             db.add(cat)
             await db.flush()
             cat_map[cat_data["slug"]] = cat
-            print(f"  ✅ Category: {cat_data['name']}")
+            print(f"  [OK] Category: {cat_data['name']}")
 
         # ── Templates ─────────────────────────────────────────────────────────
         created = 0
@@ -296,7 +296,7 @@ async def seed():
             created += 1
 
         await db.commit()
-        print(f"\n✅ Seed complete! Created {created} templates across {len(cat_map)} categories.")
+        print(f"\n[SUCCESS] Seed complete! Created {created} templates across {len(cat_map)} categories.")
 
     await engine.dispose()
 

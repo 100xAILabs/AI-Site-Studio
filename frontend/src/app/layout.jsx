@@ -11,8 +11,8 @@ export default function RootLayout({ children }) {
       <body className="root-body">
         <ThemeProvider
           attribute="class"
-          forcedTheme="light"
-          enableSystem
+          forcedTheme="dark"
+          enableSystem={false}
           disableTransitionOnChange
         >
           <AppAuthProvider>

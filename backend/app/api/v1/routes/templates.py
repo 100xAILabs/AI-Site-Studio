@@ -895,7 +895,7 @@ body {
         compatibility=["Chrome", "Safari", "Edge"],
         version="1.0.0",
         license_type=TemplateLicense.REGULAR,
-        status=TemplateStatus.PUBLISHED,
+        status=TemplateStatus.DRAFT,
         is_featured=False,
         is_bestseller=False,
         is_new=True,

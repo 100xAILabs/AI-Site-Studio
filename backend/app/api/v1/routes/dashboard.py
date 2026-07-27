@@ -51,15 +51,12 @@ async def get_dashboard_stats(
     )
     favorite_count = favorites.scalar_one()
 
-    # Seller: uploaded templates count (permanently stored per account)
-    uploaded_templates_count = 0
-    from app.models.user import UserRole
-    if current_user.role in (UserRole.SELLER, UserRole.ADMIN, UserRole.SUPER_ADMIN):
-        from app.models.template import Template
-        seller_tmpl = await db.execute(
-            select(func.count(Template.id)).where(Template.seller_id == current_user.id)
-        )
-        uploaded_templates_count = seller_tmpl.scalar_one()
+    # Uploaded / Generated templates count
+    from app.models.template import Template
+    seller_tmpl = await db.execute(
+        select(func.count(Template.id)).where(Template.seller_id == current_user.id)
+    )
+    uploaded_templates_count = seller_tmpl.scalar_one()
 
     return {
         "purchases": purchase_count,

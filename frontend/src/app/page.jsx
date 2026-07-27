@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import Link from "@/components/Link";
 import Navbar from "@/components/layout/Navbar";
 import HeroSection from "@/components/landing/HeroSection";
@@ -7,26 +8,24 @@ import PricingSection from "@/components/landing/PricingSection";
 import TestimonialsSection from "@/components/landing/TestimonialsSection";
 import { Sparkles, ArrowRight } from "lucide-react";
 import "./Page.css";
+
 export default function HomePage() {
+  const location = useLocation();
+
   useEffect(() => {
-    const handleHash = () => {
-      if (window.location.hash === "#features") {
-        const el = document.getElementById("features");
-        if (el) {
-          setTimeout(() => {
-            const topOffset = el.getBoundingClientRect().top + window.scrollY;
-            window.scrollTo({
-              top: topOffset - 90,
-              behavior: "smooth"
-            });
-          }, 250);
-        }
+    if (location.hash === "#features") {
+      const el = document.getElementById("features");
+      if (el) {
+        setTimeout(() => {
+          const topOffset = el.getBoundingClientRect().top + window.scrollY;
+          window.scrollTo({
+            top: topOffset - 90,
+            behavior: "smooth"
+          });
+        }, 100);
       }
-    };
-    handleHash();
-    window.addEventListener("hashchange", handleHash);
-    return () => window.removeEventListener("hashchange", handleHash);
-  }, []);
+    }
+  }, [location]);
 
   return (
     <>
@@ -98,7 +97,6 @@ export default function HomePage() {
                 links: [
                   { name: "Marketplace", path: "/marketplace" },
                   { name: "Pricing", path: "/pricing" },
-                  { name: "Templates", path: "/marketplace" },
                   { name: "AI Features", path: "/#features" }
                 ]
               },

@@ -8,13 +8,13 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import Image from "@/components/Image";
-import Link from "@/components/Link";
+import Link, { navigate } from "@/components/Link";
 import { useAppAuth, useAppUser } from "@/lib/auth";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Star, Download, Eye, Heart, Bookmark, ShoppingCart,
   Check, ArrowLeft, Globe, Code, Moon, Zap, Shield,
-  Copy, ChevronRight, Share2, Scale, RefreshCw, FileText,
+  Copy, ChevronRight, Share2, Scale, RefreshCw, FileText, X,
   Terminal, Sliders, Cpu, Smartphone, Tablet, Laptop,
   Monitor, HelpCircle, UserCheck, ChevronDown, ChevronUp,
   Play, Flame, Award, Activity, Sparkles, Clock, Plus,
@@ -36,7 +36,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
   const { user } = useAppUser();
   const [activeImage, setActiveImage] = useState(0);
   const [copied, setCopied] = useState(false);
-  const [selectedLicense, setSelectedLicense] = useState("regular"); // regular, commercial, extended
+  // Single-tier flat rate license package
   const [heroTab, setHeroTab] = useState("desktop"); // screenshot, gallery, video, mobile, tablet, desktop
 
   // Live Preview Device section
@@ -69,8 +69,9 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
   // Lightbox Modal
   const [lightboxImg, setLightboxImg] = useState(null);
 
-  // Compare modal or banner toggle
-  const [compareActive, setCompareActive] = useState(false);
+  // Share link modal states
+  const [shareUrl, setShareUrl] = useState("");
+  const [showShareModal, setShowShareModal] = useState(false);
 
   // Dynamic Reviews & Likes State
   const [newReview, setNewReview] = useState({ rating: 5, title: "", body: "" });
@@ -88,10 +89,60 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
     getToken().then(setToken);
   }, [getToken]);
 
+  // Declare template query hook first to avoid TDZ ReferenceError in render hooks
   const { data: template, isLoading, error } = useTemplate(slug, token);
-  const previewSrc = template?.preview_url && !template.preview_url.includes("example.com")
-    ? template.preview_url
-    : `${API_URL}/preview/live/${template?.id}`;
+
+  // Load customizations state from shared link query params on mount
+  useEffect(() => {
+    if (!template) return;
+    const searchParams = new URLSearchParams(window.location.search);
+    const isEdited = searchParams.get("isEdited") === "true";
+
+    if (isEdited) {
+      const bName = searchParams.get("businessName") || "";
+      const ind = searchParams.get("industry") || "Agency";
+      const loc = searchParams.get("location") || "";
+      const pColor = searchParams.get("primaryColor") || "#2563eb";
+      const lText = searchParams.get("logoText") || "";
+      const cTitle = searchParams.get("title") || "";
+      const cSub = searchParams.get("subtitle") || "";
+      const cCta = searchParams.get("ctaText") || "";
+
+      setAiForm({
+        businessName: bName,
+        industry: ind,
+        location: loc,
+        primaryColor: pColor,
+        logoText: lText,
+      });
+
+      setEditableTitle(cTitle);
+      setEditableSubtitle(cSub);
+      setEditableCta(cCta);
+      setAiPrimaryColor(pColor);
+      setIsGenerated(true);
+    }
+  }, [template]);
+  const previewSrc = (() => {
+    let base = template?.preview_url && !template.preview_url.includes("example.com")
+      ? template.preview_url
+      : `${API_URL}/preview/live/${template?.id}`;
+    
+    if (isGenerated) {
+      const q = new URLSearchParams();
+      q.set("businessName", aiForm.businessName || "");
+      q.set("industry", aiForm.industry || "");
+      q.set("location", aiForm.location || "");
+      q.set("primaryColor", aiPrimaryColor || "");
+      q.set("logoText", aiForm.logoText || "");
+      q.set("title", editableTitle || "");
+      q.set("subtitle", editableSubtitle || "");
+      q.set("ctaText", editableCta || "");
+      q.set("customized", "true");
+      return `${base}?${q.toString()}`;
+    }
+    return base;
+  })();
   const favoriteMutation = useToggleFavorite(token ?? "");
   const wishlistMutation = useToggleWishlist(token ?? "");
   const addToCart = useCartStore((s) => s.addItem);
@@ -159,7 +210,6 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
       console.error(e);
     }
   }, [template]);
-  // AI Form presets
   useEffect(() => {
     if (template) {
       const primaryCol = template.color_scheme ? template.color_scheme.split(",")[0].trim() : "#2563eb";
@@ -172,25 +222,56 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
       setAiPrimaryColor(primaryCol);
     }
   }, [template]);
+
   const handleAddToCart = () => {
     if (!template) return;
-    let finalPrice = template.price;
-    if (selectedLicense === "commercial") finalPrice = template.price * 2.5;
-    if (selectedLicense === "extended") finalPrice = template.price * 5;
-
     addToCart({
       templateId: template.id,
       title: template.title,
-      price: Number(finalPrice),
+      price: Number(template.price),
       thumbnail: template.thumbnail_url,
-      licenseType: selectedLicense,
+      licenseType: "regular",
     });
   };
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(window.location.href);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleBuyNow = (e) => {
+    e.preventDefault();
+    if (!template) return;
+    if (!isInCart) {
+      addToCart({
+        templateId: template.id,
+        title: template.title,
+        price: Number(template.price),
+        thumbnail: template.thumbnail_url,
+        licenseType: "regular",
+      });
+    }
+    navigate("/checkout");
+  };
+
+  const handleShareClick = () => {
+    let url = window.location.origin + window.location.pathname;
+    const params = new URLSearchParams();
+
+    if (isGenerated) {
+      params.set("businessName", aiForm.businessName || "");
+      params.set("industry", aiForm.industry || "");
+      params.set("location", aiForm.location || "");
+      params.set("primaryColor", aiPrimaryColor || "");
+      params.set("logoText", aiForm.logoText || "");
+      params.set("title", editableTitle || "");
+      params.set("subtitle", editableSubtitle || "");
+      params.set("ctaText", editableCta || "");
+      params.set("isEdited", "true");
+    }
+
+    const searchStr = params.toString();
+    if (searchStr) {
+      url += "?" + searchStr;
+    }
+
+    setShareUrl(url);
+    setShowShareModal(true);
   };
 
   const handleLikeReview = (id) => {
@@ -402,22 +483,37 @@ npm run build`;
                   >
                     <Globe className="w-4 h-4" /> Live Demo
                   </a>
+                  {/* Favorite Button */}
                   <button
-                    onClick={() => token && wishlistMutation.mutate(template.id)}
-                    className={cn("hero-action-icon", template.is_wishlisted && "active")}
-                    title="Add to Wishlist"
+                    onClick={() => {
+                      if (!isSignedIn || !token) {
+                        alert("Please sign in to favorite templates.");
+                        return;
+                      }
+                      favoriteMutation.mutate(template.id);
+                    }}
+                    className={cn("hero-action-icon", template?.is_favorited && "active")}
+                    title={template?.is_favorited ? "Remove from Favorites" : "Add to Favorites"}
                   >
-                    <Bookmark className="w-4 h-4" />
+                    <Heart className={cn("w-4 h-4", template?.is_favorited && "fill-current")} />
                   </button>
-                  <button onClick={handleCopyLink} className="hero-action-icon" title="Share Link">
+
+                  {/* Wishlist Button */}
+                  <button
+                    onClick={() => {
+                      if (!isSignedIn || !token) {
+                        alert("Please sign in to save templates to your wishlist.");
+                        return;
+                      }
+                      wishlistMutation.mutate(template.id);
+                    }}
+                    className={cn("hero-action-icon", template?.is_wishlisted && "active")}
+                    title={template?.is_wishlisted ? "Remove from Wishlist" : "Add to Wishlist"}
+                  >
+                    <Bookmark className={cn("w-4 h-4", template?.is_wishlisted && "fill-current")} />
+                  </button>
+                  <button onClick={handleShareClick} className="hero-action-icon" title="Share Link">
                     <Share2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setCompareActive(!compareActive)}
-                    className={cn("hero-action-icon", compareActive && "active")}
-                    title="Compare Template"
-                  >
-                    <Scale className="w-4 h-4" />
                   </button>
                 </div>
               </div>
@@ -582,6 +678,7 @@ npm run build`;
                         <span style={{ width: "1.25rem" }} />
                       </div>
                       {/* Full-cover body */}
+                      {/* Full-cover body */}
                       <div className="device-preview-body">
                         <Image
                           src={allImages[0]}
@@ -601,31 +698,19 @@ npm run build`;
                 )}
               </div>
 
-              {/* Compare Tray Notification */}
-              <AnimatePresence>
-                {compareActive && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -6 }}
-                    className="compare-info-tray"
-                  >
-                    <span style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                      <Scale className="w-4 h-4 text-primary" />
-                      <strong>Comparison Mode Active:</strong> You have selected {template.title} to compare.
-                    </span>
-                    <button style={{ fontSize: "0.75rem", color: "hsl(var(--primary))", textDecoration: "underline", background: "none", border: "none", cursor: "pointer" }} onClick={() => setCompareActive(false)}>Dismiss</button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              {/* Compare Tray Removed */}
             </div>
 
             {/* 4. Template Information */}
             <div className="details-info-block card-container">
               <div className="details-info-header">
                 <div>
-                  <h1 className="details-title-heading">{template.title}</h1>
-                  <p className="details-subtitle-text">{template.short_description}</p>
+                  <h1 className="details-title-heading">
+                    {isGenerated && editableTitle ? editableTitle : template.title}
+                  </h1>
+                  <p className="details-subtitle-text">
+                    {isGenerated && editableSubtitle ? editableSubtitle : template.short_description}
+                  </p>
                 </div>
                 <div className="details-info-price">
                   <div className="text-2xl font-bold text-foreground">
@@ -1310,48 +1395,7 @@ npm run build`;
               </div>
             </div>
 
-            {/* 22. License Comparison */}
-            <div className="details-license-comparison-block card-container">
-              <h3 className="section-title">License Types Comparison</h3>
-              <div className="overflow-x-auto">
-                <table className="specs-table license-table w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="border-b border-border/50 text-muted-foreground font-semibold">
-                      <th className="py-2.5 px-3">Usage Criteria</th>
-                      <th className="py-2.5 px-3 text-center">Regular</th>
-                      <th className="py-2.5 px-3 text-center">Commercial</th>
-                      <th className="py-2.5 px-3 text-center">Extended</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/30">
-                    <tr>
-                      <td className="py-2.5 px-3 font-medium text-foreground">Personal Use</td>
-                      <td className="py-2.5 px-3 text-center text-green-500 font-bold">✓</td>
-                      <td className="py-2.5 px-3 text-center text-green-500 font-bold">✓</td>
-                      <td className="py-2.5 px-3 text-center text-green-500 font-bold">✓</td>
-                    </tr>
-                    <tr>
-                      <td className="py-2.5 px-3 font-medium text-foreground">Commercial Project Use</td>
-                      <td className="py-2.5 px-3 text-center text-red-500 font-bold">✗</td>
-                      <td className="py-2.5 px-3 text-center text-green-500 font-bold">✓</td>
-                      <td className="py-2.5 px-3 text-center text-green-500 font-bold">✓</td>
-                    </tr>
-                    <tr>
-                      <td className="py-2.5 px-3 font-medium text-foreground">Client Deliverables</td>
-                      <td className="py-2.5 px-3 text-center text-red-500 font-bold">✗</td>
-                      <td className="py-2.5 px-3 text-center text-green-500 font-bold">✓</td>
-                      <td className="py-2.5 px-3 text-center text-green-500 font-bold">✓</td>
-                    </tr>
-                    <tr>
-                      <td className="py-2.5 px-3 font-medium text-foreground">Multiple Domain Installs</td>
-                      <td className="py-2.5 px-3 text-center text-red-500 font-bold">✗</td>
-                      <td className="py-2.5 px-3 text-center text-red-500 font-bold">✗</td>
-                      <td className="py-2.5 px-3 text-center text-green-500 font-bold">✓</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            {/* License Comparison Removed */}
 
           </div>
 
@@ -1361,50 +1405,18 @@ npm run build`;
 
               {/* 5. Purchase Card */}
               <div className="details-price-card glass-card">
-                {/* Dynamic Price Calculation based on License Tab */}
                 <div>
                   <div className="details-price-row flex items-baseline justify-between mb-1">
                     <span className="details-price-value text-3xl font-extrabold text-foreground">
-                      {selectedLicense === "regular"
-                        ? formatPrice(template.price)
-                        : selectedLicense === "commercial"
-                          ? formatPrice(template.price * 2.5)
-                          : formatPrice(template.price * 5)}
+                      {formatPrice(template.price)}
                     </span>
-                    {template.original_price && selectedLicense === "regular" && (
+                    {template.original_price && (
                       <span className="details-price-original text-sm line-through text-muted-foreground">
                         {formatPrice(template.original_price)}
                       </span>
                     )}
                   </div>
-                  <span className="text-xs text-muted-foreground block font-medium mt-1">Pricing calculated for selected license framework</span>
-                </div>
-
-                {/* License Selectors */}
-                <div>
-                  <span className="license-select-label">Select License Type</span>
-                  <div className="license-options">
-                    {[
-                      { id: "regular", label: "Regular License", multiplier: 1, desc: "Personal use, single domain layout." },
-                      { id: "commercial", label: "Commercial License", multiplier: 2.5, desc: "Client work, single domain layout." },
-                      { id: "extended", label: "Extended License", multiplier: 5, desc: "Resell rights, multiple active domains." },
-                    ].map((lic) => (
-                      <label
-                        key={lic.id}
-                        className={cn(
-                          "license-select-box",
-                          selectedLicense === lic.id ? "selected" : ""
-                        )}
-                        onClick={() => setSelectedLicense(lic.id)}
-                      >
-                        <div className="license-row">
-                          <span>{lic.label}</span>
-                          <span>{formatPrice(template.price * lic.multiplier)}</span>
-                        </div>
-                        <span className="license-desc">{lic.desc}</span>
-                      </label>
-                    ))}
-                  </div>
+                  <span className="text-xs text-muted-foreground block font-medium mt-1">Single site commercial and personal usage license</span>
                 </div>
 
                 {/* Action Buttons */}
@@ -1429,12 +1441,12 @@ npm run build`;
                           </>
                         )}
                       </button>
-                      <Link
-                        href={`/checkout?template=${template.id}&license=${selectedLicense}`}
-                        className="details-preview-link w-full py-3 rounded-xl text-center font-bold text-sm bg-card hover:bg-muted border border-border/80 block text-foreground"
+                      <button
+                        onClick={handleBuyNow}
+                        className="details-preview-link w-full py-3 rounded-xl text-center font-bold text-sm bg-card hover:bg-muted border border-border/80 block text-foreground cursor-pointer"
                       >
                         Buy Now
-                      </Link>
+                      </button>
                     </>
                   )}
 
@@ -1624,6 +1636,143 @@ npm run build`;
                 Close Preview
               </button>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Share Template Modal */}
+      <AnimatePresence>
+        {showShareModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            style={{
+              position: "fixed",
+              inset: 0,
+              backgroundColor: "rgba(0, 0, 0, 0.6)",
+              backdropFilter: "blur(8px)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 9999,
+              padding: "1rem",
+            }}
+            onClick={() => setShowShareModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              style={{
+                background: "hsl(var(--card))",
+                border: "1px solid hsl(var(--border) / 0.8)",
+                borderRadius: "1rem",
+                width: "100%",
+                maxWidth: "28rem",
+                padding: "1.5rem",
+                boxShadow: "0 20px 25px -5px rgb(0 0 0 / 0.3), 0 8px 10px -6px rgb(0 0 0 / 0.3)",
+                position: "relative",
+                display: "flex",
+                flexDirection: "column",
+                gap: "1rem",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <h3 style={{ fontSize: "1.125rem", fontWeight: "700", color: "hsl(var(--foreground))" }}>
+                  Share Template
+                </h3>
+                <button
+                  onClick={() => setShowShareModal(false)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "hsl(var(--muted-foreground))",
+                    cursor: "pointer",
+                    padding: "0.25rem",
+                  }}
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Description */}
+              <p style={{ fontSize: "0.875rem", color: "hsl(var(--muted-foreground))", margin: 0 }}>
+                {isGenerated 
+                  ? "Share this customized version of the template with others. It includes your custom colors, copy, and settings."
+                  : "Share this template with others."
+                }
+              </p>
+
+              {/* Link Input Container */}
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                background: "hsl(var(--background))",
+                border: "1px solid hsl(var(--border))",
+                borderRadius: "0.75rem",
+                padding: "0.5rem 0.75rem",
+              }}>
+                <input
+                  type="text"
+                  readOnly
+                  value={shareUrl}
+                  style={{
+                    flex: 1,
+                    background: "none",
+                    border: "none",
+                    color: "hsl(var(--foreground))",
+                    fontSize: "0.875rem",
+                    outline: "none",
+                    width: "100%",
+                  }}
+                  onClick={(e) => e.target.select()}
+                />
+              </div>
+
+              {/* Actions Stack */}
+              <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end", marginTop: "0.5rem" }}>
+                <button
+                  onClick={() => setShowShareModal(false)}
+                  style={{
+                    padding: "0.625rem 1.25rem",
+                    borderRadius: "0.75rem",
+                    fontSize: "0.875rem",
+                    fontWeight: "600",
+                    background: "hsl(var(--muted) / 0.5)",
+                    color: "hsl(var(--muted-foreground))",
+                    border: "1px solid hsl(var(--border))",
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(shareUrl);
+                    alert("Link copied successfully!");
+                    setShowShareModal(false);
+                  }}
+                  style={{
+                    padding: "0.625rem 1.25rem",
+                    borderRadius: "0.75rem",
+                    fontSize: "0.875rem",
+                    fontWeight: "600",
+                    background: "hsl(var(--primary))",
+                    color: "hsl(var(--primary-foreground))",
+                    border: "none",
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  Copy & Close
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

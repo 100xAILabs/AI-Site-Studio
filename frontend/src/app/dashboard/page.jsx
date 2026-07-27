@@ -6,7 +6,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import JSZip from "jszip";
 import { useAppAuth, useAppUser, useSignOut } from "@/lib/auth";
 import { useAuthStore } from "@/store/authStore";
@@ -54,6 +54,9 @@ import {
   FileUp,
   Check,
   ShoppingCart,
+  Wand2,
+  Terminal,
+  RefreshCw,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { api } from "@/lib/api";
@@ -78,7 +81,27 @@ function Dashboard() {
   const [fullName, setFullName] = useState("");
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [templatesSubTab, setTemplatesSubTab] = useState("purchased");
+
+  // Deployments state
+  const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
+  const [isConsoleOpen, setIsConsoleOpen] = useState(false);
+  const [selectedDeployment, setSelectedDeployment] = useState(null);
+  const [activeConsoleLogs, setActiveConsoleLogs] = useState("");
+  const [activeConsoleStatus, setActiveConsoleStatus] = useState("building");
+
+  // Wizard form state
+  const [deployProjectName, setDeployProjectName] = useState("");
+  const [deployTemplateId, setDeployTemplateId] = useState("");
+  const [deployProvider, setDeployProvider] = useState("vercel");
+  const [deployBranch, setDeployBranch] = useState("main");
+  const [deployBuildCommand, setDeployBuildCommand] = useState("npm run build");
+  const [deployOutputDir, setDeployOutputDir] = useState("dist");
+  const [deploying, setDeploying] = useState(false);
+  const consoleEndRef = useRef(null);
 
   const isSeller = user?.role === "seller" || user?.role === "SELLER";
   const isAdmin = user?.role === "admin" || user?.role === "super_admin" || user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
@@ -89,6 +112,7 @@ function Dashboard() {
       setFullName(user.fullName || "");
       setUsername(user.username || "");
       setBio(user.bio || "");
+      setAvatarUrl(user.avatar_url || "");
       const tabParam = searchParams.get("tab");
       if (tabParam) {
         setActiveTab(tabParam);
@@ -103,6 +127,15 @@ function Dashboard() {
       }
     }
   }, [user, isAdmin, isSeller, searchParams]);
+
+  // Sync My Templates sub-tab based on sidebar selection
+  useEffect(() => {
+    if (activeTab === "seller-templates") {
+      setTemplatesSubTab("uploaded");
+    } else if (activeTab === "buyer-templates") {
+      setTemplatesSubTab("purchased");
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     getToken().then(setAuthToken);
@@ -151,11 +184,11 @@ function Dashboard() {
     enabled: !!authToken,
   });
 
-  // Fetch Seller Templates
+  // Fetch Seller/Buyer Templates
   const { data: templateResponse, isLoading: templatesLoading } = useQuery({
     queryKey: ["seller-templates"],
     queryFn: () => api.get("/templates/my-templates", authToken ?? undefined),
-    enabled: !!authToken && (isSeller || isAdmin),
+    enabled: !!authToken,
   });
 
   // Fetch Marketplace Templates for Dashboard Recommendations
@@ -164,6 +197,51 @@ function Dashboard() {
     queryFn: () => api.get("/templates?page_size=3"),
   });
   const recommendedTemplates = marketplaceTemplatesRes?.items || [];
+
+  // Fetch Deployments
+  const { data: deploymentsData = [], isLoading: deploymentsLoading, refetch: refetchDeployments } = useQuery({
+    queryKey: ["deployments"],
+    queryFn: () => api.get("/deployments/", authToken ?? undefined),
+    enabled: !!authToken && activeTab === "deployments",
+  });
+
+  // Strip ANSI escape codes from terminal output
+  const stripAnsi = (str) => str.replace(/\x1B\[[0-9;]*[mGKHFJABCDETSTNHR]/g, "").replace(/\x1B[()][AB012]/g, "");
+
+  // Poll logs for active building deployments
+  useEffect(() => {
+    let intervalId;
+    if (isConsoleOpen && selectedDeployment) {
+      const fetchLogs = async () => {
+        try {
+          const data = await api.get(`/deployments/${selectedDeployment.id}`, authToken ?? undefined);
+          setActiveConsoleLogs(data.logs || "");
+          setActiveConsoleStatus(data.status);
+          if (data.status !== "building") {
+            clearInterval(intervalId);
+            // Update selectedDeployment with fresh data (including live_url)
+            setSelectedDeployment(data);
+            refetchDeployments();
+          }
+        } catch (err) {
+          console.error("Failed to fetch logs:", err);
+        }
+      };
+
+      fetchLogs();
+      intervalId = setInterval(fetchLogs, 1500);
+    }
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [isConsoleOpen, selectedDeployment?.id, authToken, refetchDeployments]);
+
+  // Auto-scroll build console to bottom
+  useEffect(() => {
+    if (consoleEndRef.current) {
+      consoleEndRef.current.scrollTop = consoleEndRef.current.scrollHeight;
+    }
+  }, [activeConsoleLogs, isConsoleOpen]);
 
   // Calculated stats for seller
   const sellerTemplatesList = Array.isArray(templateResponse) ? templateResponse : [];
@@ -176,6 +254,46 @@ function Dashboard() {
   const sellerConversionRate = sellerTotalViews > 0 
     ? ((sellerTotalDownloads / sellerTotalViews) * 100).toFixed(1) + "%" 
     : "0.0%";
+
+  // Auto-detect build configurations based on selected template framework
+  useEffect(() => {
+    if (!deployTemplateId) return;
+    
+    if (deployTemplateId === "mock-project-id") {
+      setDeployBranch("main");
+      setDeployBuildCommand("none");
+      setDeployOutputDir(".");
+      return;
+    }
+
+    const matched = sellerTemplatesList.find(t => t.id === deployTemplateId);
+    if (!matched) {
+      setDeployBranch("main");
+      setDeployBuildCommand("npm run build");
+      setDeployOutputDir("dist");
+      return;
+    }
+
+    const fw = (matched.framework || "").toLowerCase();
+    if (fw === "nextjs" || fw === "next") {
+      setDeployBranch("main");
+      setDeployBuildCommand("npm run build");
+      setDeployOutputDir(".next");
+    } else if (fw === "html" || fw === "vanilla" || fw === "static") {
+      setDeployBranch("main");
+      setDeployBuildCommand("none");
+      setDeployOutputDir(".");
+    } else if (fw === "nuxt" || fw === "nuxtjs") {
+      setDeployBranch("main");
+      setDeployBuildCommand("npm run build");
+      setDeployOutputDir(".output/public");
+    } else {
+      // React, Vue, Svelte, Vite-based
+      setDeployBranch("main");
+      setDeployBuildCommand("npm run build");
+      setDeployOutputDir("dist");
+    }
+  }, [deployTemplateId, sellerTemplatesList]);
 
   // Fetch categories
   const { data: categories = [] } = useQuery({
@@ -233,6 +351,45 @@ function Dashboard() {
     },
   });
 
+  // Avatar Upload handler
+  const handleAvatarUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      alert("File size exceeds 2MB limit.");
+      return;
+    }
+
+    try {
+      setUploadingAvatar(true);
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("http://localhost:8000/api/v1/files/upload", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${authToken}`
+        },
+        body: formData
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Failed to upload avatar");
+      }
+
+      const data = await res.json();
+      setAvatarUrl(data.url);
+      alert("Avatar uploaded successfully! Click 'Save Changes' to update your profile.");
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
   // Profile Update handler
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
@@ -247,7 +404,8 @@ function Dashboard() {
         body: JSON.stringify({
           full_name: fullName,
           username: username,
-          bio: bio
+          bio: bio,
+          avatar_url: avatarUrl
         })
       });
       if (!res.ok) {
@@ -329,6 +487,7 @@ function Dashboard() {
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [analysisLogs, setAnalysisLogs] = useState([]);
   const [analysisResult, setAnalysisResult] = useState(null);
+  const [isIncompleteAnalysis, setIsIncompleteAnalysis] = useState(false);
 
   // Coupons
   const [coupons, setCoupons] = useState([]);
@@ -345,14 +504,6 @@ function Dashboard() {
   const [payoutMethod, setPayoutMethod] = useState("paypal");
   const [payoutDetails, setPayoutDetails] = useState("seller@aisitestudio.com");
   const [payoutHistory, setPayoutHistory] = useState([]);
-
-  // Brand Kit
-  const [brandKit, setBrandKit] = useState({
-    primaryColor: "#6366f1",
-    secondaryColor: "#10b981",
-    fontFamily: "Outfit",
-    logoName: "logo.png"
-  });
 
   // AI custom prompt generator tool
   const [aiPrompt, setAiPrompt] = useState("");
@@ -457,6 +608,7 @@ function Dashboard() {
       setMetaTitle((data.project_name || "") + " - Website Template");
       setMetaDesc(data.ai_description || "");
 
+      let categoryMatched = false;
       if (data.categories && categories.length > 0) {
         const sortedCats = Object.entries(data.categories).sort((a, b) => b[1] - a[1]);
         const highestCategoryName = sortedCats[0]?.[0];
@@ -464,15 +616,26 @@ function Dashboard() {
           const matched = categories.find(c => c.name.toLowerCase() === highestCategoryName.toLowerCase());
           if (matched) {
             setCategoryId(matched.id);
+            categoryMatched = true;
           } else {
-            setCategoryId(categories[0]?.id || "");
+            setCategoryId("");
           }
         } else {
-          setCategoryId(categories[0]?.id || "");
+          setCategoryId("");
         }
-      } else if (categories.length > 0) {
-        setCategoryId(categories[0]?.id || "");
+      } else {
+        setCategoryId("");
       }
+
+      const isZipIncomplete = 
+        !data.project_name || 
+        !data.ai_description || 
+        !data.framework_detected || 
+        !data.categories || 
+        Object.keys(data.categories).length === 0 ||
+        !categoryMatched;
+
+      setIsIncompleteAnalysis(isZipIncomplete);
 
     } catch (err) {
       clearInterval(interval);
@@ -562,6 +725,7 @@ function Dashboard() {
 
       setStoredZipUrl(data.stored_zip_url);
 
+      let categoryMatched = false;
       if (data.categories && categories.length > 0) {
         const sortedCats = Object.entries(data.categories).sort((a, b) => b[1] - a[1]);
         const highestCategoryName = sortedCats[0]?.[0];
@@ -569,15 +733,26 @@ function Dashboard() {
           const matched = categories.find(c => c.name.toLowerCase() === highestCategoryName.toLowerCase());
           if (matched) {
             setCategoryId(matched.id);
+            categoryMatched = true;
           } else {
-            setCategoryId(categories[0]?.id || "");
+            setCategoryId("");
           }
         } else {
-          setCategoryId(categories[0]?.id || "");
+          setCategoryId("");
         }
-      } else if (categories.length > 0) {
-        setCategoryId(categories[0]?.id || "");
+      } else {
+        setCategoryId("");
       }
+
+      const isGitIncomplete = 
+        !data.project_name || 
+        !data.ai_description || 
+        !data.framework_detected || 
+        !data.categories || 
+        Object.keys(data.categories).length === 0 ||
+        !categoryMatched;
+
+      setIsIncompleteAnalysis(isGitIncomplete);
 
     } catch (err) {
       clearInterval(interval);
@@ -955,7 +1130,6 @@ function Dashboard() {
                       { id: "seller-messages", label: "Customer Messages", icon: MessageSquare },
                       { id: "seller-payouts", label: "Payouts", icon: Wallet },
                       { id: "seller-licenses", label: "Licenses", icon: FileText },
-                      { id: "notifications", label: "Notifications", icon: Bell },
                       { id: "settings", label: "Profile Settings", icon: Settings },
                     ]
                     : [
@@ -964,12 +1138,10 @@ function Dashboard() {
                       { id: "buyer-templates", label: "My Templates", icon: Folder },
                       { id: "ai-projects", label: "AI Projects", icon: Cpu },
                       { id: "my-websites", label: "My Websites", icon: Globe },
-                      { id: "deployments", label: "Deployments", icon: Zap },
+                      { id: "deployments", label: "Deployments", icon: Zap, comingSoon: true },
                       { id: "wishlist", label: "Wishlist", icon: Heart },
                       { id: "orders", label: "Orders", icon: CreditCard },
                       { id: "reviews", label: "Reviews", icon: Star },
-                      { id: "brand-kit", label: "Brand Kit", icon: Palette },
-                      { id: "notifications", label: "Notifications", icon: Bell },
                       { id: "settings", label: "Profile Settings", icon: Settings },
                     ];
 
@@ -999,6 +1171,11 @@ function Dashboard() {
                     >
                       <Icon className="w-4 h-4 shrink-0" />
                       <span className="truncate">{t.label}</span>
+                      {t.comingSoon && (
+                        <span className="ml-auto text-[9px] bg-primary/20 text-primary px-1.5 py-0.5 rounded-full font-semibold border border-primary/30 uppercase tracking-wider scale-90 origin-right shrink-0">
+                          Soon
+                        </span>
+                      )}
                     </button>
                   );
                 });
@@ -1105,7 +1282,6 @@ function Dashboard() {
                       <h3 className="db-quick-actions-title">Quick Actions</h3>
                       <div className="db-quick-actions-list">
                         {[
-                          { label: "Configure Brand Kit", tab: "brand-kit", icon: Palette },
                           { label: "Deploy Live Domain", tab: "my-websites", icon: Globe },
                           { label: "Order History", tab: "orders", icon: CreditCard },
                           { label: "Profile Setup", tab: "settings", icon: Settings },
@@ -1156,58 +1332,167 @@ function Dashboard() {
                 </div>
               )}
 
-              {/* === BUYER TEMPLATES === */}
+              {/* === BUYER TEMPLATES (UNIFIED MY TEMPLATES) === */}
               {activeTab === "buyer-templates" && (
                 <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
-                  <div>
-                    <h3 className="font-bold text-lg">My Purchased Templates</h3>
-                    <p className="text-sm text-muted-foreground">Manage, view, and customize your templates.</p>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/20 pb-4">
+                    <div>
+                      <h3 className="font-bold text-lg">My Templates</h3>
+                      <p className="text-sm text-muted-foreground">Manage, view, and customize your templates.</p>
+                    </div>
+                    {/* Segmented Control */}
+                    {(isSeller || isAdmin) && (
+                      <div className="flex gap-1.5 p-1 bg-muted/40 border border-border/20 rounded-xl self-start">
+                        <button
+                          type="button"
+                          onClick={() => setTemplatesSubTab("purchased")}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                            templatesSubTab === "purchased"
+                              ? "bg-primary text-white shadow-lg shadow-primary/20"
+                              : "text-muted-foreground hover:text-white"
+                          }`}
+                        >
+                          Purchased
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTemplatesSubTab("uploaded")}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                            templatesSubTab === "uploaded"
+                              ? "bg-primary text-white shadow-lg shadow-primary/20"
+                              : "text-muted-foreground hover:text-white"
+                          }`}
+                        >
+                          Uploaded
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  {orders.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">No purchases found.</div>
-                  ) : (
-                    <div className="grid sm:grid-cols-2 gap-4">
-                      {orders.filter(o => o.status === "completed").flatMap(o => o.items).map((item) => (
-                        <div key={item.id} className="p-4 border border-border/40 rounded-xl flex gap-4 bg-muted/5 hover:bg-muted/10 transition-colors">
-                          {item.thumbnail_url && (
-                            <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-border/40 flex-shrink-0">
-                              <Image
-                                src={item.thumbnail_url}
-                                alt={item.title}
-                                fill
-                                className="object-cover"
-                              />
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-0 flex flex-col justify-between">
-                            <div>
-                              <div className="font-bold text-sm truncate text-foreground/90">
-                                {item.title || "Template Package"}
-                              </div>
-                              <span className="text-[10px] text-muted-foreground bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full inline-block mt-1 font-semibold uppercase tracking-wider">
-                                {item.license_type} License
-                              </span>
-                            </div>
-                            <div className="flex gap-2 mt-2">
-                              <button
-                                onClick={() => triggerDownload.mutate({ templateId: item.template_id, format: "zip" })}
-                                className="flex-1 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
-                              >
-                                <Download className="w-3.5 h-3.5" /> Source Code
-                              </button>
-                              <a
-                                href={item.preview_url || `http://localhost:8000/api/v1/preview/live/${item.template_id}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex-1 py-1.5 bg-primary text-white hover:bg-primary/95 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors text-center"
-                                style={{ textDecoration: "none" }}
-                              >
-                                <Globe className="w-3.5 h-3.5" /> Live Demo
-                              </a>
-                            </div>
-                          </div>
+
+                  {templatesSubTab === "purchased" ? (
+                    <>
+                      {orders.filter(o => o.status === "completed").flatMap(o => o.items).length === 0 ? (
+                        <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-card/5">
+                          <Folder className="w-8 h-8 text-primary mx-auto mb-3 opacity-60" />
+                          <p className="text-sm font-semibold text-white">No purchased templates</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Browse the marketplace and purchase templates to see them here.
+                          </p>
+                          <Link
+                            href="/marketplace"
+                            className="mt-4 inline-block px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/95 transition-colors text-decoration-none"
+                          >
+                            Explore Marketplace
+                          </Link>
                         </div>
-                      ))}
+                      ) : (
+                        <div className="grid sm:grid-cols-2 gap-4">
+                          {orders.filter(o => o.status === "completed").flatMap(o => o.items).map((item) => (
+                            <div key={item.id} className="p-4 border border-border/40 rounded-xl flex gap-4 bg-muted/5 hover:bg-muted/10 transition-colors">
+                              {item.thumbnail_url && (
+                                <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-border/40 flex-shrink-0">
+                                  <Image
+                                    src={item.thumbnail_url}
+                                    alt={item.title}
+                                    fill
+                                    className="object-cover"
+                                  />
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0 flex flex-col justify-between">
+                                <div>
+                                  <div className="font-bold text-sm truncate text-foreground/90">
+                                    {item.title || "Template Package"}
+                                  </div>
+                                  <span className="text-[10px] text-muted-foreground bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full inline-block mt-1 font-semibold uppercase tracking-wider">
+                                    {item.license_type} License
+                                  </span>
+                                </div>
+                                <div className="flex gap-2 mt-2">
+                                  <button
+                                    onClick={() => triggerDownload.mutate({ templateId: item.template_id, format: "zip" })}
+                                    className="flex-1 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
+                                  >
+                                    <Download className="w-3.5 h-3.5" /> Source Code
+                                  </button>
+                                  <a
+                                    href={item.preview_url || `http://localhost:8000/api/v1/preview/live/${item.template_id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex-1 py-1.5 bg-primary text-white hover:bg-primary/95 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors text-center text-decoration-none"
+                                  >
+                                    <Globe className="w-3.5 h-3.5" /> Live Demo
+                                  </a>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                          <thead>
+                            <tr className="border-y border-border/50 bg-muted/30 text-xs font-semibold uppercase text-muted-foreground">
+                              <th className="p-4">Thumbnail</th>
+                              <th className="p-4">Title</th>
+                              <th className="p-4">Category</th>
+                              <th className="p-4">Price</th>
+                              <th className="p-4">Status</th>
+                              <th className="p-4">Downloads</th>
+                              <th className="p-4 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/50">
+                            {templatesLoading ? (
+                              <tr>
+                                <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                                  <Loader2 className="w-5 h-5 animate-spin mx-auto text-primary" />
+                                </td>
+                              </tr>
+                            ) : !templateResponse || templateResponse.length === 0 ? (
+                              <tr>
+                                <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                                  No templates uploaded yet. <button onClick={() => setActiveTab("seller-upload")} className="text-primary underline ml-1">Upload your first template →</button>
+                                </td>
+                              </tr>
+                            ) : (
+                              (Array.isArray(templateResponse) ? templateResponse : []).map((item) => (
+                                <tr key={item.id} className="hover:bg-muted/10">
+                                  <td className="p-4">
+                                    <img src={item.thumbnail_url} alt="" className="w-8 h-8 rounded-lg object-cover bg-muted" />
+                                  </td>
+                                  <td className="p-4 font-semibold text-foreground">{item.title}</td>
+                                  <td className="p-4 font-mono text-xs uppercase">{item.framework}</td>
+                                  <td className="p-4">{formatPrice(item.price)}</td>
+                                  <td className="p-4">
+                                    <span className="px-2 py-0.5 bg-green-500/10 text-green-500 text-[10px] rounded-full font-semibold">Published</span>
+                                  </td>
+                                  <td className="p-4 font-mono text-xs">{item.downloads_count}</td>
+                                  <td className="p-4 text-right">
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      <button onClick={() => alert("Analytics view for " + item.title)} className="p-1.5 text-muted-foreground hover:text-primary transition-colors" title="Analytics"><BarChart3 className="w-4 h-4" /></button>
+                                      <button
+                                        onClick={() => {
+                                          if (confirm("Are you sure you want to delete this template?")) {
+                                            deleteMutation.mutate(item.id);
+                                          }
+                                        }}
+                                        className="p-1.5 text-muted-foreground hover:text-red-400 transition-colors"
+                                        title="Delete Template"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1223,37 +1508,99 @@ function Dashboard() {
                     </div>
                   </div>
 
-                  <div className="grid md:grid-cols-2 gap-6">
-                    <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-muted/5 flex flex-col justify-center items-center">
-                      <Cpu className="w-8 h-8 text-primary mx-auto mb-3 opacity-60" />
-                      <p className="text-sm font-semibold text-white">No AI Generated Projects</p>
-                      <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
-                        You haven't generated any AI prototype workspaces yet. Explore templates in the marketplace to start customizing them with AI.
-                      </p>
+                  {templatesLoading ? (
+                    <div className="text-center py-12">
+                      <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+                      <p className="text-xs text-muted-foreground mt-2">Loading your AI projects...</p>
                     </div>
-
-                    <div className="glass p-6 rounded-xl border border-primary/30 bg-primary/5 flex flex-col justify-between">
-                      <div>
-                        <h4 className="font-bold text-lg text-white mb-2">Create New Project.</h4>
-                        <p className="text-sm text-slate-300 mb-4 leading-relaxed">
-                          Choose a responsive template designed for food services, then customize it using our AI editor to match your branding. For your site generation, try this prompt: <br/><br/>
-                          <span className="italic text-primary/90 block border-l-2 border-primary/50 pl-3">
-                            'Create a professional, modern cafeteria website featuring a digital menu, a daily specials section, an online ordering integration, and a clean, high-contrast aesthetic that highlights food photography.'
-                          </span>
-                          <br/>
-                          Our AI will then generate the structure and layout for you.
+                  ) : !templateResponse || templateResponse.length === 0 ? (
+                    <div className="grid md:grid-cols-2 gap-6">
+                      <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-muted/5 flex flex-col justify-center items-center">
+                        <Cpu className="w-8 h-8 text-primary mx-auto mb-3 opacity-60" />
+                        <p className="text-sm font-semibold text-white">No AI Generated Projects</p>
+                        <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+                          You haven't generated any AI prototype workspaces yet. Explore templates in the marketplace to start customizing them with AI.
                         </p>
                       </div>
-                      <Link
-                        to="/marketplace/generate"
-                        state={{ prompt: "Create a professional, modern cafeteria website featuring a digital menu, a daily specials section, an online ordering integration, and a clean, high-contrast aesthetic that highlights food photography." }}
-                        className="px-4 py-2 bg-primary text-white text-sm font-semibold rounded-lg text-center hover:bg-primary/90 transition-colors"
-                        style={{ textDecoration: 'none' }}
-                      >
-                        Try this Prompt Now
-                      </Link>
+
+                      <div className="glass p-6 rounded-xl border border-primary/30 bg-primary/5 flex flex-col justify-between">
+                        <div>
+                          <h4 className="font-bold text-lg text-white mb-2">Create New Project.</h4>
+                          <p className="text-sm text-slate-300 mb-4 leading-relaxed">
+                            Choose a responsive template designed for food services, then customize it using our AI editor to match your branding. For your site generation, try this prompt: <br/><br/>
+                            <span className="italic text-primary/90 block border-l-2 border-primary/50 pl-3">
+                              'Create a professional, modern cafeteria website featuring a digital menu, a daily specials section, an online ordering integration, and a clean, high-contrast aesthetic that highlights food photography.'
+                            </span>
+                            <br/>
+                            Our AI will then generate the structure and layout for you.
+                          </p>
+                        </div>
+                        <Link
+                          to="/marketplace/generate"
+                          state={{ prompt: "Create a professional, modern cafeteria website featuring a digital menu, a daily specials section, an online ordering integration, and a clean, high-contrast aesthetic that highlights food photography." }}
+                          className="px-4 py-2 bg-primary text-white text-sm font-semibold rounded-lg text-center hover:bg-primary/90 transition-colors"
+                          style={{ textDecoration: 'none' }}
+                        >
+                          Try this Prompt Now
+                        </Link>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="grid sm:grid-cols-2 gap-6">
+                      {templateResponse.map((item) => (
+                        <div key={item.id} className="glass p-5 rounded-xl border border-border/40 flex flex-col justify-between hover:border-primary/45 transition-all bg-card/10">
+                          <div>
+                            <div className="relative w-full h-32 rounded-lg overflow-hidden border border-border/40 mb-4 bg-muted/20 flex items-center justify-center">
+                              {item.thumbnail_url ? (
+                                <img src={item.thumbnail_url} alt="" className="object-cover w-full h-full" />
+                              ) : (
+                                <Cpu className="w-8 h-8 text-muted-foreground opacity-50" />
+                              )}
+                              <span className="absolute top-2 right-2 px-2 py-0.5 bg-background/80 backdrop-blur text-[10px] rounded-full text-primary font-semibold border border-primary/10 uppercase">
+                                {item.framework || "HTML"}
+                              </span>
+                            </div>
+                            <h4 className="font-bold text-base text-white truncate mb-1" title={item.title}>
+                              {item.title}
+                            </h4>
+                            <p className="text-xs text-muted-foreground line-clamp-2 mb-4">
+                              {item.short_description || "AI generated workspace template project."}
+                            </p>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex gap-2">
+                              <Link
+                                to={`/preview?template=${item.id}`}
+                                className="flex-1 py-1.5 bg-primary text-white hover:bg-primary/90 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors text-center"
+                                style={{ textDecoration: "none" }}
+                              >
+                                <Wand2 className="w-3.5 h-3.5" /> AI Editor
+                              </Link>
+                              <a
+                                href={`http://localhost:8000/api/v1/preview/live/${item.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex-1 py-1.5 bg-muted hover:bg-muted/80 text-foreground border border-border/40 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors text-center"
+                                style={{ textDecoration: "none" }}
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" /> Live Demo
+                              </a>
+                            </div>
+                            <button
+                              onClick={() => {
+                                if (confirm("Are you sure you want to delete this AI project?")) {
+                                  deleteMutation.mutate(item.id);
+                                }
+                              }}
+                              className="w-full py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors border border-red-500/10"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" /> Delete Project
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1275,14 +1622,174 @@ function Dashboard() {
               {/* === DEPLOYMENTS === */}
               {activeTab === "deployments" && (
                 <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
-                  <div>
-                    <h3 className="font-bold text-lg">Continuous Deployments</h3>
-                    <p className="text-sm text-muted-foreground">Vercel and Netlify build hooks integration status.</p>
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-lg text-foreground">Continuous Deployments</h3>
+                        <span className="text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded-full font-semibold border border-primary/30 uppercase tracking-wider">
+                          Coming Soon
+                        </span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">Publish your websites and AI templates to Vercel, Netlify, or GitHub Pages.</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const available = [...sellerTemplatesList];
+                        if (available.length > 0) {
+                          setDeployTemplateId(available[0].id);
+                          setDeployProjectName(available[0].title);
+                        } else {
+                          setDeployTemplateId("mock-project-id");
+                          setDeployProjectName("AI Restaurant Prototype");
+                        }
+                        setIsDeployModalOpen(true);
+                      }}
+                      className="px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/95 transition-colors flex items-center gap-1.5"
+                    >
+                      <Plus className="w-4 h-4" /> Deploy a Project
+                    </button>
                   </div>
-                  <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl">
-                    <p className="text-sm">No continuous deployments active.</p>
-                    <p className="text-xs text-muted-foreground mt-1">Connect your Vercel or Netlify hosting hooks inside the template setup wizard.</p>
-                  </div>
+
+                  {deploymentsLoading ? (
+                    <div className="text-center py-12">
+                      <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+                      <p className="text-xs text-muted-foreground mt-2">Loading deployments...</p>
+                    </div>
+                  ) : deploymentsData.length === 0 ? (
+                    <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-card/5">
+                      <Zap className="w-8 h-8 text-primary mx-auto mb-3 opacity-60" />
+                      <p className="text-sm font-semibold text-white">No active deployments</p>
+                      <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+                        Connect a project template or an AI generated sandbox to start building and hosting.
+                      </p>
+                      <button
+                        onClick={() => {
+                          const available = [...sellerTemplatesList];
+                          if (available.length > 0) {
+                            setDeployTemplateId(available[0].id);
+                            setDeployProjectName(available[0].title);
+                          } else {
+                            setDeployTemplateId("mock-project-id");
+                            setDeployProjectName("AI Restaurant Prototype");
+                          }
+                          setIsDeployModalOpen(true);
+                        }}
+                        className="mt-4 px-3.5 py-1.5 bg-muted border border-border/40 hover:bg-muted/80 text-foreground text-xs font-semibold rounded-lg transition-all"
+                      >
+                        Create First Deployment
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="deployments-grid">
+                      {deploymentsData.map((deploy) => (
+                        <div key={deploy.id} className="deploy-card glass border border-border/40 rounded-xl p-5 flex flex-col justify-between space-y-4 bg-card/10">
+                          <div className="space-y-2">
+                            <div className="flex justify-between items-start">
+                              <h4 className="font-bold text-white text-base truncate max-w-[180px]" title={deploy.project_name}>
+                                {deploy.project_name}
+                              </h4>
+                              <span className={`status-badge ${deploy.status}`}>
+                                {deploy.status === "building" && <Loader2 className="w-3 h-3 animate-spin" />}
+                                {deploy.status === "success" && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                                {deploy.status === "failed" && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
+                                {deploy.status === "building" ? "Building" : deploy.status === "success" ? "Ready" : "Failed"}
+                              </span>
+                            </div>
+                            
+                            <div className="text-xs space-y-1.5 text-slate-300">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-muted-foreground">Provider:</span>
+                                <span className="font-medium capitalize text-white flex items-center gap-1">
+                                  {deploy.provider === "vercel" && "▲ Vercel"}
+                                  {deploy.provider === "netlify" && "⧉ Netlify"}
+                                  {deploy.provider === "github_pages" && "🕮 GitHub Pages"}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-muted-foreground">Branch:</span>
+                                <span className="font-mono bg-muted/40 px-1 py-0.5 rounded text-[10px] text-primary">{deploy.branch}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-muted-foreground">Subdomain:</span>
+                                <span className="text-white truncate font-mono max-w-[200px]" title={deploy.subdomain}>
+                                  {deploy.subdomain}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-muted-foreground">Created:</span>
+                                <span>{new Date(deploy.created_at).toLocaleDateString()} {new Date(deploy.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="pt-2 border-t border-border/20 flex flex-col gap-2">
+                            <div className="flex gap-2">
+                              {deploy.status === "success" && deploy.live_url && (
+                                <a
+                                  href={deploy.live_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex-1 py-1.5 bg-primary text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 hover:bg-primary/90 transition-colors text-center text-decoration-none"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5" /> Visit Site
+                                </a>
+                              )}
+                              <button
+                                onClick={() => {
+                                  setSelectedDeployment(deploy);
+                                  setActiveConsoleLogs(deploy.logs || "");
+                                  setActiveConsoleStatus(deploy.status);
+                                  setIsConsoleOpen(true);
+                                }}
+                                className="flex-1 py-1.5 bg-muted border border-border/40 hover:bg-muted/80 text-foreground rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
+                              >
+                                <Terminal className="w-3.5 h-3.5" /> {deploy.status === "building" ? "View Build" : "View Logs"}
+                              </button>
+                            </div>
+                            
+                            <div className="flex gap-2">
+                              {deploy.status !== "building" && (
+                                <button
+                                  onClick={async () => {
+                                    if (confirm("Trigger a new deploy for this project?")) {
+                                      try {
+                                        const res = await api.post(`/deployments/${deploy.id}/redeploy`, {}, authToken ?? undefined);
+                                        refetchDeployments();
+                                        setSelectedDeployment(res);
+                                        setActiveConsoleLogs(res.logs || "");
+                                        setActiveConsoleStatus("building");
+                                        setIsConsoleOpen(true);
+                                      } catch (err) {
+                                        alert("Failed to redeploy: " + err.message);
+                                      }
+                                    }
+                                  }}
+                                  className="flex-1 py-1.5 bg-background border border-border/40 hover:bg-muted/30 text-slate-300 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
+                                >
+                                  <RefreshCw className="w-3.5 h-3.5" /> Redeploy
+                                </button>
+                              )}
+                              <button
+                                onClick={async () => {
+                                  if (confirm("Are you sure you want to remove this deployment?")) {
+                                    try {
+                                      await api.delete(`/deployments/${deploy.id}`, authToken ?? undefined);
+                                      refetchDeployments();
+                                    } catch (err) {
+                                      alert("Failed to delete: " + err.message);
+                                    }
+                                  }
+                                }}
+                                className="py-1.5 px-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs font-semibold flex items-center justify-center transition-colors border border-red-500/10"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1370,63 +1877,6 @@ function Dashboard() {
               )}
 
 
-              {/* === BRAND KIT === */}
-              {activeTab === "brand-kit" && (
-                <div className="db-section-panel">
-                  <div className="db-section-header">
-                    <h3 className="db-section-title">Your Platform Brand Kit</h3>
-                    <p className="db-section-subtitle">Set visual styles used automatically when generating site assets.</p>
-                  </div>
-                  <div className="db-brand-kit-grid">
-                    <div className="db-brand-kit-fields">
-                      <div className="db-form-group">
-                        <label className="db-form-label">Primary Color</label>
-                        <div className="db-color-row">
-                          <input
-                            type="color"
-                            value={brandKit.primaryColor}
-                            onChange={(e) => setBrandKit({ ...brandKit, primaryColor: e.target.value })}
-                            className="db-color-picker"
-                          />
-                          <input
-                            type="text"
-                            value={brandKit.primaryColor}
-                            readOnly
-                            className="db-form-input db-input-mono"
-                          />
-                        </div>
-                      </div>
-                      <div className="db-form-group">
-                        <label className="db-form-label">Font Family</label>
-                        <select
-                          value={brandKit.fontFamily}
-                          onChange={(e) => setBrandKit({ ...brandKit, fontFamily: e.target.value })}
-                          className="db-form-select"
-                        >
-                          <option value="Outfit">Outfit</option>
-                          <option value="Inter">Inter</option>
-                          <option value="Roboto">Roboto</option>
-                          <option value="Space Grotesk">Space Grotesk</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="db-brand-kit-preview">
-                      <div>
-                        <div className="db-preview-title">Brand Kit Preview</div>
-                        <p className="db-preview-subtitle">Generated logos and layouts will automatically default to these typography and palette sets.</p>
-                      </div>
-                      <button
-                        onClick={() => alert("Brand kit updated successfully!")}
-                        className="db-save-btn"
-                      >
-                        Save Preferences
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* === CREATOR / SELLER DASHBOARD HOME === */}
               {activeTab === "seller-home" && (
                 <div className="space-y-6">
@@ -1477,78 +1927,167 @@ function Dashboard() {
               )}
 
               {/* === SELLER MY TEMPLATES === */}
+              {/* === SELLER MY TEMPLATES (UNIFIED MY TEMPLATES) === */}
               {activeTab === "seller-templates" && (
-                <div className="space-y-4">
-                  <div className="glass border border-border/40 rounded-2xl overflow-hidden">
-                    <div className="p-6 flex justify-between items-center">
-                      <div>
-                        <h3 className="font-bold text-lg">My Uploaded Templates</h3>
-                        <p className="text-sm text-muted-foreground">View status, views, downloads, and execute template modifications.</p>
-                      </div>
-                      <button onClick={() => setActiveTab("seller-upload")} className="px-3.5 py-2 bg-primary text-white font-semibold text-xs rounded-xl hover:bg-primary/95 flex items-center gap-1 transition-colors">
-                        <Plus className="w-4 h-4" /> Upload Template
+                <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/20 pb-4">
+                    <div>
+                      <h3 className="font-bold text-lg">My Templates</h3>
+                      <p className="text-sm text-muted-foreground">Manage, view, and customize your templates.</p>
+                    </div>
+                    {/* Segmented Control */}
+                    <div className="flex gap-1.5 p-1 bg-muted/40 border border-border/20 rounded-xl self-start">
+                      <button
+                        type="button"
+                        onClick={() => setTemplatesSubTab("purchased")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          templatesSubTab === "purchased"
+                            ? "bg-primary text-white shadow-lg shadow-primary/20"
+                            : "text-muted-foreground hover:text-white"
+                        }`}
+                      >
+                        Purchased ({orders.filter(o => o.status === "completed").flatMap(o => o.items).length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTemplatesSubTab("uploaded")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          templatesSubTab === "uploaded"
+                            ? "bg-primary text-white shadow-lg shadow-primary/20"
+                            : "text-muted-foreground hover:text-white"
+                        }`}
+                      >
+                        Uploaded ({templateResponse?.length || 0})
                       </button>
                     </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-sm">
-                        <thead>
-                          <tr className="border-y border-border/50 bg-muted/30 text-xs font-semibold uppercase text-muted-foreground">
-                            <th className="p-4">Thumbnail</th>
-                            <th className="p-4">Title</th>
-                            <th className="p-4">Category</th>
-                            <th className="p-4">Price</th>
-                            <th className="p-4">Status</th>
-                            <th className="p-4">Downloads</th>
-                            <th className="p-4 text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border/50">
-                          {templatesLoading ? (
-                            <tr>
-                              <td colSpan={7} className="p-8 text-center text-muted-foreground">
-                                <Loader2 className="w-5 h-5 animate-spin mx-auto text-primary" />
-                              </td>
-                            </tr>
-                          ) : !templateResponse || templateResponse.length === 0 ? (
-                            <tr>
-                              <td colSpan={7} className="p-8 text-center text-muted-foreground">
-                                No templates uploaded yet. <button onClick={() => setActiveTab("seller-upload")} className="text-primary underline ml-1">Upload your first template →</button>
-                              </td>
-                            </tr>
-                          ) : (
-                            (Array.isArray(templateResponse) ? templateResponse : []).map((item) => (
-                              <tr key={item.id} className="hover:bg-muted/10">
-                                <td className="p-4">
-                                  <img src={item.thumbnail_url} alt="" className="w-8 h-8 rounded-lg object-cover bg-muted" />
-                                </td>
-                                <td className="p-4 font-semibold text-foreground">{item.title}</td>
-                                <td className="p-4 font-mono text-xs uppercase">{item.framework}</td>
-                                <td className="p-4">{formatPrice(item.price)}</td>
-                                <td className="p-4">
-                                  <span className="px-2 py-0.5 bg-green-500/10 text-green-500 text-[10px] rounded-full font-semibold">Published</span>
-                                </td>
-                                <td className="p-4 font-mono text-xs">{item.downloads_count}</td>
-                                <td className="p-4 text-right flex items-center justify-end gap-1.5">
-                                  <button onClick={() => alert("Analytics view for " + item.title)} className="p-1.5 text-muted-foreground hover:text-primary transition-colors" title="Analytics"><BarChart3 className="w-4 h-4" /></button>
+                  </div>
+
+                  {templatesSubTab === "purchased" ? (
+                    <>
+                      {orders.filter(o => o.status === "completed").flatMap(o => o.items).length === 0 ? (
+                        <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-card/5">
+                          <Folder className="w-8 h-8 text-primary mx-auto mb-3 opacity-60" />
+                          <p className="text-sm font-semibold text-white">No purchased templates</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Browse the marketplace and purchase templates to see them here.
+                          </p>
+                          <Link
+                            href="/marketplace"
+                            className="mt-4 inline-block px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/95 transition-colors text-decoration-none"
+                          >
+                            Explore Marketplace
+                          </Link>
+                        </div>
+                      ) : (
+                        <div className="grid sm:grid-cols-2 gap-4">
+                          {orders.filter(o => o.status === "completed").flatMap(o => o.items).map((item) => (
+                            <div key={item.id} className="p-4 border border-border/40 rounded-xl flex gap-4 bg-muted/5 hover:bg-muted/10 transition-colors">
+                              {item.thumbnail_url && (
+                                <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-border/40 flex-shrink-0">
+                                  <Image
+                                    src={item.thumbnail_url}
+                                    alt={item.title}
+                                    fill
+                                    className="object-cover"
+                                  />
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0 flex flex-col justify-between">
+                                <div>
+                                  <div className="font-bold text-sm truncate text-foreground/90">
+                                    {item.title || "Template Package"}
+                                  </div>
+                                  <span className="text-[10px] text-muted-foreground bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full inline-block mt-1 font-semibold uppercase tracking-wider">
+                                    {item.license_type} License
+                                  </span>
+                                </div>
+                                <div className="flex gap-2 mt-2">
                                   <button
-                                    onClick={() => {
-                                      if (confirm("Are you sure you want to delete this template?")) {
-                                        deleteMutation.mutate(item.id);
-                                      }
-                                    }}
-                                    className="p-1.5 text-muted-foreground hover:text-red-400 transition-colors"
-                                    title="Delete Template"
+                                    onClick={() => triggerDownload.mutate({ templateId: item.template_id, format: "zip" })}
+                                    className="flex-1 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
                                   >
-                                    <Trash2 className="w-4 h-4" />
+                                    <Download className="w-3.5 h-3.5" /> Source Code
                                   </button>
+                                  <a
+                                    href={item.preview_url || `http://localhost:8000/api/v1/preview/live/${item.template_id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex-1 py-1.5 bg-primary text-white hover:bg-primary/95 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors text-center text-decoration-none"
+                                  >
+                                    <Globe className="w-3.5 h-3.5" /> Live Demo
+                                  </a>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                          <thead>
+                            <tr className="border-y border-border/50 bg-muted/30 text-xs font-semibold uppercase text-muted-foreground">
+                              <th className="p-4">Thumbnail</th>
+                              <th className="p-4">Title</th>
+                              <th className="p-4">Category</th>
+                              <th className="p-4">Price</th>
+                              <th className="p-4">Status</th>
+                              <th className="p-4">Downloads</th>
+                              <th className="p-4 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/50">
+                            {templatesLoading ? (
+                              <tr>
+                                <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                                  <Loader2 className="w-5 h-5 animate-spin mx-auto text-primary" />
                                 </td>
                               </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
+                            ) : !templateResponse || templateResponse.length === 0 ? (
+                              <tr>
+                                <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                                  No templates uploaded yet. <button onClick={() => setActiveTab("seller-upload")} className="text-primary underline ml-1">Upload your first template →</button>
+                                </td>
+                              </tr>
+                            ) : (
+                              (Array.isArray(templateResponse) ? templateResponse : []).map((item) => (
+                                <tr key={item.id} className="hover:bg-muted/10">
+                                  <td className="p-4">
+                                    <img src={item.thumbnail_url} alt="" className="w-8 h-8 rounded-lg object-cover bg-muted" />
+                                  </td>
+                                  <td className="p-4 font-semibold text-foreground">{item.title}</td>
+                                  <td className="p-4 font-mono text-xs uppercase">{item.framework}</td>
+                                  <td className="p-4">{formatPrice(item.price)}</td>
+                                  <td className="p-4">
+                                    <span className="px-2 py-0.5 bg-green-500/10 text-green-500 text-[10px] rounded-full font-semibold">Published</span>
+                                  </td>
+                                  <td className="p-4 font-mono text-xs">{item.downloads_count}</td>
+                                  <td className="p-4 text-right">
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      <button onClick={() => alert("Analytics view for " + item.title)} className="p-1.5 text-muted-foreground hover:text-primary transition-colors" title="Analytics"><BarChart3 className="w-4 h-4" /></button>
+                                      <button
+                                        onClick={() => {
+                                          if (confirm("Are you sure you want to delete this template?")) {
+                                            deleteMutation.mutate(item.id);
+                                          }
+                                        }}
+                                        className="p-1.5 text-muted-foreground hover:text-red-400 transition-colors"
+                                        title="Delete Template"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
 
@@ -2104,16 +2643,32 @@ function Dashboard() {
                     {/* STEP 3: REVIEW & PUBLISH */}
                     {wizardStep === 3 && (
                       <div className="space-y-6 animate-in fade-in duration-200">
-                        <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl flex items-center gap-3">
-                          <Sparkles className="w-5 h-5 text-primary shrink-0" />
-                          <p className="text-xs text-muted-foreground leading-relaxed">
-                            <strong>AI Auto-Fill Active:</strong> We have analyzed your project and pre-filled standard catalog details. Please review these parameters and click <strong>Publish Template</strong>.
-                          </p>
-                        </div>
+                        {isIncompleteAnalysis ? (
+                          <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-start gap-3">
+                            <Info className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                            <div className="space-y-1">
+                              <p className="text-xs font-bold text-amber-400">
+                                ⚠️ Incomplete AI Detection - Action Required
+                              </p>
+                              <p className="text-[11px] text-slate-300 leading-relaxed">
+                                Our AI code audit could not fully determine all metadata (e.g. category mapping, title, framework, or descriptions) from your upload. Please review all fields below and manually answer these questions to ensure buyers can search and find your template accurately.
+                              </p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl flex items-center gap-3">
+                            <Sparkles className="w-5 h-5 text-primary shrink-0" />
+                            <p className="text-xs text-muted-foreground leading-relaxed">
+                              <strong>AI Auto-Fill Active:</strong> We have analyzed your project and pre-filled standard catalog details. Please review these parameters and click <strong>Publish Template</strong>.
+                            </p>
+                          </div>
+                        )}
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div>
-                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Template Title *</label>
+                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
+                              Template Title * {isIncompleteAnalysis && !title && <span className="text-amber-500 font-bold normal-case ml-1">(AI could not detect - input manually)</span>}
+                            </label>
                             <input
                               type="text"
                               required
@@ -2137,7 +2692,9 @@ function Dashboard() {
 
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                           <div>
-                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Category *</label>
+                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
+                              Category * {isIncompleteAnalysis && !categoryId && <span className="text-amber-500 font-bold normal-case ml-1">(AI could not detect - select manually)</span>}
+                            </label>
                             <select
                               required
                               value={categoryId}
@@ -2151,7 +2708,9 @@ function Dashboard() {
                             </select>
                           </div>
                           <div>
-                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Framework</label>
+                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
+                              Framework * {isIncompleteAnalysis && !framework && <span className="text-amber-500 font-bold normal-case ml-1">(AI could not detect - select manually)</span>}
+                            </label>
                             <select
                               required
                               value={framework}
@@ -2247,7 +2806,9 @@ function Dashboard() {
                         )}
 
                         <div>
-                          <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Short Description</label>
+                          <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
+                            Short Description * {isIncompleteAnalysis && !shortDesc && <span className="text-amber-500 font-bold normal-case ml-1">(AI could not detect - fill in manually)</span>}
+                          </label>
                           <input
                             type="text"
                             value={shortDesc}
@@ -2258,7 +2819,9 @@ function Dashboard() {
                         </div>
 
                         <div>
-                          <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Description</label>
+                          <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
+                            Description * {isIncompleteAnalysis && !desc && <span className="text-amber-500 font-bold normal-case ml-1">(AI could not detect - fill in manually)</span>}
+                          </label>
                           <textarea
                             rows={4}
                             value={desc}
@@ -3047,22 +3610,6 @@ function Dashboard() {
                 </div>
               )}
 
-              {/* === NOTIFICATIONS PANEL === */}
-              {activeTab === "notifications" && (
-                <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
-                  <div className="flex justify-between items-center border-b border-border/50 pb-4">
-                    <div>
-                      <h3 className="font-bold text-lg">Platform Notifications</h3>
-                      <p className="text-sm text-muted-foreground">Receive real-time sales reports and updates.</p>
-                    </div>
-                    <button className="text-xs text-primary font-semibold hover:underline bg-transparent border-none p-0 cursor-pointer">Mark all read</button>
-                  </div>
-                  <div className="p-8 text-center text-muted-foreground text-sm border border-border/40 rounded-xl">
-                    No new notifications.
-                  </div>
-                </div>
-              )}
-
               {/* === PROFILE & SETTINGS === */}
               {activeTab === "settings" && (
                 <div className="db-settings-grid">
@@ -3074,6 +3621,55 @@ function Dashboard() {
                   </div>
                   <div className="db-settings-form-panel">
                     <form onSubmit={handleUpdateProfile} className="db-settings-form">
+                      {/* Avatar Upload Container */}
+                      <div className="flex flex-col items-center sm:flex-row gap-4 p-4 rounded-xl border border-border/40 bg-card/20 mb-3">
+                        <div className="relative w-16 h-16 rounded-full overflow-hidden border border-border/40 bg-slate-900 flex items-center justify-center shrink-0">
+                          {avatarUrl ? (
+                            <img src={avatarUrl} alt="Avatar Preview" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-xl font-bold text-slate-400">
+                              {fullName?.[0] || username?.[0] || "?"}
+                            </span>
+                          )}
+                          {uploadingAvatar && (
+                            <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                              <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="space-y-2 text-center sm:text-left">
+                          <label className="text-xs font-semibold text-slate-200 block">Profile Picture</label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleAvatarUpload}
+                            className="hidden"
+                            id="avatar-upload-input"
+                            disabled={uploadingAvatar}
+                          />
+                          <div className="flex gap-2 justify-center sm:justify-start">
+                            <label
+                              htmlFor="avatar-upload-input"
+                              className="cursor-pointer px-3 py-1 bg-primary/20 border border-primary/30 text-primary text-xs font-semibold rounded-lg hover:bg-primary/30 transition-all"
+                            >
+                              Upload Image
+                            </label>
+                            {avatarUrl && (
+                              <button
+                                type="button"
+                                onClick={() => setAvatarUrl("")}
+                                className="px-3 py-1 bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-semibold rounded-lg hover:bg-red-500/20 transition-all"
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-muted-foreground block">
+                            Support JPG, PNG or WEBP. Max 2MB.
+                          </span>
+                        </div>
+                      </div>
+
                       <div className="db-form-group">
                         <label className="db-form-label">Email Address (Read Only)</label>
                         <input
@@ -3120,6 +3716,285 @@ function Dashboard() {
                         {savingProfile ? "Saving..." : "Save Changes"}
                       </button>
                     </form>
+                  </div>
+                </div>
+              )}
+
+              {/* === DEPLOY PROJECT WIZARD MODAL === */}
+              {isDeployModalOpen && (
+                <div className="modal-backdrop">
+                  <div className="modal-content glass border border-border/40 p-6 rounded-2xl space-y-4">
+                    <div className="flex justify-between items-center border-b border-border/20 pb-3">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-lg text-white">Deploy a New Project</h3>
+                        <span className="text-[9px] bg-primary/20 text-primary px-1.5 py-0.5 rounded-full font-semibold border border-primary/30 uppercase tracking-wider">
+                          Coming Soon
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => setIsDeployModalOpen(false)}
+                        className="text-muted-foreground hover:text-white transition-colors bg-transparent border-none text-xl cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </div>
+
+                    <form
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        setDeploying(true);
+                        try {
+                          const payload = {
+                            project_name: deployProjectName,
+                            provider: deployProvider,
+                            template_id: deployTemplateId === "mock-project-id" ? null : deployTemplateId,
+                            branch: deployBranch,
+                            build_command: deployBuildCommand,
+                            output_dir: deployOutputDir,
+                          };
+                          const res = await api.post("/deployments/", payload, authToken ?? undefined);
+                          refetchDeployments();
+                          setIsDeployModalOpen(false);
+                          setDeploying(false);
+                          // Reset wizard state
+                          setDeployProjectName("");
+                          setDeployBranch("main");
+                          setDeployBuildCommand("npm run build");
+                          setDeployOutputDir("dist");
+                          // Open live build console for the new deployment
+                          setSelectedDeployment(res);
+                          setActiveConsoleLogs(res.logs || "");
+                          setActiveConsoleStatus("building");
+                          setIsConsoleOpen(true);
+                        } catch (err) {
+                          setDeploying(false);
+                          alert("Deployment failed: " + err.message);
+                        }
+                      }}
+                      className="space-y-4"
+                    >
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-slate-300 block">Select AI Project / Template</label>
+                        <select
+                          value={deployTemplateId}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setDeployTemplateId(val);
+                            if (val === "mock-project-id") {
+                              setDeployProjectName("AI Restaurant Prototype");
+                            } else {
+                              const matched = sellerTemplatesList.find(t => t.id === val);
+                              if (matched) setDeployProjectName(matched.title);
+                            }
+                          }}
+                          className="w-full bg-slate-900/80 border border-border/40 rounded-xl p-2.5 text-sm text-white focus:outline-none focus:border-primary"
+                          required
+                        >
+                          {sellerTemplatesList.length > 0 ? (
+                            sellerTemplatesList.map(t => (
+                              <option key={t.id} value={t.id}>{t.title} ({t.framework || "HTML"})</option>
+                            ))
+                          ) : (
+                            <option value="mock-project-id">AI Restaurant Prototype (HTML)</option>
+                          )}
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-slate-300 block">Project Display Name</label>
+                        <input
+                          type="text"
+                          value={deployProjectName}
+                          onChange={(e) => setDeployProjectName(e.target.value)}
+                          placeholder="My Portfolio Site"
+                          className="w-full bg-slate-900/80 border border-border/40 rounded-xl p-2.5 text-sm text-white focus:outline-none focus:border-primary"
+                          required
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-xs font-semibold text-slate-300 block">Hosting Provider</label>
+                        <div className="provider-select-grid">
+                          <div
+                            onClick={() => setDeployProvider("vercel")}
+                            className={`provider-card ${deployProvider === "vercel" ? "selected" : ""}`}
+                          >
+                            <div className="text-sm font-bold text-white mb-1">▲ Vercel</div>
+                            <div className="text-[10px] text-muted-foreground">Serverless Hosting</div>
+                          </div>
+                          <div
+                            onClick={() => setDeployProvider("netlify")}
+                            className={`provider-card ${deployProvider === "netlify" ? "selected" : ""}`}
+                          >
+                            <div className="text-sm font-bold text-white mb-1">⧉ Netlify</div>
+                            <div className="text-[10px] text-muted-foreground">Static Builds</div>
+                          </div>
+                          <div
+                            onClick={() => setDeployProvider("github_pages")}
+                            className={`provider-card ${deployProvider === "github_pages" ? "selected" : ""}`}
+                          >
+                            <div className="text-sm font-bold text-white mb-1">🕮 GitHub Pages</div>
+                            <div className="text-[10px] text-muted-foreground">Git Repository</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl space-y-3">
+                        <div className="flex items-center gap-1.5 text-xs text-primary font-bold uppercase tracking-wider">
+                          <Sparkles className="w-3.5 h-3.5 text-primary" /> AI Auto-Detected Build Settings
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-xs text-slate-300">
+                          <div className="space-y-0.5">
+                            <span className="text-[10px] text-muted-foreground uppercase block font-semibold">Branch</span>
+                            <span className="font-mono bg-slate-900/60 border border-border/20 px-1.5 py-0.5 rounded text-[10px] text-white block truncate">
+                              {deployBranch}
+                            </span>
+                          </div>
+                          <div className="space-y-0.5">
+                            <span className="text-[10px] text-muted-foreground uppercase block font-semibold">Build Cmd</span>
+                            <span className="font-mono bg-slate-900/60 border border-border/20 px-1.5 py-0.5 rounded text-[10px] text-white block truncate" title={deployBuildCommand}>
+                              {deployBuildCommand}
+                            </span>
+                          </div>
+                          <div className="space-y-0.5">
+                            <span className="text-[10px] text-muted-foreground uppercase block font-semibold">Output Dir</span>
+                            <span className="font-mono bg-slate-900/60 border border-border/20 px-1.5 py-0.5 rounded text-[10px] text-white block truncate" title={deployOutputDir}>
+                              {deployOutputDir}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-[10px] text-muted-foreground leading-normal">
+                          Settings are automatically determined based on the template's framework and files scan.
+                        </div>
+                      </div>
+
+                      <div className="p-3 bg-primary/5 border border-primary/20 rounded-xl flex items-start gap-2">
+                        <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                        <div className="text-[11px] text-slate-300 leading-normal">
+                          <strong className="text-white block mb-0.5">Coming Soon (Preview Mode)</strong>
+                          The deployment simulation process is fully active to test the flow, but live production hosting integrations are coming soon.
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end gap-2.5 pt-3 border-t border-border/20">
+                        <button
+                          type="button"
+                          onClick={() => setIsDeployModalOpen(false)}
+                          className="px-4 py-2 border border-border/40 text-foreground text-xs font-semibold rounded-xl hover:bg-muted/10 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={deploying}
+                          className="px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/95 transition-colors disabled:opacity-50 flex items-center gap-1"
+                        >
+                          {deploying ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Deploying...
+                            </>
+                          ) : (
+                            "Start Deploy"
+                          )}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+
+              {/* === BUILD LOGS CONSOLE MODAL === */}
+              {isConsoleOpen && selectedDeployment && (
+                <div className="modal-backdrop">
+                  <div className="modal-content large glass border border-border/40 p-6 rounded-2xl space-y-4">
+                    <div className="flex justify-between items-center border-b border-border/20 pb-3">
+                      <div>
+                        <h3 className="font-bold text-lg text-white">Build & Deploy Console</h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">Project: {selectedDeployment.project_name}</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setIsConsoleOpen(false);
+                          setSelectedDeployment(null);
+                        }}
+                        className="text-muted-foreground hover:text-white transition-colors bg-transparent border-none text-xl cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </div>
+
+                    <div className="terminal-window">
+                      <div className="terminal-header">
+                        <div className="terminal-dots">
+                          <span className="terminal-dot" style={{ backgroundColor: '#ef4444' }}></span>
+                          <span className="terminal-dot" style={{ backgroundColor: '#eab308' }}></span>
+                          <span className="terminal-dot" style={{ backgroundColor: '#22c55e' }}></span>
+                        </div>
+                        <span className="text-xs text-slate-400 font-mono flex items-center gap-1.5">
+                          {activeConsoleStatus === "building" ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                              BUILDING...
+                            </>
+                          ) : activeConsoleStatus === "success" ? (
+                            "READY"
+                          ) : (
+                            "FAILED"
+                          )}
+                        </span>
+                      </div>
+
+                      <div ref={consoleEndRef} className="terminal-body">
+                        {activeConsoleLogs.split("\n").map((line, idx) => {
+                          const clean = stripAnsi(line);
+                          if (!clean.trim()) return null;
+                          const isSuccess = clean.startsWith("✅") || clean.includes("successfully") || clean.startsWith("✓");
+                          const isError = clean.startsWith("❌") || clean.toLowerCase().includes("error") || clean.toLowerCase().includes("failed");
+                          const isStep = /^\d+\//.test(clean.trim()) || clean.includes("[1/") || clean.includes("[2/") || clean.includes("[3/") || clean.includes("[4/");
+                          return (
+                            <div key={idx} className={`terminal-log-line ${isSuccess ? "text-emerald-400" : isError ? "text-red-400" : isStep ? "text-sky-400 font-semibold" : ""}`}>
+                              {clean}
+                            </div>
+                          );
+                        })}
+                        {activeConsoleStatus === "building" && <span className="terminal-cursor" />}
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center pt-3 border-t border-border/20">
+                      <div className="text-xs text-muted-foreground">
+                        {activeConsoleStatus === "building" ? (
+                          "Please wait, compilation in progress..."
+                        ) : activeConsoleStatus === "success" ? (
+                          <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                            ✓ Build succeeded. Live URL available.
+                          </span>
+                        ) : (
+                          <span className="text-red-400 font-semibold">✗ Build failed. Review config.</span>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        {activeConsoleStatus === "success" && selectedDeployment?.live_url && (
+                          <a
+                            href={selectedDeployment.live_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/95 transition-colors text-center text-decoration-none"
+                          >
+                            🌐 Visit Live Site
+                          </a>
+                        )}
+                        <button
+                          onClick={() => {
+                            setIsConsoleOpen(false);
+                            setSelectedDeployment(null);
+                          }}
+                          className="px-4 py-2 bg-muted border border-border/40 hover:bg-muted/80 text-foreground text-xs font-semibold rounded-xl transition-colors"
+                        >
+                          Close Console
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

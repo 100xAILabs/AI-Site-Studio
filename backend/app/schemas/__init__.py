@@ -12,6 +12,7 @@ from app.schemas.review import ReviewCreate, ReviewUpdate, ReviewResponse
 from app.schemas.order import OrderCreate, OrderResponse, OrderItemResponse
 from app.schemas.payment import PaymentInitResponse, PaymentVerifyRequest
 from app.schemas.common import PaginatedResponse, MessageResponse
+from app.schemas.deployment import DeploymentCreate, DeploymentResponse
 
 __all__ = [
     # User
@@ -29,4 +30,6 @@ __all__ = [
     "PaymentInitResponse", "PaymentVerifyRequest",
     # Common
     "PaginatedResponse", "MessageResponse",
+    # Deployment
+    "DeploymentCreate", "DeploymentResponse",
 ]

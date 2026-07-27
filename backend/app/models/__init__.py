@@ -17,6 +17,7 @@ from app.models.ai_history import AIHistory
 from app.models.analytics import AnalyticsEvent
 from app.models.stored_file import StoredFile
 from app.models.follow import Follow
+from app.models.deployment import Deployment
 
 __all__ = [
     "User", "UserRole",
@@ -34,4 +35,5 @@ __all__ = [
     "AnalyticsEvent",
     "StoredFile",
     "Follow",
+    "Deployment",
 ]
