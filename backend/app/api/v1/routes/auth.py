@@ -15,9 +15,13 @@ from app.core.dependencies import get_current_user
 from app.core.security import create_access_token
 from app.models.user import User
 from app.repositories.user_repo import UserRepository
-from app.schemas.user import UserResponse
+from app.schemas.user import UserResponse, PayoutSetupRequest
 
 router = APIRouter()
+
+class VerifyOTPRequest(BaseModel):
+    email: str
+    otp: str
 
 def is_company_email(email: str) -> bool:
     if "@" not in email:
@@ -99,14 +103,34 @@ async def send_otp_email(to_email: str, otp: str):
     except Exception as e:
         print(f"Error sending email in executor: {e}")
 
-def generate_otp(email: str) -> str:
+import hashlib
+from app.core.redis import get_redis
+
+async def generate_otp(email: str, purpose: str) -> str:
+    email_key = email.lower().strip()
+    redis_client = await get_redis()
+    
+    # 1. Rate limiting: Check if an OTP was generated within the last 60 seconds
+    rate_key = f"otp:rate:{purpose}:{email_key}"
+    if await redis_client.get(rate_key):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many OTP requests. Please wait 60 seconds before trying again."
+        )
+
+    # 2. Generate random 6-digit code
     otp = f"{random.randint(100000, 999999)}"
-    expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=5)
-    otp_store[email.lower()] = {
-        "code": otp,
-        "expires_at": expires_at
-    }
-    print(f"\n[SIMULATION] Sent verification OTP code to {email}: {otp}\n")
+    hashed_otp = hashlib.sha256(otp.encode("utf-8")).hexdigest()
+
+    # 3. Store hashed OTP with 5 minute expiration, and verification attempts counter (max 3)
+    db_key = f"otp:code:{purpose}:{email_key}"
+    await redis_client.set(db_key, hashed_otp, ex=300)
+    
+    attempts_key = f"otp:attempts:{purpose}:{email_key}"
+    await redis_client.set(attempts_key, "0", ex=300)
+
+    # Set rate limiter for 60 seconds
+    await redis_client.set(rate_key, "1", ex=60)
     
     # Run the email sending task in the background
     asyncio.create_task(send_otp_email(email, otp))
@@ -144,7 +168,7 @@ if settings.GITHUB_CLIENT_ID:
         authorize_url='https://github.com/login/oauth/authorize',
         api_base_url='https://api.github.com/',
         client_kwargs={
-            'scope': 'repo user',
+            'scope': 'read:user user:email',
             'headers': {'User-Agent': 'AI-Site-Studio'}
         },
     )
@@ -433,7 +457,7 @@ async def register(
                 headers={"X-Signup-Method": signup_method}
             )
         else:
-            generate_otp(email)
+            await generate_otp(email, "verify_email")
             return {
                 "status": "otp_required",
                 "email": email,
@@ -455,7 +479,7 @@ async def register(
     await db.flush()
     await db.commit()
     
-    generate_otp(email)
+    await generate_otp(email, "verify_email")
     return {
         "status": "otp_required",
         "email": email,
@@ -476,26 +500,7 @@ async def login_email(
     if not email or not password:
         raise HTTPException(status_code=400, detail="Email and password required")
         
-    if email == "admin@aisitestudio.com" and password == "adminpassword":
-        repo = UserRepository(db)
-        user = await repo.get_by_email(email)
-        if not user:
-            from app.core.security import hash_password
-            from app.models.user import UserRole
-            user = User(
-                email=email,
-                hashed_password=hash_password(password),
-                role=UserRole.ADMIN,
-                full_name="Site Studio Admin",
-                is_email_verified=True
-            )
-            db.add(user)
-            await db.flush()
-            await db.commit()
-            await db.refresh(user)
-            
-        access_token = create_access_token(subject=str(user.id))
-        return {"access_token": access_token, "token_type": "bearer"}
+
 
     repo = UserRepository(db)
     user = await repo.get_by_email(email)
@@ -507,7 +512,7 @@ async def login_email(
         raise HTTPException(status_code=401, detail="Invalid email or password")
         
     if not user.is_email_verified:
-        generate_otp(user.email)
+        await generate_otp(user.email, "verify_email")
         return {
             "status": "otp_required",
             "email": user.email,
@@ -518,11 +523,6 @@ async def login_email(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-class VerifyOTPRequest(BaseModel):
-    email: str
-    otp: str
-
-
 @router.post("/verify-otp")
 async def verify_otp(
     request_data: VerifyOTPRequest,
@@ -531,15 +531,28 @@ async def verify_otp(
     email = request_data.email.strip().lower()
     otp = request_data.otp.strip()
     
-    record = otp_store.get(email)
-    if not record:
-        raise HTTPException(status_code=400, detail="No active OTP request found for this email.")
-        
-    now = datetime.datetime.now(datetime.timezone.utc)
-    if now > record["expires_at"]:
-        raise HTTPException(status_code=400, detail="OTP has expired. Please request a new one.")
-        
-    if record["code"] != otp:
+    redis_client = await get_redis()
+    db_key = f"otp:code:verify_email:{email}"
+    attempts_key = f"otp:attempts:verify_email:{email}"
+
+    # Get hashed OTP from Redis
+    stored_hash = await redis_client.get(db_key)
+    if not stored_hash:
+        raise HTTPException(status_code=400, detail="OTP expired or no active request found.")
+
+    # Check verification attempts limit
+    attempts_str = await redis_client.get(attempts_key) or "0"
+    attempts = int(attempts_str)
+    if attempts >= 3:
+        await redis_client.delete(db_key)
+        await redis_client.delete(attempts_key)
+        raise HTTPException(status_code=400, detail="Max verification attempts exceeded. Please request a new OTP.")
+
+    # Compare hashed code
+    provided_hash = hashlib.sha256(otp.encode("utf-8")).hexdigest()
+    if stored_hash != provided_hash:
+        # Increment attempt counter
+        await redis_client.incr(attempts_key)
         raise HTTPException(status_code=400, detail="Invalid OTP code.")
         
     repo = UserRepository(db)
@@ -552,7 +565,9 @@ async def verify_otp(
     await db.commit()
     await db.refresh(user)
     
-    otp_store.pop(email, None)
+    # Delete OTP records on success
+    await redis_client.delete(db_key)
+    await redis_client.delete(attempts_key)
     
     access_token = create_access_token(subject=str(user.id))
     return {
@@ -581,7 +596,7 @@ async def resend_otp(
     if user.is_email_verified:
         raise HTTPException(status_code=400, detail="Email is already verified. Please sign in.")
         
-    generate_otp(email)
+    await generate_otp(email, "verify_email")
     return {"message": "A new OTP has been sent."}
 
 
@@ -600,8 +615,10 @@ async def forgot_password(
     repo = UserRepository(db)
     user = await repo.get_by_email(email)
     if not user:
-        # Don't reveal whether email exists — always return success
-        return {"message": "If an account with that email exists, a reset code has been sent."}
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No account found with this email address."
+        )
     
     if not user.hashed_password:
         # This user signed up via OAuth only — can't reset a password they never set
@@ -610,8 +627,8 @@ async def forgot_password(
             detail="This account was created using social login (Google). Please sign in with Google instead."
         )
     
-    generate_otp(email)
-    return {"message": "If an account with that email exists, a reset code has been sent."}
+    await generate_otp(email, "reset_password")
+    return {"message": "A password reset code has been sent to your email."}
 
 
 class ResetPasswordRequest(BaseModel):
@@ -630,16 +647,25 @@ async def reset_password(
     otp = request_data.otp.strip()
     new_password = request_data.new_password
     
+    redis_client = await get_redis()
+    db_key = f"otp:code:reset_password:{email}"
+    attempts_key = f"otp:attempts:reset_password:{email}"
+
     # Verify OTP
-    record = otp_store.get(email)
-    if not record:
-        raise HTTPException(status_code=400, detail="No active reset request found. Please request a new code.")
+    stored_hash = await redis_client.get(db_key)
+    if not stored_hash:
+        raise HTTPException(status_code=400, detail="OTP expired or no active reset request found.")
         
-    now = datetime.datetime.now(datetime.timezone.utc)
-    if now > record["expires_at"]:
-        raise HTTPException(status_code=400, detail="Reset code has expired. Please request a new one.")
-        
-    if record["code"] != otp:
+    attempts_str = await redis_client.get(attempts_key) or "0"
+    attempts = int(attempts_str)
+    if attempts >= 3:
+        await redis_client.delete(db_key)
+        await redis_client.delete(attempts_key)
+        raise HTTPException(status_code=400, detail="Max reset attempts exceeded. Please request a new code.")
+
+    provided_hash = hashlib.sha256(otp.encode("utf-8")).hexdigest()
+    if stored_hash != provided_hash:
+        await redis_client.incr(attempts_key)
         raise HTTPException(status_code=400, detail="Invalid reset code.")
     
     # Validate new password strength
@@ -662,8 +688,9 @@ async def reset_password(
     await db.commit()
     await db.refresh(user)
     
-    # Clean up OTP
-    otp_store.pop(email, None)
+    # Clean up OTP keys in redis
+    await redis_client.delete(db_key)
+    await redis_client.delete(attempts_key)
     
     return {"message": "Password has been reset successfully. You can now sign in with your new password."}
 
@@ -692,7 +719,42 @@ async def update_me(
     if "avatar_url" in data:
         current_user.avatar_url = data["avatar_url"]
         
+    if "full_name" in data or "avatar_url" in data:
+        from app.models.template import Template
+        from sqlalchemy import update
+        update_vals = {}
+        if "full_name" in data:
+            update_vals["developer_name"] = data["full_name"]
+        if "avatar_url" in data:
+            update_vals["developer_avatar"] = data["avatar_url"]
+        if update_vals:
+            await db.execute(
+                update(Template)
+                .where(Template.seller_id == current_user.id)
+                .values(**update_vals)
+            )
+        
     await db.flush()
     await db.commit()
     await db.refresh(current_user)
     return UserResponse.model_validate(current_user)
+
+
+@router.put("/payout-account", response_model=UserResponse)
+async def update_payout_account(
+    data: PayoutSetupRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> UserResponse:
+    """Setup or update the seller's payout bank account details."""
+    current_user.payout_bank_name = data.payout_bank_name
+    current_user.payout_account_number = data.payout_account_number
+    current_user.payout_ifsc_code = data.payout_ifsc_code
+    current_user.payout_account_holder_name = data.payout_account_holder_name
+    current_user.is_payout_setup_completed = True
+    
+    await db.flush()
+    await db.commit()
+    await db.refresh(current_user)
+    return UserResponse.model_validate(current_user)
+

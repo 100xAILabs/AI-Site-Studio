@@ -478,12 +478,7 @@ npm run build`;
                   >
                     <Tablet className="w-3.5 h-3.5 mr-1 inline" /> Tablet
                   </button>
-                  <button
-                    onClick={() => setHeroTab("mobile")}
-                    className={cn("hero-tab-btn", heroTab === "mobile" && "active")}
-                  >
-                    <Smartphone className="w-3.5 h-3.5 mr-1 inline" /> Mobile
-                  </button>
+
                 </div>
 
                 <div style={{ display: "flex", gap: "0.5rem", flexShrink: 0 }}>

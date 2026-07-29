@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Link as RouterLink } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   KeyRound, ArrowLeft, AlertCircle, Eye, EyeOff, CheckCircle2, ShieldCheck, Mail,
 } from "lucide-react";

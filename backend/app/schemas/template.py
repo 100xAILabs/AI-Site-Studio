@@ -131,7 +131,6 @@ class TemplateResponse(BaseModel):
     developer_avatar: Optional[str] = None
     included_pages: Optional[List[str]] = None
     changelog: Optional[Dict[str, Any]] = None
-    download_assets: Optional[Dict[str, str]] = None
     created_at: datetime
     updated_at: datetime
 
@@ -213,4 +212,3 @@ class TemplateFilterParams(BaseModel):
     q: Optional[str] = None  # text search query
     semantic: Optional[bool] = False
     developer: Optional[str] = None
-

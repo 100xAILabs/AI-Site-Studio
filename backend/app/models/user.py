@@ -38,7 +38,18 @@ class User(UUIDMixin, TimestampMixin, Base):
     google_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, index=True)
     facebook_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, index=True)
     github_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, index=True)
-    github_access_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    _github_access_token: Mapped[Optional[str]] = mapped_column("github_access_token", Text, nullable=True)
+
+    @property
+    def github_access_token(self) -> Optional[str]:
+        from app.core.security import decrypt_oauth_token
+        return decrypt_oauth_token(self._github_access_token)
+
+    @github_access_token.setter
+    def github_access_token(self, value: Optional[str]) -> None:
+        from app.core.security import encrypt_oauth_token
+        self._github_access_token = encrypt_oauth_token(value)
+
     hashed_password: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # Profile
@@ -61,6 +72,14 @@ class User(UUIDMixin, TimestampMixin, Base):
     # Billing
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(255))
     razorpay_customer_id: Mapped[Optional[str]] = mapped_column(String(255))
+
+    # Payout details for Sellers
+    payout_bank_name: Mapped[Optional[str]] = mapped_column(String(255))
+    payout_account_number: Mapped[Optional[str]] = mapped_column(String(100))
+    payout_ifsc_code: Mapped[Optional[str]] = mapped_column(String(50))
+    payout_account_holder_name: Mapped[Optional[str]] = mapped_column(String(255))
+    is_payout_setup_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
 
     # Relationships
     orders: Mapped[List["Order"]] = relationship(back_populates="user", lazy="select", cascade="all, delete-orphan")

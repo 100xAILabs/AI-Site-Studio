@@ -31,27 +31,21 @@ async def get_current_user(
         401 if token is missing or invalid
         404 if user not found in database
     """
-    if not credentials or credentials.credentials == "mock_token_for_local_dev":
-        # Dev fallback: auto-seed and return a default developer admin user
-        repo = UserRepository(db)
-        user = await repo.get_by_email("developer@aisitestudio.com")
-        if not user:
-            user = await repo.upsert_oauth_user(
-                provider="google",
-                provider_id="mock_google_id",
-                email="developer@aisitestudio.com",
-                full_name="Developer Admin",
-                avatar_url="https://picsum.photos/seed/developer/100/100",
-                role="admin"
-            )
-            user.role = UserRole.SUPER_ADMIN
-            user.ai_credits = 100
-            await db.commit()
-            await db.refresh(user)
-        return user
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     try:
         payload = decode_token(credentials.credentials)
+        if payload.get("type") != "access":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Access token required",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         user_id: str = payload.get("sub")
         if not user_id:
             raise HTTPException(

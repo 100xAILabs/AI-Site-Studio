@@ -48,6 +48,46 @@ function Checkout() {
   const [cardNumber, setCardNumber] = useState("4242 4242 4242 4242");
   const [cardExpiry, setCardExpiry] = useState("12/28");
   const [cardCvc, setCardCvc] = useState("123");
+  const [errors, setErrors] = useState({ card: "", expiry: "", cvc: "" });
+
+  const handleCardNumberChange = (val) => {
+    const cleaned = val.replace(/\s+/g, '');
+    if (/[^\d]/.test(cleaned)) {
+      setErrors(prev => ({ ...prev, card: "Please enter numbers only." }));
+      return;
+    }
+    setErrors(prev => ({ ...prev, card: "" }));
+    const digitsOnly = cleaned.slice(0, 16);
+    const formatted = digitsOnly.replace(/(\d{4})(?=\d)/g, '$1 ');
+    setCardNumber(formatted);
+  };
+
+  const handleCardExpiryChange = (val) => {
+    const cleaned = val.replace(/[^\d/]/g, '');
+    if (cleaned !== val) {
+      setErrors(prev => ({ ...prev, expiry: "Please enter numbers only." }));
+      return;
+    }
+    setErrors(prev => ({ ...prev, expiry: "" }));
+    let digits = val.replace(/[^\d]/g, '').slice(0, 4);
+    if (digits.length > 2) {
+      setCardExpiry(`${digits.slice(0, 2)}/${digits.slice(2)}`);
+    } else {
+      setCardExpiry(digits);
+    }
+  };
+
+  const handleCardCvcChange = (val) => {
+    if (/[^\d]/.test(val)) {
+      setErrors(prev => ({ ...prev, cvc: "Please enter numbers only." }));
+      return;
+    }
+    setErrors(prev => ({ ...prev, cvc: "" }));
+    const digitsOnly = val.slice(0, 4);
+    setCardCvc(digitsOnly);
+  };
+
+
 
   const isSeller = user?.role === "seller" || user?.role === "SELLER";
 
@@ -141,13 +181,49 @@ function Checkout() {
 
   const handleVerifyMockPayment = async () => {
     if (!initiatedOrder || !initiatedPayment) return;
+
+    // Validate simulated card inputs before processing
+    const cleanCard = cardNumber.replace(/\s+/g, '');
+    const cleanExpiry = cardExpiry.replace(/\//g, '');
+    
+    let hasError = false;
+    const newErrors = { card: "", expiry: "", cvc: "" };
+
+    if (cleanCard.length < 16) {
+      newErrors.card = "Card Number must be 16 digits.";
+      hasError = true;
+    }
+    if (cleanExpiry.length < 4) {
+      newErrors.expiry = "Expiration Date must be MM/YY.";
+      hasError = true;
+    } else {
+      const month = parseInt(cleanExpiry.slice(0, 2), 10);
+      if (month < 1 || month > 12) {
+        newErrors.expiry = "Month must be between 01 and 12.";
+        hasError = true;
+      }
+    }
+    if (cardCvc.length < 3 || cardCvc.length > 4) {
+      newErrors.cvc = "CVC must be 3 or 4 digits.";
+      hasError = true;
+    }
+
+    if (hasError) {
+      setErrors(newErrors);
+      return;
+    }
+
+    setErrors({ card: "", expiry: "", cvc: "" });
     setIsProcessing(true);
+
     try {
       // Verify payment with mock transaction ID
       await verifyPaymentMutation.mutateAsync({
         order_id: initiatedOrder.id,
         gateway: paymentGateway,
-        gateway_payment_id: "pay_mock_" + Math.random().toString(36).substring(7),
+        gateway_payment_id: paymentGateway === "stripe"
+          ? "pi_mock_" + Math.random().toString(36).substring(7)
+          : "pay_mock_" + Math.random().toString(36).substring(7),
         gateway_order_id: initiatedPayment.gateway_order_id,
         gateway_signature: "mock_signature_verified",
       });
@@ -237,9 +313,15 @@ function Checkout() {
                       <input
                         type="text"
                         value={cardNumber}
-                        onChange={(e) => setCardNumber(e.target.value)}
-                        className="w-full px-3 py-2 rounded-lg glass border border-border/50 text-xs focus:outline-none focus:border-primary bg-card"
+                        onChange={(e) => handleCardNumberChange(e.target.value)}
+                        className={cn(
+                          "w-full px-3 py-2 rounded-lg glass border text-xs focus:outline-none bg-card text-foreground transition-all",
+                          errors.card ? "border-red-500/80 focus:border-red-500 focus:ring-1 focus:ring-red-500" : "border-border/50 focus:border-primary"
+                        )}
                       />
+                      {errors.card && (
+                        <p className="text-[10px] text-red-500 mt-1 font-semibold">{errors.card}</p>
+                      )}
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
@@ -247,20 +329,32 @@ function Checkout() {
                         <input
                           type="text"
                           value={cardExpiry}
-                          onChange={(e) => setCardExpiry(e.target.value)}
+                          onChange={(e) => handleCardExpiryChange(e.target.value)}
                           placeholder="MM/YY"
-                          className="w-full px-3 py-2 rounded-lg glass border border-border/50 text-xs focus:outline-none focus:border-primary bg-card"
+                          className={cn(
+                            "w-full px-3 py-2 rounded-lg glass border text-xs focus:outline-none bg-card text-foreground transition-all",
+                            errors.expiry ? "border-red-500/80 focus:border-red-500 focus:ring-1 focus:ring-red-500" : "border-border/50 focus:border-primary"
+                          )}
                         />
+                        {errors.expiry && (
+                          <p className="text-[10px] text-red-500 mt-1 font-semibold">{errors.expiry}</p>
+                        )}
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">CVC / CVV</label>
                         <input
                           type="password"
                           value={cardCvc}
-                          onChange={(e) => setCardCvc(e.target.value)}
+                          onChange={(e) => handleCardCvcChange(e.target.value)}
                           placeholder="•••"
-                          className="w-full px-3 py-2 rounded-lg glass border border-border/50 text-xs focus:outline-none focus:border-primary bg-card"
+                          className={cn(
+                            "w-full px-3 py-2 rounded-lg glass border text-xs focus:outline-none bg-card text-foreground transition-all",
+                            errors.cvc ? "border-red-500/80 focus:border-red-500 focus:ring-1 focus:ring-red-500" : "border-border/50 focus:border-primary"
+                          )}
                         />
+                        {errors.cvc && (
+                          <p className="text-[10px] text-red-500 mt-1 font-semibold">{errors.cvc}</p>
+                        )}
                       </div>
                     </div>
                   </div>

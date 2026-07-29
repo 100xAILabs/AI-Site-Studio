@@ -38,6 +38,13 @@ class UserAdminUpdate(UserUpdate):
     ai_credits: Optional[int] = None
 
 
+class PayoutSetupRequest(BaseModel):
+    payout_bank_name: str = Field(..., min_length=2, max_length=255)
+    payout_account_number: str = Field(..., min_length=5, max_length=100)
+    payout_ifsc_code: str = Field(..., min_length=4, max_length=50)
+    payout_account_holder_name: str = Field(..., min_length=2, max_length=255)
+
+
 class UserResponse(UserBase):
     id: uuid.UUID
     google_id: Optional[str] = None
@@ -50,6 +57,11 @@ class UserResponse(UserBase):
     ai_credits: int
     created_at: datetime
     updated_at: datetime
+    payout_bank_name: Optional[str] = None
+    payout_account_number: Optional[str] = None
+    payout_ifsc_code: Optional[str] = None
+    payout_account_holder_name: Optional[str] = None
+    is_payout_setup_completed: bool = False
 
     model_config = {"from_attributes": True}
 

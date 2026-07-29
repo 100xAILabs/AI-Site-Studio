@@ -109,10 +109,12 @@ class TemplateService:
 
         response = TemplateResponse.model_validate(template)
         
-        # Dynamically inspect ZIP files if included_pages is empty or only shows index.html (self-healing for auto-seeded templates)
-        if (not response.included_pages or response.included_pages == ["index.html"]) and response.download_assets and "zip" in response.download_assets:
+        # Dynamically inspect ZIP files if included_pages is empty or only shows index.html (self-healing for auto-seeded templates).
+        # Keep the archive URL on the server: TemplateResponse is a public API response.
+        download_assets = template.download_assets or {}
+        if (not response.included_pages or response.included_pages == ["index.html"]) and "zip" in download_assets:
             try:
-                zip_url = response.download_assets["zip"]
+                zip_url = download_assets["zip"]
                 file_id_str = zip_url.split("/")[-1]
                 file_id = uuid.UUID(file_id_str)
                 from app.models.stored_file import StoredFile
@@ -195,11 +197,16 @@ class TemplateService:
         return TemplateResponse.model_validate(template)
 
     async def update_template(
-        self, template_id: uuid.UUID, data: TemplateUpdate
+        self, template_id: uuid.UUID, data: TemplateUpdate, current_user: User
     ) -> TemplateResponse:
         template = await self.repo.get_by_id(template_id)
         if not template:
             raise HTTPException(status_code=404, detail="Template not found")
+        if current_user.role.value not in ("admin", "super_admin") and template.seller_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only update your own templates.",
+            )
         template = await self.repo.update(template, data)
         return TemplateResponse.model_validate(template)
 

@@ -8,6 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import List
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -35,9 +36,21 @@ class Settings(BaseSettings):
 
     # ── Security ──────────────────────────────────────────────────────────────
     SECRET_KEY: str = "change-me-in-production-must-be-at-least-32-characters"
+    OLD_SECRET_KEYS: str = ""  # Comma-separated list of older keys for token rotation
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 21600  # 15 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+
+    @model_validator(mode="after")
+    def validate_secrets(self) -> "Settings":
+        if self.ENVIRONMENT not in ("development", "local", "test"):
+            if (
+                self.SECRET_KEY == "change-me-in-production-must-be-at-least-32-characters"
+                or len(self.SECRET_KEY) < 32
+            ):
+                raise ValueError("Insecure SECRET_KEY configured in a non-local environment.")
+        return self
+
 
     # ── OAuth (Google / Facebook) ─────────────────────────────────────────────
     GOOGLE_CLIENT_ID: str = ""

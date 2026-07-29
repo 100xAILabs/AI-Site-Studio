@@ -62,3 +62,7 @@ faker==33.1.0
 # Code Quality
 ruff==0.8.3
 mypy==1.13.0
+
+# Compat for razorpay (pkg_resources)
+setuptools<=80.10.2
+

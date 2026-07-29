@@ -138,15 +138,15 @@ def robust_json_loads(text: str) -> Any:
 # Best Model (Gemini) is used as primary. Alternate is configured for future switches.
 FEATURE_MODELS = {
     "ai_chat_assistant": {
-        "gemini": "gemini-3.1-pro-preview",
+        "gemini": "gemini-3.1-flash-lite",
         "alternative": "gpt-4o-mini",
     },
     "website_content_generation": {
-        "gemini": "gemini-3.5-flash",
+        "gemini": "gemini-3.1-flash-lite",
         "alternative": "gpt-4o-mini",
     },
     "seo_generator": {
-        "gemini": "gemini-3.5-flash",
+        "gemini": "gemini-3.1-flash-lite",
         "alternative": "gpt-4o-mini",
     },
     "semantic_search": {
@@ -158,27 +158,27 @@ FEATURE_MODELS = {
         "alternative": "cohere-embed",
     },
     "accessibility_review": {
-        "gemini": "gemini-3.5-flash",
+        "gemini": "gemini-3.1-flash-lite",
         "alternative": "gpt-4o",
     },
     "code_assistant": {
-        "gemini": "gemini-3.1-pro-preview",
+        "gemini": "gemini-3.1-flash-lite",
         "alternative": "gpt-4.1",
     },
     "project_zip_analysis": {
-        "gemini": "gemini-3.1-pro-preview",
+        "gemini": "gemini-3.1-flash-lite",
         "alternative": "gpt-4.1",
     },
     "translation": {
-        "gemini": "gemini-3.5-flash",
+        "gemini": "gemini-3.1-flash-lite",
         "alternative": "gpt-4o-mini",
     },
     "business_analysis": {
-        "gemini": "gemini-3.1-pro-preview",
+        "gemini": "gemini-3.1-flash-lite",
         "alternative": "gpt-4o",
     },
     "logo_ideas": {
-        "gemini": "gemini-3.5-flash",
+        "gemini": "gemini-3.1-flash-lite",
         "alternative": "gpt-4o",
     },
     "image_generation": {
@@ -186,7 +186,7 @@ FEATURE_MODELS = {
         "alternative": "stable-diffusion-xl",
     },
     "ocr_document_understanding": {
-        "gemini": "gemini-3.1-pro-preview",
+        "gemini": "gemini-3.1-flash-lite",
         "alternative": "gpt-4o",
     },
 }

@@ -6,6 +6,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException, status, File, UploadFile
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pydantic import BaseModel
@@ -18,8 +19,12 @@ from app.schemas.template import (
     TemplateCreate, TemplateUpdate, TemplateResponse,
     TemplateListResponse, TemplateFilterParams, TemplateCardResponse,
 )
-from app.models.template import TemplateFramework, TemplateLicense
+from app.models.template import TemplateFramework, TemplateLicense, TemplateStatus
+from app.models.order import Order, OrderItem, OrderStatus
+from app.core.config import settings
+from app.core.security import generate_file_signature
 from decimal import Decimal
+from datetime import datetime, timezone
 
 router = APIRouter()
 
@@ -120,6 +125,67 @@ async def list_my_templates(
     return result.scalars().all()
 
 
+@router.get("/git-repos")
+async def list_git_repos(
+    username: Optional[str] = Query(None),
+    token: Optional[str] = Query(None),
+    current_user: User = Depends(require_seller_or_admin),
+):
+    """
+    Fetch repository list for a GitHub user (using username or token, or stored user token).
+    """
+    auth_token = token
+    if not auth_token and current_user.github_access_token:
+        auth_token = current_user.github_access_token
+
+    if not username and not auth_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Either GitHub username, Personal Access Token, or connected GitHub account is required"
+        )
+    
+    headers = {"Accept": "application/vnd.github+json"}
+    if auth_token:
+        headers["Authorization"] = f"token {auth_token}"
+        url = "https://api.github.com/user/repos?per_page=100&sort=updated"
+    else:
+        url = f"https://api.github.com/users/{username}/repos?per_page=100&sort=updated"
+        
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, timeout=10.0)
+            if response.status_code != 200:
+                detail = "Failed to fetch repositories from GitHub"
+                try:
+                    detail = response.json().get("message", detail)
+                except Exception:
+                    pass
+                raise HTTPException(status_code=response.status_code, detail=detail)
+            
+            repos = response.json()
+            return [
+                {
+                    "id": r.get("id"),
+                    "name": r.get("name"),
+                    "full_name": r.get("full_name"),
+                    "clone_url": r.get("clone_url"),
+                    "description": r.get("description"),
+                    "private": r.get("private"),
+                    "language": r.get("language"),
+                    "stargazers_count": r.get("stargazers_count", 0),
+                    "updated_at": r.get("updated_at"),
+                }
+                for r in repos if isinstance(r, dict)
+            ]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error connecting to GitHub: {str(e)}"
+        )
+
+
 @router.get("/{slug}", response_model=TemplateResponse)
 async def get_template(
     slug: str,
@@ -201,67 +267,6 @@ async def analyze_git_repo(
         )
 
 
-@router.get("/git-repos")
-async def list_git_repos(
-    username: Optional[str] = Query(None),
-    token: Optional[str] = Query(None),
-    current_user: User = Depends(require_seller_or_admin),
-):
-    """
-    Fetch repository list for a GitHub user (using username or token, or stored user token).
-    """
-    auth_token = token
-    if not auth_token and current_user.github_access_token:
-        auth_token = current_user.github_access_token
-
-    if not username and not auth_token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Either GitHub username, Personal Access Token, or connected GitHub account is required"
-        )
-    
-    headers = {"Accept": "application/vnd.github+json"}
-    if auth_token:
-        headers["Authorization"] = f"token {auth_token}"
-        url = "https://api.github.com/user/repos?per_page=100&sort=updated"
-    else:
-        url = f"https://api.github.com/users/{username}/repos?per_page=100&sort=updated"
-        
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, headers=headers, timeout=10.0)
-            if response.status_code != 200:
-                detail = "Failed to fetch repositories from GitHub"
-                try:
-                    detail = response.json().get("message", detail)
-                except Exception:
-                    pass
-                raise HTTPException(status_code=response.status_code, detail=detail)
-            
-            repos = response.json()
-            return [
-                {
-                    "id": r.get("id"),
-                    "name": r.get("name"),
-                    "full_name": r.get("full_name"),
-                    "clone_url": r.get("clone_url"),
-                    "description": r.get("description"),
-                    "private": r.get("private"),
-                    "language": r.get("language"),
-                    "stargazers_count": r.get("stargazers_count", 0),
-                    "updated_at": r.get("updated_at"),
-                }
-                for r in repos if isinstance(r, dict)
-            ]
-    except Exception as e:
-        if isinstance(e, HTTPException):
-            raise e
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error connecting to GitHub API: {str(e)}"
-        )
-
-
 # ── Admin Endpoints ───────────────────────────────────────────────────────────
 
 @router.post("", response_model=TemplateResponse, status_code=status.HTTP_201_CREATED)
@@ -271,6 +276,12 @@ async def create_template(
     current_user: User = Depends(require_seller_or_admin),
 ):
     """Create a new template and permanently link it to the uploading seller's account."""
+    if current_user.role == "seller" and not current_user.is_payout_setup_completed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Payout setup required before you can list a template for sale. Please configure your bank account details in settings."
+        )
+    data.status = TemplateStatus.PUBLISHED
     service = TemplateService(db)
     return await service.create_template(data, seller_id=current_user.id)
 
@@ -280,11 +291,11 @@ async def update_template(
     template_id: uuid.UUID,
     data: TemplateUpdate,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_seller_or_admin),
+    current_user: User = Depends(require_seller_or_admin),
 ):
     """Update an existing template."""
     service = TemplateService(db)
-    return await service.update_template(template_id, data)
+    return await service.update_template(template_id, data, current_user)
 
 
 @router.delete("/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -314,6 +325,21 @@ async def download_template(
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
         
+    is_owner = template.seller_id == current_user.id
+    if not template.is_free and not is_owner:
+        purchase = await db.execute(
+            select(OrderItem.id)
+            .join(Order, OrderItem.order_id == Order.id)
+            .where(
+                Order.user_id == current_user.id,
+                Order.status == OrderStatus.COMPLETED,
+                OrderItem.template_id == template_id,
+            )
+            .limit(1)
+        )
+        if purchase.scalar_one_or_none() is None:
+            raise HTTPException(status_code=403, detail="Purchase required to download this template")
+
     await template_repo.increment_downloads(template_id)
     
     from app.models.download import Download
@@ -330,6 +356,14 @@ async def download_template(
     if not zip_url:
         raise HTTPException(status_code=400, detail="Source zip file not configured for this template")
         
+    # Stored files require a short-lived signature. External URLs retain their
+    # provider-managed access controls.
+    if zip_url.startswith(settings.STORAGE_BASE_URL.rstrip("/") + "/"):
+        file_id = zip_url.rsplit("/", 1)[-1]
+        expires = int(datetime.now(timezone.utc).timestamp()) + 3600
+        signature = generate_file_signature(file_id, expires)
+        zip_url = f"{zip_url}?expires={expires}&signature={signature}"
+
     return {"download_url": zip_url}
 
 
@@ -897,7 +931,7 @@ body {
         compatibility=["Chrome", "Safari", "Edge"],
         version="1.0.0",
         license_type=TemplateLicense.REGULAR,
-        status=TemplateStatus.DRAFT,
+        status=TemplateStatus.PUBLISHED,
         is_featured=False,
         is_bestseller=False,
         is_new=True,

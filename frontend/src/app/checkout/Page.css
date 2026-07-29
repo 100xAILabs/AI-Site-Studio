@@ -366,3 +366,20 @@
   color: #22c55e;
 }
 
+/* Card input styling overrides */
+.checkout-card input {
+  color: hsl(var(--foreground)) !important;
+  background-color: hsl(var(--card)) !important;
+  border-color: hsl(var(--border) / 0.8) !important;
+}
+
+.checkout-card input::placeholder {
+  color: hsl(var(--muted-foreground) / 0.6) !important;
+}
+
+.checkout-card input:focus {
+  border-color: hsl(var(--primary)) !important;
+  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.15) !important;
+}
+
+

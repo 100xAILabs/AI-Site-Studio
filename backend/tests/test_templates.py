@@ -22,3 +22,65 @@ async def test_list_templates_empty(client: AsyncClient):
     assert response.status_code == 200
     assert response.json()["items"] == []
     assert response.json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_payout_setup_update(seller_client: AsyncClient):
+    # 1. Update payout account details
+    payload = {
+        "payout_bank_name": "Chase Bank",
+        "payout_account_number": "1234567890",
+        "payout_ifsc_code": "CHAS0001234",
+        "payout_account_holder_name": "Test Seller",
+    }
+    response = await seller_client.put("/api/v1/auth/payout-account", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["payout_bank_name"] == "Chase Bank"
+    assert data["payout_account_number"] == "1234567890"
+    assert data["payout_ifsc_code"] == "CHAS0001234"
+    assert data["payout_account_holder_name"] == "Test Seller"
+    assert data["is_payout_setup_completed"] is True
+
+
+@pytest.mark.asyncio
+async def test_seller_create_template_requires_payout(seller_client: AsyncClient, db: AsyncSession):
+    # Seed a Category first so the request payload is valid
+    category = Category(name="Portfolio", slug="portfolio")
+    db.add(category)
+    await db.flush()
+    await db.commit()
+    await db.refresh(category)
+
+    # 1. Try to upload/create template without payout setup
+    payload = {
+        "title": "Creative Portfolio Template",
+        "slug": "creative-portfolio-template",
+        "short_description": "Modern portfolio layout.",
+        "thumbnail_url": "https://example.com/thumb.png",
+        "description": "A beautiful modern website layout.",
+        "price": 19.99,
+        "category_id": str(category.id),
+        "features": ["Responsive", "Framer motion animations"],
+        "figma_link": "https://figma.com/file/123",
+        "is_published": False,
+    }
+    response = await seller_client.post("/api/v1/templates", json=payload)
+    assert response.status_code == 400
+    assert "Payout setup required" in response.json()["detail"]
+
+    # 2. Do payout setup
+    setup_payload = {
+        "payout_bank_name": "Chase Bank",
+        "payout_account_number": "1234567890",
+        "payout_ifsc_code": "CHAS0001234",
+        "payout_account_holder_name": "Test Seller",
+    }
+    setup_response = await seller_client.put("/api/v1/auth/payout-account", json=setup_payload)
+    assert setup_response.status_code == 200
+
+    # 3. Create template again (should succeed now)
+    response2 = await seller_client.post("/api/v1/templates", json=payload)
+    assert response2.status_code == 201
+    assert response2.json()["title"] == "Creative Portfolio Template"
+

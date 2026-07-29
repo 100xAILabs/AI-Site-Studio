@@ -67,6 +67,14 @@
   border-color: hsl(var(--border));
 }
 
+input, select, textarea {
+  color: hsl(var(--foreground)) !important;
+}
+
+input::placeholder, textarea::placeholder {
+  color: hsl(var(--muted-foreground) / 0.7) !important;
+}
+
 html, body {
   min-height: 100vh;
   font-family: var(--font-sans);

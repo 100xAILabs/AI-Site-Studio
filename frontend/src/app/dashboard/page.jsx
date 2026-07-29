@@ -462,8 +462,8 @@ function Dashboard() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      alert("File size exceeds 2MB limit.");
+    if (file.size > 5 * 1024 * 1024) {
+      alert("File size exceeds 5MB limit.");
       return;
     }
 
@@ -528,6 +528,43 @@ function Dashboard() {
       setSavingProfile(false);
     }
   };
+
+  const handleUpdatePayout = async (e) => {
+    e.preventDefault();
+    if (!payoutBankName || !payoutAccountNumber || !payoutIfscCode || !payoutAccountHolderName) {
+      alert("All bank account fields are required.");
+      return;
+    }
+    try {
+      setSavingPayout(true);
+      const res = await fetch("http://localhost:8000/api/v1/auth/payout-account", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          payout_bank_name: payoutBankName,
+          payout_account_number: payoutAccountNumber,
+          payout_ifsc_code: payoutIfscCode,
+          payout_account_holder_name: payoutAccountHolderName
+        })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Failed to update payout details");
+      }
+      // Refresh profile data
+      await useAuthStore.getState().fetchProfile();
+      alert("Payout details saved successfully! You are now eligible to sell templates.");
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
+    } finally {
+      setSavingPayout(false);
+    }
+  };
+
 
   // --- SELLER FORMS & WIZARD STATE ---
   const [wizardStep, setWizardStep] = useState(1);
@@ -608,9 +645,21 @@ function Dashboard() {
   const [replyText, setReplyText] = useState("");
 
   // Payout options
-  const [payoutMethod, setPayoutMethod] = useState("paypal");
-  const [payoutDetails, setPayoutDetails] = useState("seller@aisitestudio.com");
+  const [payoutBankName, setPayoutBankName] = useState("");
+  const [payoutAccountNumber, setPayoutAccountNumber] = useState("");
+  const [payoutIfscCode, setPayoutIfscCode] = useState("");
+  const [payoutAccountHolderName, setPayoutAccountHolderName] = useState("");
+  const [savingPayout, setSavingPayout] = useState(false);
   const [payoutHistory, setPayoutHistory] = useState([]);
+
+  useEffect(() => {
+    if (user) {
+      setPayoutBankName(user.payout_bank_name || "");
+      setPayoutAccountNumber(user.payout_account_number || "");
+      setPayoutIfscCode(user.payout_ifsc_code || "");
+      setPayoutAccountHolderName(user.payout_account_holder_name || "");
+    }
+  }, [user]);
 
   // AI custom prompt generator tool
   const [aiPrompt, setAiPrompt] = useState("");
@@ -1212,7 +1261,6 @@ function Dashboard() {
                 const sidebarTabs = isAdmin
                   ? [
                     { id: "admin-users", label: "Users", icon: User },
-                    { id: "admin-templates", label: "Templates Queue", icon: Code },
                     { id: "seller-templates", label: "My Templates", icon: Folder },
                     { id: "seller-upload", label: "Upload Template", icon: Plus },
                     { id: "admin-payments", label: "Payments Ledger", icon: CreditCard },
@@ -2491,8 +2539,28 @@ function Dashboard() {
                     <p className="text-sm text-muted-foreground">Submit your ZIP template or Git repo to register on the platform catalog.</p>
                   </div>
 
-                  {/* Multi-step Header */}
-                  <div className="flex items-center gap-2 border-b border-border/50 pb-4 overflow-x-auto scrollbar-none">
+                  {isSeller && !user?.is_payout_setup_completed ? (
+                    <div className="flex flex-col items-center justify-center p-8 text-center border border-dashed border-red-500/30 rounded-xl bg-red-500/5 space-y-4">
+                      <div className="p-3 bg-red-500/10 rounded-full text-red-500">
+                        <Wallet className="w-8 h-8" />
+                      </div>
+                      <div className="space-y-2 max-w-md">
+                        <h4 className="font-bold text-base text-foreground">Payout Setup Required</h4>
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          You must set up your bank account details before you can list a template for sale. This ensures you can receive payments when buyers purchase your template.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setActiveTab("seller-payouts")}
+                        className="px-4 py-2 bg-red-500 text-white rounded-lg text-xs font-semibold hover:bg-red-600 transition-all"
+                      >
+                        Configure Payout Account
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Multi-step Header */}
+                      <div className="flex items-center gap-2 border-b border-border/50 pb-4 overflow-x-auto scrollbar-none">
                     {[
                       { step: 1, label: "Upload Source" },
                       { step: 2, label: "AI Analysis Audit" },
@@ -2683,7 +2751,7 @@ function Dashboard() {
                                           "group p-4 rounded-xl border bg-card/50 hover:border-primary hover:bg-primary/5 transition-all cursor-pointer space-y-2",
                                           gitUrl === repo.clone_url ? "border-primary bg-primary/5" : "border-border/50"
                                         )}
-                                        onClick={() => setGitUrl(repo.clone_url)}
+                                        onClick={() => { setGitUrl(repo.clone_url); handleGitAnalysis(repo.clone_url); }}
                                       >
                                         {/* Repo header */}
                                         <div className="flex items-start justify-between gap-2">
@@ -3281,6 +3349,8 @@ function Dashboard() {
                       </div>
                     )}
                   </form>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -3615,32 +3685,82 @@ function Dashboard() {
                   </div>
 
                   <div className="grid sm:grid-cols-2 gap-6">
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Payout Method</label>
-                        <select
-                          value={payoutMethod}
-                          onChange={(e) => setPayoutMethod(e.target.value)}
-                          className="w-full px-3 py-2 rounded-lg glass border border-border/50 text-xs focus:outline-none bg-card"
-                        >
-                          <option value="paypal">PayPal</option>
-                          <option value="stripe">Stripe</option>
-                          <option value="bank">Direct Bank Transfer</option>
-                          <option value="upi">UPI ID</option>
-                          <option value="wise">Wise Transfer</option>
-                        </select>
+                    <form onSubmit={handleUpdatePayout} className="space-y-4">
+                      <div className="flex items-center justify-between p-3 rounded-xl border border-border/50 bg-muted/5">
+                        <span className="text-xs font-semibold text-muted-foreground">Setup Status</span>
+                        {user?.is_payout_setup_completed ? (
+                          <span className="px-2.5 py-1 bg-green-500/10 text-green-500 rounded-full text-[10px] font-bold flex items-center gap-1">
+                            <ShieldCheck className="w-3 h-3" /> Setup Active
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-1 bg-red-500/10 text-red-500 rounded-full text-[10px] font-bold flex items-center gap-1">
+                            <Info className="w-3 h-3" /> Setup Incomplete
+                          </span>
+                        )}
                       </div>
+
                       <div>
-                        <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Account details ID</label>
+                        <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Account Holder Name</label>
                         <input
                           type="text"
-                          value={payoutDetails}
-                          onChange={(e) => setPayoutDetails(e.target.value)}
-                          className="w-full px-3 py-2 rounded-lg glass border border-border/50 text-xs focus:outline-none bg-card"
+                          required
+                          placeholder="e.g. John Doe"
+                          value={payoutAccountHolderName}
+                          onChange={(e) => setPayoutAccountHolderName(e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg glass border border-border/50 text-xs focus:outline-none focus:border-primary bg-card"
                         />
                       </div>
-                      <button onClick={() => alert("Payout information saved!")} className="px-4 py-2 bg-primary text-white rounded-lg text-xs font-semibold">Save Payout Details</button>
-                    </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Bank Name</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. Chase Bank, HDFC Bank"
+                          value={payoutBankName}
+                          onChange={(e) => setPayoutBankName(e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg glass border border-border/50 text-xs focus:outline-none focus:border-primary bg-card"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Account Number / IBAN</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Enter your bank account number"
+                          value={payoutAccountNumber}
+                          onChange={(e) => setPayoutAccountNumber(e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg glass border border-border/50 text-xs focus:outline-none focus:border-primary bg-card"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">IFSC Code / Swift / Bank Route Code</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. CHAS0001234"
+                          value={payoutIfscCode}
+                          onChange={(e) => setPayoutIfscCode(e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg glass border border-border/50 text-xs focus:outline-none focus:border-primary bg-card"
+                        />
+                      </div>
+
+                      <button 
+                        type="submit" 
+                        disabled={savingPayout} 
+                        className="w-full sm:w-auto px-4 py-2.5 bg-primary text-white rounded-lg text-xs font-semibold hover:bg-primary/95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      >
+                        {savingPayout ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving...
+                          </>
+                        ) : (
+                          "Save Payout Details"
+                        )}
+                      </button>
+                    </form>
 
                     <div className="p-6 border border-border/50 rounded-xl space-y-3 bg-muted/5 flex flex-col justify-between">
                       <div>
