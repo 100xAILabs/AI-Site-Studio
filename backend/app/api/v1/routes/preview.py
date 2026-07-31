@@ -377,6 +377,137 @@ Here are the codebase files:
     return {"status": "success", "template_id": str(template_id)}
 
 
+class FindReplaceRequest(BaseModel):
+    find_text: str
+    replace_text: str
+
+
+@router.post("/live/{template_id}/find-replace")
+async def edit_live_preview_find_replace(
+    template_id: uuid.UUID,
+    request: FindReplaceRequest,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db)
+):
+    import zipfile
+    import io
+    import shutil
+    import tempfile
+    from app.models.template import Template, TemplateStatus
+    from app.core.storage import storage
+    
+    template_repo = TemplateRepository(db)
+    template = await template_repo.get_by_id(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+        
+    # If the template is PUBLISHED, clone it so the user modifies their own private DRAFT copy
+    if template.status == TemplateStatus.PUBLISHED:
+        new_template = Template(
+            title=f"Customized {template.title}",
+            short_description=template.short_description,
+            description=template.description,
+            slug=f"{template.slug}-custom-{uuid.uuid4().hex[:6]}",
+            price=template.price,
+            original_price=template.original_price,
+            is_free=template.is_free,
+            is_on_sale=template.is_on_sale,
+            category_id=template.category_id,
+            status=TemplateStatus.DRAFT,
+            seller_id=current_user.id if current_user else template.seller_id,
+            thumbnail_url=template.thumbnail_url,
+            preview_url=template.preview_url,
+            tags=template.tags,
+            framework=template.framework,
+            pages_count=template.pages_count,
+            has_dark_mode=template.has_dark_mode,
+            is_responsive=template.is_responsive,
+            is_rtl_supported=template.is_rtl_supported,
+            is_ai_ready=template.is_ai_ready,
+            compatibility=template.compatibility,
+            version=template.version,
+            license_type=template.license_type,
+            industry=template.industry,
+            color_scheme=template.color_scheme,
+            seo_keywords=template.seo_keywords,
+            included_pages=template.included_pages,
+            download_assets=template.download_assets.copy() if template.download_assets else {}
+        )
+        db.add(new_template)
+        await db.flush()
+        template = new_template
+        template_id = new_template.id
+
+    download_assets = template.download_assets or {}
+    zip_url = download_assets.get("zip")
+    if not zip_url:
+        raise HTTPException(status_code=400, detail="Template does not have source ZIP assets")
+        
+    file_id_str = zip_url.split("/")[-1]
+    try:
+        file_id = uuid.UUID(file_id_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="External/Invalid zip storage format")
+        
+    from app.models.stored_file import StoredFile
+    from sqlalchemy import select
+    result = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
+    stored_file = result.scalar_one_or_none()
+    if not stored_file:
+        raise HTTPException(status_code=404, detail="Source template archive file not found")
+        
+    zip_data = stored_file.data
+    
+    # 1. Read files and do find-and-replace
+    updated_filenames = set()
+    new_zip_buffer = io.BytesIO()
+    
+    with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
+        with zipfile.ZipFile(new_zip_buffer, "w", zipfile.ZIP_DEFLATED) as z_out:
+            for item in z_in.infolist():
+                content = z_in.read(item.filename)
+                is_build = any(d in item.filename.replace("\\", "/").split("/") for d in ["dist", "build", "out", "node_modules", ".output"])
+                is_text = (item.filename.endswith(".html") or 
+                           item.filename.endswith(".jsx") or 
+                           item.filename.endswith(".js") or 
+                           item.filename.endswith(".css") or 
+                           item.filename.endswith(".tsx") or 
+                           item.filename.endswith(".ts") or
+                           item.filename.endswith(".json")) and not is_build
+                           
+                if is_text:
+                    try:
+                        text_content = content.decode("utf-8", errors="ignore")
+                        if request.find_text in text_content:
+                            text_content = text_content.replace(request.find_text, request.replace_text)
+                            content = text_content.encode("utf-8")
+                            updated_filenames.add(item.filename)
+                            print(f"Replaced text in: {item.filename}")
+                    except Exception:
+                        pass
+                z_out.writestr(item, content)
+                
+    if not updated_filenames:
+        return {"status": "success", "template_id": str(template_id), "matches_found": 0}
+        
+    new_zip_bytes = new_zip_buffer.getvalue()
+    
+    # 2. Save the updated ZIP back to the database
+    stored_file.data = new_zip_bytes
+    stored_file.size = len(new_zip_bytes)
+    db.add(stored_file)
+    await db.flush()
+    
+    # 3. Clear local preview directory cache
+    preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
+    shutil.rmtree(preview_dir, ignore_errors=True)
+    
+    # Commit session changes
+    await db.commit()
+    
+    return {"status": "success", "template_id": str(template_id), "matches_found": len(updated_filenames)}
+
+
 @router.post("/live/{template_id}/edit-ai")
 async def edit_live_preview_ai(
     template_id: uuid.UUID,

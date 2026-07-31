@@ -58,6 +58,7 @@ import {
   Wand2,
   Terminal,
   RefreshCw,
+  Video,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { api } from "@/lib/api";
@@ -120,6 +121,17 @@ function Dashboard() {
 
   const isSeller = user?.role === "seller" || user?.role === "SELLER";
   const isAdmin = user?.role === "admin" || user?.role === "super_admin" || user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
+
+  const getReceiptUrl = (item) => {
+    if (item.orderId && item.orderId !== "undefined") {
+      return `/dashboard/receipt/${item.orderId}`;
+    }
+    const found = orders.find(o => 
+      o.status === "completed" && 
+      (o.items?.some(i => i.id === item.id || i.template_id === item.template_id) || false)
+    );
+    return `/dashboard/receipt/${found ? found.id : "undefined"}`;
+  };
 
   // Role syncing — only set default tab when URL has no explicit ?tab= override
   useEffect(() => {
@@ -235,6 +247,20 @@ function Dashboard() {
     enabled: !!authToken && isSeller,
   });
   const sellerReviewsList = sellerReviewsData?.items || [];
+
+  // Fetch Seller Earnings Summary
+  const { data: earningsSummary = { total_earned: 0, withdrawn_amount: 0, pending_withdrawal: 0, available_balance: 0, sales: [] }, refetch: refetchEarnings } = useQuery({
+    queryKey: ["seller-earnings"],
+    queryFn: () => api.get("/payouts/earnings", authToken ?? undefined),
+    enabled: !!authToken && isSeller,
+  });
+
+  // Fetch Withdrawal Requests
+  const { data: withdrawalRequests = [], refetch: refetchWithdrawals } = useQuery({
+    queryKey: ["seller-withdrawals"],
+    queryFn: () => api.get("/payouts/withdrawals", authToken ?? undefined),
+    enabled: !!authToken && isSeller,
+  });
 
   // Delete Review Mutation
   const deleteReviewMutation = useMutation({
@@ -650,7 +676,20 @@ function Dashboard() {
   const [payoutIfscCode, setPayoutIfscCode] = useState("");
   const [payoutAccountHolderName, setPayoutAccountHolderName] = useState("");
   const [savingPayout, setSavingPayout] = useState(false);
-  const [payoutHistory, setPayoutHistory] = useState([]);
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const createWithdrawal = useMutation({
+    mutationFn: (data) => api.post("/payouts/withdrawals", data, authToken ?? undefined),
+    onSuccess: () => {
+      alert("Withdrawal request submitted successfully!");
+      setWithdrawAmount("");
+      refetchEarnings();
+      refetchWithdrawals();
+    },
+    onError: (err) => {
+      console.error(err);
+      alert(err.detail || "Failed to submit withdrawal request.");
+    }
+  });
 
   useEffect(() => {
     if (user) {
@@ -1280,7 +1319,6 @@ function Dashboard() {
                       { id: "seller-orders", label: "Orders", icon: ShoppingBag },
                       { id: "seller-reviews", label: "Reviews", icon: Star },
                       { id: "seller-performance", label: "Performance", icon: TrendingUp },
-                      { id: "seller-marketing", label: "Marketing", icon: Megaphone },
                       { id: "seller-followers", label: "Followers", icon: Users },
                       { id: "seller-messages", label: "Customer Messages", icon: MessageSquare },
                       { id: "seller-payouts", label: "Payouts", icon: Wallet },
@@ -1540,58 +1578,72 @@ function Dashboard() {
                           </Link>
                         </div>
                       ) : (
-                        <div className="grid sm:grid-cols-2 gap-4">
-                          {orders.filter(o => o.status === "completed").flatMap(o => o.items).map((item) => (
-                            <div key={item.id} className="glass-premium p-4 flex gap-4 hover:border-primary/25">
-                              {item.thumbnail_url && (
-                                <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-border/40 flex-shrink-0">
-                                  <Image
-                                    src={item.thumbnail_url}
-                                    alt={item.title}
-                                    fill
-                                    className="object-cover"
-                                  />
-                                </div>
-                              )}
-                              <div className="flex-1 min-w-0 flex flex-col justify-between">
-                                <div>
-                                  <div className="font-bold text-sm truncate text-foreground/90">
+                        <div className="space-y-3">
+                          {orders.filter(o => o.status === "completed").flatMap(o => o.items.map(i => ({ ...i, orderId: o.id }))).map((item) => (
+                            <div key={item.id} className="p-4 rounded-xl border border-border/40 hover:border-primary/25 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 bg-muted/5 hover:bg-muted/10">
+                              <div className="flex items-center gap-4 min-w-0">
+                                {item.thumbnail_url && (
+                                  <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-border/40 flex-shrink-0">
+                                    <Image
+                                      src={item.thumbnail_url}
+                                      alt={item.title}
+                                      fill
+                                      className="object-cover"
+                                    />
+                                  </div>
+                                )}
+                                <div className="min-w-0">
+                                  <div className="font-bold text-sm text-foreground/90 truncate">
                                     {item.title || "Template Package"}
                                   </div>
-                                  <div className="flex items-center justify-between mt-1 flex-wrap gap-2">
-                                    <span className="text-[10px] text-muted-foreground bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full inline-block font-semibold uppercase tracking-wider">
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <span className="text-[9px] text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
                                       {item.license_type} License
                                     </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setReviewTemplateId(item.template_id);
-                                        setReviewTemplateTitle(item.title || "Template Package");
-                                        setReviewRating(5);
-                                        setReviewTitle("");
-                                        setReviewBody("");
-                                        setReviewModalOpen(true);
-                                      }}
-                                      className="text-[11px] text-primary hover:text-primary/80 transition-colors flex items-center gap-1 font-semibold border-none bg-transparent cursor-pointer p-0"
-                                    >
-                                      <Star className="w-3 h-3 fill-primary" /> Leave Review
-                                    </button>
                                   </div>
                                 </div>
-                                <div className="flex gap-2 mt-2">
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-3 md:self-center">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setReviewTemplateId(item.template_id);
+                                    setReviewTemplateTitle(item.title || "Template Package");
+                                    setReviewRating(5);
+                                    setReviewTitle("");
+                                    setReviewBody("");
+                                    setReviewModalOpen(true);
+                                  }}
+                                  className="text-[11px] text-muted-foreground hover:text-white transition-all flex items-center gap-1 font-semibold border-none bg-transparent cursor-pointer p-0"
+                                >
+                                  <Star className="w-3 h-3 text-amber-500 fill-amber-500" /> Leave Review
+                                </button>
+
+                                <div className="h-4 w-px bg-border/40 hidden sm:block" />
+
+                                <div className="flex gap-2 w-full sm:w-auto">
                                   <button
                                     onClick={() => triggerDownload.mutate({ templateId: item.template_id, format: "zip" })}
-                                    className="flex-1 btn-secondary"
+                                    className="px-3.5 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors border-none cursor-pointer"
                                   >
-                                    <Download className="w-3.5 h-3.5" /> Source Code
+                                    <Download className="w-3.5 h-3.5" /> Source
                                   </button>
                                   <a
                                     href={item.preview_url || `http://localhost:8000/api/v1/preview/live/${item.template_id}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="flex-1 btn-primary"
+                                    className="px-3.5 py-1.5 bg-primary text-white hover:bg-primary/95 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors text-center text-decoration-none"
                                   >
-                                    <Globe className="w-3.5 h-3.5" /> Live Demo
+                                    <Globe className="w-3.5 h-3.5" /> Demo
+                                  </a>
+                                  <a
+                                    href={getReceiptUrl(item)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-3.5 py-1.5 bg-muted text-muted-foreground hover:bg-muted/80 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors text-center text-decoration-none border border-border/40"
+                                  >
+                                    <FileText className="w-3.5 h-3.5" /> Receipt
                                   </a>
                                 </div>
                               </div>
@@ -2403,58 +2455,72 @@ function Dashboard() {
                           </Link>
                         </div>
                       ) : (
-                        <div className="grid sm:grid-cols-2 gap-4">
-                          {orders.filter(o => o.status === "completed").flatMap(o => o.items).map((item) => (
-                            <div key={item.id} className="p-4 border border-border/40 rounded-xl flex gap-4 bg-muted/5 hover:bg-muted/10 transition-colors">
-                              {item.thumbnail_url && (
-                                <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-border/40 flex-shrink-0">
-                                  <Image
-                                    src={item.thumbnail_url}
-                                    alt={item.title}
-                                    fill
-                                    className="object-cover"
-                                  />
-                                </div>
-                              )}
-                              <div className="flex-1 min-w-0 flex flex-col justify-between">
-                                <div>
-                                  <div className="font-bold text-sm truncate text-foreground/90">
+                        <div className="space-y-3">
+                          {orders.filter(o => o.status === "completed").flatMap(o => o.items.map(i => ({ ...i, orderId: o.id }))).map((item) => (
+                            <div key={item.id} className="p-4 border border-border/40 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 bg-muted/5 hover:bg-muted/10 transition-colors">
+                              <div className="flex items-center gap-4 min-w-0">
+                                {item.thumbnail_url && (
+                                  <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-border/40 flex-shrink-0">
+                                    <Image
+                                      src={item.thumbnail_url}
+                                      alt={item.title}
+                                      fill
+                                      className="object-cover"
+                                    />
+                                  </div>
+                                )}
+                                <div className="min-w-0">
+                                  <div className="font-bold text-sm text-foreground/90 truncate">
                                     {item.title || "Template Package"}
                                   </div>
-                                  <div className="flex items-center justify-between mt-1 flex-wrap gap-2">
-                                    <span className="text-[10px] text-muted-foreground bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full inline-block font-semibold uppercase tracking-wider">
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <span className="text-[9px] text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
                                       {item.license_type} License
                                     </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setReviewTemplateId(item.template_id);
-                                        setReviewTemplateTitle(item.title || "Template Package");
-                                        setReviewRating(5);
-                                        setReviewTitle("");
-                                        setReviewBody("");
-                                        setReviewModalOpen(true);
-                                      }}
-                                      className="text-[11px] text-primary hover:text-primary/80 transition-colors flex items-center gap-1 font-semibold border-none bg-transparent cursor-pointer p-0"
-                                    >
-                                      <Star className="w-3 h-3 fill-primary" /> Leave Review
-                                    </button>
                                   </div>
                                 </div>
-                                <div className="flex gap-2 mt-2">
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-3 md:self-center">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setReviewTemplateId(item.template_id);
+                                    setReviewTemplateTitle(item.title || "Template Package");
+                                    setReviewRating(5);
+                                    setReviewTitle("");
+                                    setReviewBody("");
+                                    setReviewModalOpen(true);
+                                  }}
+                                  className="text-[11px] text-muted-foreground hover:text-white transition-all flex items-center gap-1 font-semibold border-none bg-transparent cursor-pointer p-0"
+                                >
+                                  <Star className="w-3 h-3 text-amber-500 fill-amber-500" /> Leave Review
+                                </button>
+
+                                <div className="h-4 w-px bg-border/40 hidden sm:block" />
+
+                                <div className="flex gap-2 w-full sm:w-auto">
                                   <button
                                     onClick={() => triggerDownload.mutate({ templateId: item.template_id, format: "zip" })}
-                                    className="flex-1 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
+                                    className="px-3.5 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors border-none cursor-pointer"
                                   >
-                                    <Download className="w-3.5 h-3.5" /> Source Code
+                                    <Download className="w-3.5 h-3.5" /> Source
                                   </button>
                                   <a
                                     href={item.preview_url || `http://localhost:8000/api/v1/preview/live/${item.template_id}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="flex-1 py-1.5 bg-primary text-white hover:bg-primary/95 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors text-center text-decoration-none"
+                                    className="px-3.5 py-1.5 bg-primary text-white hover:bg-primary/95 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors text-center text-decoration-none"
                                   >
-                                    <Globe className="w-3.5 h-3.5" /> Live Demo
+                                    <Globe className="w-3.5 h-3.5" /> Demo
+                                  </a>
+                                  <a
+                                    href={getReceiptUrl(item)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-3.5 py-1.5 bg-muted text-muted-foreground hover:bg-muted/80 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors text-center text-decoration-none border border-border/40"
+                                  >
+                                    <FileText className="w-3.5 h-3.5" /> Receipt
                                   </a>
                                 </div>
                               </div>
@@ -2506,14 +2572,20 @@ function Dashboard() {
                                   <td className="p-4 font-mono text-xs">{item.downloads_count}</td>
                                   <td className="p-4 text-right">
                                     <div className="flex items-center justify-end gap-1.5">
-                                      <button onClick={() => alert("Analytics view for " + item.title)} className="p-1.5 text-muted-foreground hover:text-primary transition-colors" title="Analytics"><BarChart3 className="w-4 h-4" /></button>
+                                      <button
+                                        onClick={() => alert("Analytics view for " + item.title)}
+                                        className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-all border-none bg-transparent cursor-pointer flex items-center justify-center"
+                                        title="Analytics"
+                                      >
+                                        <BarChart3 className="w-4 h-4" />
+                                      </button>
                                       <button
                                         onClick={() => {
                                           if (confirm("Are you sure you want to delete this template?")) {
                                             deleteMutation.mutate(item.id);
                                           }
                                         }}
-                                        className="p-1.5 text-muted-foreground hover:text-red-400 transition-colors"
+                                        className="p-2 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all border-none bg-transparent cursor-pointer flex items-center justify-center"
                                         title="Delete Template"
                                       >
                                         <Trash2 className="w-4 h-4" />
@@ -2539,25 +2611,6 @@ function Dashboard() {
                     <p className="text-sm text-muted-foreground">Submit your ZIP template or Git repo to register on the platform catalog.</p>
                   </div>
 
-                  {isSeller && !user?.is_payout_setup_completed ? (
-                    <div className="flex flex-col items-center justify-center p-8 text-center border border-dashed border-red-500/30 rounded-xl bg-red-500/5 space-y-4">
-                      <div className="p-3 bg-red-500/10 rounded-full text-red-500">
-                        <Wallet className="w-8 h-8" />
-                      </div>
-                      <div className="space-y-2 max-w-md">
-                        <h4 className="font-bold text-base text-foreground">Payout Setup Required</h4>
-                        <p className="text-xs text-muted-foreground leading-relaxed">
-                          You must set up your bank account details before you can list a template for sale. This ensures you can receive payments when buyers purchase your template.
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => setActiveTab("seller-payouts")}
-                        className="px-4 py-2 bg-red-500 text-white rounded-lg text-xs font-semibold hover:bg-red-600 transition-all"
-                      >
-                        Configure Payout Account
-                      </button>
-                    </div>
-                  ) : (
                     <>
                       {/* Multi-step Header */}
                       <div className="flex items-center gap-2 border-b border-border/50 pb-4 overflow-x-auto scrollbar-none">
@@ -3245,25 +3298,23 @@ function Dashboard() {
                           </div>
                         </div>
 
-                        {/* Video Upload — only for sellers with GitHub connected */}
-                        {user?.has_github_token && (
-                          <div className="p-4 border border-primary/20 bg-primary/5 rounded-xl space-y-2">
-                            <label className="block text-xs font-semibold text-primary uppercase mb-1 flex items-center gap-1.5">
-                              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" /></svg>
-                              Video Preview (GitHub Connected)
-                            </label>
-                            <p className="text-[10px] text-muted-foreground">Upload a walkthrough video of your template. Buyers will see this on the product page.</p>
-                            <input
-                              type="file"
-                              accept="video/*"
-                              onChange={(e) => setVideoFile(e.target.files[0])}
-                              className="w-full text-xs text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
-                            />
-                            {videoFile && (
-                              <p className="text-[10px] text-green-500 font-semibold">✓ {videoFile.name} selected</p>
-                            )}
-                          </div>
-                        )}
+                        {/* Video Upload */}
+                        <div className="p-4 border border-primary/20 bg-primary/5 rounded-xl space-y-2">
+                          <label className="block text-xs font-semibold text-primary uppercase mb-1 flex items-center gap-1.5">
+                            <Video className="w-4 h-4" />
+                            Video Walkthrough Preview
+                          </label>
+                          <p className="text-[10px] text-muted-foreground">Upload a walkthrough video of your template. Buyers will see this on the product page.</p>
+                          <input
+                            type="file"
+                            accept="video/*"
+                            onChange={(e) => setVideoFile(e.target.files[0])}
+                            className="w-full text-xs text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
+                          />
+                          {videoFile && (
+                            <p className="text-[10px] text-green-500 font-semibold">✓ {videoFile.name} selected</p>
+                          )}
+                        </div>
 
                         <div>
                           <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
@@ -3350,7 +3401,6 @@ function Dashboard() {
                     )}
                   </form>
                     </>
-                  )}
                 </div>
               )}
 
@@ -3391,10 +3441,10 @@ function Dashboard() {
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {[
-                      { label: "Current Balance", value: "$0.00" },
-                      { label: "Available to Withdraw", value: "$0.00" },
-                      { label: "Pending amount", value: "$0.00" },
-                      { label: "Lifetime Earnings", value: "$0.00" },
+                      { label: "Current Balance", value: formatPrice(earningsSummary.available_balance) },
+                      { label: "Available to Withdraw", value: formatPrice(earningsSummary.available_balance) },
+                      { label: "Pending amount", value: formatPrice(earningsSummary.pending_withdrawal) },
+                      { label: "Lifetime Earnings", value: formatPrice(earningsSummary.total_earned) },
                     ].map((c, i) => (
                       <div key={i} className="p-4 border border-border/50 rounded-xl space-y-1 bg-muted/10">
                         <div className="text-[10px] text-muted-foreground font-bold uppercase">{c.label}</div>
@@ -3416,11 +3466,23 @@ function Dashboard() {
                         </tr>
                       </thead>
                       <tbody>
-                        <tr>
-                          <td colSpan={5} className="py-4 text-center text-muted-foreground text-xs">
-                            No recent earnings transactions found.
-                          </td>
-                        </tr>
+                        {earningsSummary.sales && earningsSummary.sales.length > 0 ? (
+                          earningsSummary.sales.map((sale, idx) => (
+                            <tr key={idx} className="border-b border-border/40 hover:bg-muted/5 text-muted-foreground">
+                              <td className="py-2.5">{new Date(sale.date).toLocaleDateString()}</td>
+                              <td className="py-2.5 font-semibold text-white">{sale.template_title}</td>
+                              <td className="py-2.5">{sale.purchaser_email}</td>
+                              <td className="py-2.5 font-mono">{formatPrice(sale.price)}</td>
+                              <td className="py-2.5 font-mono text-green-500">{formatPrice(sale.price)}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={5} className="py-4 text-center text-muted-foreground text-xs">
+                              No recent earnings transactions found.
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -3434,8 +3496,54 @@ function Dashboard() {
                     <h3 className="font-bold text-lg">Sales Orders Ledger</h3>
                     <p className="text-sm text-muted-foreground">Log of purchases made on your products.</p>
                   </div>
-                  <div className="p-8 text-center text-muted-foreground text-sm border border-border/40 rounded-xl">
-                    All completed sales are processed and shown in your earnings transactions history.
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-border/50 text-muted-foreground font-bold">
+                          <th className="pb-2">Order Number</th>
+                          <th className="pb-2">Template Title</th>
+                          <th className="pb-2">Buyer</th>
+                          <th className="pb-2">License Type</th>
+                          <th className="pb-2">Date</th>
+                          <th className="pb-2">Amount</th>
+                          <th className="pb-2 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {earningsSummary.sales && earningsSummary.sales.length > 0 ? (
+                          earningsSummary.sales.map((sale, idx) => (
+                            <tr key={idx} className="border-b border-border/40 hover:bg-muted/5 text-muted-foreground">
+                              <td className="py-2.5 font-mono font-semibold text-white">#{sale.order_number}</td>
+                              <td className="py-2.5 font-semibold text-white">{sale.template_title}</td>
+                              <td className="py-2.5">{sale.purchaser_email}</td>
+                              <td className="py-2.5">
+                                <span className="bg-primary/5 text-primary border border-primary/10 px-1.5 py-0.5 rounded font-bold uppercase text-[9px]">
+                                  {sale.license_type}
+                                </span>
+                              </td>
+                              <td className="py-2.5">{new Date(sale.date).toLocaleDateString()}</td>
+                              <td className="py-2.5 font-mono text-green-500 font-bold">{formatPrice(sale.price)}</td>
+                              <td className="py-2.5 text-right">
+                                <a
+                                  href={`/dashboard/receipt/${sale.order_id || sale.orderId || "undefined"}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[10px] bg-primary/10 text-primary border border-primary/20 px-2 py-1 rounded hover:bg-primary/20 transition-all text-decoration-none"
+                                >
+                                  Receipt
+                                </a>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={7} className="py-4 text-center text-muted-foreground text-xs">
+                              No recent sales orders found.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               )}
@@ -3544,33 +3652,6 @@ function Dashboard() {
                 </div>
               )}
 
-
-
-              {/* === SELLER MARKETING === */}
-              {activeTab === "seller-marketing" && (
-                <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
-                  <div>
-                    <h3 className="font-bold text-lg">Marketing & Referrals</h3>
-                    <p className="text-sm text-muted-foreground">Generate referral campaigns link codes.</p>
-                  </div>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Referral Campaign Code Generator</label>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          readOnly
-                          value={`https://aisitestudio.com/ref?seller=${user?.id || "mock"}`}
-                          className="flex-1 px-3 py-2.5 rounded-xl glass border border-border/50 text-xs font-mono select-all bg-card/50"
-                        />
-                        <button onClick={() => alert("Copied to clipboard!")} className="px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl flex items-center gap-1">
-                          <Copy className="w-3.5 h-3.5" /> Copy Link
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* === SELLER FOLLOWERS === */}
               {activeTab === "seller-followers" && (
@@ -3762,12 +3843,50 @@ function Dashboard() {
                       </button>
                     </form>
 
-                    <div className="p-6 border border-border/50 rounded-xl space-y-3 bg-muted/5 flex flex-col justify-between">
+                    <div className="p-6 border border-border/50 rounded-xl space-y-4 bg-muted/5 flex flex-col justify-between">
                       <div>
                         <h4 className="font-bold text-sm text-foreground">Withdrawal Request</h4>
-                        <p className="text-xs text-muted-foreground mt-1">Available balance for instant withdrawal: $0.00</p>
+                        <p className="text-xs text-muted-foreground mt-1">Available balance for instant withdrawal: <span className="font-bold text-white">{formatPrice(earningsSummary.available_balance)}</span></p>
                       </div>
-                      <button disabled className="py-2.5 bg-primary/50 text-white font-bold text-xs rounded-xl cursor-not-allowed">Withdraw Now ($0.00)</button>
+                      <div className="space-y-2">
+                        <label className="block text-[10px] font-semibold text-muted-foreground uppercase">Amount to Withdraw ($)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          max={earningsSummary.available_balance}
+                          value={withdrawAmount}
+                          onChange={(e) => setWithdrawAmount(e.target.value)}
+                          placeholder="e.g. 50.00"
+                          className="w-full px-3 py-2 rounded-lg glass border border-border/50 text-xs focus:outline-none focus:border-primary bg-card"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!withdrawAmount) {
+                            alert("Please enter a withdrawal amount.");
+                            return;
+                          }
+                          const amt = parseFloat(withdrawAmount);
+                          if (isNaN(amt) || amt <= 0) {
+                            alert("Please enter a valid amount.");
+                            return;
+                          }
+                          if (amt > earningsSummary.available_balance) {
+                            alert("Insufficient balance.");
+                            return;
+                          }
+                          createWithdrawal.mutate({ amount: amt });
+                        }}
+                        disabled={createWithdrawal.isPending || earningsSummary.available_balance <= 0}
+                        className="py-2.5 bg-primary text-white font-bold text-xs rounded-xl hover:bg-primary/95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {createWithdrawal.isPending && (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        )}
+                        Withdraw Now
+                      </button>
                     </div>
                   </div>
 
@@ -3780,19 +3899,38 @@ function Dashboard() {
                           <th className="pb-2">Date</th>
                           <th className="pb-2">Amount</th>
                           <th className="pb-2">Method</th>
-                          <th className="pb-2 text-right">Status</th>
+                          <th className="pb-2">Status</th>
+                          <th className="pb-2 text-right">Action</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {payoutHistory.map((h, idx) => (
-                          <tr key={idx} className="border-b border-border/40 hover:bg-muted/5">
-                            <td className="py-2.5 font-mono text-foreground">{h.id}</td>
-                            <td className="py-2.5">{h.date}</td>
-                            <td className="py-2.5">${h.amount.toFixed(2)}</td>
-                            <td className="py-2.5">{h.method}</td>
-                            <td className="py-2.5 text-right font-semibold text-primary">{h.status}</td>
+                        {withdrawalRequests && withdrawalRequests.length > 0 ? (
+                          withdrawalRequests.map((h, idx) => (
+                            <tr key={idx} className="border-b border-border/40 hover:bg-muted/5 text-muted-foreground">
+                              <td className="py-2.5 font-mono text-foreground">{h.id.slice(0, 8).toUpperCase()}</td>
+                              <td className="py-2.5">{new Date(h.created_at).toLocaleDateString()}</td>
+                              <td className="py-2.5 font-mono font-bold text-white">{formatPrice(h.amount)}</td>
+                              <td className="py-2.5 font-semibold">{h.bank_name || "Bank Direct"}</td>
+                              <td className="py-2.5 font-semibold text-primary capitalize">{h.status}</td>
+                              <td className="py-2.5 text-right">
+                                <a
+                                  href={`/dashboard/payout-receipt/${h.id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[10px] bg-primary/10 text-primary border border-primary/20 px-2 py-1 rounded hover:bg-primary/20 transition-all text-decoration-none"
+                                >
+                                  View Receipt
+                                </a>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={6} className="py-4 text-center text-muted-foreground text-xs">
+                              No withdrawal requests found.
+                            </td>
                           </tr>
-                        ))}
+                        )}
                       </tbody>
                     </table>
                   </div>

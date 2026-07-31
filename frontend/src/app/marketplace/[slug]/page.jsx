@@ -1213,7 +1213,7 @@ npm run build`;
                         {rev.admin_reply && (
                           <div className="p-3 bg-muted/20 border-l-2 border-primary/40 rounded-r-lg space-y-1.5 ml-4">
                             <div className="flex items-center gap-1.5">
-                              <span className="font-bold text-[10px] text-foreground">John Studio</span>
+                              <span className="font-bold text-[10px] text-foreground">{template.developer_name || "AI Studio"}</span>
                               <span className="text-[8px] bg-primary/10 text-primary border border-primary/20 px-1 rounded uppercase">Seller</span>
                             </div>
                             <p className="text-xs text-muted-foreground leading-relaxed">{rev.admin_reply}</p>
@@ -1472,11 +1472,11 @@ npm run build`;
               <div className="details-developer-card">
                 <div className="seller-top">
                   <div className="seller-avatar">
-                    <Image src={template.developer_avatar || "https://picsum.photos/seed/avatar/100/100"} alt={template.developer_name || "John Studio"} width={40} height={40} />
+                    <Image src={template.developer_avatar || "https://picsum.photos/seed/avatar/100/100"} alt={template.developer_name || "AI Studio"} width={40} height={40} />
                   </div>
                   <div>
                     <div className="seller-info-name">
-                      {template.developer_name || "John Studio"}
+                      {template.developer_name || "AI Studio"}
                       <Award className="w-4 h-4 text-primary" />
                     </div>
                     <span className="seller-verified-label">Verified Author</span>

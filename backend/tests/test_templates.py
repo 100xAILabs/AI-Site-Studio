@@ -44,7 +44,7 @@ async def test_payout_setup_update(seller_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_seller_create_template_requires_payout(seller_client: AsyncClient, db: AsyncSession):
+async def test_seller_create_template_without_payout(seller_client: AsyncClient, db: AsyncSession):
     # Seed a Category first so the request payload is valid
     category = Category(name="Portfolio", slug="portfolio")
     db.add(category)
@@ -52,7 +52,7 @@ async def test_seller_create_template_requires_payout(seller_client: AsyncClient
     await db.commit()
     await db.refresh(category)
 
-    # 1. Try to upload/create template without payout setup
+    # 1. Try to upload/create template without payout setup (should succeed now)
     payload = {
         "title": "Creative Portfolio Template",
         "slug": "creative-portfolio-template",
@@ -66,21 +66,6 @@ async def test_seller_create_template_requires_payout(seller_client: AsyncClient
         "is_published": False,
     }
     response = await seller_client.post("/api/v1/templates", json=payload)
-    assert response.status_code == 400
-    assert "Payout setup required" in response.json()["detail"]
-
-    # 2. Do payout setup
-    setup_payload = {
-        "payout_bank_name": "Chase Bank",
-        "payout_account_number": "1234567890",
-        "payout_ifsc_code": "CHAS0001234",
-        "payout_account_holder_name": "Test Seller",
-    }
-    setup_response = await seller_client.put("/api/v1/auth/payout-account", json=setup_payload)
-    assert setup_response.status_code == 200
-
-    # 3. Create template again (should succeed now)
-    response2 = await seller_client.post("/api/v1/templates", json=payload)
-    assert response2.status_code == 201
-    assert response2.json()["title"] == "Creative Portfolio Template"
+    assert response.status_code == 201
+    assert response.json()["title"] == "Creative Portfolio Template"
 

@@ -35,6 +35,15 @@ class OrderItemResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class OrderUserResponse(BaseModel):
+    id: uuid.UUID
+    username: str
+    email: str
+    full_name: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
 class OrderResponse(BaseModel):
     id: uuid.UUID
     order_number: str
@@ -45,6 +54,7 @@ class OrderResponse(BaseModel):
     total: Decimal
     coupon_code: Optional[str] = None
     items: List[OrderItemResponse] = []
+    user: Optional[OrderUserResponse] = None
     created_at: datetime
     updated_at: datetime
 

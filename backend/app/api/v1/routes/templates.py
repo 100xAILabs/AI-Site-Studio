@@ -276,11 +276,6 @@ async def create_template(
     current_user: User = Depends(require_seller_or_admin),
 ):
     """Create a new template and permanently link it to the uploading seller's account."""
-    if current_user.role == "seller" and not current_user.is_payout_setup_completed:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Payout setup required before you can list a template for sale. Please configure your bank account details in settings."
-        )
     data.status = TemplateStatus.PUBLISHED
     service = TemplateService(db)
     return await service.create_template(data, seller_id=current_user.id)

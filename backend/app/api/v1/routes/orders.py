@@ -85,7 +85,10 @@ async def list_orders(
     """Get all orders for the current user."""
     result = await db.execute(
         select(Order)
-        .options(selectinload(Order.items).selectinload(OrderItem.template))
+        .options(
+            selectinload(Order.items).selectinload(OrderItem.template),
+            selectinload(Order.user)
+        )
         .where(Order.user_id == current_user.id)
         .order_by(Order.created_at.desc())
     )
@@ -101,7 +104,12 @@ async def get_order(
 ):
     """Get a specific order."""
     result = await db.execute(
-        select(Order).options(selectinload(Order.items).selectinload(OrderItem.template)).where(Order.id == order_id)
+        select(Order)
+        .options(
+            selectinload(Order.items).selectinload(OrderItem.template),
+            selectinload(Order.user)
+        )
+        .where(Order.id == order_id)
     )
     order = result.scalar_one_or_none()
     if not order:

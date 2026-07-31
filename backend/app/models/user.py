@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from app.models.favorite import Favorite
     from app.models.download import Download
     from app.models.template import Template
+    from app.models.withdrawal_request import WithdrawalRequest
 
 
 class UserRole(str, enum.Enum):
@@ -90,6 +91,9 @@ class User(UUIDMixin, TimestampMixin, Base):
     # Templates uploaded by this seller — permanently stored per account
     uploaded_templates: Mapped[List["Template"]] = relationship(
         back_populates="seller", lazy="select", foreign_keys="Template.seller_id", cascade="all, delete-orphan"
+    )
+    withdrawal_requests: Mapped[List["WithdrawalRequest"]] = relationship(
+        back_populates="seller", lazy="select", cascade="all, delete-orphan"
     )
 
     @property

@@ -18,6 +18,7 @@ from app.models.analytics import AnalyticsEvent
 from app.models.stored_file import StoredFile
 from app.models.follow import Follow
 from app.models.deployment import Deployment
+from app.models.withdrawal_request import WithdrawalRequest, WithdrawalStatus
 
 __all__ = [
     "User", "UserRole",
@@ -36,4 +37,6 @@ __all__ = [
     "StoredFile",
     "Follow",
     "Deployment",
+    "WithdrawalRequest",
+    "WithdrawalStatus",
 ]

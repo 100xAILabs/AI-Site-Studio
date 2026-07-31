@@ -30,6 +30,8 @@ import AboutPage from './app/about/page.jsx'
 import ContactPage from './app/contact/page.jsx'
 import VerifyOTPPage from './app/verify-otp/page.jsx'
 import ForgotPasswordPage from './app/forgot-password/page.jsx'
+import ReceiptPage from './app/dashboard/receipt/page.jsx'
+import PayoutReceiptPage from './app/dashboard/payout-receipt/page.jsx'
 
 /** Handles the post-OAuth soft redirect without a full page reload */
 function OAuthRedirectHandler() {
@@ -98,6 +100,8 @@ function App() {
           <Route path="/preview" element={<PreviewPage />} />
           <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/dashboard/receipt/:orderId" element={<ProtectedRoute><ReceiptPage /></ProtectedRoute>} />
+          <Route path="/dashboard/payout-receipt/:withdrawalId" element={<ProtectedRoute><PayoutReceiptPage /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPanel /></ProtectedRoute>} />
         </Routes>
         <Toaster richColors position="top-center" theme="dark" />

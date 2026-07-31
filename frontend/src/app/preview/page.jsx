@@ -66,6 +66,11 @@ function PreviewEditorInner() {
   // Manual Edit Sub-Tab State
   const [manualTab, setManualTab] = useState("brand");
   const [pageEdits, setPageEdits] = useState({});
+  const [selectedPageToEdit, setSelectedPageToEdit] = useState("index.html");
+  const [findText, setFindText] = useState("");
+  const [replaceText, setReplaceText] = useState("");
+  const [isReplacing, setIsReplacing] = useState(false);
+  const [replaceNotice, setReplaceNotice] = useState(null);
 
   // Master Brand & Content State (Synced Live to Preview Canvas)
   const [brand, setBrand] = useState({
@@ -282,6 +287,24 @@ function PreviewEditorInner() {
           page_edits: pageEdits,
         });
 
+        // Update local pages state with manual edits so Sandbox view updates
+        setPages((prev) => {
+          const updated = { ...prev };
+          Object.keys(pageEdits).forEach((filename) => {
+            const pageKey = mapFilenameToPageKey(filename);
+            if (updated[pageKey]) {
+              const edits = pageEdits[filename];
+              updated[pageKey] = {
+                ...updated[pageKey],
+                ...(edits.title && { hero_title: edits.title, title: edits.title }),
+                ...(edits.description && { hero_subtitle: edits.description, story: edits.description, desc: edits.description }),
+                ...(edits.cta_text && { cta_primary: edits.cta_text }),
+              };
+            }
+          });
+          return updated;
+        });
+
         if (res && res.template_id && res.template_id !== activeTemplateId) {
           setActiveTemplateId(res.template_id);
           const params = new URLSearchParams(window.location.search);
@@ -294,6 +317,23 @@ function PreviewEditorInner() {
         setIframeKey((prev) => prev + 1);
         setEditNotice("✓ Live template code updated and compiled successfully!");
       } else {
+        // Update local pages state in sandbox fallback
+        setPages((prev) => {
+          const updated = { ...prev };
+          Object.keys(pageEdits).forEach((filename) => {
+            const pageKey = mapFilenameToPageKey(filename);
+            if (updated[pageKey]) {
+              const edits = pageEdits[filename];
+              updated[pageKey] = {
+                ...updated[pageKey],
+                ...(edits.title && { hero_title: edits.title, title: edits.title }),
+                ...(edits.description && { hero_subtitle: edits.description, story: edits.description, desc: edits.description }),
+                ...(edits.cta_text && { cta_primary: edits.cta_text }),
+              };
+            }
+          });
+          return updated;
+        });
         setEditNotice("✓ Local preview state updated!");
       }
     } catch (e) {
@@ -442,6 +482,75 @@ function PreviewEditorInner() {
     ]);
   };
 
+  const mapFilenameToPageKey = (filename) => {
+    if (!filename) return "home";
+    const lower = filename.toLowerCase();
+    if (lower.includes("about")) return "about";
+    if (lower.includes("service")) return "services";
+    if (lower.includes("pricing")) return "pricing";
+    if (lower.includes("contact")) return "contact";
+    if (lower.includes("index") || lower.includes("home")) return "home";
+    
+    const name = filename.replace(/\.(html|jsx|js|tsx|ts)$/, "").toLowerCase();
+    const parts = name.split(/[/\\]/);
+    const lastPart = parts[parts.length - 1];
+    if (lastPart === "page" && parts.length > 1) {
+      return parts[parts.length - 2];
+    }
+    return lastPart;
+  };
+
+  const getPageRoutePath = (filename) => {
+    if (!filename || filename === "index.html" || filename.includes("index")) return "";
+    const lower = filename.toLowerCase();
+    if (lower.includes("about")) return "about";
+    if (lower.includes("service")) return "services";
+    if (lower.includes("pricing")) return "pricing";
+    if (lower.includes("contact")) return "contact";
+    
+    const parts = filename.replace(/\.(html|jsx|js|tsx|ts)$/, "").split(/[/\\]/);
+    const lastPart = parts[parts.length - 1];
+    if (lastPart === "page" && parts.length > 1) {
+      return parts[parts.length - 2];
+    }
+    return lastPart;
+  };
+
+  const handleFindReplace = async () => {
+    if (!findText || isReplacing) return;
+    setIsReplacing(true);
+    setReplaceNotice(null);
+    try {
+      if (activeTemplateId !== "default") {
+        const res = await api.post(`/preview/live/${activeTemplateId}/find-replace`, {
+          find_text: findText,
+          replace_text: replaceText,
+        });
+
+        if (res && res.template_id && res.template_id !== activeTemplateId) {
+          setActiveTemplateId(res.template_id);
+          const params = new URLSearchParams(window.location.search);
+          params.set("template", res.template_id);
+          window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
+        }
+
+        setIframeLoading(true);
+        setIframeKey((prev) => prev + 1);
+        setReplaceNotice(`✓ Replaced text successfully in ${res.matches_found || 0} file(s)!`);
+        setFindText("");
+        setReplaceText("");
+      } else {
+        setReplaceNotice("✓ Demo mode: find & replace simulated.");
+      }
+    } catch (e) {
+      console.error("Find & Replace error", e);
+      setReplaceNotice("✗ Failed to replace text.");
+    } finally {
+      setIsReplacing(false);
+      setTimeout(() => setReplaceNotice(null), 5000);
+    }
+  };
+
   const refreshPreview = () => {
     setIsRefreshing(true);
     setIframeLoading(true);
@@ -464,15 +573,11 @@ function PreviewEditorInner() {
 
   const dynamicTabs = [
     { key: "brand", label: "Brand & Palette", icon: Palette },
-    ...filesList.map(filename => ({
-      key: filename,
-      label: getPageLabel(filename),
-      icon: FileText
-    }))
+    { key: "pages", label: "Home & Pages", icon: FileText }
   ];
 
   const liveServerUrl = activeTemplateId !== "default"
-    ? `http://localhost:8000/api/v1/preview/live/${activeTemplateId}/${manualTab === "brand" ? "" : manualTab}`
+    ? `http://localhost:8000/api/v1/preview/live/${activeTemplateId}/${manualTab === "brand" ? "" : (manualTab === "pages" ? getPageRoutePath(selectedPageToEdit) : manualTab)}`
     : null;
 
   return (
@@ -921,7 +1026,9 @@ function PreviewEditorInner() {
                       key={st.key}
                       onClick={() => {
                         setManualTab(st.key);
-                        if (st.key !== "brand") setActivePage(st.key);
+                        if (st.key !== "brand") {
+                          setActivePage(mapFilenameToPageKey(selectedPageToEdit));
+                        }
                       }}
                       className={cn("manual-subtab-btn", manualTab === st.key && "active")}
                     >
@@ -994,20 +1101,53 @@ function PreviewEditorInner() {
                 )}
 
                 {/* Dynamic Page Content Overrides Editor */}
-                {manualTab !== "brand" && (
+                {manualTab === "pages" && (
                   <div className="manual-form-group space-y-4">
-                    <h4 className="manual-group-title">Customize {getPageLabel(manualTab)}</h4>
+                    <h4 className="manual-group-title">Select Page to Customize</h4>
+                    
+                    <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-1">
+                      {filesList.map((filename) => {
+                        const pageLabel = getPageLabel(filename);
+                        const isSelected = selectedPageToEdit === filename;
+                        return (
+                          <button
+                            key={filename}
+                            onClick={() => {
+                              setSelectedPageToEdit(filename);
+                              setActivePage(mapFilenameToPageKey(filename));
+                            }}
+                            type="button"
+                            className={cn(
+                              "flex items-center justify-between p-2 rounded-lg border text-left text-xs transition-all",
+                              isSelected
+                                ? "bg-primary/10 border-primary text-primary font-medium"
+                                : "bg-card/40 border-border/40 hover:bg-card/80 text-muted-foreground hover:text-foreground"
+                            )}
+                          >
+                            <span className="flex items-center gap-2">
+                              <FileText className="w-3.5 h-3.5" />
+                              {pageLabel}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground font-mono">{filename}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="h-[1px] bg-border/40 my-3" />
+
+                    <h4 className="manual-group-title">Customize {getPageLabel(selectedPageToEdit)}</h4>
                     
                     <div>
                       <label className="manual-label">Page Headline / Main Header</label>
                       <input
-                        value={pageEdits[manualTab]?.title || ""}
+                        value={pageEdits[selectedPageToEdit]?.title || ""}
                         onChange={(e) => {
                           const val = e.target.value;
                           setPageEdits(prev => ({
                             ...prev,
-                            [manualTab]: {
-                              ...prev[manualTab],
+                            [selectedPageToEdit]: {
+                              ...prev[selectedPageToEdit],
                               title: val
                             }
                           }));
@@ -1020,19 +1160,19 @@ function PreviewEditorInner() {
                     <div>
                       <label className="manual-label">Page Content / Description</label>
                       <textarea
-                        value={pageEdits[manualTab]?.description || ""}
+                        value={pageEdits[selectedPageToEdit]?.description || ""}
                         onChange={(e) => {
                           const val = e.target.value;
                           setPageEdits(prev => ({
                             ...prev,
-                            [manualTab]: {
-                              ...prev[manualTab],
+                            [selectedPageToEdit]: {
+                              ...prev[selectedPageToEdit],
                               description: val
                             }
                           }));
                         }}
                         placeholder="e.g. Provide custom text or description for this page."
-                        rows={6}
+                        rows={5}
                         className="manual-textarea"
                       />
                     </div>
@@ -1041,13 +1181,13 @@ function PreviewEditorInner() {
                       <div>
                         <label className="manual-label">Button / CTA Text</label>
                         <input
-                          value={pageEdits[manualTab]?.cta_text || ""}
+                          value={pageEdits[selectedPageToEdit]?.cta_text || ""}
                           onChange={(e) => {
                             const val = e.target.value;
                             setPageEdits(prev => ({
                               ...prev,
-                              [manualTab]: {
-                                ...prev[manualTab],
+                              [selectedPageToEdit]: {
+                                ...prev[selectedPageToEdit],
                                 cta_text: val
                               }
                             }));
@@ -1059,13 +1199,13 @@ function PreviewEditorInner() {
                       <div>
                         <label className="manual-label">Button Link / Action</label>
                         <input
-                          value={pageEdits[manualTab]?.cta_link || ""}
+                          value={pageEdits[selectedPageToEdit]?.cta_link || ""}
                           onChange={(e) => {
                             const val = e.target.value;
                             setPageEdits(prev => ({
                               ...prev,
-                              [manualTab]: {
-                                ...prev[manualTab],
+                              [selectedPageToEdit]: {
+                                ...prev[selectedPageToEdit],
                                 cta_link: val
                               }
                             }));
@@ -1077,6 +1217,57 @@ function PreviewEditorInner() {
                     </div>
                   </div>
                 )}
+
+                {/* Global Find & Replace Section */}
+                <div className="mt-6 pt-4 border-t border-border/40">
+                  <h4 className="manual-group-title flex items-center gap-1.5 text-purple-400">
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Global Text Find & Replace
+                  </h4>
+                  <p className="text-[10px] text-muted-foreground mb-3">
+                    Instantly replace any text across all code files in the template.
+                  </p>
+                  
+                  {replaceNotice && (
+                    <div className={cn(
+                      "mb-3 p-2 border rounded-lg text-[10px] font-semibold",
+                      replaceNotice.startsWith("✗")
+                        ? "bg-red-500/10 border-red-500/30 text-red-400"
+                        : "bg-purple-500/10 border-purple-500/30 text-purple-400"
+                    )}>
+                      {replaceNotice}
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    <div>
+                      <label className="manual-label">Find Text</label>
+                      <input
+                        value={findText}
+                        onChange={(e) => setFindText(e.target.value)}
+                        placeholder="Text to find..."
+                        className="manual-input text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="manual-label">Replace With</label>
+                      <input
+                        value={replaceText}
+                        onChange={(e) => setReplaceText(e.target.value)}
+                        placeholder="Text to replace with..."
+                        className="manual-input text-xs"
+                      />
+                    </div>
+                    <button
+                      onClick={handleFindReplace}
+                      disabled={isReplacing || !findText.trim()}
+                      className="w-full flex items-center justify-center gap-2 p-2 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/30 disabled:text-muted-foreground text-xs font-semibold text-white transition-all shadow-md"
+                    >
+                      {isReplacing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                      <span>Replace Across Codebase</span>
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* Save Manual Edit Footer */}

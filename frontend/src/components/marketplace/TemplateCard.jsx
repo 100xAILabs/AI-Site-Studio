@@ -255,7 +255,7 @@ export default function TemplateCard({
                 )}
               </div>
               <span className="text-xs text-muted-foreground">
-                AI Studio
+                {template.developer_name || "AI Studio"}
               </span>
             </div>
           </div>
