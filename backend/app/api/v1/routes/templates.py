@@ -364,6 +364,7 @@ async def download_template(
 
 class TemplatePrepareRequest(BaseModel):
     prompt: str
+    model_tier: Optional[str] = "pro"  # "pro" | "flash"
 
 
 class TemplateQuestion(BaseModel):
@@ -375,9 +376,13 @@ class TemplateQuestion(BaseModel):
 class TemplatePageItem(BaseModel):
     name: str
     filename: str
+    content_summary: Optional[str] = None
 
 
 class TemplatePrepareResponse(BaseModel):
+    architecture_type: str = "multi_page"  # single_page | multi_page
+    is_multipage: bool = True
+    architecture_reasoning: str = ""
     questions: list[TemplateQuestion]
     suggested_pages: list[TemplatePageItem]
 
@@ -387,6 +392,9 @@ class TemplateGenerateRequest(BaseModel):
     framework: str = "html"  # html | react
     answers: Optional[dict] = None
     pages: Optional[list[dict]] = None
+    is_multipage: Optional[bool] = None
+    architecture_type: Optional[str] = None
+    model_tier: Optional[str] = "pro"  # "pro" | "flash"
 
 
 @router.post("/generate/prepare", response_model=TemplatePrepareResponse)
@@ -395,7 +403,7 @@ async def prepare_template_generation(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Generate tailored clarifying questions and pages structure matching the user's template prompt.
+    Analyze prompt to determine single page vs multi-page architecture, page content breakdown, and tailored clarifying questions.
     """
     from app.services.ai_service import ai_service
     import json
@@ -404,23 +412,36 @@ async def prepare_template_generation(
     prompt = request.prompt.strip()
     
     prepare_prompt = f"""
-    Analyze this website template request: "{prompt}".
-    Generate a JSON response containing:
-    1. A list of 3-4 specific clarifying questions to help customize the styling, colors, and layout (e.g. style tone, color scheme, special elements) with a few options.
-    2. A list of suggested HTML pages (index.html is required, plus up to 4 other pages, e.g. about.html, features.html, contact.html, portal.html) appropriate for this template concept.
+    Analyze this website template request carefully: "{prompt}".
+    
+    Step 1: Perform Prompt Architecture Analysis.
+    Determine whether this concept is best built as a SINGLE PAGE website (landing page, waitlist, app promo, event page, or portfolio with all content on main view) or a MULTI PAGE website (corporate site, e-commerce store, agency with separate pages, or complex portal).
+    Provide a clear, brief 1-2 sentence rationale for your choice in "architecture_reasoning".
+    
+    Step 2: Plan Page Content Outlines.
+    - If architecture is "single_page": Recommend index.html as the primary page, detailing its main layout sections in content_summary (e.g. Hero banner, Feature highlights, Interactive showcase, Pricing/Testimonials, Contact footer).
+    - If architecture is "multi_page": Recommend index.html plus 2-4 additional distinct pages (e.g. about.html, services.html, contact.html), providing a clear 1-sentence content_summary of what sections belong on each page.
+    
+    Step 3: Generate 2-4 specific clarifying questions to customize styling, colors, or special features with 3-4 options each.
     
     You MUST return JSON matching this exact structure:
     {{
+      "architecture_type": "single_page", // "single_page" or "multi_page"
+      "is_multipage": false, // boolean
+      "architecture_reasoning": "This request is for a SaaS product launch landing page, which performs best as a high-converting Single Page experience with smooth scrolling sections.",
       "questions": [
         {{
-          "id": "q1",
-          "question": "What primary color scheme do you prefer?",
-          "options": ["Dark Neon Blue", "Professional Crimson", "Modern Teal & White", "Vibrant Gold"]
+          "id": "color_scheme",
+          "question": "What primary color scheme fits your brand vision best?",
+          "options": ["Dark Neon Cyberpunk", "Modern Minimalist Slate", "Vibrant Electric Blue", "Warm Minimalist Coral"]
         }}
       ],
       "suggested_pages": [
-        {{"name": "Home Page", "filename": "index.html"}},
-        {{"name": "About Us", "filename": "about.html"}}
+        {{
+          "name": "Home Landing Page",
+          "filename": "index.html",
+          "content_summary": "Hero header with call-to-action, Interactive feature grid, Product showcase visual, Pricing tiers, Customer testimonials, and Contact footer."
+        }}
       ]
     }}
     """
@@ -429,17 +450,33 @@ async def prepare_template_generation(
         raw_response = await ai_service._generate_content(prepare_prompt, response_mime_type="application/json", feature_name="website_content_generation")
         fixed_json = fix_truncated_json(raw_response)
         data = json.loads(fixed_json)
-        # Ensure index.html is present
-        if "suggested_pages" not in data or not data["suggested_pages"]:
-            data["suggested_pages"] = [
-                {"name": "Home Page", "filename": "index.html"},
-                {"name": "About Details", "filename": "about.html"}
+        
+        arch_type = data.get("architecture_type", "multi_page")
+        is_multi = data.get("is_multipage", arch_type == "multi_page")
+        reasoning = data.get("architecture_reasoning", "Analyzed project requirements to construct optimal page architecture.")
+        
+        pages = data.get("suggested_pages", [])
+        if not pages:
+            pages = [
+                {"name": "Home Page", "filename": "index.html", "content_summary": "Hero section, key features, showcase grid, contact footer."},
+                {"name": "About Details", "filename": "about.html", "content_summary": "Company vision, team bio, story timeline."}
             ]
-        elif not any(p.get("filename") == "index.html" for p in data["suggested_pages"]):
-            data["suggested_pages"].insert(0, {"name": "Home Page", "filename": "index.html"})
-        return data
-    except Exception:
+        elif not any(p.get("filename") == "index.html" for p in pages):
+            pages.insert(0, {"name": "Home Page", "filename": "index.html", "content_summary": "Main landing view with primary sections."})
+            
         return {
+            "architecture_type": arch_type,
+            "is_multipage": is_multi,
+            "architecture_reasoning": reasoning,
+            "questions": data.get("questions", []),
+            "suggested_pages": pages
+        }
+    except Exception as e:
+        logger.error(f"Prepare prompt analysis failed: {e}")
+        return {
+            "architecture_type": "multi_page",
+            "is_multipage": True,
+            "architecture_reasoning": "Standard multi-page website architecture suitable for comprehensive business showcase.",
             "questions": [
                 {
                     "id": "color_scheme",
@@ -453,9 +490,9 @@ async def prepare_template_generation(
                 }
             ],
             "suggested_pages": [
-                {"name": "Home Page", "filename": "index.html"},
-                {"name": "About Details", "filename": "about.html"},
-                {"name": "Contact Page", "filename": "contact.html"}
+                {"name": "Home Page", "filename": "index.html", "content_summary": "Hero banner, features grid, social proof, footer."},
+                {"name": "About Details", "filename": "about.html", "content_summary": "Story background, mission, core values, team showcase."},
+                {"name": "Contact Page", "filename": "contact.html", "content_summary": "Interactive contact form, location details, support FAQs."}
             ]
         }
 
@@ -495,10 +532,9 @@ async def generate_template_by_prompt(
         
     categories_list = [{"id": str(c.id), "name": c.name, "slug": c.slug} for c in categories]
     
-    # 2. Query Gemini to structure the template metadata
+    # 2. Direct Gemini AI Content Generation & Layout Blueprint (GEMINI_MODEL_WEBSITE_CONTENT_GENERATION)
     gemini_prompt = f"""You are a professional website template developer.
-A user wants to create a template matching this request: "{request.prompt}"
-The framework requested is: "{framework_lower}"
+A user wants to create a high-quality website template matching this request: "{request.prompt}"
 
 Here are the available category options in the database:
 {json.dumps(categories_list)}
@@ -515,13 +551,13 @@ Return a JSON object matching this exact structure:
   "category_id": "the chosen UUID category_id from the options list",
   "tags": ["3-5 matching tags like 'portfolio', 'creative', 'dark-mode'"],
   "industry": "e.g. Design, Real Estate, E-commerce, Restaurant",
-  "color_scheme": "e.g. Elegant Gold & Charcoal, Minimal Neon Cyan",
+  "color_scheme": "A named 4-6 color palette expressed with concrete hex values (e.g. 'Steeped Amber — canvas #F4EFE6, forest ink #26332B, steeped amber #C98A3E, clay border #8A5A34, warm white #FBF8F2'). Avoid defaulting to generic slate/indigo unless the prompt calls for it.",
   "pages_count": 5,
   "has_dark_mode": true,
-  "included_pages": ["A comprehensive list of all page names required to build a fully featured website for this type of business (e.g., Home, About, Services, Products, Team, Portfolio, Blog, Testimonials, FAQ, Contact, Careers, Reviews). Choose the best 5 to 8 pages that make sense for this specific business type."],
+  "included_pages": ["Choose the best 5 to 8 pages that make sense for this specific business type, e.g. Home, About, Services, Portfolio, Contact."],
   "seo_keywords": ["portfolio", "agency", "creative"],
-  "logo_prompt": "A prompt describing a clean, minimalist developer brand avatar logo customized specifically for the target business theme (DO NOT copy template studio templates; e.g. if request is coffee shop, describe a coffee cup badge logo).",
-  "thumbnail_prompt": "A detailed layout prompt for generating the template's landing page screenshot, reflecting the exact design aesthetics, colorful palettes, theme, and layouts matching this business category (DO NOT copy the dashboard example; write a custom screenshot prompt tailored to the request).",
+  "logo_prompt": "A prompt describing a clean, minimalist developer brand avatar logo customized specifically for the target business theme.",
+  "thumbnail_prompt": "A detailed layout prompt for generating the template's landing page screenshot, reflecting the exact design aesthetics and theme.",
   "gallery_prompts": [
     "A screenshot prompt for the services/products section of this specific business type",
     "A screenshot prompt for the contact/about section of this specific business type"
@@ -537,6 +573,27 @@ Return ONLY valid JSON. Do not include markdown code block notation (```json) or
     except Exception as e:
         logger.error(f"Gemini template generator prompt failed: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to generate template properties using AI: {str(e)}")
+
+    # Stage D: SEO Metadata Generation (GEMINI_MODEL_SEO_GENERATOR)
+    try:
+        seo_data = await ai_service.generate_seo(
+            business_name=data.get("title", "AI Template"),
+            industry=data.get("industry", "Business"),
+            services=data.get("included_pages", ["Home", "Services"]),
+        )
+        if seo_data.get("keywords"):
+            data["seo_keywords"] = seo_data["keywords"]
+    except Exception as e:
+        logger.warning(f"SEO generation stage failed: {e}")
+
+    # Stage E: Accessibility Guidelines Review (GEMINI_MODEL_ACCESSIBILITY_REVIEW)
+    try:
+        a11y_prompt = f"Generate 3 key WCAG accessibility directives for a {data.get('industry', 'Business')} website with color scheme '{data.get('color_scheme')}'. Return JSON: {{\n  \"aria_guidelines\": [\"...\"]\n}}"
+        a11y_raw = await ai_service._generate_content(a11y_prompt, response_mime_type="application/json", feature_name="accessibility_review")
+        a11y_data = robust_json_loads(a11y_raw)
+    except Exception as e:
+        logger.warning(f"Accessibility review stage failed: {e}")
+        a11y_data = {}
 
     # Extract chosen category UUID and other attributes
     category_uuid = None
@@ -576,7 +633,7 @@ Return ONLY valid JSON. Do not include markdown code block notation (```json) or
     included_pages = data.get("included_pages", ["Home"])
     seo_keywords = data.get("seo_keywords", ["website"])
     
-    # Pollinations AI generation prompts
+    # Pollinations / Image Generation (GEMINI_MODEL_IMAGE_GENERATION)
     logo_prompt = data.get("logo_prompt", f"minimalist developer avatar for {title} template creator")
     thumb_prompt = data.get("thumbnail_prompt", f"premium template homepage website screenshot of {title}")
     g_prompts = data.get("gallery_prompts", [
@@ -584,13 +641,13 @@ Return ONLY valid JSON. Do not include markdown code block notation (```json) or
         f"screenshot of contact section for {title} website template"
     ])
 
-    # 3. Create Pollinations AI URLs
-    thumbnail_url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(thumb_prompt[:120])}?width=1024&height=768&nologo=true&seed=42"
-    gallery_images = [
-        f"https://image.pollinations.ai/prompt/{urllib.parse.quote(p[:120])}?width=1024&height=768&nologo=true&seed={i}"
-        for i, p in enumerate(g_prompts)
-    ]
-    developer_avatar = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(logo_prompt[:120])}?width=250&height=250&nologo=true&seed=88"
+    # 3. Create Pollinations AI / Flux URLs
+    thumbnail_url = await ai_service.generate_image(thumb_prompt, feature_name="image_generation")
+    developer_avatar = await ai_service.generate_image(logo_prompt, feature_name="image_generation")
+    gallery_images = []
+    for g_p in g_prompts:
+        g_url = await ai_service.generate_image(g_p, feature_name="image_generation")
+        gallery_images.append(g_url)
 
     # Compile custom user answers
     answers_str = ""
@@ -622,12 +679,18 @@ Return ONLY valid JSON. Do not include markdown code block notation (```json) or
     html_pages_desc = []
     json_structure_template = {}
     for idx, p in enumerate(pages):
-        # Determine filename
+        # Determine filename and content summary
         if p == "Home":
             fname = "index.html"
         else:
             fname = request.pages[idx].get("filename") if (request.pages and idx < len(request.pages) and request.pages[idx].get("filename")) else f"{re.sub(r'[^a-zA-Z0-9]+', '-', p.lower()).strip('-')}.html"
-        html_pages_desc.append(f"{idx+1}. {fname} (The complete page layout for the '{p}' section)")
+        
+        summary = ""
+        if request.pages and idx < len(request.pages):
+            summary = request.pages[idx].get("content_summary") or ""
+        summary_info = f" - Key Sections Planned: {summary}" if summary else ""
+        
+        html_pages_desc.append(f"{idx+1}. {fname} (Layout for '{p}' page{summary_info})")
         json_structure_template[fname] = f"<!DOCTYPE html>... (complete styled HTML5 code for {p} page)"
 
     html_pages_list_str = "\n".join(html_pages_desc)
@@ -651,55 +714,60 @@ Return ONLY valid JSON. Do not include markdown code block notation (```json) or
     # 4. Generate the actual Code using Gemini Pro
     print(f"Generating custom {framework_lower} code...")
     if framework_lower == "html":
-        code_prompt = f"""You are an elite, world-class lead frontend designer.
-Create a complete, responsive, multi-page HTML website matching this user description: "{request.prompt}".
-
-SPECIFIC USER DESIGN PREFERENCES:
-{answers_str if answers_str else "No custom design questions answered."}
+        code_prompt = f"""You are an elite, world-class lead frontend architect and designer.
+Create a complete, responsive, production-ready multi-page HTML website tailored specifically to this user request: "{request.prompt}".
 
 THE METADATA AND VISUAL DESIGN SPECS YOU MUST MATCH EXACTLY:
 - Website Title: "{title}"
 - Target Industry: "{industry}"
-- Color Scheme & Styling Palette: "{color_scheme}" (Use this exact color scheme for background gradients, buttons, card borders, active navigations, and glow states).
+- Color Scheme & Styling Palette: "{color_scheme}" (Express this palette as CSS custom properties in :root e.g. --color-canvas, --color-ink, --color-accent, --color-accent-soft, --color-line, and use them throughout the styling).
 - Visual Mockup Description: "{thumb_prompt}"
 - Overall Design System & Aesthetic: "{desc}"
 - Custom Tags: {json.dumps(tags)}
 - Exact Pages to Generate: {html_pages_list_str}
 
-Ensure all pages are fully styled with Tailwind CSS via CDN. 
-You can implement the multi-page structure in one of two ways based on content size and completeness:
-1. Multi-File Site: Map each filename to its complete HTML code, linking pages together using standard hrefs (e.g. index.html, about.html).
-2. Single-Page Application (SPA): If the codebase is complex, you can write a single unified "index.html" file that contains all pages as distinct sections, using an inline client-side router/JavaScript tab toggler (matching navbar link clicks) to switch between them with smooth transition effects. This keeps all views fully detailed, responsive, and prevents truncation issues. If you choose this SPA approach, make sure all navigation links, buttons, and call-to-actions use hash anchors (e.g. href="#home", href="#request-blood") to toggle the display views dynamically, rather than linking to separate .html files, to prevent browser 404 page navigation errors. The other files in the JSON mapping can contain smaller templates or simply be left as minimal stubs, while index.html hosts the complete interactive site application.
-Use professional layouts, modern color palettes, and beautiful fonts.
+CORE ARCHITECTURE REQUIREMENTS (DO NOT SKIP ANY SECTION):
+1. INTELLIGENT DOMAIN ADAPTATION:
+   Analyze "{request.prompt}" deeply. Adapt the layout, hero composition, typography, interactive components, and section order specifically for this business domain. Whether it is a Portfolio, Corporate Agency, SaaS App, Restaurant, E-Commerce, Healthcare, or Creative Studio, generate bespoke components and layouts tailored to that specific subject.
 
-CRITICAL STRUCTURAL CODE REQUIREMENTS (DO NOT SKIP ANY SECTION):
-1. NO SHORTCUTS: Write the complete, production-ready HTML code. Do not use placeholders, shorthand snippets, or ellipses. Every single layout component, form input, image, and text block must be fully written out.
-2. RICH COMPONENTS & GRID LAYOUTS FOR EACH DYNAMIC VIEW:
-   - Main landing/home view: MUST include a high-impact Hero banner (split two-column layout on desktop), a detailed multi-card Features Grid, a visual Showcase/Gallery container, a Statistics/Numbers section, and a professional Footer with social links and subscription newsletter.
-   - "About" or "Process" or "Story" view: MUST include a story intro, an interactive vertical/horizontal Timeline layout, and a Team/Profile grid featuring styled avatar cards.
-   - "Services" or "Products" or "Portfolio" or "Gallery" view: MUST include detailed pricing tables or item grids with checklist elements, styled checklist cards, and prominent CTA cards.
-   - "Contact" or "Booking" view: MUST include a double-column layout with visual contact cards (SVG icons for phone/email/map location) on one side, and a fully styled contact form on the other side.
+2. MULTI-PAGE STRUCTURE & LIVE PRODUCTION NAVIGATION:
+   - Generate complete, fully styled HTML code for every file requested in `{html_pages_list_str}`.
+   - Ensure ALL Navbar AND Footer links use valid, working relative file paths (e.g. `href="index.html"`, `href="about.html"`, `href="services.html"`, `href="contact.html"`) or valid section hash anchors (e.g. `href="#hero"`, `href="#services"`, `href="#contact"`) rather than dead `href="#"` placeholders.
+   - Ensure every page contains a consistent, sticky glassmorphic top Navbar (`backdrop-blur-md bg-slate-900/80 border-b border-white/10`) featuring:
+     - Brand logo image (`{developer_avatar}`) and brand name (`{title}`).
+     - Working navigation links for all pages with active state highlighting on the current page link.
+     - Action CTA button ("Get Started" / "Hire Me" / "Book Now").
+     - Mobile responsive burger menu toggler script.
+   - Ensure every page contains a comprehensive 4-column Footer (`bg-slate-950`) featuring:
+     - Column 1: Brand logo image, company name, mission summary, and contact information.
+     - Column 2: Working Quick Links navigation list (`href="index.html"`, `href="about.html"`, `href="services.html"`, `href="contact.html"`).
+     - Column 3: Working Services/Products/Works navigation list.
+     - Column 4: Interactive Newsletter subscription form (`onsubmit="event.preventDefault(); alert('Subscribed successfully!');"`) with Subscribe CTA.
+     - Working social icons (Twitter, LinkedIn, GitHub, Instagram), copyright notice, Privacy Policy link, and Terms of Service link.
 
-CRITICAL VISUAL DESIGN & IMAGES:
-- Navbar brand logo image URL: '{developer_avatar}'
-- Home page hero section background image URL: '{thumbnail_url}'
-- Section background or showcase image URLs:
-  - First Showcase Image: '{gallery_images[0] if len(gallery_images) > 0 else ""}'
-  - Second Showcase Image: '{gallery_images[1] if len(gallery_images) > 1 else ""}'
-  - Third Showcase Image: '{gallery_images[2] if len(gallery_images) > 2 else ""}'
-If you need additional images, illustrations, or profile photos, use the Pollinations AI image service directly in the img src tags:
-`https://image.pollinations.ai/prompt/{{{{description_of_desired_image}}}}?width=600&height=400&nologo=true`
-(Ensure the description is short, descriptive, and safely URL-encoded).
+3. FULL CODE COMPLETENESS (NO SHORTCUTS OR PLACEHOLDERS):
+   Write complete, production-ready HTML code for every page. Do NOT use shorthand snippets, placeholders, comments like `<!-- add items here -->`, or ellipses (`...`). Every section, grid card, image tag, button, form input, modal, and footer must be 100% written out.
 
-CRITICAL ANIMATIONS & EFFECTS:
-1. DESIGN STYLE: Make the design extremely attractive, vibrant, and colorful! Use rich background gradients (e.g. `bg-gradient-to-br from-slate-950 via-purple-950 to-slate-900`), glowing glassmorphic cards (`bg-slate-900/40 backdrop-blur-xl border border-white/10 hover:border-primary/50`), colored border accents (`border-t-2 border-primary`), and gradient text (`text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-pink-500 to-amber-400`).
-2. CSS KEYFRAME ANIMATIONS: Inside the <head> of EACH page, inject a <style> block containing custom CSS @keyframes:
-   - fadeInUp: smooth entry from bottom (opacity 0, translateY 20px -> opacity 1, translateY 0).
-   - fadeIn: simple fade entry.
-   - pulseGlow: subtle glow pulse effect for CTA buttons and badges.
-   Apply helper classes like .animate-fade-in-up {{{{ animation: fadeInUp 0.8s ease-out forwards; }}}} to headers, cards, and sections.
-3. PAGE TRANSITIONS: Implement smooth multi-page transitions. Inject a fullscreen transition overlay and a simple JavaScript handler that intercepts page link clicks (preventing default instant load), animates a smooth fade/wipe effect, and then completes the redirect, ensuring a premium, seamless feeling between pages. Any loading spinner/transition overlay must have an inline self-destruct script immediately following its HTML markup that automatically hides the overlay after 1 second to prevent it from getting stuck.
-4. Tailwind hover transition classes (e.g., transition-all duration-300 transform hover:-translate-y-1 hover:scale-[1.02] hover:shadow-2xl) to all cards, grid items, buttons, and navigation elements.
+4. IMAGERY & DYNAMIC ASSETS:
+   - Navbar logo image URL: '{developer_avatar}'
+   - Hero background / primary banner URL: '{thumbnail_url}'
+   - Feature showcase image URLs:
+     - First Showcase Image: '{gallery_images[0] if len(gallery_images) > 0 else ""}'
+     - Second Showcase Image: '{gallery_images[1] if len(gallery_images) > 1 else ""}'
+     - Third Showcase Image: '{gallery_images[2] if len(gallery_images) > 2 else ""}'
+   - Embed at least 6 to 10 context-relevant image tags (`<img>`) or custom inline SVG vector illustrations across the pages.
+   - For additional subject-specific photos, use Pollinations AI URLs:
+     `https://image.pollinations.ai/prompt/{{description_of_desired_photo}}?width=800&height=600&nologo=true`
+
+5. STYLING, TYPOGRAPHY & INTERACTIVITY:
+   - Use Tailwind CSS via CDN (`https://cdn.tailwindcss.com`) combined with a `<style>` block in `<head>` for CSS custom properties (`:root`) and keyframe animations (`fadeInUp`, `@media (prefers-reduced-motion: reduce)`).
+   - Import matching Google Fonts in `<head>` (e.g. Outfit / Inter / Playfair).
+   - Add interactive JavaScript for domain-specific features (e.g., gallery category filtering, lightbox popups, tab switching, interactive form submission toasts).
+
+6. LIVE WEBSITE READINESS:
+   - Every page must be 100% production-ready for immediate live web deployment.
+   - Includes valid HTML5 doctype, UTF-8 charset, responsive viewport tag, SEO title, meta description, and OpenGraph social tags in `<head>`.
+   - Interactive forms (contact, newsletter, booking) must include inline JavaScript handlers (`onsubmit="event.preventDefault(); ..."` displaying success toasts) so users testing live previews get immediate interactive feedback without page crashes.
 
 Return ONLY a valid JSON object mapping filenames to their complete file content string, matching this structure:
 {json_struct_str}
@@ -737,37 +805,66 @@ THE METADATA AND VISUAL DESIGN SPECS YOU MUST MATCH EXACTLY:
 The file must export a default App component. It must use Tailwind CSS utility classes and Lucide React icons.
 To support a multi-page experience, implement a state-driven client-side router inside App.jsx using state hooks (e.g. `const [currentPage, setCurrentPage] = useState('home')`) to toggle between these exact pages.
 
-Ensure the navigation bar links change the current page state dynamically, and the website has premium layouts, micro-interactions, and beautiful copywriting.
-Import lucide icons at the top: `import {{ Sparkles, ArrowRight, Check, ... }} from 'lucide-react';`
+Ensure the navigation bar links change the current page state dynamically, and the website has premium layouts, micro-interactions, floating badges, multiple image cards, background images, and beautiful copywriting.
+Import lucide icons at the top: `import {{ Sparkles, ArrowRight, Check, Star, Coffee, Leaf, ChevronRight, Menu, X, Mail, Phone, MapPin, Clock, Award, Twitter, Instagram, Linkedin, Github }} from 'lucide-react';`
 
 CRITICAL STRUCTURAL CODE REQUIREMENTS (DO NOT SKIP ANY SECTION):
-1. NO SHORTCUTS: Write the complete, production-ready React JSX code for `src/App.jsx`. Do not use placeholders, shorthand snippets, or comments like `/* other sections here */`. Every single layout component, form input, image, and text block must be fully written out.
-2. RICH COMPONENTS & GRID LAYOUTS FOR EACH DYNAMIC VIEW:
-   - Navigation Header: Glassmorphic background with backdrop-blur-md, brand logo, links with active underlines, and a responsive mobile navbar toggler.
-   - Whichever page is the main landing/home view: MUST include a high-impact Hero banner (split two-column layout on desktop), a detailed multi-card Features Grid, a visual Showcase/Gallery container, a Statistics/Numbers section, and a professional Footer with social links and subscription newsletter.
-   - Whichever page represents the "About" or "Process" or "Story" view: MUST include a story intro, an interactive vertical/horizontal Timeline layout, and a Team/Profile grid featuring styled avatar cards.
-   - Whichever page represents the "Services" or "Products" or "Portfolio" or "Gallery" view: MUST include detailed pricing comparison cards with checklist elements and active checklist icons, a detailed service process/flow section, and prominent CTA cards.
-   - Whichever page represents the "Contact" or "Booking" view: MUST include a double-column layout with visual contact cards (Lucide icons for phone/email/map location) on the left, and a styled contact form on the right.
-   - 
-CRITICAL VISUAL DESIGN & IMAGES:
+1. INTELLIGENT CONTEXT ANALYSIS: You MUST first deeply analyze the user's request ("{request.prompt}"). Tailor components and features specifically for that domain:
+   - PORTFOLIO / CREATIVE / DESIGNER: Hero with personal bio/skills badge, Project Showcase cards with live preview links, Experience timeline, Testimonials slider, Skill bars, and Hire Me form.
+   - RESTAURANT / TEA SHOP / CAFE: Hero with appetizing food/tea photos, Interactive Menu category filter tabs (Teas/Coffee/Pastries), Chef Special Cards with prices, Reservation/Booking Form, and Location Map.
+   - E-COMMERCE / STORE: Hero with featured item, Product Grid with price tags & "Add to Cart" buttons, Category Banners, Customer Reviews, and Shipping details.
+   - SAAS / TECH / AGENCY: Hero with app interface mockup, Interactive Feature Grid with Lucide icons, Pricing comparison cards, Integration Logos, and Free Trial CTA.
+2. NO SHORTCUTS: Write complete, rich, production-ready React JSX code for `src/App.jsx`. Do not use placeholders, shorthand snippets, or comments like `/* other sections here */`. Every single layout component, form input, image, navbar, footer, and text block must be fully written out.
+3. MANDATORY COMPLETE NAVBAR & FOOTER (ON ALL REACT VIEWS):
+   - Sticky Glassmorphic Navbar: Top position with `backdrop-blur-md bg-slate-900/80 border-b border-white/10`, brand logo image (`{developer_avatar}`), brand name, active state indicator for `currentPage`, CTA button ("Get Started" / "Hire Me" / "Book Table"), and a responsive mobile navbar burger toggler.
+   - Comprehensive Multi-Column Footer: Deep background (`bg-slate-950`), 4 distinct grid columns (1: Brand logo & mission bio, 2: Quick navigation links triggering `setCurrentPage`, 3: Services/Products list, 4: Newsletter subscription input box with Subscribe button), Lucide social icons (Twitter, Instagram, Linkedin, Github), copyright string, and terms/privacy links.
+4. DOMAIN-SPECIFIC DYNAMIC COMPONENTS FOR EACH REACT VIEW:
+   - Whichever page is the main landing/home view: MUST include Sticky Navbar, high-impact Hero banner tailored to domain with photo background overlay, floating stat badge, domain-tailored Features/Work Grid, Photo Showcase/Gallery, Statistics/Numbers section, and Comprehensive Multi-Column Footer.
+   - Whichever page represents the "About" or "Process" or "Bio" view: MUST include Sticky Navbar, story/bio intro with background image, interactive visual timeline/experience layout, Team or Skill grid, and Comprehensive Multi-Column Footer.
+   - Whichever page represents the "Services" or "Products" or "Portfolio" or "Menu" view: MUST include Sticky Navbar, detailed item grids with price tags or live links, interactive category filters, CTA cards, and Comprehensive Multi-Column Footer.
+   - Whichever page represents the "Contact" or "Booking" or "Hire" view: MUST include Sticky Navbar, double-column layout with visual contact cards (Lucide icons for phone/email/location), styled contact/booking/inquiry form, and Comprehensive Multi-Column Footer.
+
+DESIGN DOCTRINE — GROUND THIS IN THE ACTUAL SUBJECT, NOT A TEMPLATE:
+Before writing any JSX, privately settle a short design plan for THIS specific business (do not print the plan — only the final code should be output):
+   - Subject: pin down the one concrete thing this business does, who it's for, and the single job the home view must do.
+   - Palette: derive 4-6 named hex colors from "{color_scheme}", rooted in the subject's own materials, ingredients, instruments, or light — not a generic tech palette. Define them once (e.g. as a `const palette = {{...}}` object or CSS custom properties in the injected `<style>` tag) and reference them consistently rather than scattering ad-hoc Tailwind color utilities.
+   - Type: pair a characterful display face for headings with a plain, highly readable body face. Pick faces whose personality actually fits this subject — do not reach for the same pairing on every brief.
+   - Layout: choose ONE structural idea for the hero (asymmetric split, oversized type over a photo, a bento grid, a single dominant product shot) and let its logic repeat through the views, instead of defaulting to centered-hero + 3-column-grid + testimonial-slider on autopilot.
+   - Signature: choose ONE memorable, specific element this app will be remembered by (a distinctive card shape, a custom SVG motif drawn from the subject, an unusual hero composition, an interactive gauge or visualization). Spend your boldness there; keep everything else disciplined and quiet.
+
+AVOID THESE OVERUSED AI-DESIGN DEFAULTS UNLESS THE USER'S PROMPT EXPLICITLY ASKS FOR THEM:
+   - Warm cream background (near #F4F1EA) + high-contrast serif display + terracotta/clay accent (near #D97757) for every "premium" or "artisanal" brief.
+   - Near-black background with a single bright acid-green or vermilion accent for every "tech" or "dark mode" brief.
+   - Hairline-rule broadsheet/newspaper layout with zero border-radius for every "editorial" brief.
+   - Numbered "01 / 02 / 03" markers used purely as decoration rather than because the content is a genuine ordered sequence.
+   These looks are fine when the brief itself calls for them — they should never be the reflexive default for every template.
+
+TYPOGRAPHY & GRAPHICS:
+   - Set a clear type scale (e.g. hero ~3.5rem+ with tight tracking down to ~0.875rem captions) with intentional weight and letter-spacing choices, not framework defaults.
+   - Only use numbered eyebrows or step markers where the content is genuinely an ordered sequence — otherwise use plain labels. Structural devices should encode something true about the content, not decorate it.
+   - Use custom inline SVG vector illustrations drawn from the subject's own vernacular (its tools, ingredients, textures, or artifacts) alongside photo imagery, rather than generic stock icon sets.
 - Navbar brand logo image URL: '{developer_avatar}'
 - Home page hero section background image URL: '{thumbnail_url}'
 - Section background or showcase image URLs:
   - First Showcase Image: '{gallery_images[0] if len(gallery_images) > 0 else ""}'
   - Second Showcase Image: '{gallery_images[1] if len(gallery_images) > 1 else ""}'
   - Third Showcase Image: '{gallery_images[2] if len(gallery_images) > 2 else ""}'
-If you need additional images, illustrations, or profile photos, use the Pollinations AI image service directly in the img src tags:
-`https://image.pollinations.ai/prompt/{{{{description_of_desired_image}}}}?width=600&height=400&nologo=true`
-(Ensure the description is short, descriptive, and safely URL-encoded).
+- MANDATORY MULTIPLE IMAGES & ILLUSTRATIONS: Place at least 6 to 10 distinct, context-relevant image tags or SVG illustrations throughout the website sections.
+- Use Pollinations AI image URLs directly in the img src tags for all additional images:
+  `https://image.pollinations.ai/prompt/{{{{description_of_desired_image}}}}?width=800&height=600&nologo=true`
 
-CRITICAL ANIMATIONS & EFFECTS:
-1. DESIGN STYLE: Make the design extremely attractive, vibrant, and colorful! Use rich background gradients (e.g. `bg-gradient-to-br from-slate-950 via-purple-950 to-slate-900`), glowing glassmorphic cards (`bg-slate-900/40 backdrop-blur-xl border border-white/10 hover:border-primary/50`), colored border accents, and gradient text (`text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-pink-500 to-amber-400`).
-2. CSS KEYFRAME ANIMATIONS: Inject a `<style>` element inside the App component return JSX containing custom keyframe animations:
-   - fadeInUp (smooth entry from bottom: opacity 0, translateY 20px -> opacity 1, translateY 0).
-   - fadeIn (simple fade entry).
-   Assign class names like `animate-fade-in-up` to structural elements.
-3. PAGE TRANSITIONS: Wrap each page component in a transition container that triggers a smooth fade-in and scale-up animation whenever `currentPage` changes, providing a seamless page change effect.
-4. Apply Tailwind hover transition classes (e.g. `transition-all duration-300 transform hover:-translate-y-1 hover:scale-[1.02] hover:shadow-2xl`) to buttons, navigation elements, and service cards.
+MOTION, RESTRAINT & QUALITY FLOOR:
+1. Use motion deliberately, not everywhere: pick one orchestrated moment (a page-load reveal sequence, a view-transition fade) plus restrained hover micro-interactions. Layering fade/float/glow animations onto every single element is a strong tell of templated, low-effort design — resist it. Elegance comes from executing the chosen direction well, not from maximizing animation count.
+2. Inject a `<style>` element inside the App component return JSX containing only the keyframes you actually use, for example:
+   - `@keyframes fadeInUp {{ from {{ opacity: 0; transform: translateY(24px); }} to {{ opacity: 1; transform: translateY(0); }} }}`
+   - `@keyframes floatSlow {{ 0%, 100% {{ transform: translateY(0px); }} 50% {{ transform: translateY(-10px); }} }}`
+   Also include `@media (prefers-reduced-motion: reduce) {{ *, *::before, *::after {{ animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }} }}` so motion respects accessibility settings.
+3. INTERACTIVE STATE BEHAVIOR SHOULD SERVE THE SUBJECT SPECIFICALLY:
+   - Domain-specific state interactions (e.g. clicking a tea variety dynamically updates a liquor-color swatch, steep temperature & steep-time gauge), category filters, modal popup image views, and an active navigation tab indicator.
+   - Wrap page view containers in transition wrappers that trigger a single deliberate fade/slide when `currentPage` changes — not a different animation per element.
+   - Use group hover scale effects sparingly on the images/cards that most benefit (`group overflow-hidden rounded-2xl` with `<img className="transition-transform duration-500 group-hover:scale-110" />`).
+4. Quality floor: fully responsive down to mobile widths, visible keyboard focus states (`focus-visible:` Tailwind variants — never remove outlines without a replacement), and sufficient color contrast between text and background.
+5. Apply Tailwind hover transition classes (`transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg`) to the buttons, interactive cards, and navigation elements that most benefit — not blanketed across everything.
 
 Return ONLY the complete React ES6 Javascript code. Do not include markdown code block syntax (like ```javascript) or explanation."""
 
@@ -870,7 +967,12 @@ body {
             zip_file.writestr("src/index.css", index_css)
         zip_bytes = zip_buffer.getvalue()
 
-    # Helper function to generate slug
+    # Stage F: Project ZIP Architecture Analysis (GEMINI_MODEL_PROJECT_ZIP_ANALYSIS)
+    try:
+        zip_audit_res = await project_analyzer.analyze_zip_bytes(zip_bytes)
+        logger.info(f"Generated template ZIP analysis completed: {zip_audit_res.get('tech_stack')}")
+    except Exception as e:
+        logger.warning(f"Project ZIP analysis stage failed: {e}")
     base_slug = re.sub(r"[^\w\s-]", "", title.lower()).strip()
     base_slug = re.sub(r"[-\s]+", "-", base_slug)
     slug = base_slug
@@ -900,6 +1002,14 @@ body {
 
     # 6. Create Template in DB
     from app.models.template import Template, TemplateStatus, TemplateLicense, TemplateFramework
+    from app.models.user import UserRole
+
+    # Determine status & marketplace visibility based on user role:
+    # Buyers/Regular Users -> TemplateStatus.DRAFT (Stored in user's AI projects dashboard, hidden from public marketplace)
+    # Sellers/Admins -> TemplateStatus.PUBLISHED (Published to public marketplace template catalog)
+    is_seller_or_admin = current_user.role in (UserRole.SELLER, UserRole.ADMIN, UserRole.SUPER_ADMIN)
+    template_status = TemplateStatus.PUBLISHED if is_seller_or_admin else TemplateStatus.DRAFT
+
     new_template = Template(
         title=title,
         slug=slug,
@@ -926,7 +1036,7 @@ body {
         compatibility=["Chrome", "Safari", "Edge"],
         version="1.0.0",
         license_type=TemplateLicense.REGULAR,
-        status=TemplateStatus.PUBLISHED,
+        status=template_status,
         is_featured=False,
         is_bestseller=False,
         is_new=True,
@@ -944,26 +1054,27 @@ body {
     await db.commit()
     await db.refresh(new_template)
 
-    # 7. Index in Qdrant Vector search
-    try:
-        search_service = SearchService(db)
-        await search_service.index_template(
-            template_id=new_template.id,
-            text=f"{new_template.title} {new_template.short_description} {new_template.description}",
-            metadata={
-                "title": new_template.title,
-                "category": chosen_cat_name,
-                "industry": new_template.industry,
-                "tags": new_template.tags,
-                "features": new_template.included_pages,
-                "framework": new_template.framework,
-                "style": "Modern",
-                "color_scheme": new_template.color_scheme,
-                "seo_keywords": new_template.seo_keywords
-            }
-        )
-    except Exception as e:
-        logger.error(f"Failed to index generated template in Qdrant: {e}")
+    # 7. Index in Qdrant Vector search ONLY if published to public marketplace (Sellers/Admins)
+    if is_seller_or_admin:
+        try:
+            search_service = SearchService(db)
+            await search_service.index_template(
+                template_id=new_template.id,
+                text=f"{new_template.title} {new_template.short_description} {new_template.description}",
+                metadata={
+                    "title": new_template.title,
+                    "category": chosen_cat_name,
+                    "industry": new_template.industry,
+                    "tags": new_template.tags,
+                    "features": new_template.included_pages,
+                    "framework": new_template.framework,
+                    "style": "Modern",
+                    "color_scheme": new_template.color_scheme,
+                    "seo_keywords": new_template.seo_keywords
+                }
+            )
+        except Exception as e:
+            logger.error(f"Failed to index generated template in Qdrant: {e}")
 
     # Return template detail
     return await template_repo.get_by_id(new_template.id)

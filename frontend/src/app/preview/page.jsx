@@ -1118,17 +1118,15 @@ function PreviewEditorInner() {
                             }}
                             type="button"
                             className={cn(
-                              "flex items-center justify-between p-2 rounded-lg border text-left text-xs transition-all",
-                              isSelected
-                                ? "bg-primary/10 border-primary text-primary font-medium"
-                                : "bg-card/40 border-border/40 hover:bg-card/80 text-muted-foreground hover:text-foreground"
+                              "page-select-btn",
+                              isSelected && "page-select-btn-selected"
                             )}
                           >
                             <span className="flex items-center gap-2">
-                              <FileText className="w-3.5 h-3.5" />
-                              {pageLabel}
+                              <FileText className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                              <span className="page-label-text">{pageLabel}</span>
                             </span>
-                            <span className="text-[10px] text-muted-foreground font-mono">{filename}</span>
+                            <span className="page-filename-tag">{filename}</span>
                           </button>
                         );
                       })}

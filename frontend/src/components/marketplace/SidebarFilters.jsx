@@ -126,28 +126,6 @@ const SUB_CATEGORIES = {
   documentation:    ["API Docs", "Product Docs", "Knowledge Base", "Help Center", "Wiki"],
 };
 
-const DESIGN_STYLES = [
-  { label: "Modern",          value: "modern" },
-  { label: "Minimal",         value: "minimal" },
-  { label: "Premium",         value: "premium" },
-  { label: "Luxury",          value: "luxury" },
-  { label: "Elegant",         value: "elegant" },
-  { label: "Professional",    value: "professional" },
-  { label: "Creative",        value: "creative" },
-  { label: "Dark",            value: "dark" },
-  { label: "Light",           value: "light" },
-  { label: "Glassmorphism",   value: "glassmorphism" },
-  { label: "Neumorphism",     value: "neumorphism" },
-  { label: "Material Design", value: "material-design" },
-  { label: "Flat Design",     value: "flat-design" },
-  { label: "Gradient",        value: "gradient" },
-  { label: "Futuristic",      value: "futuristic" },
-  { label: "Brutalist",       value: "brutalist" },
-  { label: "Retro",           value: "retro" },
-  { label: "Corporate",       value: "corporate" },
-  { label: "Vibrant",         value: "vibrant" },
-];
-
 const TECHNOLOGIES = [
   { label: "HTML",         value: "html" },
   { label: "React",        value: "react" },
@@ -190,14 +168,34 @@ export default function SidebarFilters({ categories }) {
   const [expandedCategory, setExpandedCategory] = useState(null);
   const active = isFilterActive();
 
+  /* Merge API categories with fallback static list so newly created categories show up instantly */
+  const apiCategories = Array.isArray(categories) ? categories : [];
+  const apiSlugs = new Set(apiCategories.map((c) => c.slug));
+
+  const displayCategories = [
+    ...apiCategories.map((c) => ({
+      label: c.name,
+      value: c.slug,
+      count: c.template_count,
+      subItems:
+        c.children && c.children.length > 0
+          ? c.children.map((child) => child.name)
+          : SUB_CATEGORIES[c.slug] || [],
+    })),
+    ...MAIN_CATEGORIES.filter((mc) => !apiSlugs.has(mc.value)).map((mc) => ({
+      label: mc.label,
+      value: mc.value,
+      count: undefined,
+      subItems: SUB_CATEGORIES[mc.value] || [],
+    })),
+  ];
+
   /* Toggle main category selection + expand its sub-list */
   const handleCategoryClick = (value) => {
     if (expandedCategory === value) {
-      // collapse — but keep the category filter active if sub is selected
       setExpandedCategory(null);
     } else {
       setExpandedCategory(value);
-      // selecting a new parent resets sub_category
       if (filters.category !== value) {
         setFilter("category", value);
         setFilter("sub_category", undefined);
@@ -209,8 +207,6 @@ export default function SidebarFilters({ categories }) {
     const slug = sub.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     setFilter("sub_category", filters.sub_category === slug ? undefined : slug);
   };
-
-  // Always use static categories (API categories are ignored)
 
   return (
     <aside className="sidebar-filters-aside">
@@ -233,7 +229,7 @@ export default function SidebarFilters({ categories }) {
         {/* ── Category ──────────────────────────────── */}
         <FilterSection title="Category">
           <div className="filters-options-container">
-            {MAIN_CATEGORIES.map((cat) => (
+            {displayCategories.map((cat) => (
               <div key={cat.value} className="category-row-wrapper">
                 <button
                   className={cn(
@@ -243,17 +239,26 @@ export default function SidebarFilters({ categories }) {
                   )}
                   onClick={() => handleCategoryClick(cat.value)}
                 >
-                  <span className="category-row-label">{cat.label}</span>
-                  <ChevronDown
-                    className={cn(
-                      "category-row-chevron",
-                      expandedCategory === cat.value && "rotated"
+                  <div className="flex items-center gap-2">
+                    <span className="category-row-label">{cat.label}</span>
+                    {cat.count !== undefined && cat.count > 0 && (
+                      <span className="text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded-full bg-primary/10 text-primary">
+                        {cat.count}
+                      </span>
                     )}
-                  />
+                  </div>
+                  {cat.subItems && cat.subItems.length > 0 && (
+                    <ChevronDown
+                      className={cn(
+                        "category-row-chevron",
+                        expandedCategory === cat.value && "rotated"
+                      )}
+                    />
+                  )}
                 </button>
 
                 <AnimatePresence>
-                  {expandedCategory === cat.value && SUB_CATEGORIES[cat.value] && (
+                  {expandedCategory === cat.value && cat.subItems && cat.subItems.length > 0 && (
                     <motion.div
                       key="subs"
                       initial={{ opacity: 0, height: 0 }}
@@ -262,7 +267,7 @@ export default function SidebarFilters({ categories }) {
                       transition={{ duration: 0.2, ease: "easeInOut" }}
                       className="sub-categories-wrapper"
                     >
-                      {SUB_CATEGORIES[cat.value].map((sub) => {
+                      {cat.subItems.map((sub) => {
                         const slug = sub.toLowerCase().replace(/[^a-z0-9]+/g, "-");
                         return (
                           <button
@@ -281,20 +286,6 @@ export default function SidebarFilters({ categories }) {
                   )}
                 </AnimatePresence>
               </div>
-            ))}
-          </div>
-        </FilterSection>
-
-        {/* ── Design Style ──────────────────────────── */}
-        <FilterSection title="Design Style" defaultOpen={false}>
-          <div className="filters-options-container">
-            {DESIGN_STYLES.map((style) => (
-              <CheckboxOption
-                key={style.value}
-                label={style.label}
-                checked={filters.design_style === style.value}
-                onChange={(v) => setFilter("design_style", v ? style.value : undefined)}
-              />
             ))}
           </div>
         </FilterSection>

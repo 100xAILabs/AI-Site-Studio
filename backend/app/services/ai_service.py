@@ -135,58 +135,58 @@ def robust_json_loads(text: str) -> Any:
         raise e
 
 # Feature-specific model mapping based on user requirements.
-# Best Model (Gemini) is used as primary. Alternate is configured for future switches.
+# Best Model (Gemini Pro / Flagship) is used as primary. Alternate is configured for future switches.
 FEATURE_MODELS = {
     "ai_chat_assistant": {
-        "gemini": "gemini-3.1-flash-lite",
-        "alternative": "gpt-4o-mini",
+        "gemini": "gemini-1.5-pro-latest",
+        "alternative": "gpt-4o",
     },
     "website_content_generation": {
-        "gemini": "gemini-3.1-flash-lite",
-        "alternative": "gpt-4o-mini",
+        "gemini": "gemini-1.5-pro-latest",
+        "alternative": "gpt-4o",
     },
     "seo_generator": {
-        "gemini": "gemini-3.1-flash-lite",
-        "alternative": "gpt-4o-mini",
+        "gemini": "gemini-1.5-pro-latest",
+        "alternative": "gpt-4o",
     },
     "semantic_search": {
-        "gemini": "text-embedding-004",  # Gemini embedding model
-        "alternative": "cohere-embed",
+        "gemini": "text-embedding-004",
+        "alternative": "text-embedding-3-large",
     },
     "template_recommendation": {
         "gemini": "text-embedding-004",
-        "alternative": "cohere-embed",
+        "alternative": "text-embedding-3-large",
     },
     "accessibility_review": {
-        "gemini": "gemini-3.1-flash-lite",
+        "gemini": "gemini-1.5-pro-latest",
         "alternative": "gpt-4o",
     },
     "code_assistant": {
-        "gemini": "gemini-3.1-flash-lite",
-        "alternative": "gpt-4.1",
+        "gemini": "gemini-1.5-pro-latest",
+        "alternative": "gpt-4o",
     },
     "project_zip_analysis": {
-        "gemini": "gemini-3.1-flash-lite",
-        "alternative": "gpt-4.1",
+        "gemini": "gemini-1.5-pro-latest",
+        "alternative": "gpt-4o",
     },
     "translation": {
-        "gemini": "gemini-3.1-flash-lite",
-        "alternative": "gpt-4o-mini",
+        "gemini": "gemini-1.5-pro-latest",
+        "alternative": "gpt-4o",
     },
     "business_analysis": {
-        "gemini": "gemini-3.1-flash-lite",
+        "gemini": "gemini-1.5-pro-latest",
         "alternative": "gpt-4o",
     },
     "logo_ideas": {
-        "gemini": "gemini-3.1-flash-lite",
+        "gemini": "gemini-1.5-pro-latest",
         "alternative": "gpt-4o",
     },
     "image_generation": {
-        "gemini": "flux",  # Using flux image generator
-        "alternative": "stable-diffusion-xl",
+        "gemini": "flux",
+        "alternative": "dall-e-3",
     },
     "ocr_document_understanding": {
-        "gemini": "gemini-3.1-flash-lite",
+        "gemini": "gemini-1.5-pro-latest",
         "alternative": "gpt-4o",
     },
 }
@@ -250,11 +250,10 @@ class AIService:
         if response_mime_type == "application/json":
             payload["generationConfig"]["responseMimeType"] = "application/json"
 
-        max_retries = 2
-        for attempt in range(max_retries + 1):
+        max_retries = 3
+        for attempt in range(max_retries):
             try:
                 async with httpx.AsyncClient() as client:
-                    # Increased timeout to 180.0 seconds to prevent network timeouts for complex pages/codebase creation
                     response = await client.post(url, json=payload, headers=headers, timeout=180.0)
                     if response.status_code == 200:
                         data = response.json()
@@ -263,6 +262,18 @@ class AIService:
                         except (KeyError, IndexError) as e:
                             logger.warning(f"Unexpected response structure from Gemini for model {model_name}: {data}")
                             return None
+                    elif response.status_code in (429, 503):
+                        logger.warning(f"Gemini API returned temporary status {response.status_code} for {model_name} (attempt {attempt + 1}/{max_retries}). Retrying in 2s...")
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(2.0 * (attempt + 1))
+                            continue
+                        else:
+                            try:
+                                error_data = response.json()
+                                error_msg = error_data.get("error", {}).get("message", response.text)
+                            except Exception:
+                                error_msg = response.text
+                            raise GeminiAPIError(response.status_code, error_msg, model_name)
                     else:
                         logger.warning(f"Gemini API returned status {response.status_code} for model {model_name}: {response.text}")
                         try:
@@ -272,8 +283,8 @@ class AIService:
                             error_msg = response.text
                         raise GeminiAPIError(response.status_code, error_msg, model_name)
             except (httpx.TimeoutException, httpx.NetworkError) as e:
-                logger.warning(f"Gemini API call failed (attempt {attempt + 1}/{max_retries + 1}) due to network issue: {type(e).__name__}")
-                if attempt == max_retries:
+                logger.warning(f"Gemini API call failed (attempt {attempt + 1}/{max_retries}) due to network issue: {type(e).__name__}")
+                if attempt == max_retries - 1:
                     raise e
                 await asyncio.sleep(2 ** attempt)  # Exponential backoff
         return None
@@ -287,36 +298,19 @@ class AIService:
     ) -> str:
         """
         Call LLM to generate content.
-        Uses Gemini as primary. If Gemini fails or key is missing, fallbacks to Azure OpenAI if configured.
+        Uses Gemini as primary with automatic model failover. Fallbacks to Azure OpenAI if configured.
         """
         # 1. Try Gemini
         if settings.GEMINI_API_KEY:
             model_name = self.get_model_for_feature(feature_name, provider="gemini")
             
-            # Build failover models chain in priority order
-            models_to_try = [model_name]
-            
-            if "pro" in model_name or "pro-preview" in model_name:
-                models_to_try.append("gemini-3.5-flash")
-                
-            if "gemini-3.5-flash" in models_to_try:
-                models_to_try.extend([
-                    "gemini-2.5-flash",
-                    "gemini-3.1-flash-lite",
-                    "gemini-2.0-flash-lite",
-                    "gemini-2.0-flash",
-                    "gemini-flash-latest"
-                ])
-            else:
-                if model_name not in ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-2.0-flash-lite", "gemini-2.0-flash", "gemini-flash-latest"]:
-                    models_to_try.extend([
-                        "gemini-3.5-flash",
-                        "gemini-2.5-flash",
-                        "gemini-3.1-flash-lite",
-                        "gemini-2.0-flash-lite",
-                        "gemini-2.0-flash",
-                        "gemini-flash-latest"
-                    ])
+            # Priority order for failover models
+            models_to_try = [
+                model_name,
+                "gemini-flash-latest",
+                "gemini-2.0-flash",
+                "gemini-2.0-flash-lite"
+            ]
                     
             seen = set()
             unique_models = []
@@ -407,25 +401,31 @@ class AIService:
         """
         # 1. Try Gemini
         if settings.GEMINI_API_KEY:
-            model_name = self.get_model_for_feature(feature_name, provider="gemini")
-            headers = {"Content-Type": "application/json"}
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:embedContent?key={settings.GEMINI_API_KEY}"
-            payload = {
-                "model": f"models/{model_name}",
-                "content": {
-                    "parts": [{"text": text}]
+            primary_model = self.get_model_for_feature(feature_name, provider="gemini")
+            models_to_try = [primary_model, "text-embedding-004", "embedding-001"]
+            seen = set()
+            for model_name in models_to_try:
+                if model_name in seen:
+                    continue
+                seen.add(model_name)
+                headers = {"Content-Type": "application/json"}
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:embedContent?key={settings.GEMINI_API_KEY}"
+                payload = {
+                    "model": f"models/{model_name}",
+                    "content": {
+                        "parts": [{"text": text}]
+                    }
                 }
-            }
-            try:
-                async with httpx.AsyncClient() as client:
-                    response = await client.post(url, json=payload, headers=headers, timeout=30.0)
-                    if response.status_code == 200:
-                        data = response.json()
-                        return data["embedding"]["values"]
-                    else:
-                        logger.warning(f"Gemini Embedding API returned status {response.status_code} for {feature_name}: {response.text}")
-            except Exception as e:
-                logger.error(f"Gemini embedding API call failed for feature '{feature_name}': {e}")
+                try:
+                    async with httpx.AsyncClient() as client:
+                        response = await client.post(url, json=payload, headers=headers, timeout=30.0)
+                        if response.status_code == 200:
+                            data = response.json()
+                            return data["embedding"]["values"]
+                        else:
+                            logger.warning(f"Gemini Embedding API returned status {response.status_code} for model {model_name}: {response.text}")
+                except Exception as e:
+                    logger.error(f"Gemini embedding API call failed for model '{model_name}': {e}")
 
         # 2. Try Azure
         if settings.AZURE_OPENAI_API_KEY and settings.AZURE_OPENAI_ENDPOINT:
@@ -616,6 +616,31 @@ Return ONLY valid JSON. Do not include markdown code block notation (```json) or
 
         response_text = await self._generate_content(
             prompt, response_mime_type="application/json", feature_name="template_recommendation"
+        )
+        return robust_json_loads(response_text)
+
+    async def enhance_template_prompt(self, user_prompt: str) -> dict:
+        """
+        Enhance a brief template prompt into a high-fidelity design specification using Gemini Pro.
+        """
+        prompt = f"""You are a principal digital product designer and frontend architect.
+A user wants to create a website template with this initial brief:
+"{user_prompt}"
+
+Expand this prompt into a rich, professional design specification.
+Return JSON:
+{{
+  "enhanced_prompt": "A detailed 3-4 sentence prompt describing the core concept, target audience, layout architecture, visual aesthetics, typography, color palette, interactive components, and special section requirements.",
+  "suggested_title": "A punchy marketplace title for this template",
+  "industry": "Industry classification (e.g. SaaS & Tech, Portfolio & Agency, E-Commerce, Restaurant)",
+  "color_scheme": "Dominant color scheme description (e.g., Cyberpunk Neon Dark, Glassmorphic Emerald, Warm Editorial Cream)",
+  "recommended_sections": ["Hero Banner with CTA", "Feature Grid", "Interactive Showcase", "Testimonials", "Pricing Tables", "Footer"]
+}}
+
+Return ONLY valid JSON. Do not include markdown code block notation (```json) or explanations."""
+
+        response_text = await self._generate_content(
+            prompt, response_mime_type="application/json", feature_name="website_content_generation"
         )
         return robust_json_loads(response_text)
 

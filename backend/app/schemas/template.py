@@ -212,3 +212,19 @@ class TemplateFilterParams(BaseModel):
     q: Optional[str] = None  # text search query
     semantic: Optional[bool] = False
     developer: Optional[str] = None
+
+
+class TemplatePrepareRequest(BaseModel):
+    prompt: str
+    model_tier: Optional[str] = "pro"  # "pro" | "flash"
+
+
+class TemplateGenerateRequest(BaseModel):
+    prompt: str
+    framework: Optional[str] = "html"
+    answers: Optional[Dict[str, str]] = None
+    pages: Optional[List[Dict[str, Any]]] = None
+    architecture_type: Optional[str] = "multi_page"
+    is_multipage: Optional[bool] = True
+    model_tier: Optional[str] = "pro"  # "pro" | "flash"
+

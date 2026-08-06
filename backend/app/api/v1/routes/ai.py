@@ -39,6 +39,21 @@ class RecommendRequest(BaseModel):
     available_categories: List[str]
 
 
+class EnhancePromptRequest(BaseModel):
+    prompt: str
+
+
+@router.post("/enhance-prompt")
+async def enhance_prompt(
+    request: EnhancePromptRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Enhance a template prompt into detailed architectural specifications using Gemini Pro."""
+    if not request.prompt or len(request.prompt.strip()) < 5:
+        raise HTTPException(status_code=400, detail="Prompt must be at least 5 characters long.")
+    return await ai_service.enhance_template_prompt(request.prompt)
+
+
 @router.post("/generate-content")
 async def generate_content(
     request: ContentGenerateRequest,

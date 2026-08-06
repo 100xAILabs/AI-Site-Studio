@@ -65,11 +65,11 @@ function Marketplace() {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch categories (passed to sidebar as context — sidebar uses static list)
+  // Fetch categories dynamically
   const { data: categories = [] } = useQuery({
     queryKey: ["categories"],
     queryFn: () => api.get("/categories"),
-    staleTime: 1000 * 60 * 10,
+    staleTime: 1000 * 30,
   });
 
   // Auth token for mutations

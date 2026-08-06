@@ -48,7 +48,15 @@ async def create_category(
 ):
     """[Admin] Create a category."""
     repo = CategoryRepository(db)
+    existing = await repo.get_by_slug(data.slug)
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Category with slug '{data.slug}' already exists."
+        )
     cat = await repo.create(data)
+    await db.commit()
+    await db.refresh(cat)
     return CategoryResponse.model_validate(cat)
 
 
@@ -65,6 +73,8 @@ async def update_category(
     if not cat:
         raise HTTPException(status_code=404, detail="Category not found")
     cat = await repo.update(cat, data)
+    await db.commit()
+    await db.refresh(cat)
     return CategoryResponse.model_validate(cat)
 
 
@@ -80,3 +90,4 @@ async def delete_category(
     if not cat:
         raise HTTPException(status_code=404, detail="Category not found")
     await repo.delete(cat)
+    await db.commit()

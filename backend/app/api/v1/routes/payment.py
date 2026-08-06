@@ -235,6 +235,7 @@ async def initiate_payment(
             amount=int(order.total * 100),  # cents
             currency="usd",
             metadata={"order_id": str(order.id)},
+            payment_method_types=["card"],
         )
 
         payment = Payment(

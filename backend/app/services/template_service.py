@@ -112,7 +112,7 @@ class TemplateService:
         # Dynamically inspect ZIP files if included_pages is empty or only shows index.html (self-healing for auto-seeded templates).
         # Keep the archive URL on the server: TemplateResponse is a public API response.
         download_assets = template.download_assets or {}
-        if (not response.included_pages or response.included_pages == ["index.html"]) and "zip" in download_assets:
+        if (not response.included_pages or response.included_pages == ["index.html"] or response.included_pages == ["Home"] or response.included_pages == ["Home Page"]) and "zip" in download_assets:
             try:
                 zip_url = download_assets["zip"]
                 file_id_str = zip_url.split("/")[-1]
@@ -141,6 +141,22 @@ class TemplateService:
                                 rel_name = name[len(base_dir):]
                                 if "/" not in rel_name and rel_name != "" and not rel_name.startswith("__MACOSX"):
                                     pages.append(rel_name)
+                        
+                        # Dynamic section detection for single-page templates
+                        if len(pages) == 1 and pages[0] == "index.html":
+                            try:
+                                index_content = z_in.read(base_dir + "index.html").decode("utf-8", errors="ignore")
+                                import re
+                                anchors = re.findall(r'href="#([a-zA-Z0-9_-]+)"', index_content)
+                                seen = set()
+                                for anchor in anchors:
+                                    # Ignore common layout / utility IDs
+                                    if anchor.lower() not in ["home", "top", "carousel", "header", "footer", "wrapper", "main"] and anchor not in seen:
+                                        seen.add(anchor)
+                                        pages.append(f"{anchor}.html")
+                            except Exception as ex:
+                                print("Failed to extract virtual anchor pages:", ex)
+                                
                         if pages:
                             response.included_pages = sorted(pages)
                             # Cache in database

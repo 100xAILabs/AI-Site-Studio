@@ -24,6 +24,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
+  X,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { api } from "@/lib/api";
@@ -68,6 +69,51 @@ function AdminPanel() {
     enabled: !!authToken,
   });
 
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [categoryForm, setCategoryForm] = useState({
+    name: "",
+    slug: "",
+    description: "",
+    icon: "Briefcase",
+    color: "#6366f1",
+  });
+  const [categoryError, setCategoryError] = useState("");
+
+  const handleCategoryNameChange = (val) => {
+    const autoSlug = val
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    setCategoryForm((prev) => ({
+      ...prev,
+      name: val,
+      slug: autoSlug,
+    }));
+  };
+
+  // Create Category Mutation
+  const createCategoryMutation = useMutation({
+    mutationFn: (data) => api.post("/categories", data, authToken ?? undefined),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-categories"] });
+      qc.invalidateQueries({ queryKey: ["categories"] });
+      qc.invalidateQueries({ queryKey: ["admin-stats"] });
+      setIsCategoryModalOpen(false);
+      setCategoryForm({
+        name: "",
+        slug: "",
+        description: "",
+        icon: "Briefcase",
+        color: "#6366f1",
+      });
+      setCategoryError("");
+    },
+    onError: (err) => {
+      setCategoryError(err.message || "Failed to create category");
+    },
+  });
+
   // Delete Template Mutation
   const deleteTemplateMutation = useMutation({
     mutationFn: (templateId) => api.delete(`/templates/${templateId}`, authToken ?? undefined),
@@ -82,6 +128,8 @@ function AdminPanel() {
     mutationFn: (categoryId) => api.delete(`/categories/${categoryId}`, authToken ?? undefined),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-categories"] });
+      qc.invalidateQueries({ queryKey: ["categories"] });
+      qc.invalidateQueries({ queryKey: ["admin-stats"] });
     },
   });
 
@@ -113,6 +161,12 @@ function AdminPanel() {
               <h1 className="admin-title">Admin Console</h1>
             </div>
             <div className="flex gap-2">
+              <button
+                onClick={() => setIsCategoryModalOpen(true)}
+                className="px-4 py-2 bg-primary/10 text-primary hover:bg-primary/20 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors border border-primary/20"
+              >
+                <Plus className="w-4 h-4" /> Add Category
+              </button>
               <button
                 onClick={() => alert("Scaffolding new template form...")}
                 className="px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 flex items-center gap-1.5 transition-colors"
@@ -265,9 +319,17 @@ function AdminPanel() {
             {/* CATEGORIES */}
             {activeTab === "categories" && (
               <div className="admin-table-container">
-                <div className="p-6">
-                  <h3 className="font-bold text-base">Hierarchy Categories</h3>
-                  <p className="text-sm text-muted-foreground">Marketplace vertical category setup control.</p>
+                <div className="p-6 flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-base">Hierarchy Categories</h3>
+                    <p className="text-sm text-muted-foreground">Marketplace vertical category setup control.</p>
+                  </div>
+                  <button
+                    onClick={() => setIsCategoryModalOpen(true)}
+                    className="px-3.5 py-1.5 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 flex items-center gap-1.5 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" /> Create Category
+                  </button>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="admin-table">
@@ -378,6 +440,130 @@ function AdminPanel() {
           </div>
         </div>
       </div>
+
+      {/* CREATE CATEGORY MODAL */}
+      {isCategoryModalOpen && (
+        <div className="admin-modal-overlay" onClick={() => setIsCategoryModalOpen(false)}>
+          <div className="admin-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-border/50 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-lg text-foreground">Create New Category</h3>
+                <p className="text-xs text-muted-foreground">Add a new category to marketplace verticals.</p>
+              </div>
+              <button
+                onClick={() => setIsCategoryModalOpen(false)}
+                className="p-1 hover:text-foreground text-muted-foreground rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!categoryForm.name.trim() || !categoryForm.slug.trim()) {
+                  setCategoryError("Category Name and Slug are required.");
+                  return;
+                }
+                setCategoryError("");
+                createCategoryMutation.mutate(categoryForm);
+              }}
+              className="p-6 space-y-4 text-sm"
+            >
+              {categoryError && (
+                <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded-xl text-xs font-semibold">
+                  {categoryError}
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <label className="font-semibold text-xs text-foreground">Category Name *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Artificial Intelligence"
+                  value={categoryForm.name}
+                  onChange={(e) => handleCategoryNameChange(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-muted/40 border border-border/60 rounded-xl text-foreground text-sm focus:outline-none focus:border-primary transition-colors"
+                  required
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-semibold text-xs text-foreground">Slug (URL Segment) *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. artificial-intelligence"
+                  value={categoryForm.slug}
+                  onChange={(e) =>
+                    setCategoryForm((prev) => ({ ...prev, slug: e.target.value.toLowerCase().replace(/\s+/g, "-") }))
+                  }
+                  className="w-full px-3.5 py-2.5 bg-muted/40 border border-border/60 rounded-xl font-mono text-xs text-foreground focus:outline-none focus:border-primary transition-colors"
+                  required
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-semibold text-xs text-foreground">Description</label>
+                <textarea
+                  rows={2}
+                  placeholder="Brief overview of this category..."
+                  value={categoryForm.description}
+                  onChange={(e) => setCategoryForm((prev) => ({ ...prev, description: e.target.value }))}
+                  className="w-full px-3.5 py-2 bg-muted/40 border border-border/60 rounded-xl text-foreground text-sm focus:outline-none focus:border-primary transition-colors resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="font-semibold text-xs text-foreground">Icon Reference</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Sparkles"
+                    value={categoryForm.icon}
+                    onChange={(e) => setCategoryForm((prev) => ({ ...prev, icon: e.target.value }))}
+                    className="w-full px-3.5 py-2 bg-muted/40 border border-border/60 rounded-xl text-foreground text-sm focus:outline-none focus:border-primary transition-colors"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="font-semibold text-xs text-foreground">Color Hex</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="color"
+                      value={categoryForm.color || "#6366f1"}
+                      onChange={(e) => setCategoryForm((prev) => ({ ...prev, color: e.target.value }))}
+                      className="w-10 h-10 rounded-lg cursor-pointer bg-transparent border-0"
+                    />
+                    <input
+                      type="text"
+                      value={categoryForm.color}
+                      onChange={(e) => setCategoryForm((prev) => ({ ...prev, color: e.target.value }))}
+                      className="w-full px-3 py-2 bg-muted/40 border border-border/60 rounded-xl font-mono text-xs text-foreground focus:outline-none focus:border-primary transition-colors"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-border/40">
+                <button
+                  type="button"
+                  onClick={() => setIsCategoryModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={createCategoryMutation.isPending}
+                  className="px-5 py-2.5 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 flex items-center gap-2 transition-colors disabled:opacity-50"
+                >
+                  {createCategoryMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Create Category
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }

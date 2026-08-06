@@ -262,9 +262,10 @@ async def edit_live_preview_manual(
     if request.page_edits:
         page_edits_str = "\nAlso apply these page-specific content overrides:\n"
         for page_name, edits in request.page_edits.items():
-            page_edits_str += f"- For file '{page_name}':\n"
+            page_name_clean = page_name.replace(".html", "").replace(".jsx", "").replace(".js", "").replace(".tsx", "").replace(".ts", "")
+            page_edits_str += f"- For page/file '{page_name}' (If the template is a single-page template/only has index.html, map these changes to the corresponding section like #{page_name_clean} or the '{page_name_clean}' area inside index.html):\n"
             if edits.get("title"):
-                page_edits_str += f"  * Set main page title/header/headline to: \"{edits['title']}\"\n"
+                page_edits_str += f"  * Set main title/header/headline to: \"{edits['title']}\"\n"
             if edits.get("description"):
                 page_edits_str += f"  * Set main body content/description/story to: \"{edits['description']}\"\n"
             if edits.get("cta_text"):
@@ -287,6 +288,7 @@ Rules:
 2. The "find" string must match the target code exactly, including leading spaces and indentation.
 3. The "replace" string must contain the updated code to replace it.
 4. Replace all occurrences of old business names, descriptions, accent colors, and contact info in the code.
+5. If the template is a single-page template (index.html), apply all page/section overrides to the corresponding sections inside index.html.
 
 Format the JSON response exactly like this:
 [
@@ -850,22 +852,27 @@ async def serve_live_preview(
             primary_rgb = f"{int(hex_color[0:2], 16)}, {int(hex_color[2:4], 16)}, {int(hex_color[4:6], 16)}"
         except Exception:
             primary_rgb = "99, 102, 241"
-
         b_name = request.query_params.get("businessName") or template.title
         c_title = request.query_params.get("title") or template.title
         c_sub = request.query_params.get("subtitle") or template.short_description
         c_cta = request.query_params.get("ctaText") or "Get Started"
+        import urllib.parse
+        img_prompt = urllib.parse.quote(f"premium beautiful modern {c_title} website visual showcase photo")
+        hero_bg_url = f"https://image.pollinations.ai/prompt/{img_prompt}?width=1200&height=800&nologo=true&seed=42"
+        gallery_1 = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(c_title + ' product feature visual showcase')}?width=600&height=400&nologo=true&seed=1"
+        gallery_2 = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(c_title + ' interior aesthetic atmosphere')}?width=600&height=400&nologo=true&seed=2"
+        gallery_3 = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(c_title + ' artisanal craftsmanship experience')}?width=600&height=400&nologo=true&seed=3"
         
         fallback_html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{b_name}} - Live Preview</title>
+  <title>{b_name} - Live Preview</title>
   <style>
     :root {{
-      --primary: {{custom_color}};
-      --primary-rgb: {{primary_rgb}};
+      --primary: {custom_color};
+      --primary-rgb: {primary_rgb};
       --bg: #0f172a;
       --card: rgba(30, 41, 59, 0.7);
       --border: rgba(255, 255, 255, 0.1);
@@ -907,7 +914,7 @@ async def serve_live_preview(
       padding: 1.5rem 2rem;
       border-bottom: 1px solid var(--border);
       backdrop-filter: blur(12px);
-      background: rgba(15, 23, 42, 0.6);
+      background: rgba(15, 23, 42, 0.75);
       position: sticky;
       top: 0;
       z-index: 10;
@@ -946,34 +953,53 @@ async def serve_live_preview(
       color: #fff;
       padding: 0.5rem 1rem;
       border-radius: 9999px;
-      font-size: 0.75rem;
-      font-weight: 700;
       text-decoration: none;
-      transition: opacity 0.2s;
+      font-size: 0.875rem;
+      font-weight: 600;
+      box-shadow: 0 4px 14px rgba(var(--primary-rgb), 0.4);
     }}
     
     .nav-btn:hover {{
       opacity: 0.9;
     }}
     
-    .hero {{
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      text-align: center;
-      padding: 6rem 2rem;
-      max-w: 800px;
-      margin: 0 auto;
+    .hero-container {{
       position: relative;
+      padding: 5rem 2rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 3rem;
+      align-items: center;
+      max-width: 1200px;
+      margin: 0 auto;
+    }}
+
+    .hero-image-wrapper {{
+      position: relative;
+      border-radius: 1.5rem;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: 0 20px 40px -15px rgba(0,0,0,0.5);
+    }}
+
+    .hero-image-wrapper img {{
+      width: 100%;
+      height: 380px;
+      object-fit: cover;
+      display: block;
+      transition: transform 0.5s ease;
+    }}
+
+    .hero-image-wrapper:hover img {{
+      transform: scale(1.05);
     }}
     
     .category-badge {{
-      background: rgba(var(--primary-rgb), 0.15);
-      border: 1px solid rgba(var(--primary-rgb), 0.3);
-      color: var(--primary);
+      display: inline-block;
       padding: 0.25rem 0.75rem;
+      background: rgba(var(--primary-rgb), 0.15);
+      color: var(--primary);
+      border: 1px solid rgba(var(--primary-rgb), 0.3);
       border-radius: 9999px;
       font-size: 0.75rem;
       font-weight: 700;
@@ -1048,23 +1074,35 @@ async def serve_live_preview(
     }}
     
     .features-grid {{
-      max-w: 1000px;
+      max-width: 1100px;
       margin: 0 auto;
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
       gap: 2rem;
     }}
     
     .feature-card {{
       background: var(--card);
       border: 1px solid var(--border);
-      padding: 2rem;
-      border-radius: 1rem;
-      transition: transform 0.2s;
+      border-radius: 1.25rem;
+      overflow: hidden;
+      transition: transform 0.3s ease, border-color 0.3s ease;
     }}
     
     .feature-card:hover {{
-      transform: translateY(-4px);
+      transform: translateY(-6px);
+      border-color: rgba(var(--primary-rgb), 0.5);
+    }}
+
+    .feature-card img {{
+      width: 100%;
+      height: 180px;
+      object-fit: cover;
+      display: block;
+    }}
+
+    .feature-card-content {{
+      padding: 1.5rem;
     }}
     
     .feature-icon {{
@@ -1078,13 +1116,13 @@ async def serve_live_preview(
       border-radius: 0.5rem;
       font-size: 1.25rem;
       font-weight: bold;
-      margin-bottom: 1.25rem;
+      margin-bottom: 1rem;
     }}
     
     .feature-card h3 {{
       font-size: 1.125rem;
       font-weight: 700;
-      margin-bottom: 0.75rem;
+      margin-bottom: 0.5rem;
     }}
     
     .feature-card p {{
@@ -1109,55 +1147,70 @@ async def serve_live_preview(
   <header>
     <div class="logo">
       <span>✦</span>
-      <span>{{b_name}}</span>
+      <span>{b_name}</span>
     </div>
     <nav>
       <a href="#" class="active">Home</a>
-      <a href="#">Services</a>
-      <a href="#">About</a>
+      <a href="#">Products & Services</a>
+      <a href="#">About Us</a>
       <a href="#">Contact</a>
     </nav>
     <a href="#" class="nav-btn">Get Started</a>
   </header>
   
-  <main class="hero">
-    <div class="category-badge">{{(template.framework or 'HTML').upper()}} Template</div>
-    <h1>{{c_title}}</h1>
-    <p class="desc">{{c_sub}}</p>
-    <div class="cta-group">
-      <a href="#" class="btn btn-primary">{{c_cta}}</a>
-      <a href="#" class="btn btn-secondary">Learn More</a>
+  <main class="hero-container">
+    <div>
+      <div class="category-badge">{(template.framework or 'HTML').upper()} Template</div>
+      <h1>{c_title}</h1>
+      <p class="desc">{c_sub}</p>
+      <div class="cta-group">
+        <a href="#" class="btn btn-primary">{c_cta}</a>
+        <a href="#" class="btn btn-secondary">Explore Gallery</a>
+      </div>
+    </div>
+    <div class="hero-image-wrapper">
+      <img src="{hero_bg_url}" alt="Website Hero Visual" />
     </div>
   </main>
   
   <section class="features">
-    <h2 class="section-title">Key Advantages</h2>
+    <h2 class="section-title">Visual Showcase & Signature Features</h2>
     <div class="features-grid">
       <div class="feature-card">
-        <div class="feature-icon">⚡</div>
-        <h3>High Performance</h3>
-        <p>Pre-compiled assets configured to deliver optimized core web vitals and fast loading times.</p>
+        <img src="{gallery_1}" alt="Feature 1 Showcase" />
+        <div class="feature-card-content">
+          <div class="feature-icon">✨</div>
+          <h3>Crafted Experience</h3>
+          <p>Curated visual layouts designed to elevate your brand presence and engage customers.</p>
+        </div>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">🛡️</div>
-        <h3>Clean Design</h3>
-        <p>Premium modern aesthetics utilizing curated typography, spacing systems, and components.</p>
+        <img src="{gallery_2}" alt="Feature 2 Showcase" />
+        <div class="feature-card-content">
+          <div class="feature-icon">⚡</div>
+          <h3>Atmospheric Design</h3>
+          <p>Modern aesthetics utilizing premium colors, glowing gradients, and responsive grids.</p>
+        </div>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">📱</div>
-        <h3>Fully Responsive</h3>
-        <p>Adapts fluidly across mobile phones, tablets, laptops, and wide screen monitors.</p>
+        <img src="{gallery_3}" alt="Feature 3 Showcase" />
+        <div class="feature-card-content">
+          <div class="feature-icon">🛡️</div>
+          <h3>Artisanal Quality</h3>
+          <p>Built with attention to detail across typography, spacing systems, and interactive cards.</p>
+        </div>
       </div>
     </div>
   </section>
   
   <footer>
-    <p>&copy; 2026 {{b_name}}. Powered by AI Site Studio.</p>
+    <p>&copy; 2026 {b_name}. Powered by AI Site Studio.</p>
   </footer>
-  {{watermark_payload}}
+  {watermark_payload}
 </body>
 </html>"""
         return Response(content=fallback_html.encode("utf-8"), media_type="text/html")
+
     try:
         download_assets = template.download_assets or {}
         zip_url = download_assets.get("zip")
@@ -1633,26 +1686,31 @@ async def serve_live_preview(
           console.error("[Live Preview Sandbox] Failed to replace initial state:", e);
         }}
     
-        // 2. Intercept click events on absolute links to keep them inside the sandbox
+        // 2. Intercept click events on links to keep them inside the live preview sandbox
         document.addEventListener('click', function(e) {{
           const link = e.target.closest('a');
           if (link) {{
             const rawHref = link.getAttribute('href');
-            if (rawHref && rawHref.startsWith('#')) {{
+            if (!rawHref) return;
+            if (rawHref.startsWith('#')) {{
               e.preventDefault();
               window.location.hash = rawHref;
               return;
             }}
-            if (rawHref && rawHref.startsWith('javascript:')) {{
+            if (rawHref.startsWith('javascript:')) {{
               return;
             }}
+            // Ensure relative page links (e.g. "about.html", "contact.html", "./menu.html") remain inside the sandbox route
             if (link.href) {{
               try {{
-                const url = new URL(link.href);
+                const url = new URL(link.href, window.location.href);
                 if (url.origin === window.location.origin) {{
                   let path = url.pathname;
-                  if (path.startsWith('/') && !path.startsWith(basePrefix)) {{
-                    link.href = url.origin + basePrefix + path + url.search + url.hash;
+                  if (!path.startsWith(basePrefix)) {{
+                    if (path.startsWith('/')) {{
+                      path = path.slice(1);
+                    }}
+                    link.href = window.location.origin + basePrefix + '/' + path + url.search + url.hash;
                   }}
                 }}
               }} catch (err) {{}}
