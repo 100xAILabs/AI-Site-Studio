@@ -74,9 +74,17 @@ class StorageService:
         db: AsyncSession,
         file_id: uuid.UUID,
     ) -> Optional[tuple[bytes, str, Optional[str]]]:
-        """Return file bytes, content type, and original filename."""
-        result = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
-        stored_file = result.scalar_one_or_none()
+        """Return file bytes, content type, and original filename with auto-retry on connection reset."""
+        try:
+            result = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
+            stored_file = result.scalar_one_or_none()
+        except Exception:
+            # Fallback to fresh session if existing connection was closed / stale
+            from app.core.database import AsyncSessionLocal
+            async with AsyncSessionLocal() as fresh_db:
+                result = await fresh_db.execute(select(StoredFile).where(StoredFile.id == file_id))
+                stored_file = result.scalar_one_or_none()
+
         if not stored_file:
             return None
 

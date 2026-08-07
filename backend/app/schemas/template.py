@@ -222,6 +222,7 @@ class TemplatePrepareRequest(BaseModel):
 class TemplateGenerateRequest(BaseModel):
     prompt: str
     framework: Optional[str] = "html"
+    css_engine: Optional[str] = "tailwind"
     answers: Optional[Dict[str, str]] = None
     pages: Optional[List[Dict[str, Any]]] = None
     architecture_type: Optional[str] = "multi_page"

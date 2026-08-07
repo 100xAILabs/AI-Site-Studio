@@ -3,7 +3,10 @@ Templates routes — public browsing and admin CRUD.
 """
 
 import uuid
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, Query, HTTPException, status, File, UploadFile
 from sqlalchemy import select
@@ -365,6 +368,11 @@ async def download_template(
 class TemplatePrepareRequest(BaseModel):
     prompt: str
     model_tier: Optional[str] = "pro"  # "pro" | "flash"
+    business_name: Optional[str] = None
+    business_type: Optional[str] = None
+    brand_colors: Optional[dict] = None
+    logo_info: Optional[dict] = None
+    contact_details: Optional[dict] = None
 
 
 class TemplateQuestion(BaseModel):
@@ -395,6 +403,11 @@ class TemplateGenerateRequest(BaseModel):
     is_multipage: Optional[bool] = None
     architecture_type: Optional[str] = None
     model_tier: Optional[str] = "pro"  # "pro" | "flash"
+    business_name: Optional[str] = None
+    business_type: Optional[str] = None
+    brand_colors: Optional[dict] = None
+    logo_info: Optional[dict] = None
+    contact_details: Optional[dict] = None
 
 
 @router.post("/generate/prepare", response_model=TemplatePrepareResponse)
@@ -410,10 +423,26 @@ async def prepare_template_generation(
     from app.services.ai_service import fix_truncated_json
     
     prompt = request.prompt.strip()
-    
+
+    biz_context_lines = []
+    if request.business_name:
+        biz_context_lines.append(f"- Business Name: {request.business_name}")
+    if request.business_type:
+        biz_context_lines.append(f"- Business Type/Industry: {request.business_type}")
+    if request.brand_colors:
+        biz_context_lines.append(f"- Brand Colors: {json.dumps(request.brand_colors)}")
+    if request.logo_info:
+        biz_context_lines.append(f"- Logo Details: {json.dumps(request.logo_info)}")
+    if request.contact_details:
+        biz_context_lines.append(f"- Contact Details: {json.dumps(request.contact_details)}")
+
+    biz_context_str = "\n".join(biz_context_lines)
+    if biz_context_str:
+        biz_context_str = f"\nUser Business Inputs:\n{biz_context_str}\n"
+
     prepare_prompt = f"""
     Analyze this website template request carefully: "{prompt}".
-    
+    {biz_context_str}
     Step 1: Perform Prompt Architecture Analysis.
     Determine whether this concept is best built as a SINGLE PAGE website (landing page, waitlist, app promo, event page, or portfolio with all content on main view) or a MULTI PAGE website (corporate site, e-commerce store, agency with separate pages, or complex portal).
     Provide a clear, brief 1-2 sentence rationale for your choice in "architecture_reasoning".
@@ -506,6 +535,26 @@ async def generate_template_by_prompt(
     """
     Generate a website template dynamically using Gemini and Pollinations AI images.
     """
+    import traceback
+    try:
+        return await _generate_template_by_prompt_impl(request, db, current_user)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("======== GENERATE TEMPLATE 500 ERROR TRACEBACK ========")
+        traceback.print_exc()
+        print("=======================================================")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Template generation failed: {str(e)}"
+        )
+
+
+async def _generate_template_by_prompt_impl(
+    request: TemplateGenerateRequest,
+    db: AsyncSession,
+    current_user: User,
+):
     import urllib.parse
     import json
     import decimal
@@ -521,8 +570,9 @@ async def generate_template_by_prompt(
     import logging
     logger = logging.getLogger(__name__)
 
-    # Force framework to always be HTML as requested by the user
-    framework_lower = "html"
+    # Resolve framework & CSS engine dynamically from request
+    framework_lower = (request.framework or "html").lower().strip()
+    css_engine_str = (request.css_engine or "tailwind").lower().strip()
     
     # 1. Fetch available categories
     category_repo = CategoryRepository(db)
@@ -642,20 +692,45 @@ Return ONLY valid JSON. Do not include markdown code block notation (```json) or
     ])
 
     # 3. Create Pollinations AI / Flux URLs
-    thumbnail_url = await ai_service.generate_image(thumb_prompt, feature_name="image_generation")
-    developer_avatar = await ai_service.generate_image(logo_prompt, feature_name="image_generation")
+    if request.logo_info and request.logo_info.get("url"):
+        developer_avatar = request.logo_info.get("url")
+    elif request.logo_info and request.logo_info.get("prompt"):
+        developer_avatar = await ai_service.generate_image(request.logo_info.get("prompt"), feature_name="image_generation")
+    else:
+        developer_avatar = await ai_service.generate_image(logo_prompt, feature_name="image_generation")
+
+    thumbnail_url = await ai_service.generate_image(thumb_prompt, feature_name="image_generation", industry=industry)
     gallery_images = []
     for g_p in g_prompts:
-        g_url = await ai_service.generate_image(g_p, feature_name="image_generation")
+        g_url = await ai_service.generate_image(g_p, feature_name="image_generation", industry=industry)
         gallery_images.append(g_url)
 
-    # Compile custom user answers
+    # Override title if explicit business name provided
+    if request.business_name and request.business_name.strip():
+        title = request.business_name.strip()[:255]
+
+    # Compile custom user answers & business specs
     answers_str = ""
     if request.answers:
         answers_list = []
         for q_id, val in request.answers.items():
             answers_list.append(f"- {q_id}: {val}")
         answers_str = "\n".join(answers_list)
+
+    biz_specs_prompt_block = ""
+    if request.business_name or request.business_type or request.brand_colors or request.logo_info or request.contact_details:
+        biz_specs_prompt_block = f"""
+EXPLICIT USER BUSINESS DETAILS (YOU MUST EMBED THESE EXACT VALUES INTO THE HTML CODE):
+- Business Name: "{request.business_name or title}" (Use this exact name in navbar brand, top bar, hero heading, page footers, copyright, and page headers).
+- Business Type / Industry: "{request.business_type or industry}" (Tailor section layouts, icons, features, and copywriting to this industry).
+- Brand Color Specifications: {json.dumps(request.brand_colors) if request.brand_colors else color_scheme} (Define CSS variables in :root e.g. --color-primary, --color-secondary, --color-accent, --color-bg, --color-text and apply throughout styling).
+- Logo Image URL: "{developer_avatar}" (Use this URL in Navbar logo image `<img src="{developer_avatar}" alt="{request.business_name or title} Logo">` and Footer logo).
+- Contact Information to render in Contact section, Topbar, & Footer:
+  - Email: "{request.contact_details.get('email', '') if request.contact_details else ''}"
+  - Phone: "{request.contact_details.get('phone', '') if request.contact_details else ''}"
+  - Address: "{request.contact_details.get('address', '') if request.contact_details else ''}"
+  - Social Links: {json.dumps(request.contact_details.get('socials', {})) if (request.contact_details and request.contact_details.get('socials')) else ''}
+"""
 
     # Ensure the list of pages is clean and contains strings
     if request.pages:
@@ -714,60 +789,58 @@ Return ONLY valid JSON. Do not include markdown code block notation (```json) or
     # 4. Generate the actual Code using Gemini Pro
     print(f"Generating custom {framework_lower} code...")
     if framework_lower == "html":
-        code_prompt = f"""You are an elite, world-class lead frontend architect and designer.
-Create a complete, responsive, production-ready multi-page HTML website tailored specifically to this user request: "{request.prompt}".
+        code_prompt = f"""You are an elite, world-class lead frontend architect and UI/UX designer.
+Create an Awwwards-level, award-winning, responsive, production-ready multi-page HTML website tailored specifically to this user request: "{request.prompt}".
 
 THE METADATA AND VISUAL DESIGN SPECS YOU MUST MATCH EXACTLY:
 - Website Title: "{title}"
 - Target Industry: "{industry}"
-- Color Scheme & Styling Palette: "{color_scheme}" (Express this palette as CSS custom properties in :root e.g. --color-canvas, --color-ink, --color-accent, --color-accent-soft, --color-line, and use them throughout the styling).
+- Color Scheme & Styling Palette: "{color_scheme}" (Express this palette as CSS custom properties in :root e.g. --color-primary, --color-secondary, --color-accent, --color-bg, --color-card, --color-text, and use them throughout all components).
 - Visual Mockup Description: "{thumb_prompt}"
 - Overall Design System & Aesthetic: "{desc}"
 - Custom Tags: {json.dumps(tags)}
 - Exact Pages to Generate: {html_pages_list_str}
+{biz_specs_prompt_block}
 
-CORE ARCHITECTURE REQUIREMENTS (DO NOT SKIP ANY SECTION):
-1. INTELLIGENT DOMAIN ADAPTATION:
-   Analyze "{request.prompt}" deeply. Adapt the layout, hero composition, typography, interactive components, and section order specifically for this business domain. Whether it is a Portfolio, Corporate Agency, SaaS App, Restaurant, E-Commerce, Healthcare, or Creative Studio, generate bespoke components and layouts tailored to that specific subject.
+NEXT-LEVEL CORE ARCHITECTURE REQUIREMENTS (DO NOT SKIP ANY SECTION):
 
-2. MULTI-PAGE STRUCTURE & LIVE PRODUCTION NAVIGATION:
-   - Generate complete, fully styled HTML code for every file requested in `{html_pages_list_str}`.
-   - Ensure ALL Navbar AND Footer links use valid, working relative file paths (e.g. `href="index.html"`, `href="about.html"`, `href="services.html"`, `href="contact.html"`) or valid section hash anchors (e.g. `href="#hero"`, `href="#services"`, `href="#contact"`) rather than dead `href="#"` placeholders.
-   - Ensure every page contains a consistent, sticky glassmorphic top Navbar (`backdrop-blur-md bg-slate-900/80 border-b border-white/10`) featuring:
-     - Brand logo image (`{developer_avatar}`) and brand name (`{title}`).
-     - Working navigation links for all pages with active state highlighting on the current page link.
-     - Action CTA button ("Get Started" / "Hire Me" / "Book Now").
-     - Mobile responsive burger menu toggler script.
-   - Ensure every page contains a comprehensive 4-column Footer (`bg-slate-950`) featuring:
-     - Column 1: Brand logo image, company name, mission summary, and contact information.
-     - Column 2: Working Quick Links navigation list (`href="index.html"`, `href="about.html"`, `href="services.html"`, `href="contact.html"`).
-     - Column 3: Working Services/Products/Works navigation list.
-     - Column 4: Interactive Newsletter subscription form (`onsubmit="event.preventDefault(); alert('Subscribed successfully!');"`) with Subscribe CTA.
-     - Working social icons (Twitter, LinkedIn, GitHub, Instagram), copyright notice, Privacy Policy link, and Terms of Service link.
+1. AWWWARDS-LEVEL VISUAL DESIGN SYSTEM & TYPOGRAPHY:
+   - Palette & Theme CSS variables: Injected into `<head>` under `:root` (`--color-primary`, `--color-primary-glow`, `--color-secondary`, `--color-accent`, `--color-bg`, `--color-card`, `--color-text`).
+   - Glassmorphic & Ambient Lighting: Background glow elements (`bg-gradient-to-tr from-indigo-500/20 via-transparent to-purple-500/20 blur-3xl`), glassmorphic cards (`bg-slate-900/70 backdrop-blur-xl border border-white/10 shadow-2xl`), interactive gradient borders.
+   - Typography Pairing: Import matching Google Fonts in `<head>` (e.g. Outfit / Plus Jakarta Sans / Inter / Playfair Display).
 
-3. FULL CODE COMPLETENESS (NO SHORTCUTS OR PLACEHOLDERS):
-   Write complete, production-ready HTML code for every page. Do NOT use shorthand snippets, placeholders, comments like `<!-- add items here -->`, or ellipses (`...`). Every section, grid card, image tag, button, form input, modal, and footer must be 100% written out.
+2. RICH BESPOKE SECTIONS SUITE (ALL FULLY WRITTEN OUT WITH ZERO SHORTCUTS):
+   - Announcement Bar at top: E.g., "✨ Launch Special: Get started with {title} today →" with close button.
+   - Glassmorphic Sticky Header: Featuring Brand Logo (`{developer_avatar}`), brand name (`{title}`), interactive navigation links, Theme Switcher button, and responsive mobile menu drawer toggler.
+   - High-Impact Hero Banner: Headline with gradient text, domain badge, photo backdrop (`{thumbnail_url}`), dual CTA buttons ("Get Started" / "Learn More"), and floating live stats badge.
+   - Client Logos / Tech Stack Marquee: Infinite smooth scrolling ticker of brand logos or tech badges.
+   - Domain-Specific Feature Grid Cards: Bespoke grid cards with hover scale glow effect and inline SVG vector icons.
+   - Interactive Portfolio / Showcase Gallery: Filterable category buttons ("All", "Featured", "Services", "Case Studies") and image cards.
+   - Interactive Pricing Tiers: Pricing cards with Monthly/Annual billing switcher JS.
+   - Customer Testimonials Section: Verified buyer cards with 5-star ratings and user avatars.
+   - Interactive Accordion FAQ: Collapsible question items with smooth expandable JS triggers.
+   - High-Converting CTA Banner: Full-width gradient banner with newsletter input & subscribe button.
+   - Comprehensive 4-Column Footer: Column 1 (Brand logo, bio, contact info), Column 2 (Quick links), Column 3 (Services/Products), Column 4 (Newsletter form, legal links, social links, copyright).
 
-4. IMAGERY & DYNAMIC ASSETS:
-   - Navbar logo image URL: '{developer_avatar}'
-   - Hero background / primary banner URL: '{thumbnail_url}'
-   - Feature showcase image URLs:
-     - First Showcase Image: '{gallery_images[0] if len(gallery_images) > 0 else ""}'
-     - Second Showcase Image: '{gallery_images[1] if len(gallery_images) > 1 else ""}'
-     - Third Showcase Image: '{gallery_images[2] if len(gallery_images) > 2 else ""}'
-   - Embed at least 6 to 10 context-relevant image tags (`<img>`) or custom inline SVG vector illustrations across the pages.
-   - For additional subject-specific photos, use Pollinations AI URLs:
-     `https://image.pollinations.ai/prompt/{{description_of_desired_photo}}?width=800&height=600&nologo=true`
+3. ADVANCED INTERACTIVE JS (INLINED AT BOTTOM OF EVERY PAGE BEFORE </body>):
+   - `toggleMobileMenu()`: Smooth slide-in mobile navigation menu drawer.
+   - `filterGallery(category)`: Instant category filtering for portfolio/showcase cards.
+   - `togglePricingBilling(billingCycle)`: Switches prices between monthly and annual rates dynamically.
+   - `toggleAccordion(id)`: Expands/collapses FAQ accordion items smoothly.
+   - `openImageLightbox(src)`: Fullscreen modal lightbox when clicking gallery images.
+   - `handleFormSubmit(event)`: Prevents page reload, displays a floating glassmorphic success toast notification ("Thank you! Your request has been received."), and clears input fields.
+   - `scrollToTop()`: Floating back-to-top button appearing on scroll.
 
-5. STYLING, TYPOGRAPHY & INTERACTIVITY:
-   - Use Tailwind CSS via CDN (`https://cdn.tailwindcss.com`) combined with a `<style>` block in `<head>` for CSS custom properties (`:root`) and keyframe animations (`fadeInUp`, `@media (prefers-reduced-motion: reduce)`).
-   - Import matching Google Fonts in `<head>` (e.g. Outfit / Inter / Playfair).
-   - Add interactive JavaScript for domain-specific features (e.g., gallery category filtering, lightbox popups, tab switching, interactive form submission toasts).
+4. ADVANCED SEO & SCHEMA.ORG STRUCTURED DATA:
+   - Full HTML5 Doctypes, UTF-8 charset, responsive viewport.
+   - Complete SEO Meta Tags (`<title>`, `<meta name="description">`, `<meta name="keywords">`, `<meta name="robots" content="index, follow">`).
+   - OpenGraph & Twitter Cards (`og:title`, `og:description`, `og:image`, `og:type`, `twitter:card`).
+   - Valid JSON-LD Schema.org script (`<script type="application/ld+json">`) for `Organization` or `LocalBusiness` or `Person`.
 
-6. LIVE WEBSITE READINESS:
-   - Every page must be 100% production-ready for immediate live web deployment.
-   - Includes valid HTML5 doctype, UTF-8 charset, responsive viewport tag, SEO title, meta description, and OpenGraph social tags in `<head>`.
-   - Interactive forms (contact, newsletter, booking) must include inline JavaScript handlers (`onsubmit="event.preventDefault(); ..."` displaying success toasts) so users testing live previews get immediate interactive feedback without page crashes.
+5. 100% MOBILE RESPONSIVENESS & ACCESSIBILITY:
+   - Built with Tailwind CSS responsive utilities (`sm:`, `md:`, `lg:`, `xl:`).
+   - Focus visible rings (`focus-visible:ring-2 focus-visible:ring-primary`).
+   - Keyframe animations (`@keyframes fadeInUp`, `@keyframes floatSlow`, `@keyframes pulseGlow`) with `@media (prefers-reduced-motion: reduce)`.
 
 Return ONLY a valid JSON object mapping filenames to their complete file content string, matching this structure:
 {json_struct_str}
@@ -995,8 +1068,7 @@ body {
     )
 
     download_assets = {
-        "react": zip_url if framework_lower == "react" else "",
-        "html": zip_url if framework_lower == "html" else "",
+        framework_lower: zip_url,
         "zip": zip_url
     }
 

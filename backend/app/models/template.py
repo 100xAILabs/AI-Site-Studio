@@ -50,6 +50,8 @@ class TemplateFramework(str, enum.Enum):
     VUE = "vue"
     NUXT = "nuxt"
     HTML = "html"
+    ASTRO = "astro"
+    TAILWIND = "tailwind"
     ANGULAR = "angular"
     SVELTE = "svelte"
 

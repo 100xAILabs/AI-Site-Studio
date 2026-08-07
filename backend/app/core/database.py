@@ -32,9 +32,15 @@ if is_sqlite:
 else:
     engine_kwargs.update({
         "pool_pre_ping": True,
+        "pool_recycle": 300,  # Recycle connections every 5 mins to prevent PostgreSQL idle timeouts
         "pool_size": 10,
         "max_overflow": 20,
-        "connect_args": {"statement_cache_size": 0},
+        "pool_timeout": 30,
+        "connect_args": {
+            "statement_cache_size": 0,
+            "prepared_statement_cache_size": 0,
+            "command_timeout": 60,
+        },
     })
 
 engine: AsyncEngine = create_async_engine(

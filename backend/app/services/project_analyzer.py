@@ -39,7 +39,11 @@ class ProjectAnalyzer:
             except Exception as e:
                 logger.warning(f"Failed to delete directory {path}: {e}")
 
-    async def analyze_zip(self, file_content: bytes, original_filename: str) -> Dict[str, Any]:
+    async def analyze_zip_bytes(self, zip_bytes: bytes, filename: str = "template.zip") -> Dict[str, Any]:
+        """Alias for analyze_zip accepting raw zip file bytes."""
+        return await self.analyze_zip(zip_bytes, filename)
+
+    async def analyze_zip(self, file_content: bytes, original_filename: str = "template.zip") -> Dict[str, Any]:
         temp_id = uuid.uuid4().hex
         temp_dir = Path(tempfile.gettempdir()) / "ai_site_studio" / "temp_zips" / temp_id
         temp_dir.mkdir(parents=True, exist_ok=True)

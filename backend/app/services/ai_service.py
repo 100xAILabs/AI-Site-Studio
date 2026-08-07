@@ -70,8 +70,8 @@ def fix_truncated_json(text: str) -> str:
 def robust_json_loads(text: str) -> Any:
     """
     Tolerance-maximizing JSON parser that strips markdown ticks, removes trailing commas,
-    escapes actual newlines inside quotes, repairs truncated JSON payloads, and slices off
-    trailing garbage to resolve common LLM syntax generation bugs.
+    escapes unescaped quotes inside HTML attributes, repairs truncated JSON payloads,
+    and accepts control characters (strict=False) to resolve common LLM syntax generation bugs.
     """
     text = text.strip()
     if not text:
@@ -87,27 +87,33 @@ def robust_json_loads(text: str) -> Any:
     text = text.strip()
 
     try:
-        return json.loads(text)
+        return json.loads(text, strict=False)
     except json.JSONDecodeError as e:
         # If it failed due to truncation (expecting delimiter/value/etc.), try fixing truncation
         if "Expecting" in str(e) or "Unterminated" in str(e) or "control character" in str(e):
             try:
                 fixed_text = fix_truncated_json(text)
-                return json.loads(fixed_text)
+                return json.loads(fixed_text, strict=False)
             except json.JSONDecodeError:
                 pass
         # Slice off trailing extra braces/garbage if detected early
         if "Extra data" in str(e) and e.pos is not None:
             try:
-                return json.loads(text[:e.pos].strip())
+                return json.loads(text[:e.pos].strip(), strict=False)
             except json.JSONDecodeError:
                 pass
 
-    # Try common repairs
+    # Try common repairs:
     # 1. Trailing commas e.g. [1, 2,] or {"a": 1,}
     text_repaired = re.sub(r',\s*([\]}])', r'\1', text)
 
-    # 2. Escape actual newlines inside quotes
+    # 2. Convert unescaped double quotes inside HTML attributes (e.g. lang="en" -> lang='en')
+    def fix_html_tag_quotes(match):
+        return re.sub(r'="([^"]*)"', r"='\1'", match.group(0))
+
+    text_repaired = re.sub(r'<[^>]+>', fix_html_tag_quotes, text_repaired)
+
+    # 3. Escape actual newlines inside quotes
     def replace_newlines(match):
         return match.group(0).replace('\n', '\\n').replace('\r', '\\r')
 
@@ -115,19 +121,19 @@ def robust_json_loads(text: str) -> Any:
     text_repaired = re.sub(r'"(?:[^"\\]|\\.)*"', replace_newlines, text_repaired)
 
     try:
-        return json.loads(text_repaired)
+        return json.loads(text_repaired, strict=False)
     except json.JSONDecodeError as e:
         # Try truncated JSON fix on repaired text
         if "Expecting" in str(e) or "Unterminated" in str(e) or "control character" in str(e):
             try:
                 fixed_text = fix_truncated_json(text_repaired)
-                return json.loads(fixed_text)
+                return json.loads(fixed_text, strict=False)
             except json.JSONDecodeError:
                 pass
         # Try slicing repaired string if extra data is still present
         if "Extra data" in str(e) and e.pos is not None:
             try:
-                return json.loads(text_repaired[:e.pos].strip())
+                return json.loads(text_repaired[:e.pos].strip(), strict=False)
             except json.JSONDecodeError:
                 pass
 
@@ -262,10 +268,18 @@ class AIService:
                         except (KeyError, IndexError) as e:
                             logger.warning(f"Unexpected response structure from Gemini for model {model_name}: {data}")
                             return None
-                    elif response.status_code in (429, 503):
-                        logger.warning(f"Gemini API returned temporary status {response.status_code} for {model_name} (attempt {attempt + 1}/{max_retries}). Retrying in 2s...")
+                    elif response.status_code == 429:
+                        try:
+                            error_data = response.json()
+                            error_msg = error_data.get("error", {}).get("message", response.text)
+                        except Exception:
+                            error_msg = response.text
+                        logger.warning(f"Gemini API rate limit 429 hit for model {model_name}. Immediately rolling over to fallback model...")
+                        raise GeminiAPIError(429, error_msg, model_name)
+                    elif response.status_code == 503:
+                        logger.warning(f"Gemini API returned temporary status 503 for {model_name} (attempt {attempt + 1}/{max_retries}). Retrying in 2s...")
                         if attempt < max_retries - 1:
-                            await asyncio.sleep(2.0 * (attempt + 1))
+                            await asyncio.sleep(2.0)
                             continue
                         else:
                             try:
@@ -307,9 +321,10 @@ class AIService:
             # Priority order for failover models
             models_to_try = [
                 model_name,
-                "gemini-flash-latest",
                 "gemini-2.0-flash",
-                "gemini-2.0-flash-lite"
+                "gemini-2.0-flash-lite",
+                "gemini-1.5-flash",
+                "gemini-1.5-pro"
             ]
                     
             seen = set()
@@ -467,9 +482,10 @@ class AIService:
             else:
                 raise RuntimeError(f"Azure OpenAI Embedding API returned status {response.status_code}: {response.text}")
 
-    async def generate_image(self, prompt: str, feature_name: str = "image_generation") -> str:
+    async def generate_image(self, prompt: str, feature_name: str = "image_generation", industry: Optional[str] = None) -> str:
         """
-        Generate image using Azure OpenAI (DALL-E) fallback, or return a Pollinations AI URL by default.
+        Generate ultra-crisp high-resolution images using curated Unsplash 4K photography
+        or Pollinations AI Flux HD model, avoiding blurry low-resolution artifacts.
         """
         # If Azure is configured and has an image generation deployment:
         if settings.AZURE_OPENAI_API_KEY and settings.AZURE_OPENAI_ENDPOINT:
@@ -498,9 +514,41 @@ class AIService:
                 except Exception as e:
                     logger.error(f"Azure OpenAI image generation failed: {e}")
 
-        # Default fallback to Pollinations AI
-        encoded_prompt = urllib.parse.quote(prompt[:120])
-        return f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=768&nologo=true"
+        # High-res Unsplash curated photos per industry
+        prompt_lower = (prompt + " " + (industry or "")).lower()
+
+        # Curated Unsplash HD crisp photo mapping
+        UNSPLASH_MAP = {
+            "bakery": "https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&w=1400&q=85",
+            "bread": "https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&w=1400&q=85",
+            "pastry": "https://images.unsplash.com/photo-1555507036-ab1f4038808a?auto=format&fit=crop&w=1400&q=85",
+            "restaurant": "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1400&q=85",
+            "cafe": "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=1400&q=85",
+            "coffee": "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=1400&q=85",
+            "food": "https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=1400&q=85",
+            "ai": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1400&q=85",
+            "portfolio": "https://images.unsplash.com/photo-1507238691740-187a5b1d37b8?auto=format&fit=crop&w=1400&q=85",
+            "saas": "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1400&q=85",
+            "technology": "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1400&q=85",
+            "agency": "https://images.unsplash.com/photo-1497215728101-856f4ea42174?auto=format&fit=crop&w=1400&q=85",
+            "real estate": "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1400&q=85",
+            "health": "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&w=1400&q=85",
+            "ecommerce": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1400&q=85",
+            "fashion": "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1400&q=85",
+            "fitness": "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=1400&q=85",
+        }
+
+        for key, unsplash_url in UNSPLASH_MAP.items():
+            if key in prompt_lower:
+                return unsplash_url
+
+        # Otherwise generate high-definition Flux HD model image via Pollinations
+        clean_prompt = prompt.replace("screenshot", "photography").replace("UI", "aesthetic").replace("landing page", "studio banner")
+        clean_prompt = f"hyperrealistic high definition 4k crisp photography of {clean_prompt}, sharp focus, studio lighting, highly detailed"
+        import random
+        seed = random.randint(1000, 99999)
+        encoded_prompt = urllib.parse.quote(clean_prompt[:250])
+        return f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1280&height=800&nologo=true&model=flux&seed={seed}&enhance=true"
 
     async def generate_business_content(
         self,
@@ -869,6 +917,37 @@ def repair_truncated_html(code: str) -> str:
     unclosed_tag_match = re.search(r'<[A-Za-z/][^>]*$', repaired_code)
     if unclosed_tag_match:
         repaired_code = repaired_code[:unclosed_tag_match.start()]
+
+    # If footer tag is missing due to LLM output cutoff, inject complete fallback sections & footer
+    if "<footer" not in repaired_code.lower():
+        fallback_sections = """
+  <!-- Complete Auto-Injected Contact & Footer Section -->
+  <section id="contact" class="py-16 bg-slate-950/90 border-t border-white/10 relative z-10">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+      <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-400 text-xs font-mono mb-4">
+        <span>Get In Touch</span>
+      </div>
+      <h2 class="text-3xl font-bold text-white mb-4">Ready to Collaborate on Next-Gen Solutions?</h2>
+      <p class="text-slate-400 mb-8 max-w-2xl mx-auto text-sm">Send a direct message for technical consultations, project inquiries, or system architecture audits.</p>
+      <div class="flex items-center justify-center gap-4">
+        <a href="mailto:contact@domain.com" class="px-6 py-3.5 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 shadow-lg shadow-sky-600/20 transition-all">
+          Contact Engineer
+        </a>
+      </div>
+    </div>
+  </section>
+  <footer class="bg-slate-950 py-8 border-t border-white/10 text-xs text-slate-400 relative z-10">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <span class="font-mono">&copy; 2026 AI Site Studio. All rights reserved.</span>
+      <div class="flex items-center gap-6 text-slate-300 font-medium">
+        <a href="index.html" class="hover:text-sky-400 transition-colors">Home</a>
+        <a href="#architecture" class="hover:text-sky-400 transition-colors">Architecture</a>
+        <a href="#contact" class="hover:text-sky-400 transition-colors">Contact</a>
+      </div>
+    </div>
+  </footer>
+"""
+        repaired_code += fallback_sections
     
     import re
     tag_pattern = re.compile(r'<(/)?([A-Za-z][A-Za-z0-9.-]*)(?:\s+[^>]*?)?(/)?>')
