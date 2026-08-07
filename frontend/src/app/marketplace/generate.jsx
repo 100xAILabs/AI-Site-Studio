@@ -853,53 +853,6 @@ export default function GenerateTemplatePage() {
                   </button>
                 </div>
 
-                {/* AI Model Tier Selector */}
-                <div className="form-group mb-6">
-                  <label className="prompt-label flex items-center justify-between">
-                    <span>AI Model & Reasoning Engine</span>
-                    <span className="text-xs text-primary font-normal">Powered by Gemini & OpenAI Flagship Models</span>
-                  </label>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => setModelTier("pro")}
-                      className={`model-tier-card ${modelTier === "pro" ? "active" : ""}`}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-semibold text-foreground text-base flex items-center gap-2">
-                          <Sparkles className="w-4 h-4 text-primary" />
-                          Gemini 2.5 Pro / GPT-4o
-                        </span>
-                        <span className="px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase rounded-full bg-primary/10 text-primary border border-primary/20">
-                          Recommended Flagship
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground leading-relaxed">
-                        Deep architectural reasoning, rich component hierarchy, multi-file code synthesis, and flawless styling.
-                      </p>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setModelTier("flash")}
-                      className={`model-tier-card ${modelTier === "flash" ? "active-flash" : ""}`}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-semibold text-foreground text-base flex items-center gap-2">
-                          <Globe className="w-4 h-4 text-secondary" />
-                          Gemini 3.1 Flash-Lite
-                        </span>
-                        <span className="px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase rounded-full bg-secondary/10 text-secondary border border-secondary/20">
-                          Ultra-Fast
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground leading-relaxed">
-                        Optimized for fast execution and lightweight structural template prototypes.
-                      </p>
-                    </button>
-                  </div>
-                </div>
-
                 {/* Structured AI Creator Inputs */}
                 {creatorMode === "creator" && (
                   <div className="business-details-section animate-fade-in">
