@@ -50,9 +50,25 @@ async def get_stored_file(
     # 2. Fall back to current_user depending on file type sensitivity
     if not authorized:
         if content_type == "application/zip":
-            # ZIP files (paid template assets) require a valid signature URL or Admin permissions
-            if current_user is not None and current_user.role.value in ("admin", "super_admin"):
-                authorized = True
+            # ZIP files (paid template assets) require a valid signature URL, Admin, Owner creator, or Buyer Purchase
+            if current_user is not None:
+                role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+                if str(role_val).lower() in ("admin", "super_admin"):
+                    authorized = True
+                else:
+                    try:
+                        from app.models.template import Template
+                        from sqlalchemy import select
+                        tmpl_res = await db.execute(
+                            select(Template).where(Template.creator_id == current_user.id)
+                        )
+                        for t in tmpl_res.scalars().all():
+                            d_assets = t.download_assets or {}
+                            if str(file_uuid) in str(list(d_assets.values())):
+                                authorized = True
+                                break
+                    except Exception:
+                        pass
         else:
             # Non-zip files (thumbnails, preview images, developer avatars, etc.) are public
             authorized = True

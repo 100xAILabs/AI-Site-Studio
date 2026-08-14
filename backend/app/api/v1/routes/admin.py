@@ -194,3 +194,33 @@ async def list_all_orders(
         "created_at": o.created_at.isoformat(),
         "items": [item.template.title for item in o.items if item.template]
     } for o in orders]
+
+
+@router.get("/deployments")
+async def list_all_deployments(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """[Admin] Get all multi-tenant deployments across the entire platform."""
+    from app.models.deployment import Deployment as DeploymentModel
+    from sqlalchemy.orm import selectinload
+
+    result = await db.execute(
+        select(DeploymentModel)
+        .options(selectinload(DeploymentModel.user))
+        .order_by(DeploymentModel.created_at.desc())
+    )
+    deployments = result.scalars().all()
+    return [{
+        "id": str(d.id),
+        "site_id": d.site_id,
+        "project_name": d.project_name,
+        "user_email": d.user.email if d.user else "Unknown",
+        "status": d.status,
+        "current_version": d.current_version,
+        "health_status": d.health_status,
+        "subdomain": d.subdomain,
+        "custom_domain": d.custom_domain,
+        "live_url": d.live_url,
+        "created_at": d.created_at.isoformat(),
+    } for d in deployments]

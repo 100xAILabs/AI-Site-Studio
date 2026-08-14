@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     )
     
     # ── App ───────────────────────────────────────────────────────────────────
-    APP_NAME: str = "AI Site Studio"
+    APP_NAME: str = "Site Studio"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
     ENVIRONMENT: str = "development"  # development | staging | production
@@ -67,23 +67,24 @@ class Settings(BaseSettings):
 
     # ── Gemini ────────────────────────────────────────────────────────────────
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-1.5-pro-latest"
+    GEMINI_MODEL: str = "gemini-3.5-flash"
     GEMINI_EMBEDDING_MODEL: str = "text-embedding-004"
 
-    # Separate Gemini models per feature (Highest Flagship Tiers)
-    GEMINI_MODEL_AI_CHAT_ASSISTANT: str = "gemini-1.5-pro-latest"
-    GEMINI_MODEL_WEBSITE_CONTENT_GENERATION: str = "gemini-1.5-pro-latest"
-    GEMINI_MODEL_SEO_GENERATOR: str = "gemini-1.5-pro-latest"
+    # Separate Gemini models per feature (Gemini 3.5 Flagship Tiers)
+    GEMINI_MODEL_AI_CHAT_ASSISTANT: str = "gemini-3.5-flash"
+    GEMINI_MODEL_WEBSITE_CONTENT_GENERATION: str = "gemini-3.5-flash"
+    GEMINI_MODEL_SEO_GENERATOR: str = "gemini-3.5-flash"
     GEMINI_MODEL_SEMANTIC_SEARCH: str = "text-embedding-004"
     GEMINI_MODEL_TEMPLATE_RECOMMENDATION: str = "text-embedding-004"
-    GEMINI_MODEL_ACCESSIBILITY_REVIEW: str = "gemini-1.5-pro-latest"
-    GEMINI_MODEL_CODE_ASSISTANT: str = "gemini-1.5-pro-latest"
-    GEMINI_MODEL_PROJECT_ZIP_ANALYSIS: str = "gemini-1.5-pro-latest"
-    GEMINI_MODEL_TRANSLATION: str = "gemini-1.5-pro-latest"
-    GEMINI_MODEL_BUSINESS_ANALYSIS: str = "gemini-1.5-pro-latest"
-    GEMINI_MODEL_LOGO_IDEAS: str = "gemini-1.5-pro-latest"
+    GEMINI_MODEL_ACCESSIBILITY_REVIEW: str = "gemini-3.5-flash"
+    GEMINI_MODEL_CODE_ASSISTANT: str = "gemini-3.5-flash"
+    GEMINI_MODEL_CODE_DEBUGGING_AGENT: str = "gemini-3.5-flash"
+    GEMINI_MODEL_PROJECT_ZIP_ANALYSIS: str = "gemini-3.5-flash"
+    GEMINI_MODEL_TRANSLATION: str = "gemini-3.5-flash"
+    GEMINI_MODEL_BUSINESS_ANALYSIS: str = "gemini-3.5-flash"
+    GEMINI_MODEL_LOGO_IDEAS: str = "gemini-3.5-flash"
     GEMINI_MODEL_IMAGE_GENERATION: str = "flux"
-    GEMINI_MODEL_OCR_DOCUMENT_UNDERSTANDING: str = "gemini-1.5-pro-latest"
+    GEMINI_MODEL_OCR_DOCUMENT_UNDERSTANDING: str = "gemini-3.5-flash"
 
     # Alternative models per feature (Highest Flagship Tiers)
     ALT_MODEL_AI_CHAT_ASSISTANT: str = "gpt-4o"
@@ -93,6 +94,7 @@ class Settings(BaseSettings):
     ALT_MODEL_TEMPLATE_RECOMMENDATION: str = "text-embedding-3-large"
     ALT_MODEL_ACCESSIBILITY_REVIEW: str = "gpt-4o"
     ALT_MODEL_CODE_ASSISTANT: str = "gpt-4o"
+    ALT_MODEL_CODE_DEBUGGING_AGENT: str = "gpt-4o"
     ALT_MODEL_PROJECT_ZIP_ANALYSIS: str = "gpt-4o"
     ALT_MODEL_TRANSLATION: str = "gpt-4o"
     ALT_MODEL_BUSINESS_ANALYSIS: str = "gpt-4o"

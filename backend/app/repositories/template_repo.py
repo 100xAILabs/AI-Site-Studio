@@ -33,7 +33,7 @@ class TemplateRepository:
         result = await self.db.execute(
             select(Template)
             .options(selectinload(Template.category).selectinload(Category.children))
-            .where(Template.slug == slug, Template.status == TemplateStatus.PUBLISHED)
+            .where(Template.slug == slug)
         )
         return result.scalar_one_or_none()
 
@@ -87,60 +87,87 @@ class TemplateRepository:
         )
 
         # ── Filters ──────────────────────────────────────────────────────────
-        # Join Category if filtering by category or performing a keyword search
+        # Join Category if filtering by category, sub-category, or performing a keyword search
         need_category_join = bool(filters.category or (filters.q and not filters.semantic))
         if need_category_join:
             query = query.join(Category, Template.category_id == Category.id)
 
-        # ── Filters ──────────────────────────────────────────────────────────
+        # ── Category Filter — strict: slug/name match via Category JOIN ─────────
         if filters.category:
-            category_normalized = filters.category.lower().replace("-", " ")
-            parts = filters.category.split("-")
-            slug_conditions = [Category.slug == filters.category]
-            for p in parts:
-                if len(p) > 3:
-                    slug_conditions.append(Category.slug == p)
-                    slug_conditions.append(Category.slug.ilike(f"%{p}%"))
+            cat_val = filters.category.strip().lower()
+            cat_val_spaced = cat_val.replace("-", " ")
             query = query.where(
                 or_(
-                    *slug_conditions,
-                    Category.name.ilike(f"%{filters.category}%"),
-                    Category.name.ilike(f"%{category_normalized}%"),
-                    *[Category.name.ilike(f"%{p}%") for p in parts if len(p) > 3],
-                    Template.industry.ilike(f"%{filters.category}%"),
-                    Template.industry.ilike(f"%{category_normalized}%"),
-                    cast(Template.tags, ARRAY(String)).overlap([filters.category]),
-                    cast(Template.tags, ARRAY(String)).overlap([category_normalized]),
-                    *[cast(Template.tags, ARRAY(String)).overlap([p]) for p in parts if len(p) > 3]
+                    Category.slug == cat_val,
+                    Category.slug == cat_val.replace(" ", "-"),
+                    func.lower(Category.name) == cat_val,
+                    func.lower(Category.name) == cat_val_spaced,
+                    func.lower(Category.name).ilike(f"%{cat_val}%"),
                 )
             )
 
+        # ── Sub-Category Filter — strict: industry field + tags only ──────────
+        if filters.sub_category:
+            sub_raw = filters.sub_category.strip()
+            sub_lower = sub_raw.lower()
+            sub_spaced = sub_lower.replace("-", " ")      # "small-business" → "small business"
+            sub_slug = sub_lower.replace(" ", "-")         # "Small Business" → "small-business"
+
+            # Match industry field (free-text, case insensitive)
+            industry_conds = [
+                Template.industry.ilike(f"%{sub_spaced}%"),
+                Template.industry.ilike(f"%{sub_slug}%"),
+                Template.industry.ilike(f"%{sub_raw}%"),
+            ]
+
+            # Match tags: ARRAY overlap + cast-to-text fallback (works with both PG ARRAY and JSON)
+            tag_conds = [
+                cast(Template.tags, ARRAY(String)).overlap(
+                    [sub_lower, sub_spaced, sub_slug, sub_raw]
+                ),
+                cast(Template.tags, String).ilike(f"%{sub_spaced}%"),
+                cast(Template.tags, String).ilike(f"%{sub_slug}%"),
+            ]
+
+            query = query.where(or_(*industry_conds, *tag_conds))
+
+        # ── Price ─────────────────────────────────────────────────────────────
         if filters.min_price is not None:
             query = query.where(Template.price >= filters.min_price)
         if filters.max_price is not None:
             query = query.where(Template.price <= filters.max_price)
 
+        # ── Rating ────────────────────────────────────────────────────────────
         if filters.rating is not None:
             query = query.where(Template.rating_avg >= filters.rating)
 
+        # ── Boolean flags ─────────────────────────────────────────────────────
         if filters.is_free is not None:
             query = query.where(Template.is_free == filters.is_free)
         if filters.is_on_sale is not None:
             query = query.where(Template.is_on_sale == filters.is_on_sale)
 
+        # ── Framework / Dark mode / AI-ready ──────────────────────────────────
         if filters.framework is not None:
             query = query.where(Template.framework == filters.framework)
         if filters.has_dark_mode is not None:
             query = query.where(Template.has_dark_mode == filters.has_dark_mode)
         if filters.is_ai_ready is not None:
             query = query.where(Template.is_ai_ready == filters.is_ai_ready)
+
+        # ── Industry ──────────────────────────────────────────────────────────
         if filters.industry:
             query = query.where(Template.industry.ilike(f"%{filters.industry}%"))
+
+        # ── License type ──────────────────────────────────────────────────────
         if filters.license_type:
             query = query.where(Template.license_type == filters.license_type)
+
+        # ── Featured ──────────────────────────────────────────────────────────
         if filters.is_featured is not None:
             query = query.where(Template.is_featured == filters.is_featured)
 
+        # ── Sales tier ────────────────────────────────────────────────────────
         if filters.sales:
             if filters.sales == "no-sales":
                 query = query.where(Template.downloads_count == 0)
@@ -153,17 +180,21 @@ class TemplateRepository:
             elif filters.sales == "top-seller":
                 query = query.where(or_(Template.downloads_count > 200, Template.is_bestseller == True))
 
+        # ── Compatibility ─────────────────────────────────────────────────────
         if filters.compatibility:
-            query = query.where(cast(Template.compatibility, ARRAY(String)).overlap([filters.compatibility]))
+            query = query.where(
+                cast(Template.compatibility, ARRAY(String)).overlap([filters.compatibility])
+            )
 
+        # ── Language (tags/framework overlap) ─────────────────────────────────
         if filters.language:
-            # Check overlap in tags/keywords or if framework matches
             query = query.where(or_(
                 Template.framework == filters.language,
                 cast(Template.tags, ARRAY(String)).overlap([filters.language]),
                 cast(Template.seo_keywords, ARRAY(String)).overlap([filters.language])
             ))
 
+        # ── Date added ────────────────────────────────────────────────────────
         if filters.date_added:
             from datetime import datetime, timedelta
             now = datetime.utcnow()
@@ -176,17 +207,18 @@ class TemplateRepository:
             elif filters.date_added == "last-year":
                 query = query.where(Template.created_at >= now - timedelta(days=365))
 
+        # ── Developer ─────────────────────────────────────────────────────────
         if filters.developer:
             query = query.where(Template.developer_name == filters.developer)
 
+        # ── Tag list ──────────────────────────────────────────────────────────
         if filters.tags:
             query = query.where(cast(Template.tags, ARRAY(String)).overlap(filters.tags))
 
+        # ── Keyword / Semantic Search ──────────────────────────────────────────
         if filters.q:
             q_clean = filters.q.strip().lower()
-            
-            # Synonym expansion for common search concepts to match relevant templates
-            synonyms_list = [q_clean]
+
             synonym_dict = {
                 "food": ["restaurant", "bistro", "culinary", "menu", "dining", "cafe", "bakery", "food"],
                 "restaurant": ["food", "culinary", "dining", "bistro", "cafe", "bakery", "restaurant"],
@@ -198,19 +230,20 @@ class TemplateRepository:
                 "shop": ["store", "ecommerce", "fashion", "clothing", "apparel", "retail", "shop"],
                 "store": ["shop", "ecommerce", "fashion", "clothing", "apparel", "retail", "store"],
             }
-            if q_clean in synonym_dict:
-                synonyms_list.extend(synonym_dict[q_clean])
-            
-            # Trigram similarity score matrix (probability score)
+            synonyms_list = [q_clean] + synonym_dict.get(q_clean, [])
+
+            # Trigram similarity (requires pg_trgm extension)
             title_sim = func.similarity(Template.title, q_clean)
             desc_sim = func.similarity(Template.short_description, q_clean)
             industry_sim = func.similarity(Template.industry, q_clean)
-            cat_sim = func.similarity(Category.name, q_clean)
             tags_sim = func.similarity(cast(Template.tags, String), q_clean)
-            
-            similarity_score = func.greatest(title_sim, desc_sim, industry_sim, cat_sim, tags_sim)
 
-            # Build list of OR conditions for all synonyms and fields
+            if need_category_join:
+                cat_sim = func.similarity(Category.name, q_clean)
+                similarity_score = func.greatest(title_sim, desc_sim, industry_sim, cat_sim, tags_sim)
+            else:
+                similarity_score = func.greatest(title_sim, desc_sim, industry_sim, tags_sim)
+
             or_conditions = [similarity_score > 0.12]
             for term in synonyms_list:
                 search_term = f"%{term}%"
@@ -220,57 +253,48 @@ class TemplateRepository:
                     Template.description.ilike(search_term),
                     Template.industry.ilike(search_term),
                     Template.developer_name.ilike(search_term),
-                    Template.color_scheme.ilike(search_term),
-                    Category.name.ilike(search_term),
                     cast(Template.tags, String).ilike(search_term),
                 ])
+                if need_category_join:
+                    or_conditions.append(Category.name.ilike(search_term))
 
             if filters.semantic:
-                # Resolve circular import by importing locally
                 from app.services.search_service import SearchService
                 search_service = SearchService(self.db)
-                
-                # Fetch semantic matches (limit to a pool of 50 candidates for filtering)
                 try:
-                    # Run semantic search synchronously inside the async context
                     matched_cards = await search_service.semantic_search(
-                        query=filters.q, 
-                        limit=50, 
+                        query=filters.q,
+                        limit=50,
                         category_filter=filters.category,
                         user=current_user
                     )
                     matched_ids = [c.id for c in matched_cards]
                 except Exception:
                     matched_ids = []
-                    
+
                 if not matched_ids:
-                    # Fallback to fuzzy similarity search when semantic search finds nothing
                     query = query.where(or_(*or_conditions))
                     score_expr = func.coalesce(similarity_score, 0.0)
                     query = query.order_by(score_expr.desc())
                 else:
                     query = query.where(Template.id.in_(matched_ids))
-                    # Order by the semantic relevance score ranking returned by Qdrant + Reranker
                     from sqlalchemy import case
                     ordering = case(
                         {id_: index for index, id_ in enumerate(matched_ids)},
                         value=Template.id
                     )
-                    # We will bypass the default sorting list below and order by semantic relevance directly
                     query = query.order_by(ordering)
             else:
-                # Fuzzy keyword search using Trigram Similarity (matrix matching)
                 query = query.where(or_(*or_conditions))
                 score_expr = func.coalesce(similarity_score, 0.0)
                 query = query.order_by(score_expr.desc())
 
-
-        # ── Count ─────────────────────────────────────────────────────────────
+        # ── Count (snapshot before pagination) ───────────────────────────────
         count_query = select(func.count()).select_from(query.subquery())
         total_result = await self.db.execute(count_query)
         total = total_result.scalar_one()
 
-        # ── Sort ──────────────────────────────────────────────────────────────
+        # ── Sort (skip if semantic already ordered) ───────────────────────────
         if not (filters.q and filters.semantic):
             sort_map = {
                 "newest": Template.created_at.desc(),
@@ -283,7 +307,6 @@ class TemplateRepository:
             }
             order_by = sort_map.get(filters.sort, Template.created_at.desc())
             query = query.order_by(order_by)
-
 
         # ── Pagination ────────────────────────────────────────────────────────
         offset = (filters.page - 1) * filters.page_size

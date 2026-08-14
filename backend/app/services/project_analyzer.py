@@ -47,7 +47,23 @@ class ProjectAnalyzer:
         temp_id = uuid.uuid4().hex
         temp_dir = Path(tempfile.gettempdir()) / "ai_site_studio" / "temp_zips" / temp_id
         temp_dir.mkdir(parents=True, exist_ok=True)
-        zip_path = temp_dir / original_filename
+        # 0. Run Instant Live Security & Malware Scan
+        from app.services.security_scanner import security_scanner
+        sec_result = security_scanner.scan_zip_bytes(file_content, original_filename)
+        if not sec_result["is_safe"]:
+            logger.warning(f"🚨 Security check failed for {original_filename}: {sec_result.get('findings')}")
+            return {
+                "success": False,
+                "is_security_violation": True,
+                "error": f"Security verification failed: {sec_result.get('reason') or 'Malicious or dangerous pattern detected.'}",
+                "security_findings": sec_result.get("findings", []),
+                "framework_detected": "Untrusted",
+                "pages": [],
+                "components": [],
+                "categories": {},
+                "color_palette": [],
+                "assets_count": {"images": 0, "svg": 0, "icons": 0, "videos": 0, "fonts": 0},
+            }
 
         try:
             # 1. Save zip file
@@ -762,16 +778,27 @@ class ProjectAnalyzer:
         - Core features: {', '.join(scan_results['features_detected'])}
         - Total assets count: {json.dumps(scan_results['assets_count'])}
 
+        TAXONOMY & SUBCATEGORY MAPPING RULES:
+        - Primary Categories: "Business", "Site Template", "Marketing", "Portfolio", "UI Templates", "Restaurant", "Wordpress", "Healthcare", "E-Commerce", "Education", "Real Estate", "Technology"
+        - Sub-Categories:
+          * Business: "Corporate", "Startup", "Small Business", "Enterprise", "Consulting", "Finance", "Insurance", "Accounting", "Manufacturing", "Logistics"
+          * Site Template: "Landing Page", "Multi-Page", "Single-Page", "One-Page", "Personal", "Resume / CV"
+          * Marketing: "Digital Marketing", "SEO Agency", "Social Media", "Email Marketing", "Content Marketing", "Advertising"
+          * Portfolio: "Creative", "Designer", "Developer", "Photography", "Architecture", "Videographer", "Freelancer"
+          * UI Templates: "Dashboard", "Admin Panel", "Component Library", "Design System", "Mobile UI", "Web App"
+          * Restaurant: "Cafe", "Bakery", "Fine Dining", "Bar & Pub", "Fast Food", "Coffee Shop", "Food Truck", "Catering"
+          * Healthcare: "Clinic", "Dental", "Medical", "Pharmacy", "Hospital", "Mental Health", "Fitness & Wellness"
+
         Generate an AI Analysis Report JSON. You must return ONLY a valid JSON object matching these exact keys:
         {{
-          "project_name": "A premium marketing name for this template (e.g. Modern Agency Pro, SaaSify Landing Page, Corporate Flow)",
+          "project_name": "A premium marketing name for this template (e.g. Modern Agency Pro, SaaSify Landing Page, Corporate Flow, Ledger Accounting Suite)",
           "ai_description": "A high-converting, professional, 2-3 sentence marketplace description.",
           "ai_tags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6"],
           "categories": {{
             "Business": 95,
-            "Agency": 90,
-            "SaaS": 85
+            "Marketing": 80
           }},
+          "sub_category": "Exact matching subcategory name from the taxonomy list above (e.g. Small Business, Accounting, Dashboard, Cafe, Clinic, Landing Page)",
           "industry": ["Marketing", "Software", "SaaS", "Creative"],
           "ai_selling_points": [
             "SEO Optimized Out of the Box",
@@ -838,11 +865,48 @@ class ProjectAnalyzer:
         name = f"Modern {frame} Template"
         desc = f"A premium and highly responsive website template built with {frame}, {scan_results['css_system']}, and {scan_results['language']}. Optimized for fast performance and customizability."
 
-        tags = [scan_results["framework"].lower(), scan_results["language"].lower(), "responsive", "ui"]
+        tags = [scan_results["framework"].lower(), scan_results["language"].lower(), "responsive", "ui", "business"]
         if "tailwind" in scan_results["css_system"].lower():
             tags.append("tailwind")
         if scan_results["has_dark_mode"]:
             tags.append("darkmode")
+
+        # Determine subcategory and category heuristically from detected features and pages
+        page_str = " ".join(scan_results.get("pages", [])).lower()
+        comp_str = " ".join(scan_results.get("components", [])).lower()
+        all_txt = f"{page_str} {comp_str}"
+
+        category = "Site Template"
+        sub_cat = "Landing Page"
+
+        if "accounting" in all_txt or "invoice" in all_txt or "tax" in all_txt:
+            category = "Business"
+            sub_cat = "Accounting"
+            tags.extend(["accounting", "finance", "invoice"])
+        elif "finance" in all_txt or "crypto" in all_txt or "banking" in all_txt:
+            category = "Business"
+            sub_cat = "Finance"
+            tags.extend(["finance", "fintech"])
+        elif "dashboard" in all_txt or "admin" in all_txt or "analytics" in all_txt:
+            category = "UI Templates"
+            sub_cat = "Dashboard"
+            tags.extend(["dashboard", "admin"])
+        elif "restaurant" in all_txt or "menu" in all_txt or "food" in all_txt or "cafe" in all_txt:
+            category = "Restaurant"
+            sub_cat = "Cafe"
+            tags.extend(["restaurant", "cafe", "food"])
+        elif "doctor" in all_txt or "clinic" in all_txt or "hospital" in all_txt or "health" in all_txt:
+            category = "Healthcare"
+            sub_cat = "Clinic"
+            tags.extend(["health", "medical", "clinic"])
+        elif "portfolio" in all_txt or "resume" in all_txt or "cv" in all_txt:
+            category = "Portfolio"
+            sub_cat = "Creative"
+            tags.extend(["portfolio", "resume"])
+        else:
+            category = "Business"
+            sub_cat = "Small Business"
+            tags.extend(["business", "corporate", "startup"])
 
         features = ["Responsive Design"]
         if scan_results["has_dark_mode"]:

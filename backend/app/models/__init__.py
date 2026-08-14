@@ -17,7 +17,8 @@ from app.models.ai_history import AIHistory
 from app.models.analytics import AnalyticsEvent
 from app.models.stored_file import StoredFile
 from app.models.follow import Follow
-from app.models.deployment import Deployment
+from app.models.deployment import Deployment, DeploymentVersion, Domain, DeploymentLog
+from app.models.project import Project
 from app.models.withdrawal_request import WithdrawalRequest, WithdrawalStatus
 
 __all__ = [
@@ -37,6 +38,10 @@ __all__ = [
     "StoredFile",
     "Follow",
     "Deployment",
+    "DeploymentVersion",
+    "Domain",
+    "DeploymentLog",
+    "Project",
     "WithdrawalRequest",
     "WithdrawalStatus",
 ]

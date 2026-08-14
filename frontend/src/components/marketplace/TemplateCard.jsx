@@ -71,7 +71,9 @@ export default function TemplateCard({
     ? discountPercent(template.original_price, template.price)
     : 0;
 
-  return (
+    const templateSlug = template.slug || template.id;
+
+    return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
@@ -80,7 +82,7 @@ export default function TemplateCard({
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <Link href={`/marketplace/${template.slug}`} className="card-main-link">
+      <Link href={`/marketplace/${templateSlug}`} className="card-main-link">
         <div className="template-card card-hover">
           {/* Thumbnail / Video Preview */}
           <div className="card-thumbnail-container">
@@ -110,7 +112,7 @@ export default function TemplateCard({
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  window.location.href = `/marketplace/${template.slug}`;
+                  window.location.href = `/marketplace/${templateSlug}`;
                 }}
                 className="overlay-btn-preview"
               >
@@ -214,7 +216,7 @@ export default function TemplateCard({
                     </span>
                   )}
                   {template.is_ai_ready && (
-                    <span title="AI Ready">
+                    <span title="Live Customizable">
                       <Zap className="card-meta-icon ai-ready" />
                     </span>
                   )}
@@ -255,7 +257,7 @@ export default function TemplateCard({
                 )}
               </div>
               <span className="text-xs text-muted-foreground">
-                {template.developer_name || "AI Studio"}
+                {template.developer_name || "Site Studio"}
               </span>
             </div>
           </div>

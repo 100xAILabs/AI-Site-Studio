@@ -234,13 +234,26 @@ class TemplateService:
             raise HTTPException(status_code=404, detail="Template not found")
 
         # Admins and super-admins can delete any template.
-        # Sellers can only delete templates they own.
-        if current_user and current_user.role.value not in ("admin", "super_admin"):
-            if template.seller_id != current_user.id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="You can only delete your own templates.",
-                )
+        # Users/Sellers/Buyers can delete templates they own or created.
+        if current_user:
+            role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+            if str(role_val).lower() not in ("admin", "super_admin"):
+                creator_id = getattr(template, "creator_id", None)
+                seller_id = getattr(template, "seller_id", None)
+                if seller_id != current_user.id and creator_id != current_user.id:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="You can only delete your own templates or studio projects.",
+                    )
+
+        # Clean preview cache if exists
+        try:
+            import tempfile, shutil
+            preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
+            if os.path.exists(preview_dir):
+                shutil.rmtree(preview_dir, ignore_errors=True)
+        except Exception:
+            pass
 
         await self.repo.delete(template)
 

@@ -118,7 +118,7 @@ export default function PayoutReceiptPage() {
             <div>
               <div className="flex items-center gap-2.5">
                 <span className="font-extrabold text-lg text-primary uppercase tracking-wider print:text-primary">
-                  AI Site Studio
+                  Site Studio
                 </span>
                 {getStatusBadge(receipt.status)}
               </div>
@@ -138,7 +138,7 @@ export default function PayoutReceiptPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-xs border-b border-white/10 pb-6 print:border-slate-200 print:text-slate-600">
             <div>
               <p className="font-bold text-muted-foreground uppercase tracking-wider mb-2 print:text-slate-400">Payout From</p>
-              <p className="font-bold text-white print:text-slate-900">AI Site Studio LLC</p>
+              <p className="font-bold text-white print:text-slate-900">Site Studio LLC</p>
               <p className="text-muted-foreground print:text-slate-500">Global Website Marketplace</p>
               <p className="text-muted-foreground print:text-slate-500">finance@aisitestudio.com</p>
             </div>

@@ -3,8 +3,7 @@
 /**
  * SidebarFilters — collapsible filter cards for marketplace (React JSX).
  */
-
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, X, SlidersHorizontal } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -71,93 +70,93 @@ function CheckboxOption({ label, count, checked, onChange }) {
    Data
 ───────────────────────────────────────────────────────────── */
 const MAIN_CATEGORIES = [
-  { label: "Business",          value: "business" },
+  { label: "Business", value: "business" },
   { label: "SaaS & Technology", value: "saas-technology" },
-  { label: "Ecommerce",         value: "ecommerce" },
+  { label: "Ecommerce", value: "ecommerce" },
   { label: "Restaurant & Food", value: "restaurant-food" },
-  { label: "Healthcare",        value: "healthcare" },
-  { label: "Education",         value: "education" },
-  { label: "Real Estate",       value: "real-estate" },
-  { label: "Portfolio",         value: "portfolio" },
-  { label: "Creative Agency",   value: "creative-agency" },
-  { label: "Events",            value: "events" },
-  { label: "Travel",            value: "travel" },
-  { label: "Fitness",           value: "fitness" },
-  { label: "Beauty",            value: "beauty" },
-  { label: "Legal",             value: "legal" },
-  { label: "NGO & Charity",     value: "ngo-charity" },
-  { label: "Automotive",        value: "automotive" },
-  { label: "Blog & Magazine",   value: "blog-magazine" },
-  { label: "Gaming",            value: "gaming" },
-  { label: "Finance",           value: "finance" },
-  { label: "Entertainment",     value: "entertainment" },
-  { label: "Landing Pages",     value: "landing-pages" },
-  { label: "Dashboard",         value: "dashboards" },
-  { label: "Documentation",     value: "documentation" },
-  { label: "Authentication",    value: "authentication" },
-  { label: "Marketplace",       value: "marketplace" },
+  { label: "Healthcare", value: "healthcare" },
+  { label: "Education", value: "education" },
+  { label: "Real Estate", value: "real-estate" },
+  { label: "Portfolio", value: "portfolio" },
+  { label: "Creative Agency", value: "creative-agency" },
+  { label: "Events", value: "events" },
+  { label: "Travel", value: "travel" },
+  { label: "Fitness", value: "fitness" },
+  { label: "Beauty", value: "beauty" },
+  { label: "Legal", value: "legal" },
+  { label: "NGO & Charity", value: "ngo-charity" },
+  { label: "Automotive", value: "automotive" },
+  { label: "Blog & Magazine", value: "blog-magazine" },
+  { label: "Gaming", value: "gaming" },
+  { label: "Finance", value: "finance" },
+  { label: "Entertainment", value: "entertainment" },
+  { label: "Landing Pages", value: "landing-pages" },
+  { label: "Dashboard", value: "dashboards" },
+  { label: "Documentation", value: "documentation" },
+  { label: "Authentication", value: "authentication" },
+  { label: "Marketplace", value: "marketplace" },
 ];
 
 const SUB_CATEGORIES = {
-  business:         ["Corporate", "Startup", "Small Business", "Enterprise", "Consulting", "Finance", "Insurance", "Accounting", "Manufacturing", "Logistics"],
-  "saas-technology":["SaaS", "AI Startup", "Software", "Mobile App", "Web App", "Cyber Security", "Cloud Computing", "Data Analytics", "CRM", "DevOps"],
-  ecommerce:        ["Fashion", "Electronics", "Furniture", "Jewelry", "Beauty", "Grocery", "Pet Store", "Book Store", "Sports", "Digital Products", "Multi Vendor"],
-  "restaurant-food":["Restaurant", "Cafe", "Bakery", "Fast Food", "Hotel", "Food Delivery", "Catering", "Cloud Kitchen", "Ice Cream", "Juice Bar"],
-  healthcare:       ["Hospital", "Clinic", "Dentist", "Pharmacy", "Medical Lab", "Veterinary", "Mental Health", "Physiotherapy", "Eye Clinic", "Nursing Home"],
-  education:        ["School", "College", "University", "Online Courses", "Coaching Center", "LMS", "Kindergarten", "Library", "Tuition", "E-learning"],
-  "real-estate":    ["Property Listing", "Builder", "Interior Design", "Architecture", "Home Rental", "Apartment", "Commercial Property", "Villa", "Construction"],
-  portfolio:        ["Designer", "Developer", "Photographer", "Artist", "Freelancer", "Writer", "Musician", "Architect", "Videographer", "Fashion Designer"],
-  "creative-agency":["Marketing Agency", "Digital Agency", "Branding", "SEO Agency", "Advertising", "UI/UX Studio", "Creative Studio", "PR Agency"],
-  events:           ["Wedding", "Conference", "Event Planner", "Exhibition", "Music Festival", "Birthday", "Corporate Event", "Meetup"],
-  travel:           ["Tour Agency", "Hotel Booking", "Resort", "Travel Blog", "Visa Agency", "Adventure", "Car Rental", "Airline"],
-  fitness:          ["Gym", "Yoga", "Personal Trainer", "CrossFit", "Nutrition", "Sports Club", "Martial Arts", "Dance Studio"],
-  beauty:           ["Salon", "Spa", "Makeup Artist", "Skincare", "Barber Shop", "Cosmetics", "Nail Studio"],
-  finance:          ["Banking", "Investment", "Cryptocurrency", "Trading", "FinTech", "Loan Company"],
-  legal:            ["Lawyer", "Law Firm", "Legal Consultant", "Notary", "Immigration", "Tax Consultant"],
-  "blog-magazine":  ["Personal Blog", "Technology", "Lifestyle", "Travel", "Food", "News", "Fashion", "Sports", "Magazine"],
-  automotive:       ["Car Dealer", "Bike Dealer", "Auto Service", "Garage", "Car Rental", "EV Company"],
-  "ngo-charity":    ["Charity", "Foundation", "Community", "Volunteer", "Donations", "Religious Organization"],
-  "landing-pages":  ["Product Launch", "Startup", "App Landing", "Webinar", "Coming Soon", "Waitlist", "Lead Generation"],
-  dashboards:       ["Admin Dashboard", "CRM Dashboard", "Analytics Dashboard", "Ecommerce Dashboard", "Finance Dashboard", "HR Dashboard", "LMS Dashboard"],
-  gaming:           ["eSports", "Gaming Community", "Game Studio", "Streamer", "Gaming Shop"],
-  entertainment:    ["Music", "Movies", "Podcast", "Streaming", "TV Show", "Celebrity"],
-  marketplace:      ["Digital Products", "Multi Vendor", "Auctions", "Freelance Marketplace", "Job Board"],
-  authentication:   ["Login", "Register", "Forgot Password", "OTP", "Multi-factor Authentication"],
-  documentation:    ["API Docs", "Product Docs", "Knowledge Base", "Help Center", "Wiki"],
+  business: ["Corporate", "Startup", "Small Business", "Enterprise", "Consulting", "Finance", "Insurance", "Accounting", "Manufacturing", "Logistics"],
+  "saas-technology": ["SaaS", "Tech Startup", "Software", "Mobile App", "Web App", "Cyber Security", "Cloud Computing", "Data Analytics", "CRM", "DevOps"],
+  ecommerce: ["Fashion", "Electronics", "Furniture", "Jewelry", "Beauty", "Grocery", "Pet Store", "Book Store", "Sports", "Digital Products", "Multi Vendor"],
+  "restaurant-food": ["Restaurant", "Cafe", "Bakery", "Fast Food", "Hotel", "Food Delivery", "Catering", "Cloud Kitchen", "Ice Cream", "Juice Bar"],
+  healthcare: ["Hospital", "Clinic", "Dentist", "Pharmacy", "Medical Lab", "Veterinary", "Mental Health", "Physiotherapy", "Eye Clinic", "Nursing Home"],
+  education: ["School", "College", "University", "Online Courses", "Coaching Center", "LMS", "Kindergarten", "Library", "Tuition", "E-learning"],
+  "real-estate": ["Property Listing", "Builder", "Interior Design", "Architecture", "Home Rental", "Apartment", "Commercial Property", "Villa", "Construction"],
+  portfolio: ["Designer", "Developer", "Photographer", "Artist", "Freelancer", "Writer", "Musician", "Architect", "Videographer", "Fashion Designer"],
+  "creative-agency": ["Marketing Agency", "Digital Agency", "Branding", "SEO Agency", "Advertising", "UI/UX Studio", "Creative Studio", "PR Agency"],
+  events: ["Wedding", "Conference", "Event Planner", "Exhibition", "Music Festival", "Birthday", "Corporate Event", "Meetup"],
+  travel: ["Tour Agency", "Hotel Booking", "Resort", "Travel Blog", "Visa Agency", "Adventure", "Car Rental", "Airline"],
+  fitness: ["Gym", "Yoga", "Personal Trainer", "CrossFit", "Nutrition", "Sports Club", "Martial Arts", "Dance Studio"],
+  beauty: ["Salon", "Spa", "Makeup Artist", "Skincare", "Barber Shop", "Cosmetics", "Nail Studio"],
+  finance: ["Banking", "Investment", "Cryptocurrency", "Trading", "FinTech", "Loan Company"],
+  legal: ["Lawyer", "Law Firm", "Legal Consultant", "Notary", "Immigration", "Tax Consultant"],
+  "blog-magazine": ["Personal Blog", "Technology", "Lifestyle", "Travel", "Food", "News", "Fashion", "Sports", "Magazine"],
+  automotive: ["Car Dealer", "Bike Dealer", "Auto Service", "Garage", "Car Rental", "EV Company"],
+  "ngo-charity": ["Charity", "Foundation", "Community", "Volunteer", "Donations", "Religious Organization"],
+  "landing-pages": ["Product Launch", "Startup", "App Landing", "Webinar", "Coming Soon", "Waitlist", "Lead Generation"],
+  dashboards: ["Admin Dashboard", "CRM Dashboard", "Analytics Dashboard", "Ecommerce Dashboard", "Finance Dashboard", "HR Dashboard", "LMS Dashboard"],
+  gaming: ["eSports", "Gaming Community", "Game Studio", "Streamer", "Gaming Shop"],
+  entertainment: ["Music", "Movies", "Podcast", "Streaming", "TV Show", "Celebrity"],
+  marketplace: ["Digital Products", "Multi Vendor", "Auctions", "Freelance Marketplace", "Job Board"],
+  authentication: ["Login", "Register", "Forgot Password", "OTP", "Multi-factor Authentication"],
+  documentation: ["API Docs", "Product Docs", "Knowledge Base", "Help Center", "Wiki"],
 };
 
 const TECHNOLOGIES = [
-  { label: "HTML",         value: "html" },
-  { label: "React",        value: "react" },
-  { label: "Next.js",      value: "nextjs" },
-  { label: "Vue",          value: "vue" },
-  { label: "Angular",      value: "angular" },
-  { label: "Svelte",       value: "svelte" },
-  { label: "Nuxt",         value: "nuxt" },
-  { label: "Astro",        value: "astro" },
+  { label: "HTML", value: "html" },
+  { label: "React", value: "react" },
+  { label: "Next.js", value: "nextjs" },
+  { label: "Vue", value: "vue" },
+  { label: "Angular", value: "angular" },
+  { label: "Svelte", value: "svelte" },
+  { label: "Nuxt", value: "nuxt" },
+  { label: "Astro", value: "astro" },
   { label: "Tailwind CSS", value: "tailwind" },
-  { label: "Bootstrap",    value: "bootstrap" },
-  { label: "Material UI",  value: "material-ui" },
-  { label: "Shadcn UI",    value: "shadcn" },
-  { label: "Chakra UI",    value: "chakra" },
+  { label: "Bootstrap", value: "bootstrap" },
+  { label: "Material UI", value: "material-ui" },
+  { label: "Shadcn UI", value: "shadcn" },
+  { label: "Chakra UI", value: "chakra" },
 ];
 
 
 
 
 const SALES_TIERS = [
-  { label: "No sales",   value: "no-sales" },
-  { label: "Low",        value: "low" },
-  { label: "Medium",     value: "medium" },
-  { label: "High",       value: "high" },
+  { label: "No sales", value: "no-sales" },
+  { label: "Low", value: "low" },
+  { label: "Medium", value: "medium" },
+  { label: "High", value: "high" },
   { label: "Top seller", value: "top-seller" },
 ];
 
 const DATE_RANGES = [
   { label: "Last 24 Hours", value: "last-24h" },
-  { label: "Last Week",     value: "last-week" },
-  { label: "Last Month",    value: "last-month" },
-  { label: "Last Year",     value: "last-year" },
+  { label: "Last Week", value: "last-week" },
+  { label: "Last Month", value: "last-month" },
+  { label: "Last Year", value: "last-year" },
 ];
 
 /* ─────────────────────────────────────────────────────────────
@@ -190,22 +189,39 @@ export default function SidebarFilters({ categories }) {
     })),
   ];
 
+  useEffect(() => {
+    if (filters.category && expandedCategory !== filters.category) {
+      setExpandedCategory(filters.category);
+    }
+  }, [filters.category]);
+
   /* Toggle main category selection + expand its sub-list */
   const handleCategoryClick = (value) => {
     if (expandedCategory === value) {
-      setExpandedCategory(null);
+      if (filters.category === value) {
+        setFilter("category", undefined);
+        setFilter("sub_category", undefined);
+        setExpandedCategory(null);
+      } else {
+        setExpandedCategory(null);
+      }
     } else {
       setExpandedCategory(value);
-      if (filters.category !== value) {
-        setFilter("category", value);
-        setFilter("sub_category", undefined);
-      }
+      setFilter("category", value);
+      setFilter("sub_category", undefined);
     }
   };
 
-  const handleSubCategoryClick = (sub) => {
+  const handleSubCategoryClick = (sub, parentCatValue) => {
     const slug = sub.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    setFilter("sub_category", filters.sub_category === slug ? undefined : slug);
+    if (filters.sub_category === slug) {
+      setFilter("sub_category", undefined);
+    } else {
+      if (parentCatValue && filters.category !== parentCatValue) {
+        setFilter("category", parentCatValue);
+      }
+      setFilter("sub_category", slug);
+    }
   };
 
   return (
@@ -276,7 +292,7 @@ export default function SidebarFilters({ categories }) {
                               "sub-category-btn",
                               filters.sub_category === slug && "sub-category-selected"
                             )}
-                            onClick={() => handleSubCategoryClick(sub)}
+                            onClick={() => handleSubCategoryClick(sub, cat.value)}
                           >
                             {sub}
                           </button>

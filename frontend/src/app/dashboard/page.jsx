@@ -52,6 +52,7 @@ import {
   ToggleLeft,
   Info,
   CheckCircle,
+  CheckCircle2,
   FileUp,
   Check,
   ShoppingCart,
@@ -59,6 +60,9 @@ import {
   Terminal,
   RefreshCw,
   Video,
+  History,
+  Pause,
+  Play,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { api } from "@/lib/api";
@@ -67,6 +71,34 @@ import Image from "@/components/Image";
 import Link from "@/components/Link";
 import { useCartStore } from "@/store";
 import "./Page.css";
+
+const DASHBOARD_SUB_CATEGORIES = {
+  business: ["Corporate", "Startup", "Small Business", "Enterprise", "Consulting", "Finance", "Insurance", "Accounting", "Manufacturing", "Logistics"],
+  "saas-technology": ["SaaS", "Tech Startup", "Software", "Mobile App", "Web App", "Cyber Security", "Cloud Computing", "Data Analytics", "CRM", "DevOps"],
+  ecommerce: ["Fashion", "Electronics", "Furniture", "Jewelry", "Beauty", "Grocery", "Pet Store", "Book Store", "Sports", "Digital Products", "Multi Vendor"],
+  "restaurant-food": ["Restaurant", "Cafe", "Bakery", "Fast Food", "Hotel", "Food Delivery", "Catering", "Cloud Kitchen", "Ice Cream", "Juice Bar"],
+  healthcare: ["Hospital", "Clinic", "Dentist", "Pharmacy", "Medical Lab", "Veterinary", "Mental Health", "Physiotherapy", "Eye Clinic", "Nursing Home"],
+  education: ["School", "College", "University", "Online Courses", "Coaching Center", "LMS", "Kindergarten", "Library", "Tuition", "E-learning"],
+  "real-estate": ["Property Listing", "Builder", "Interior Design", "Architecture", "Home Rental", "Apartment", "Commercial Property", "Villa", "Construction"],
+  portfolio: ["Designer", "Developer", "Photographer", "Artist", "Freelancer", "Writer", "Musician", "Architect", "Videographer", "Fashion Designer"],
+  "creative-agency": ["Marketing Agency", "Digital Agency", "Branding", "SEO Agency", "Advertising", "UI/UX Studio", "Creative Studio", "PR Agency"],
+  events: ["Wedding", "Conference", "Event Planner", "Exhibition", "Music Festival", "Birthday", "Corporate Event", "Meetup"],
+  travel: ["Tour Agency", "Hotel Booking", "Resort", "Travel Blog", "Visa Agency", "Adventure", "Car Rental", "Airline"],
+  fitness: ["Gym", "Yoga", "Personal Trainer", "CrossFit", "Nutrition", "Sports Club", "Martial Arts", "Dance Studio"],
+  beauty: ["Salon", "Spa", "Makeup Artist", "Skincare", "Barber Shop", "Cosmetics", "Nail Studio"],
+  finance: ["Banking", "Investment", "Cryptocurrency", "Trading", "FinTech", "Loan Company"],
+  legal: ["Lawyer", "Law Firm", "Legal Consultant", "Notary", "Immigration", "Tax Consultant"],
+  "blog-magazine": ["Personal Blog", "Technology", "Lifestyle", "Travel", "Food", "News", "Fashion", "Sports", "Magazine"],
+  automotive: ["Car Dealer", "Bike Dealer", "Auto Service", "Garage", "Car Rental", "EV Company"],
+  "ngo-charity": ["Charity", "Foundation", "Community", "Volunteer", "Donations", "Religious Organization"],
+  "landing-pages": ["Product Launch", "Startup", "App Landing", "Webinar", "Coming Soon", "Waitlist", "Lead Generation"],
+  dashboards: ["Admin Dashboard", "CRM Dashboard", "Analytics Dashboard", "Ecommerce Dashboard", "Finance Dashboard", "HR Dashboard", "LMS Dashboard"],
+  gaming: ["eSports", "Gaming Community", "Game Studio", "Streamer", "Gaming Shop"],
+  entertainment: ["Music", "Movies", "Podcast", "Streaming", "TV Show", "Celebrity"],
+  marketplace: ["Digital Products", "Multi Vendor", "Auctions", "Freelance Marketplace", "Job Board"],
+  authentication: ["Login", "Register", "Forgot Password", "OTP", "Multi-factor Authentication"],
+  documentation: ["API Docs", "Product Docs", "Knowledge Base", "Help Center", "Wiki"],
+};
 
 function Dashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -86,6 +118,7 @@ function Dashboard() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [templatesSubTab, setTemplatesSubTab] = useState("purchased");
+  const [studioProjectsSubTab, setStudioProjectsSubTab] = useState("created"); // "created" | "purchased"
 
   // Review Modal state
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
@@ -118,6 +151,39 @@ function Dashboard() {
   const [deployOutputDir, setDeployOutputDir] = useState("dist");
   const [deploying, setDeploying] = useState(false);
   const consoleEndRef = useRef(null);
+
+  // Multi-Version History & Rollback state
+  const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
+  const [versionDeployment, setVersionDeployment] = useState(null);
+  const [versionsList, setVersionsList] = useState([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+
+  const openVersionHistory = async (deploy) => {
+    setVersionDeployment(deploy);
+    setIsVersionModalOpen(true);
+    setVersionsLoading(true);
+    try {
+      const res = await api.get(`/deployments/${deploy.id}/versions`, authToken ?? undefined);
+      setVersionsList(Array.isArray(res) ? res : []);
+    } catch (err) {
+      setVersionsList([]);
+    } finally {
+      setVersionsLoading(false);
+    }
+  };
+
+  const handleRollback = async (targetVersion) => {
+    if (!versionDeployment) return;
+    if (!confirm(`Are you sure you want to rollback "${versionDeployment.project_name}" to version ${targetVersion}? This will switch live traffic with zero downtime.`)) return;
+    try {
+      await api.post(`/deployments/${versionDeployment.id}/rollback`, { target_version: targetVersion }, authToken ?? undefined);
+      refetchDeployments();
+      setIsVersionModalOpen(false);
+      alert(`Website successfully rolled back to ${targetVersion}!`);
+    } catch (err) {
+      alert("Rollback failed: " + err.message);
+    }
+  };
 
   const isSeller = user?.role === "seller" || user?.role === "SELLER";
   const isAdmin = user?.role === "admin" || user?.role === "super_admin" || user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
@@ -439,8 +505,13 @@ function Dashboard() {
     onSuccess: () => {
       qc.invalidateQueries(["seller-templates"]);
       qc.invalidateQueries(["admin-all-templates"]);
-      alert("Template deleted successfully!");
+      qc.invalidateQueries(["templates"]);
+      qc.invalidateQueries(["buyer-templates"]);
+      alert("Project deleted successfully!");
     },
+    onError: (err) => {
+      alert(`Failed to delete project: ${err?.message || "An unexpected error occurred"}`);
+    }
   });
 
   // Fetch all templates for admin console
@@ -599,6 +670,8 @@ function Dashboard() {
   const [shortDesc, setShortDesc] = useState("");
   const [desc, setDesc] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [subCategory, setSubCategory] = useState("");
+  const [industryFocus, setIndustryFocus] = useState("");
   const [framework, setFramework] = useState("nextjs");
   const [price, setPrice] = useState("49");
   const [salePrice, setSalePrice] = useState("");
@@ -700,7 +773,7 @@ function Dashboard() {
     }
   }, [user]);
 
-  // AI custom prompt generator tool
+  // Custom prompt generator tool
   const [aiPrompt, setAiPrompt] = useState("");
   const [generatingMockup, setGeneratingMockup] = useState(false);
   const [aiGeneratedResult, setAiGeneratedResult] = useState(null);
@@ -783,7 +856,7 @@ function Dashboard() {
         throw new Error(data.error || "ZIP analysis failed");
       }
 
-      setAnalysisLogs(prev => [...prev, "AI analysis complete!"]);
+      setAnalysisLogs(prev => [...prev, "Project audit complete!"]);
       setAnalysisProgress(100);
       setAnalysisResult(data);
 
@@ -802,6 +875,13 @@ function Dashboard() {
       setKeywords(data.ai_tags ? data.ai_tags.slice(0, 4).join(", ") : "");
       setMetaTitle((data.project_name || "") + " - Website Template");
       setMetaDesc(data.ai_description || "");
+
+      if (data.sub_category) {
+        setSubCategory(data.sub_category);
+      }
+      if (data.industry) {
+        setIndustryFocus(Array.isArray(data.industry) ? data.industry.join(", ") : data.industry);
+      }
 
       let categoryMatched = false;
       if (data.categories && categories.length > 0) {
@@ -864,7 +944,7 @@ function Dashboard() {
       "Checking responsiveness rules...",
       "Auditing SEO parameters...",
       "Validating accessibility markers...",
-      "Running AI model assessment..."
+      "Running code & architecture assessment..."
     ];
 
     let currentLogIndex = 0;
@@ -898,7 +978,7 @@ function Dashboard() {
         throw new Error(data.error || "Git repo analysis failed");
       }
 
-      setAnalysisLogs(prev => [...prev, "AI analysis complete!"]);
+      setAnalysisLogs(prev => [...prev, "Project audit complete!"]);
       setAnalysisProgress(100);
       setAnalysisResult(data);
 
@@ -919,6 +999,13 @@ function Dashboard() {
       setMetaDesc(data.ai_description || "");
 
       setStoredZipUrl(data.stored_zip_url);
+
+      if (data.sub_category) {
+        setSubCategory(data.sub_category);
+      }
+      if (data.industry) {
+        setIndustryFocus(Array.isArray(data.industry) ? data.industry.join(", ") : data.industry);
+      }
 
       let categoryMatched = false;
       if (data.categories && categories.length > 0) {
@@ -1116,6 +1203,16 @@ function Dashboard() {
       }
 
       // 5. Submit Template details as JSON to match TemplateCreate schema
+      let finalTagsList = tags ? tags.split(",").map(t => t.trim().toLowerCase()) : [];
+      if (subCategory && !finalTagsList.includes(subCategory.toLowerCase())) {
+        finalTagsList.push(subCategory.toLowerCase());
+        finalTagsList.push(subCategory.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+      }
+      const selectedCategoryObj = categories.find(c => c.id === categoryId);
+      if (selectedCategoryObj && !finalTagsList.includes(selectedCategoryObj.slug)) {
+        finalTagsList.push(selectedCategoryObj.slug);
+      }
+
       const payload = {
         title,
         slug: slug || title.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
@@ -1130,8 +1227,8 @@ function Dashboard() {
         video_url: finalVideoUrl,
         gallery_images: [],
         category_id: categoryId,
-        tags: tags ? tags.split(",").map(t => t.trim()) : [],
-        industry: analysisResult ? (analysisResult.industry ? analysisResult.industry.join(", ") : null) : null,
+        tags: finalTagsList,
+        industry: subCategory || industryFocus || (analysisResult && analysisResult.industry ? (Array.isArray(analysisResult.industry) ? analysisResult.industry.join(", ") : analysisResult.industry) : "Business"),
         color_scheme: analysisResult ? (analysisResult.color_palette ? analysisResult.color_palette.join(", ") : null) : null,
         framework: framework,
         pages_count: analysisResult ? (analysisResult.pages ? analysisResult.pages.length : 1) : 1,
@@ -1261,11 +1358,11 @@ function Dashboard() {
           {/* Dashboard Header Banner */}
           <div className="db-user-header">
             <div className="db-user-info-flex">
-              <div className="db-user-avatar">
+              <div className="db-user-avatar relative w-16 h-16 rounded-full overflow-hidden border border-border bg-muted flex shrink-0 items-center justify-center">
                 {user?.imageUrl ? (
-                  <Image src={user.imageUrl} alt="Avatar" fill className="object-cover" />
+                  <img src={user.imageUrl} alt="Avatar" className="w-full h-full object-cover rounded-full" />
                 ) : (
-                  <div className="db-user-avatar-text">
+                  <div className="db-user-avatar-text font-bold text-xl text-primary">
                     {user?.firstName?.[0] ?? user?.fullName?.[0] ?? "U"}
                   </div>
                 )}
@@ -1329,9 +1426,9 @@ function Dashboard() {
                       { id: "buyer-home", label: "Dashboard", icon: LayoutDashboard },
                       { id: "marketplace-redirect", label: "Marketplace", icon: ShoppingBag, isLink: true, url: "/marketplace" },
                       { id: "buyer-templates", label: "My Templates", icon: Folder },
-                      { id: "ai-projects", label: "AI Projects", icon: Cpu },
+                      { id: "studio-projects", label: "Studio Projects", icon: Cpu },
                       { id: "my-websites", label: "My Websites", icon: Globe },
-                      { id: "deployments", label: "Deployments", icon: Zap, comingSoon: true },
+                      { id: "deployments", label: "Deployments", icon: Zap },
                       { id: "wishlist", label: "Wishlist", icon: Heart },
                       { id: "buyer-following", label: "Following Sellers", icon: Users },
                       { id: "orders", label: "Orders", icon: CreditCard },
@@ -1396,14 +1493,14 @@ function Dashboard() {
                       Welcome back, {user?.fullName || user?.email?.split("@")[0] || "Explorer"}!
                     </h2>
                     <p className="db-greeting-subtitle">
-                      Deploy your templates instantly, customize typography and color schemes in your Brand Kit, or invoke custom AI iterations on your active project workspaces.
+                      Deploy your templates instantly, customize typography and color schemes in your Brand Kit, or invoke custom design iterations on your active project workspaces.
                     </p>
                     <div className="db-banner-btn-group">
                       <button
-                        onClick={() => setActiveTab("ai-projects")}
+                        onClick={() => setActiveTab("studio-projects")}
                         className="db-banner-btn primary"
                       >
-                        <Cpu className="w-3.5 h-3.5" /> Launch AI Workspace
+                        <Cpu className="w-3.5 h-3.5" /> Launch Studio Workspace
                       </button>
                       <Link
                         href="/marketplace"
@@ -1419,7 +1516,7 @@ function Dashboard() {
                   <div className="db-metrics-grid">
                     {[
                       { label: "Purchased Templates", value: stats?.purchases ?? orders.length, icon: Folder, desc: "Ready for download" },
-                      { label: "AI website projects", value: 0, icon: Cpu, desc: "Active AI workspaces" },
+                      { label: "Studio website projects", value: 0, icon: Cpu, desc: "Active workspaces" },
                       { label: "Live Websites", value: 0, icon: Globe, desc: "Configured custom domains" },
                       { label: "Hosting Deployments", value: 0, icon: Zap, desc: "Continuous build integrations" },
                       { label: "Total Platform Spent", value: formatPrice(totalSpent), icon: CreditCard, desc: "Invoice order transactions" },
@@ -1580,31 +1677,38 @@ function Dashboard() {
                       ) : (
                         <div className="space-y-3">
                           {orders.filter(o => o.status === "completed").flatMap(o => o.items.map(i => ({ ...i, orderId: o.id }))).map((item) => (
-                            <div key={item.id} className="p-4 rounded-xl border border-border/40 hover:border-primary/25 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 bg-muted/5 hover:bg-muted/10">
+                            <div key={item.id} className="p-4 rounded-2xl border border-border/50 bg-card/40 hover:bg-card/70 hover:border-primary/30 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
                               <div className="flex items-center gap-4 min-w-0">
-                                {item.thumbnail_url && (
-                                  <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-border/40 flex-shrink-0">
-                                    <Image
+                                <div className="relative w-14 h-14 rounded-xl overflow-hidden border border-border/60 bg-muted/20 shrink-0 flex items-center justify-center">
+                                  {item.thumbnail_url ? (
+                                    <img
                                       src={item.thumbnail_url}
-                                      alt={item.title}
-                                      fill
-                                      className="object-cover"
+                                      alt={item.title || "Template"}
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => {
+                                        e.target.onerror = null;
+                                        e.target.style.display = "none";
+                                        if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = "flex";
+                                      }}
                                     />
+                                  ) : null}
+                                  <div className="w-full h-full flex items-center justify-center text-primary/60 bg-primary/5" style={{ display: item.thumbnail_url ? "none" : "flex" }}>
+                                    <Folder className="w-6 h-6 text-primary" />
                                   </div>
-                                )}
-                                <div className="min-w-0">
-                                  <div className="font-bold text-sm text-foreground/90 truncate">
+                                </div>
+                                <div className="min-w-0 space-y-1">
+                                  <div className="font-bold text-base text-foreground truncate">
                                     {item.title || "Template Package"}
                                   </div>
-                                  <div className="flex items-center gap-2 mt-1">
-                                    <span className="text-[9px] text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
-                                      {item.license_type} License
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] text-primary bg-primary/10 border border-primary/25 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                                      {item.license_type || "Standard"} License
                                     </span>
                                   </div>
                                 </div>
                               </div>
 
-                              <div className="flex flex-wrap items-center gap-3 md:self-center">
+                              <div className="flex flex-wrap items-center gap-2.5 md:self-center">
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -1615,17 +1719,17 @@ function Dashboard() {
                                     setReviewBody("");
                                     setReviewModalOpen(true);
                                   }}
-                                  className="text-[11px] text-muted-foreground hover:text-white transition-all flex items-center gap-1 font-semibold border-none bg-transparent cursor-pointer p-0"
+                                  className="text-xs text-muted-foreground hover:text-amber-500 transition-colors flex items-center gap-1.5 font-semibold px-2.5 py-1.5 rounded-lg border border-border/40 bg-muted/10 hover:bg-amber-500/10 hover:border-amber-500/30 cursor-pointer"
                                 >
-                                  <Star className="w-3 h-3 text-amber-500 fill-amber-500" /> Leave Review
+                                  <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" /> Leave Review
                                 </button>
 
-                                <div className="h-4 w-px bg-border/40 hidden sm:block" />
+                                <div className="h-4 w-px bg-border/40 hidden sm:block mx-1" />
 
-                                <div className="flex gap-2 w-full sm:w-auto">
+                                <div className="flex flex-wrap gap-2">
                                   <button
                                     onClick={() => triggerDownload.mutate({ templateId: item.template_id, format: "zip" })}
-                                    className="px-3.5 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors border-none cursor-pointer"
+                                    className="px-3.5 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                                   >
                                     <Download className="w-3.5 h-3.5" /> Source
                                   </button>
@@ -1633,7 +1737,7 @@ function Dashboard() {
                                     href={item.preview_url || `http://localhost:8000/api/v1/preview/live/${item.template_id}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="px-3.5 py-1.5 bg-primary text-white hover:bg-primary/95 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors text-center text-decoration-none"
+                                    className="px-3.5 py-1.5 bg-primary text-primary-foreground hover:opacity-90 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-opacity text-center text-decoration-none shadow-sm"
                                   >
                                     <Globe className="w-3.5 h-3.5" /> Demo
                                   </a>
@@ -1641,7 +1745,7 @@ function Dashboard() {
                                     href={getReceiptUrl(item)}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="px-3.5 py-1.5 bg-muted text-muted-foreground hover:bg-muted/80 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors text-center text-decoration-none border border-border/40"
+                                    className="px-3.5 py-1.5 bg-muted/30 text-foreground hover:bg-muted/60 border border-border/50 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors text-center text-decoration-none"
                                   >
                                     <FileText className="w-3.5 h-3.5" /> Receipt
                                   </a>
@@ -1720,111 +1824,247 @@ function Dashboard() {
                 </div>
               )}
 
-              {/* === AI PROJECTS === */}
-              {activeTab === "ai-projects" && (
-                <div className="glass-premium p-8 space-y-6">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <h3 className="font-bold text-lg text-foreground">AI Generated Website Projects</h3>
-                      <p className="text-sm text-muted-foreground">Manage your active AI generated prototypes and template sandboxes.</p>
-                    </div>
-                  </div>
+              {/* === STUDIO PROJECTS === */}
+              {activeTab === "studio-projects" && (() => {
+                const purchasedTemplateIds = new Set(
+                  orders.filter(o => o.status === "completed").flatMap(o => (o.items || []).map(i => i.template_id))
+                );
+                const allUserTemplates = Array.isArray(templateResponse) ? templateResponse : [];
+                const createdStudioProjects = allUserTemplates.filter(item => !purchasedTemplateIds.has(item.id));
+                const purchasedStudioProjects = allUserTemplates.filter(item => purchasedTemplateIds.has(item.id));
 
-                  {templatesLoading ? (
-                    <div className="text-center py-12">
-                      <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
-                      <p className="text-xs text-muted-foreground mt-2">Loading your AI projects...</p>
-                    </div>
-                  ) : !templateResponse || templateResponse.length === 0 ? (
-                    <div className="grid md:grid-cols-2 gap-6">
-                      <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-muted/5 flex flex-col justify-center items-center">
-                        <Cpu className="w-8 h-8 text-primary mx-auto mb-3 opacity-60" />
-                        <p className="text-sm font-semibold text-foreground">No AI Generated Projects</p>
-                        <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
-                          You haven't generated any AI prototype workspaces yet. Explore templates in the marketplace to start customizing them with AI.
-                        </p>
+                return (
+                  <div className="glass-premium p-8 space-y-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/20 pb-4">
+                      <div>
+                        <h3 className="font-bold text-lg text-foreground">Studio Projects Workspace</h3>
+                        <p className="text-sm text-muted-foreground">Manage your custom created drafts and unlocked purchased projects.</p>
                       </div>
 
-                      <div className="glass p-6 rounded-xl border border-primary/30 bg-primary/5 flex flex-col justify-between">
-                        <div>
-                          <h4 className="font-bold text-lg text-foreground mb-2">Create New Project.</h4>
-                          <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
-                            Choose a responsive template designed for food services, then customize it using our AI editor to match your branding. For your site generation, try this prompt: <br /><br />
-                            <span className="italic text-primary/90 block border-l-2 border-primary/50 pl-3">
-                              'Create a professional, modern cafeteria website featuring a digital menu, a daily specials section, an online ordering integration, and a clean, high-contrast aesthetic that highlights food photography.'
-                            </span>
-                            <br />
-                            Our AI will then generate the structure and layout for you.
+                      {/* Segmented Sub-Tab Switcher */}
+                      <div className="flex gap-1.5 p-1 bg-muted/40 border border-border/20 rounded-xl self-start">
+                        <button
+                          type="button"
+                          onClick={() => setStudioProjectsSubTab("created")}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            studioProjectsSubTab === "created"
+                              ? "bg-primary text-white shadow-lg shadow-primary/20"
+                              : "text-muted-foreground hover:text-white"
+                          }`}
+                        >
+                          Draft Projects ({createdStudioProjects.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setStudioProjectsSubTab("purchased")}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            studioProjectsSubTab === "purchased"
+                              ? "bg-primary text-white shadow-lg shadow-primary/20"
+                              : "text-muted-foreground hover:text-white"
+                          }`}
+                        >
+                          Purchased Projects ({purchasedStudioProjects.length})
+                        </button>
+                      </div>
+                    </div>
+
+                    {templatesLoading ? (
+                      <div className="text-center py-12">
+                        <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+                        <p className="text-xs text-muted-foreground mt-2">Loading your studio projects...</p>
+                      </div>
+                    ) : studioProjectsSubTab === "created" ? (
+                      /* Draft / Unpurchased Studio Projects */
+                      createdStudioProjects.length === 0 ? (
+                        <div className="grid md:grid-cols-2 gap-6">
+                          <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-muted/5 flex flex-col justify-center items-center">
+                            <Cpu className="w-8 h-8 text-primary mx-auto mb-3 opacity-60" />
+                            <p className="text-sm font-semibold text-foreground">No Draft Studio Projects</p>
+                            <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+                              You don't have any unpurchased draft projects. Generate a custom prototype to customize and preview.
+                            </p>
+                            <Link
+                              to="/marketplace/generate"
+                              className="mt-4 px-4 py-2 bg-primary text-white text-xs font-bold rounded-lg hover:bg-primary/90 transition-colors"
+                              style={{ textDecoration: 'none' }}
+                            >
+                              Launch Studio Creator
+                            </Link>
+                          </div>
+
+                          <div className="glass p-6 rounded-xl border border-primary/30 bg-primary/5 flex flex-col justify-between">
+                            <div>
+                              <h4 className="font-bold text-lg text-foreground mb-2">Create New Project</h4>
+                              <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
+                                Enter your exact business specifications, brand colors, and contact info in Studio Creator. Our pipeline generates the complete multi-page prototype for you.
+                              </p>
+                            </div>
+                            <Link
+                              to="/marketplace/generate"
+                              className="px-4 py-2 bg-primary text-white text-sm font-semibold rounded-lg text-center hover:bg-primary/90 transition-colors"
+                              style={{ textDecoration: 'none' }}
+                            >
+                              Create Project with Studio
+                            </Link>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid sm:grid-cols-2 gap-6">
+                          {createdStudioProjects.map((item) => (
+                            <div key={item.id} className="glass p-5 rounded-2xl border border-border/40 flex flex-col justify-between hover:border-primary/45 transition-all bg-card/10 shadow-sm">
+                              <div>
+                                <div className="relative w-full rounded-xl overflow-hidden border border-border/40 mb-4 bg-muted/20 flex-shrink-0" style={{ height: '180px' }}>
+                                  {item.thumbnail_url ? (
+                                    <img src={item.thumbnail_url} alt="" className="object-cover w-full h-full absolute inset-0" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center bg-primary/5 text-primary">
+                                      <Folder className="w-8 h-8 opacity-60" />
+                                    </div>
+                                  )}
+                                  <div className="absolute top-2 left-2 flex gap-1.5">
+                                    <span className="px-2 py-0.5 bg-background/90 backdrop-blur text-[10px] rounded-full text-amber-500 font-bold border border-amber-500/20 uppercase tracking-wider">
+                                      Draft Project
+                                    </span>
+                                  </div>
+                                  <span className="absolute top-2 right-2 px-2 py-0.5 bg-background/90 backdrop-blur text-[10px] rounded-full text-primary font-semibold border border-primary/20 uppercase">
+                                    {item.framework || "HTML"}
+                                  </span>
+                                </div>
+                                <h4 className="font-bold text-sm text-foreground mb-1.5" style={{ height: '40px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: '1.4' }} title={item.title}>
+                                  {item.title}
+                                </h4>
+                                <p className="text-[11px] text-muted-foreground mb-4" style={{ height: '32px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: '1.4' }}>
+                                  {item.short_description || "Custom generated studio workspace prototype."}
+                                </p>
+                              </div>
+
+                              <div className="space-y-2.5 pt-2 border-t border-border/40">
+                                {/* Buy / Add to Cart Action */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    addToCart({
+                                      templateId: item.id,
+                                      title: item.title,
+                                      price: item.price || 49,
+                                      thumbnail: item.thumbnail_url,
+                                      licenseType: "regular",
+                                    });
+                                  }}
+                                  className={cn(
+                                    "w-full py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm",
+                                    isInCart(item.id)
+                                      ? "bg-emerald-500/20 text-emerald-500 border border-emerald-500/40"
+                                      : "bg-primary text-primary-foreground hover:opacity-90 shadow-primary/20"
+                                  )}
+                                >
+                                  <ShoppingCart className="w-3.5 h-3.5" />
+                                  <span>{isInCart(item.id) ? "In Cart (Proceed to Checkout)" : `Buy & Unlock Source ($${item.price || 49})`}</span>
+                                </button>
+
+                                {/* Live Editor & Live Demo */}
+                                <div className="flex gap-2">
+                                  <Link
+                                    to={`/preview?template=${item.slug || item.id}`}
+                                    className="btn-secondary flex-1 text-center py-2"
+                                    style={{ textDecoration: "none" }}
+                                  >
+                                    <Wand2 className="w-3.5 h-3.5" /> Live Editor
+                                  </Link>
+                                  <a
+                                    href={`http://localhost:8000/api/v1/preview/live/${item.id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="btn-secondary flex-1 text-center py-2"
+                                    style={{ textDecoration: "none" }}
+                                  >
+                                    <ExternalLink className="w-3.5 h-3.5" /> Live Demo
+                                  </a>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    ) : (
+                      /* Purchased Studio Projects */
+                      purchasedStudioProjects.length === 0 ? (
+                        <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-card/5">
+                          <Folder className="w-8 h-8 text-primary mx-auto mb-3 opacity-60" />
+                          <p className="text-sm font-semibold text-foreground">No Purchased Studio Projects</p>
+                          <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+                            When you purchase a custom studio project from your drafts or marketplace, its full source code and direct download links will appear here.
                           </p>
                         </div>
-                        <Link
-                          to="/marketplace/generate"
-                          state={{ prompt: "Create a professional, modern cafeteria website featuring a digital menu, a daily specials section, an online ordering integration, and a clean, high-contrast aesthetic that highlights food photography." }}
-                          className="px-4 py-2 bg-primary text-white text-sm font-semibold rounded-lg text-center hover:bg-primary/90 transition-colors"
-                          style={{ textDecoration: 'none' }}
-                        >
-                          Try this Prompt Now
-                        </Link>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid sm:grid-cols-2 gap-6">
-                      {templateResponse.map((item) => (
-                        <div key={item.id} className="glass p-5 rounded-xl border border-border/40 flex flex-col justify-between hover:border-primary/45 transition-all bg-card/10">
-                          <div>
-                            <div className="relative w-full rounded-lg overflow-hidden border border-border/40 mb-4 bg-muted/20 flex-shrink-0" style={{ height: '180px' }}>
-                              {item.thumbnail_url ? (
-                                <img src={item.thumbnail_url} alt="" className="object-cover w-full h-full absolute inset-0" />
-                              ) : (
-                                <Cpu className="w-8 h-8 text-muted-foreground opacity-50" />
-                              )}
-                              <span className="absolute top-2 right-2 px-2 py-0.5 bg-background/80 backdrop-blur text-[10px] rounded-full text-primary font-semibold border border-primary/10 uppercase">
-                                {item.framework || "HTML"}
-                              </span>
+                      ) : (
+                        <div className="grid sm:grid-cols-2 gap-6">
+                          {purchasedStudioProjects.map((item) => (
+                            <div key={item.id} className="glass p-5 rounded-2xl border border-emerald-500/30 flex flex-col justify-between hover:border-emerald-500/50 transition-all bg-emerald-500/5 shadow-sm">
+                              <div>
+                                <div className="relative w-full rounded-xl overflow-hidden border border-border/40 mb-4 bg-muted/20 flex-shrink-0" style={{ height: '180px' }}>
+                                  {item.thumbnail_url ? (
+                                    <img src={item.thumbnail_url} alt="" className="object-cover w-full h-full absolute inset-0" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center bg-primary/5 text-primary">
+                                      <Folder className="w-8 h-8 opacity-60" />
+                                    </div>
+                                  )}
+                                  <div className="absolute top-2 left-2 flex gap-1.5">
+                                    <span className="px-2 py-0.5 bg-background/90 backdrop-blur text-[10px] rounded-full text-emerald-500 font-bold border border-emerald-500/30 uppercase tracking-wider flex items-center gap-1">
+                                      <CheckCircle2 className="w-3 h-3" /> Purchased & Unlocked
+                                    </span>
+                                  </div>
+                                  <span className="absolute top-2 right-2 px-2 py-0.5 bg-background/90 backdrop-blur text-[10px] rounded-full text-primary font-semibold border border-primary/20 uppercase">
+                                    {item.framework || "HTML"}
+                                  </span>
+                                </div>
+                                <h4 className="font-bold text-sm text-foreground mb-1.5" style={{ height: '40px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: '1.4' }} title={item.title}>
+                                  {item.title}
+                                </h4>
+                                <p className="text-[11px] text-muted-foreground mb-4" style={{ height: '32px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: '1.4' }}>
+                                  {item.short_description || "Custom generated studio workspace prototype."}
+                                </p>
+                              </div>
+
+                              <div className="space-y-2.5 pt-2 border-t border-border/40">
+                                {/* Download Source ZIP */}
+                                <button
+                                  type="button"
+                                  onClick={() => triggerDownload.mutate({ templateId: item.id, format: "zip" })}
+                                  className="w-full py-2.5 px-3 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/30 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                  <span>Download Source ZIP</span>
+                                </button>
+
+                                {/* Live Editor & Live Demo */}
+                                <div className="flex gap-2">
+                                  <Link
+                                    to={`/preview?template=${item.slug || item.id}`}
+                                    className="btn-primary flex-1 text-center py-2"
+                                    style={{ textDecoration: "none" }}
+                                  >
+                                    <Wand2 className="w-3.5 h-3.5" /> Live Editor
+                                  </Link>
+                                  <a
+                                    href={`http://localhost:8000/api/v1/preview/live/${item.id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="btn-secondary flex-1 text-center py-2"
+                                    style={{ textDecoration: "none" }}
+                                  >
+                                    <ExternalLink className="w-3.5 h-3.5" /> Live Demo
+                                  </a>
+                                </div>
+                              </div>
                             </div>
-                            <h4 className="font-bold text-sm text-foreground mb-1.5" style={{ height: '40px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: '1.4' }} title={item.title}>
-                              {item.title}
-                            </h4>
-                            <p className="text-[11px] text-muted-foreground mb-4" style={{ height: '32px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: '1.4' }}>
-                              {item.short_description || "AI generated workspace template project."}
-                            </p>
-                          </div>
-                          <div className="space-y-2">
-                            <div className="flex gap-2">
-                              <Link
-                                to={`/preview?template=${item.id}`}
-                                className="btn-primary flex-1"
-                                style={{ textDecoration: "none" }}
-                              >
-                                <Wand2 className="w-3.5 h-3.5" /> AI Editor
-                              </Link>
-                              <a
-                                href={`http://localhost:8000/api/v1/preview/live/${item.id}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="btn-secondary flex-1"
-                                style={{ textDecoration: "none" }}
-                              >
-                                <ExternalLink className="w-3.5 h-3.5" /> Live Demo
-                              </a>
-                            </div>
-                            <button
-                              onClick={() => {
-                                if (confirm("Are you sure you want to delete this AI project?")) {
-                                  deleteMutation.mutate(item.id);
-                                }
-                              }}
-                              className="btn-danger w-full"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" /> Delete Project
-                            </button>
-                          </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+                      )
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* === MY WEBSITES === */}
               {activeTab === "my-websites" && (
@@ -1986,11 +2226,12 @@ function Dashboard() {
                     <div>
                       <div className="flex items-center gap-2">
                         <h3 className="font-bold text-lg text-foreground">Continuous Deployments</h3>
-                        <span className="text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded-full font-semibold border border-primary/30 uppercase tracking-wider">
-                          Coming Soon
+                        <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-semibold border border-emerald-500/30 uppercase tracking-wider flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                          Isolated Workloads
                         </span>
                       </div>
-                      <p className="text-sm text-muted-foreground">Publish your websites and AI templates to Vercel, Netlify, or GitHub Pages.</p>
+                      <p className="text-sm text-muted-foreground">Publish your websites and studio templates to Vercel, Netlify, or GitHub Pages.</p>
                     </div>
                     <button
                       onClick={() => {
@@ -2000,7 +2241,7 @@ function Dashboard() {
                           setDeployProjectName(available[0].title);
                         } else {
                           setDeployTemplateId("mock-project-id");
-                          setDeployProjectName("AI Restaurant Prototype");
+                          setDeployProjectName("Restaurant Demo Prototype");
                         }
                         setIsDeployModalOpen(true);
                       }}
@@ -2020,7 +2261,7 @@ function Dashboard() {
                       <Zap className="w-8 h-8 text-primary mx-auto mb-3 opacity-60" />
                       <p className="text-sm font-semibold text-foreground">No active deployments</p>
                       <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
-                        Connect a project template or an AI generated sandbox to start building and hosting.
+                        Connect a project template or custom sandbox to start building and hosting.
                       </p>
                       <button
                         onClick={() => {
@@ -2030,7 +2271,7 @@ function Dashboard() {
                             setDeployProjectName(available[0].title);
                           } else {
                             setDeployTemplateId("mock-project-id");
-                            setDeployProjectName("AI Restaurant Prototype");
+                            setDeployProjectName("Restaurant Demo Prototype");
                           }
                           setIsDeployModalOpen(true);
                         }}
@@ -2041,113 +2282,132 @@ function Dashboard() {
                     </div>
                   ) : (
                     <div className="deployments-grid">
-                      {deploymentsData.map((deploy) => (
-                        <div key={deploy.id} className="deploy-card glass border border-border/40 rounded-xl p-5 flex flex-col justify-between space-y-4 bg-card/10">
-                          <div className="space-y-2">
-                            <div className="flex justify-between items-start">
-                              <h4 className="font-bold text-foreground text-base truncate max-w-[180px]" title={deploy.project_name}>
-                                {deploy.project_name}
-                              </h4>
-                              <span className={`status-badge ${deploy.status}`}>
-                                {deploy.status === "building" && <Loader2 className="w-3 h-3 animate-spin" />}
-                                {deploy.status === "success" && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
-                                {deploy.status === "failed" && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
-                                {deploy.status === "building" ? "Building" : deploy.status === "success" ? "Ready" : "Failed"}
-                              </span>
-                            </div>
+                      {deploymentsData.map((deploy) => {
+                        const isLive = deploy.status === "live" || deploy.status === "success";
+                        const isBuilding = deploy.status === "building" || deploy.status === "queued" || deploy.status === "deploying";
+                        const isSuspended = deploy.status === "suspended" || deploy.is_suspended;
 
-                            <div className="text-xs space-y-1.5 text-slate-300">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-muted-foreground">Provider:</span>
-                                <span className="font-medium capitalize text-foreground flex items-center gap-1">
-                                  {deploy.provider === "vercel" && "▲ Vercel"}
-                                  {deploy.provider === "netlify" && "⧉ Netlify"}
-                                  {deploy.provider === "github_pages" && "🕮 GitHub Pages"}
+                        return (
+                          <div key={deploy.id} className="deploy-card glass border border-border/40 rounded-xl p-5 flex flex-col justify-between space-y-4 bg-card/10 hover:border-primary/40 transition-all">
+                            <div className="space-y-2.5">
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <h4 className="font-bold text-foreground text-base truncate max-w-[180px]" title={deploy.project_name}>
+                                    {deploy.project_name}
+                                  </h4>
+                                  <div className="text-[11px] font-mono text-primary flex items-center gap-1.5 mt-0.5">
+                                    <span>{deploy.site_id || `SITE-${deploy.id.slice(0, 6).toUpperCase()}`}</span>
+                                    <span className="text-muted-foreground">•</span>
+                                    <span className="bg-primary/10 text-primary px-1.5 py-0.2 rounded font-semibold">{deploy.current_version || "v1.0"}</span>
+                                  </div>
+                                </div>
+                                <span className={`status-badge ${deploy.status}`}>
+                                  {isBuilding && <Loader2 className="w-3 h-3 animate-spin" />}
+                                  {isLive && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                                  {isSuspended && <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />}
+                                  {deploy.status === "failed" && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
+                                  {isBuilding ? "Building" : isLive ? "● LIVE" : isSuspended ? "Suspended" : "Failed"}
                                 </span>
                               </div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-muted-foreground">Branch:</span>
-                                <span className="font-mono bg-muted/40 px-1 py-0.5 rounded text-[10px] text-primary">{deploy.branch}</span>
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-muted-foreground">Subdomain:</span>
-                                <span className="text-foreground truncate font-mono max-w-[200px]" title={deploy.subdomain}>
-                                  {deploy.subdomain}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-muted-foreground">Created:</span>
-                                <span>{new Date(deploy.created_at).toLocaleDateString()} {new Date(deploy.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+
+                              <div className="text-xs space-y-1.5 text-slate-300">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-muted-foreground">Domain:</span>
+                                  <span className="text-foreground truncate font-mono max-w-[200px]" title={deploy.subdomain}>
+                                    {deploy.subdomain}
+                                  </span>
+                                </div>
+                                {deploy.custom_domain && (
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-muted-foreground">Custom:</span>
+                                    <span className="text-primary truncate font-mono max-w-[200px]" title={deploy.custom_domain}>
+                                      {deploy.custom_domain}
+                                    </span>
+                                  </div>
+                                )}
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-muted-foreground">Updated:</span>
+                                  <span>{new Date(deploy.updated_at || deploy.created_at).toLocaleDateString()} {new Date(deploy.updated_at || deploy.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                </div>
                               </div>
                             </div>
-                          </div>
 
-                          <div className="pt-2 border-t border-border/20 flex flex-col gap-2">
-                            <div className="flex gap-2">
-                              {deploy.status === "success" && deploy.live_url && (
-                                <a
-                                  href={deploy.live_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex-1 py-1.5 bg-primary text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 hover:bg-primary/90 transition-colors text-center text-decoration-none"
+                            <div className="pt-2 border-t border-border/20 flex flex-col gap-2">
+                              <div className="flex gap-2">
+                                {isLive && deploy.live_url && (
+                                  <a
+                                    href={deploy.live_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex-1 py-1.5 bg-primary text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 hover:bg-primary/90 transition-colors text-center text-decoration-none"
+                                  >
+                                    <ExternalLink className="w-3.5 h-3.5" /> Visit Site
+                                  </a>
+                                )}
+                                <button
+                                  onClick={() => {
+                                    setSelectedDeployment(deploy);
+                                    setActiveConsoleLogs(deploy.logs || "");
+                                    setActiveConsoleStatus(deploy.status);
+                                    setIsConsoleOpen(true);
+                                  }}
+                                  className="flex-1 py-1.5 bg-muted border border-border/40 hover:bg-muted/80 text-foreground rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
                                 >
-                                  <ExternalLink className="w-3.5 h-3.5" /> Visit Site
-                                </a>
-                              )}
-                              <button
-                                onClick={() => {
-                                  setSelectedDeployment(deploy);
-                                  setActiveConsoleLogs(deploy.logs || "");
-                                  setActiveConsoleStatus(deploy.status);
-                                  setIsConsoleOpen(true);
-                                }}
-                                className="flex-1 py-1.5 bg-muted border border-border/40 hover:bg-muted/80 text-foreground rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
-                              >
-                                <Terminal className="w-3.5 h-3.5" /> {deploy.status === "building" ? "View Build" : "View Logs"}
-                              </button>
-                            </div>
+                                  <Terminal className="w-3.5 h-3.5" /> {isBuilding ? "View Build" : "Logs"}
+                                </button>
+                              </div>
 
-                            <div className="flex gap-2">
-                              {deploy.status !== "building" && (
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => openVersionHistory(deploy)}
+                                  className="flex-1 py-1.5 bg-background border border-border/40 hover:bg-muted/30 text-slate-300 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
+                                  title="Version History & Rollback"
+                                >
+                                  <History className="w-3.5 h-3.5 text-primary" /> Rollback
+                                </button>
+                                {!isBuilding && (
+                                  <button
+                                    onClick={async () => {
+                                      if (confirm(`Trigger a new redeployment for "${deploy.project_name}"?`)) {
+                                        try {
+                                          const res = await api.post(`/deployments/${deploy.id}/redeploy`, {}, authToken ?? undefined);
+                                          refetchDeployments();
+                                          setSelectedDeployment(res);
+                                          setActiveConsoleLogs(res.logs || "");
+                                          setActiveConsoleStatus("building");
+                                          setIsConsoleOpen(true);
+                                        } catch (err) {
+                                          alert("Failed to redeploy: " + err.message);
+                                        }
+                                      }
+                                    }}
+                                    className="flex-1 py-1.5 bg-background border border-border/40 hover:bg-muted/30 text-slate-300 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
+                                    title="Redeploy Latest Code"
+                                  >
+                                    <RefreshCw className="w-3.5 h-3.5" /> Redeploy
+                                  </button>
+                                )}
                                 <button
                                   onClick={async () => {
-                                    if (confirm("Trigger a new deploy for this project?")) {
+                                    if (confirm(`Are you sure you want to permanently remove deployment "${deploy.project_name}"?`)) {
                                       try {
-                                        const res = await api.post(`/deployments/${deploy.id}/redeploy`, {}, authToken ?? undefined);
+                                        await api.delete(`/deployments/${deploy.id}`, authToken ?? undefined);
                                         refetchDeployments();
-                                        setSelectedDeployment(res);
-                                        setActiveConsoleLogs(res.logs || "");
-                                        setActiveConsoleStatus("building");
-                                        setIsConsoleOpen(true);
                                       } catch (err) {
-                                        alert("Failed to redeploy: " + err.message);
+                                        alert("Failed to delete: " + err.message);
                                       }
                                     }
                                   }}
-                                  className="flex-1 py-1.5 bg-background border border-border/40 hover:bg-muted/30 text-slate-300 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
+                                  className="py-1.5 px-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs font-semibold flex items-center justify-center transition-colors border border-red-500/10"
+                                  title="Delete Deployment"
                                 >
-                                  <RefreshCw className="w-3.5 h-3.5" /> Redeploy
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 </button>
-                              )}
-                              <button
-                                onClick={async () => {
-                                  if (confirm("Are you sure you want to remove this deployment?")) {
-                                    try {
-                                      await api.delete(`/deployments/${deploy.id}`, authToken ?? undefined);
-                                      refetchDeployments();
-                                    } catch (err) {
-                                      alert("Failed to delete: " + err.message);
-                                    }
-                                  }
-                                }}
-                                className="py-1.5 px-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs font-semibold flex items-center justify-center transition-colors border border-red-500/10"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -2457,31 +2717,38 @@ function Dashboard() {
                       ) : (
                         <div className="space-y-3">
                           {orders.filter(o => o.status === "completed").flatMap(o => o.items.map(i => ({ ...i, orderId: o.id }))).map((item) => (
-                            <div key={item.id} className="p-4 border border-border/40 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 bg-muted/5 hover:bg-muted/10 transition-colors">
+                            <div key={item.id} className="p-4 rounded-2xl border border-border/50 bg-card/40 hover:bg-card/70 hover:border-primary/30 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
                               <div className="flex items-center gap-4 min-w-0">
-                                {item.thumbnail_url && (
-                                  <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-border/40 flex-shrink-0">
-                                    <Image
+                                <div className="relative w-14 h-14 rounded-xl overflow-hidden border border-border/60 bg-muted/20 shrink-0 flex items-center justify-center">
+                                  {item.thumbnail_url ? (
+                                    <img
                                       src={item.thumbnail_url}
-                                      alt={item.title}
-                                      fill
-                                      className="object-cover"
+                                      alt={item.title || "Template"}
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => {
+                                        e.target.onerror = null;
+                                        e.target.style.display = "none";
+                                        if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = "flex";
+                                      }}
                                     />
+                                  ) : null}
+                                  <div className="w-full h-full flex items-center justify-center text-primary/60 bg-primary/5" style={{ display: item.thumbnail_url ? "none" : "flex" }}>
+                                    <Folder className="w-6 h-6 text-primary" />
                                   </div>
-                                )}
-                                <div className="min-w-0">
-                                  <div className="font-bold text-sm text-foreground/90 truncate">
+                                </div>
+                                <div className="min-w-0 space-y-1">
+                                  <div className="font-bold text-base text-foreground truncate">
                                     {item.title || "Template Package"}
                                   </div>
-                                  <div className="flex items-center gap-2 mt-1">
-                                    <span className="text-[9px] text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
-                                      {item.license_type} License
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] text-primary bg-primary/10 border border-primary/25 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                                      {item.license_type || "Standard"} License
                                     </span>
                                   </div>
                                 </div>
                               </div>
 
-                              <div className="flex flex-wrap items-center gap-3 md:self-center">
+                              <div className="flex flex-wrap items-center gap-2.5 md:self-center">
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -2492,17 +2759,17 @@ function Dashboard() {
                                     setReviewBody("");
                                     setReviewModalOpen(true);
                                   }}
-                                  className="text-[11px] text-muted-foreground hover:text-white transition-all flex items-center gap-1 font-semibold border-none bg-transparent cursor-pointer p-0"
+                                  className="text-xs text-muted-foreground hover:text-amber-500 transition-colors flex items-center gap-1.5 font-semibold px-2.5 py-1.5 rounded-lg border border-border/40 bg-muted/10 hover:bg-amber-500/10 hover:border-amber-500/30 cursor-pointer"
                                 >
-                                  <Star className="w-3 h-3 text-amber-500 fill-amber-500" /> Leave Review
+                                  <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" /> Leave Review
                                 </button>
 
-                                <div className="h-4 w-px bg-border/40 hidden sm:block" />
+                                <div className="h-4 w-px bg-border/40 hidden sm:block mx-1" />
 
-                                <div className="flex gap-2 w-full sm:w-auto">
+                                <div className="flex flex-wrap gap-2">
                                   <button
                                     onClick={() => triggerDownload.mutate({ templateId: item.template_id, format: "zip" })}
-                                    className="px-3.5 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors border-none cursor-pointer"
+                                    className="px-3.5 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                                   >
                                     <Download className="w-3.5 h-3.5" /> Source
                                   </button>
@@ -2510,7 +2777,7 @@ function Dashboard() {
                                     href={item.preview_url || `http://localhost:8000/api/v1/preview/live/${item.template_id}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="px-3.5 py-1.5 bg-primary text-white hover:bg-primary/95 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors text-center text-decoration-none"
+                                    className="px-3.5 py-1.5 bg-primary text-primary-foreground hover:opacity-90 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-opacity text-center text-decoration-none shadow-sm"
                                   >
                                     <Globe className="w-3.5 h-3.5" /> Demo
                                   </a>
@@ -2518,7 +2785,7 @@ function Dashboard() {
                                     href={getReceiptUrl(item)}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="px-3.5 py-1.5 bg-muted text-muted-foreground hover:bg-muted/80 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors text-center text-decoration-none border border-border/40"
+                                    className="px-3.5 py-1.5 bg-muted/30 text-foreground hover:bg-muted/60 border border-border/50 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors text-center text-decoration-none"
                                   >
                                     <FileText className="w-3.5 h-3.5" /> Receipt
                                   </a>
@@ -2616,7 +2883,7 @@ function Dashboard() {
                       <div className="flex items-center gap-2 border-b border-border/50 pb-4 overflow-x-auto scrollbar-none">
                     {[
                       { step: 1, label: "Upload Source" },
-                      { step: 2, label: "AI Analysis Audit" },
+                      { step: 2, label: "Code & Architecture Audit" },
                       { step: 3, label: "Review & Publish" },
                     ].map((st) => (
                       <div key={st.step} className="flex items-center gap-2 shrink-0">
@@ -2720,7 +2987,7 @@ function Dashboard() {
                                 <div className="text-center space-y-2 max-w-xs">
                                   <h4 className="font-bold text-lg text-foreground">Connect GitHub</h4>
                                   <p className="text-xs text-muted-foreground leading-relaxed">
-                                    Authorise AI Site Studio on GitHub and we'll automatically load all your repositories. No keys, no copy-pasting.
+                                    Authorise Site Studio on GitHub and we'll automatically load all your repositories. No keys, no copy-pasting.
                                   </p>
                                 </div>
 
@@ -2908,7 +3175,7 @@ function Dashboard() {
                       </div>
                     )}
 
-                    {/* STEP 2: AI ANALYSIS LOADING / RESULTS */}
+                    {/* STEP 2: PROJECT AUDIT LOADING / RESULTS */}
                     {wizardStep === 2 && (
                       <div className="space-y-6 animate-in fade-in duration-200">
                         {analysisLoading ? (
@@ -2916,7 +3183,7 @@ function Dashboard() {
                             <div className="db-scanner-icon-container">
                               <Sparkles className="w-12 h-12 text-yellow-500 animate-spin" />
                             </div>
-                            <h4 className="font-bold text-base text-foreground text-center">🤖 AI is analyzing your project...</h4>
+                            <h4 className="font-bold text-base text-foreground text-center">⚡ Analyzing project architecture...</h4>
 
                             <div className="db-scanner-progress-bar-container">
                               <div className="db-scanner-progress-bar-ascii">
@@ -2934,16 +3201,16 @@ function Dashboard() {
                             </div>
                           </div>
                         ) : analysisResult ? (
-                          <div className="db-ai-report-card">
-                            <div className="db-ai-report-header">
+                          <div className="db-studio-report-card">
+                            <div className="db-studio-report-header">
                               <div className="flex items-center gap-2">
                                 <Sparkles className="w-5 h-5 text-yellow-500" />
-                                <h3 className="font-bold text-base text-foreground">AI Project Analysis Audit</h3>
+                                <h3 className="font-bold text-base text-foreground">Code & Architecture Audit</h3>
                               </div>
-                              <span className="db-ai-badge">Gemini-verified</span>
+                              <span className="db-studio-badge">Studio-verified</span>
                             </div>
 
-                            <div className="db-ai-report-grid">
+                            <div className="db-studio-report-grid">
                               {/* Left Column */}
                               <div className="space-y-5">
                                 <div className="db-report-block">
@@ -3009,7 +3276,7 @@ function Dashboard() {
 
                               {/* Right Column */}
                               <div className="space-y-5">
-                                <div className="db-report-block db-ai-score-block">
+                                <div className="db-report-block db-studio-score-block">
                                   <div className="flex justify-between items-center">
                                     <div>
                                       <h4 className="db-report-block-title">Overall Quality Rating</h4>
@@ -3120,7 +3387,7 @@ function Dashboard() {
                                 </div>
 
                                 <div className="db-report-block">
-                                  <h4 className="db-report-block-title text-yellow-500">AI Recommendations</h4>
+                                  <h4 className="db-report-block-title text-yellow-500">Architecture & Code Recommendations</h4>
                                   <ul className="db-suggestions-list">
                                     {analysisResult.ai_suggestions.map((sug, i) => (
                                       <li key={i} className="text-xs text-muted-foreground">{sug}</li>
@@ -3161,10 +3428,10 @@ function Dashboard() {
                             <Info className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
                             <div className="space-y-1">
                               <p className="text-xs font-bold text-amber-400">
-                                ⚠️ Incomplete AI Detection - Action Required
+                                ⚠️ Incomplete Auto-Detection - Action Required
                               </p>
                               <p className="text-[11px] text-slate-300 leading-relaxed">
-                                Our AI code audit could not fully determine all metadata (e.g. category mapping, title, framework, or descriptions) from your upload. Please review all fields below and manually answer these questions to ensure buyers can search and find your template accurately.
+                                Our code audit could not fully determine all metadata (e.g. category mapping, title, framework, or descriptions) from your upload. Please review all fields below and manually answer these questions to ensure buyers can search and find your template accurately.
                               </p>
                             </div>
                           </div>
@@ -3172,7 +3439,7 @@ function Dashboard() {
                           <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl flex items-center gap-3">
                             <Sparkles className="w-5 h-5 text-primary shrink-0" />
                             <p className="text-xs text-muted-foreground leading-relaxed">
-                              <strong>AI Auto-Fill Active:</strong> We have analyzed your project and pre-filled standard catalog details. Please review these parameters and click <strong>Publish Template</strong>.
+                              <strong>Instant Auto-Fill Active:</strong> We have analyzed your project and pre-filled standard catalog details. Please review these parameters and click <strong>Publish Template</strong>.
                             </p>
                           </div>
                         )}
@@ -3180,7 +3447,7 @@ function Dashboard() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div>
                             <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
-                              Template Title * {isIncompleteAnalysis && !title && <span className="text-amber-500 font-bold normal-case ml-1">(AI could not detect - input manually)</span>}
+                              Template Title * {isIncompleteAnalysis && !title && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - input manually)</span>}
                             </label>
                             <input
                               type="text"
@@ -3206,7 +3473,7 @@ function Dashboard() {
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                           <div>
                             <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
-                              Category * {isIncompleteAnalysis && !categoryId && <span className="text-amber-500 font-bold normal-case ml-1">(AI could not detect - select manually)</span>}
+                              Category * {isIncompleteAnalysis && !categoryId && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - select manually)</span>}
                             </label>
                             <select
                               required
@@ -3222,7 +3489,7 @@ function Dashboard() {
                           </div>
                           <div>
                             <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
-                              Framework * {isIncompleteAnalysis && !framework && <span className="text-amber-500 font-bold normal-case ml-1">(AI could not detect - select manually)</span>}
+                              Framework * {isIncompleteAnalysis && !framework && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - select manually)</span>}
                             </label>
                             <select
                               required
@@ -3248,6 +3515,49 @@ function Dashboard() {
                               <option value="extended" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Extended License</option>
                             </select>
                           </div>
+                        </div>
+
+                        {/* Sub-Category / Industry Focus */}
+                        <div className="space-y-1.5 p-3.5 bg-muted/10 border border-border/40 rounded-xl">
+                          <div className="flex items-center justify-between">
+                            <label className="block text-xs font-semibold text-foreground uppercase">
+                              Sub-Category / Specialization
+                            </label>
+                            {subCategory && (
+                              <span className="text-[10px] text-primary font-semibold">Selected: {subCategory}</span>
+                            )}
+                          </div>
+                          <input
+                            type="text"
+                            value={subCategory}
+                            onChange={(e) => setSubCategory(e.target.value)}
+                            placeholder="e.g. Small Business, Accounting, Corporate, Dashboard, Cafe, Clinic"
+                            className="w-full px-4 py-2 rounded-lg glass border border-border/50 text-xs focus:outline-none focus:border-primary bg-card/50"
+                          />
+                          {categoryId && categories.find(c => c.id === categoryId) && (
+                            <div className="flex flex-wrap gap-1.5 pt-1.5">
+                              {(DASHBOARD_SUB_CATEGORIES[categories.find(c => c.id === categoryId)?.slug] || ["General", "Custom"]).map(sub => (
+                                <button
+                                  key={sub}
+                                  type="button"
+                                  onClick={() => {
+                                    setSubCategory(sub);
+                                    if (!tags.toLowerCase().includes(sub.toLowerCase())) {
+                                      setTags(prev => prev ? `${prev}, ${sub.toLowerCase()}` : sub.toLowerCase());
+                                    }
+                                  }}
+                                  className={cn(
+                                    "text-[10px] px-2 py-0.5 rounded-full border transition-all cursor-pointer",
+                                    subCategory.toLowerCase() === sub.toLowerCase()
+                                      ? "bg-primary/20 text-primary border-primary font-semibold"
+                                      : "bg-muted/20 text-muted-foreground border-border/40 hover:bg-primary/10 hover:text-foreground"
+                                  )}
+                                >
+                                  {sub}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -3318,7 +3628,7 @@ function Dashboard() {
 
                         <div>
                           <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
-                            Short Description * {isIncompleteAnalysis && !shortDesc && <span className="text-amber-500 font-bold normal-case ml-1">(AI could not detect - fill in manually)</span>}
+                            Short Description * {isIncompleteAnalysis && !shortDesc && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - fill in manually)</span>}
                           </label>
                           <input
                             type="text"
@@ -3331,7 +3641,7 @@ function Dashboard() {
 
                         <div>
                           <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
-                            Description * {isIncompleteAnalysis && !desc && <span className="text-amber-500 font-bold normal-case ml-1">(AI could not detect - fill in manually)</span>}
+                            Description * {isIncompleteAnalysis && !desc && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - fill in manually)</span>}
                           </label>
                           <textarea
                             rows={4}
@@ -3383,7 +3693,7 @@ function Dashboard() {
                             onClick={() => setWizardStep(2)}
                             className="px-4 py-2 border border-border hover:border-slate-500 rounded-xl text-xs font-semibold transition-all"
                           >
-                            Back to AI Report
+                            Back to Audit Report
                           </button>
                           <button
                             type="submit"
@@ -4506,14 +4816,14 @@ function Dashboard() {
                       className="space-y-4"
                     >
                       <div className="space-y-1">
-                        <label className="text-xs font-semibold text-slate-300 block">Select AI Project / Template</label>
+                        <label className="text-xs font-semibold text-slate-300 block">Select Project / Template</label>
                         <select
                           value={deployTemplateId}
                           onChange={(e) => {
                             const val = e.target.value;
                             setDeployTemplateId(val);
                             if (val === "mock-project-id") {
-                              setDeployProjectName("AI Restaurant Prototype");
+                              setDeployProjectName("Restaurant Demo Prototype");
                             } else {
                               const matched = sellerTemplatesList.find(t => t.id === val);
                               if (matched) setDeployProjectName(matched.title);
@@ -4527,7 +4837,7 @@ function Dashboard() {
                               <option key={t.id} value={t.id}>{t.title} ({t.framework || "HTML"})</option>
                             ))
                           ) : (
-                            <option value="mock-project-id">AI Restaurant Prototype (HTML)</option>
+                            <option value="mock-project-id">Restaurant Demo Prototype (HTML)</option>
                           )}
                         </select>
                       </div>
@@ -4573,7 +4883,7 @@ function Dashboard() {
 
                       <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl space-y-3">
                         <div className="flex items-center gap-1.5 text-xs text-primary font-bold uppercase tracking-wider">
-                          <Sparkles className="w-3.5 h-3.5 text-primary" /> AI Auto-Detected Build Settings
+                          <Sparkles className="w-3.5 h-3.5 text-primary" /> Auto-Detected Build Settings
                         </div>
                         <div className="grid grid-cols-3 gap-2 text-xs text-slate-300">
                           <div className="space-y-0.5">
@@ -4726,6 +5036,96 @@ function Dashboard() {
                           Close Console
                         </button>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* === VERSION HISTORY & ROLLBACK MODAL === */}
+              {isVersionModalOpen && versionDeployment && (
+                <div className="modal-backdrop">
+                  <div className="modal-content glass border border-border/40 p-6 rounded-2xl max-w-lg w-full space-y-4">
+                    <div className="flex justify-between items-center border-b border-border/20 pb-3">
+                      <div>
+                        <h3 className="font-bold text-lg text-white flex items-center gap-2">
+                          <History className="w-5 h-5 text-primary" /> Version History & Rollback
+                        </h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Project: <span className="text-foreground font-semibold">{versionDeployment.project_name}</span> ({versionDeployment.site_id || "SITE-CURRENT"})
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setIsVersionModalOpen(false);
+                          setVersionDeployment(null);
+                        }}
+                        className="text-muted-foreground hover:text-white transition-colors bg-transparent border-none text-xl cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </div>
+
+                    <p className="text-xs text-slate-300">
+                      Switch traffic instantly to any previous snapshot with atomic zero-downtime rollback.
+                    </p>
+
+                    {versionsLoading ? (
+                      <div className="text-center py-8">
+                        <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" />
+                        <p className="text-xs text-muted-foreground mt-2">Loading version history...</p>
+                      </div>
+                    ) : versionsList.length === 0 ? (
+                      <div className="p-5 border border-dashed border-border/40 rounded-xl text-center text-xs text-muted-foreground">
+                        No previous historical versions found. Current version is <span className="text-primary font-bold">{versionDeployment.current_version || "v1.0"}</span>.
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                        {versionsList.map((ver) => {
+                          const isCurrent = ver.version === versionDeployment.current_version;
+                          return (
+                            <div key={ver.id} className={`p-3 rounded-xl border flex items-center justify-between transition-all ${isCurrent ? "bg-primary/10 border-primary/40" : "bg-card/20 border-border/40 hover:bg-muted/20"}`}>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-sm text-foreground">{ver.version}</span>
+                                  {isCurrent && (
+                                    <span className="text-[10px] bg-emerald-500/20 text-emerald-400 font-bold px-2 py-0.5 rounded-full border border-emerald-500/30 uppercase tracking-wider">
+                                      Active Live
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[11px] text-muted-foreground mt-0.5">
+                                  {ver.commit_message || "Automated deployment"} • {new Date(ver.created_at).toLocaleDateString()}
+                                </div>
+                              </div>
+
+                              {!isCurrent ? (
+                                <button
+                                  onClick={() => handleRollback(ver.version)}
+                                  className="px-3 py-1.5 bg-primary text-white rounded-lg text-xs font-semibold hover:bg-primary/90 transition-all cursor-pointer flex items-center gap-1 shadow-md shadow-primary/20"
+                                >
+                                  <History className="w-3.5 h-3.5" /> Rollback to {ver.version}
+                                </button>
+                              ) : (
+                                <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5" /> Serving Live
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <div className="flex justify-end pt-3 border-t border-border/20">
+                      <button
+                        onClick={() => {
+                          setIsVersionModalOpen(false);
+                          setVersionDeployment(null);
+                        }}
+                        className="px-4 py-2 bg-muted border border-border/40 hover:bg-muted/80 text-foreground text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                      >
+                        Close
+                      </button>
                     </div>
                   </div>
                 </div>

@@ -82,13 +82,13 @@ def send_smtp_email_sync(to_email: str, subject: str, body: str):
         print(f"\n[EMAIL ERROR] Failed to send email via SMTP to {to_email}: {e}\n")
 
 async def send_otp_email(to_email: str, otp: str):
-    subject = f"Your OTP Verification Code - AI Site Studio"
+    subject = f"Your OTP Verification Code - Site Studio"
     body = f"""
     <html>
       <body style="font-family: sans-serif; line-height: 1.5; color: #333;">
         <div style="max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
           <h2 style="color: #6366f1;">Verify Your Email Address</h2>
-          <p>Thank you for using AI Site Studio. Please use the following One-Time Passcode (OTP) to complete your verification. This code is valid for 5 minutes:</p>
+          <p>Thank you for using Site Studio. Please use the following One-Time Passcode (OTP) to complete your verification. This code is valid for 5 minutes:</p>
           <div style="font-size: 24px; font-weight: bold; color: #4f46e5; letter-spacing: 2px; text-align: center; margin: 30px 0; padding: 15px; background-color: #f5f3ff; border-radius: 6px;">
             {otp}
           </div>

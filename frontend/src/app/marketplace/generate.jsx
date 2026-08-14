@@ -3,20 +3,89 @@ import { createPortal } from "react-dom";
 import {
   Sparkles, ArrowLeft, ArrowRight, Loader2, CheckCircle2, Image as ImageIcon,
   Globe, Layers, FileText, LayoutGrid, Plus, Trash2, Info, Building2, Palette,
-  Phone, Mail, MapPin, Share2, Wand2, Edit3, Check, RefreshCw, Eye, Upload, Link as LinkIcon, ShoppingBag, X
+  Phone, Mail, MapPin, Share2, Wand2, Edit3, Check, RefreshCw, Eye, Upload, Link as LinkIcon, ShoppingBag, X, Zap,
+  Download, ShoppingCart, Folder
 } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
+import { useCartStore } from "@/store";
 import Navbar from "@/components/layout/Navbar";
 import "./Page.css";
 
 const GENERATION_STEPS = [
-  { id: 1, label: "Analyzing prompt & architecture requirements...", duration: 800 },
-  { id: 2, label: "Crafting description & marketplace metadata...", duration: 1000 },
-  { id: 3, label: "Designing developer brand logo...", duration: 800 },
-  { id: 4, label: "Generating high-fidelity page screenshots & code structure...", duration: 1200 },
-  { id: 5, label: "Indexing in vector space...", duration: 600 },
+  {
+    id: 1,
+    agent: "Agent 1/8 (Planning Agent)",
+    icon: "📋",
+    name: "Planning Agent",
+    title: "Analyzing domain requirements & architectural site breakdown...",
+    detail: "Synthesizing page hierarchy, multi-page routes, and business specifications.",
+    duration: 2400,
+  },
+  {
+    id: 2,
+    agent: "Agent 2/8 (UI Designer Agent)",
+    icon: "🎨",
+    name: "UI Designer Agent",
+    title: "Establishing typography, color palette & design tokens...",
+    detail: "Configuring tailored HSL tokens, dark theme contrast, and font styling.",
+    duration: 2400,
+  },
+  {
+    id: 3,
+    agent: "Agent 3/8 (Frontend Agent)",
+    icon: "💻",
+    name: "Frontend Agent",
+    title: "Synthesizing multi-page React components & responsive layouts...",
+    detail: "Engineering clean React 18 + Tailwind layout with interactive navigation.",
+    duration: 4200,
+  },
+  {
+    id: 4,
+    agent: "Agent 4/8 (Backend Agent)",
+    icon: "⚙️",
+    name: "Backend Agent",
+    title: "Synthesizing dedicated standalone REST API endpoints...",
+    detail: "Generating endpoints: /api/contact, /api/leads, /api/health.",
+    duration: 2500,
+  },
+  {
+    id: 5,
+    agent: "Agent 5/8 (Database Agent)",
+    icon: "🗄️",
+    name: "Database Agent",
+    title: "Initializing isolated SQLite database & seed fixtures...",
+    detail: "Scaffolding data tables, indexes, and initial demo data models.",
+    duration: 2200,
+  },
+  {
+    id: 6,
+    agent: "Agent 6/8 (SEO Agent)",
+    icon: "🔍",
+    name: "SEO Agent",
+    title: "Synthesizing Schema.org JSON-LD & OpenGraph meta tags...",
+    detail: "Configuring structured data, semantic headers, and robots.txt rules.",
+    duration: 2000,
+  },
+  {
+    id: 7,
+    agent: "Agent 7/8 (Testing Agent)",
+    icon: "🧪",
+    name: "Testing Agent",
+    title: "Running AST syntax repair & autonomous AI compiler audit...",
+    detail: "Validating JSX balancing, resolving imports, and checking build integrity.",
+    duration: 2400,
+  },
+  {
+    id: 8,
+    agent: "Agent 8/8 (Deployment Agent)",
+    icon: "📦",
+    name: "Deployment Agent",
+    title: "Packaging full-stack ZIP & registering Studio Project...",
+    detail: "Persisting standalone archive in database and initializing live preview.",
+    duration: 2000,
+  },
 ];
 
 const PRESET_COLOR_PALETTES = [
@@ -35,7 +104,7 @@ const PRESET_COLOR_PALETTES = [
 ];
 
 const POPULAR_INDUSTRIES = [
-  "SaaS & AI Platform",
+  "SaaS & Tech Platform",
   "Creative Studio & Agency",
   "E-Commerce & Retail Store",
   "Restaurant & Cafe",
@@ -330,7 +399,7 @@ export default function GenerateTemplatePage() {
 
   // Structured Business Fields
   const [businessName, setBusinessName] = useState("");
-  const [businessType, setBusinessType] = useState("SaaS & AI Platform");
+  const [businessType, setBusinessType] = useState("SaaS & Tech Platform");
   const [customBusinessType, setCustomBusinessType] = useState("");
   const [businessDescription, setBusinessDescription] = useState("");
 
@@ -365,8 +434,10 @@ export default function GenerateTemplatePage() {
   // Prompt & Generation States
   const [prompt, setPrompt] = useState(location.state?.prompt || "");
   const [framework, setFramework] = useState("html");
+  const [backendFramework, setBackendFramework] = useState("fastapi");
   const [cssEngine, setCssEngine] = useState("tailwind");
-  const [techTab, setTechTab] = useState("framework"); // "framework" | "css"
+  const [techTab, setTechTab] = useState("framework"); // "framework" | "backend" | "css"
+  const [projectScope, setProjectScope] = useState("fullstack"); // "frontend" | "fullstack"
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState([]);
@@ -387,6 +458,29 @@ export default function GenerateTemplatePage() {
   const [multiPageCache, setMultiPageCache] = useState([]);
   const [newPageName, setNewPageName] = useState("");
   const [isPreparing, setIsPreparing] = useState(false);
+  const [isGeneratingPalette, setIsGeneratingPalette] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  // Cart hooks
+  const addToCart = useCartStore((s) => s.addItem);
+  const isInCart = useCartStore((s) => s.isInCart(generatedTemplate?.id));
+
+  // Download Generated Template ZIP handler
+  const handleDownloadSource = async () => {
+    if (!generatedTemplate?.id) return;
+    setIsDownloading(true);
+    try {
+      const res = await api.post(`/templates/${generatedTemplate.id}/download?format=zip`, {}, token);
+      if (res?.download_url) {
+        window.open(res.download_url, "_blank");
+      }
+    } catch (err) {
+      console.error("Failed to download template:", err);
+      alert("Failed to download template zip. Please try again.");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   // Handle Dynamic Brand Colors
   const handleAddCustomColor = () => {
@@ -432,7 +526,7 @@ export default function GenerateTemplatePage() {
     }
   };
 
-  // Magic AI Random Palette Generator
+  // Dynamic Random Palette Generator
   const handleGenerateRandomPalette = () => {
     const hue = Math.floor(Math.random() * 360);
     const priHex = hsvToHex(hue, 85, 55);
@@ -448,6 +542,35 @@ export default function GenerateTemplatePage() {
       })
     );
     setSelectedColorPreset("custom");
+  };
+
+  // Dynamic Studio Palette Generator (Calls AI API or falls back to harmonic generation)
+  const handleGenerateStudioPalette = async () => {
+    setIsGeneratingPalette(true);
+    try {
+      const res = await api.post("/ai/color-palette", {
+        industry: businessType === "Other (Custom)" ? (customBusinessType || "General") : (businessType || "SaaS & Tech Platform"),
+        mood: "professional"
+      }, token);
+      if (res && res.primary) {
+        setBrandColorsList((prev) =>
+          prev.map((c) => {
+            if (c.id === "primary") return { ...c, hex: res.primary || res.primary_color || "#10b981" };
+            if (c.id === "secondary") return { ...c, hex: res.secondary || res.secondary_color || "#0f172a" };
+            if (c.id === "accent") return { ...c, hex: res.accent || res.accent_color || "#38bdf8" };
+            return c;
+          })
+        );
+        setSelectedColorPreset("custom");
+      } else {
+        handleGenerateRandomPalette();
+      }
+    } catch (err) {
+      console.warn("AI palette generator fallback to harmonic palette:", err);
+      handleGenerateRandomPalette();
+    } finally {
+      setIsGeneratingPalette(false);
+    }
   };
 
   // Upload Logo File Handler
@@ -540,7 +663,7 @@ export default function GenerateTemplatePage() {
     setPrompt(synth);
   };
 
-  // Handle AI Prompt Enhancement
+  // Handle Prompt Enhancement
   const handleEnhancePrompt = async () => {
     const activePrompt = prompt.trim() || buildSynthesizedPrompt();
     if (!activePrompt || activePrompt.length < 5) {
@@ -731,7 +854,9 @@ export default function GenerateTemplatePage() {
         {
           prompt,
           framework,
+          backend_framework: backendFramework,
           css_engine: cssEngine,
+          project_scope: projectScope,
           answers,
           pages: selectedPages,
           architecture_type: architectureType,
@@ -768,7 +893,7 @@ export default function GenerateTemplatePage() {
       );
 
       setGeneratedTemplate(response);
-      setCompletedSteps([1, 2, 3, 4, 5]);
+      setCompletedSteps([1, 2, 3, 4, 5, 6, 7, 8]);
       setCurrentStep(GENERATION_STEPS.length);
     } catch (err) {
       console.error(err);
@@ -805,10 +930,10 @@ export default function GenerateTemplatePage() {
             </Link>
             <h1 className="generate-title">
               <Sparkles className="title-icon text-primary animate-pulse" />
-              <span>AI Website Creator & Template Studio</span>
+              <span>Website Studio Creator & Builder</span>
             </h1>
             <p className="generate-subtitle">
-              Enter your exact business details, brand colors, logo, and contact info. Our AI pipeline synthesizes your inputs and builds a hyper-personalized production template.
+              Enter your exact business details, brand colors, logo, and contact info. Our studio pipeline synthesizes your inputs and builds a hyper-personalized production template.
             </p>
           </div>
 
@@ -833,7 +958,7 @@ export default function GenerateTemplatePage() {
               /* Prompt Input Form */
               <form onSubmit={handlePrepare} className="prompt-form glass-panel animate-fade-in">
 
-                {/* Top Mode Selector: AI Creator vs Quick Prompt */}
+                {/* Top Mode Selector: Studio Creator vs Quick Prompt */}
                 <div className="creator-mode-tabs">
                   <button
                     type="button"
@@ -841,7 +966,7 @@ export default function GenerateTemplatePage() {
                     className={`mode-tab-btn ${creatorMode === "creator" ? "active" : ""}`}
                   >
                     <Building2 className="w-4 h-4 text-primary" />
-                    <span>Detailed AI Creator Mode</span>
+                    <span>Detailed Studio Creator Mode</span>
                   </button>
                   <button
                     type="button"
@@ -853,7 +978,7 @@ export default function GenerateTemplatePage() {
                   </button>
                 </div>
 
-                {/* Structured AI Creator Inputs */}
+                {/* Structured Studio Creator Inputs */}
                 {creatorMode === "creator" && (
                   <div className="business-details-section animate-fade-in">
                     <div className="business-section-header">
@@ -925,12 +1050,13 @@ export default function GenerateTemplatePage() {
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={handleGenerateRandomPalette}
-                            className="px-2.5 py-1 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors shadow-sm"
-                            title="Generate random AI palette"
+                            onClick={handleGenerateStudioPalette}
+                            disabled={isGeneratingPalette}
+                            className="btn-studio-palette"
+                            title="Generate harmonic palette"
                           >
-                            <Sparkles className="w-3.5 h-3.5" />
-                            <span>Magic AI Palette</span>
+                            <Sparkles className={`w-3.5 h-3.5 ${isGeneratingPalette ? "animate-spin" : ""}`} />
+                            <span>Dynamic Palette</span>
                           </button>
 
                           <div className="flex items-center gap-1 p-0.5 rounded-lg bg-muted/40 border border-border">
@@ -1031,7 +1157,7 @@ export default function GenerateTemplatePage() {
                       </div>
                     </div>
 
-                    {/* Logo Specification (Upload vs Link URL vs AI Prompt) */}
+                    {/* Logo Specification (Upload vs Link URL vs Dynamic Generator) */}
                     <div>
                       <label className="prompt-label text-xs uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-1.5">
                         <ImageIcon className="w-4 h-4 text-primary" />
@@ -1072,7 +1198,7 @@ export default function GenerateTemplatePage() {
                           }`}
                         >
                           <Sparkles className="w-4 h-4 text-primary" />
-                          <span className="text-xs">AI Generated Logo</span>
+                          <span className="text-xs">Dynamic Logo Generator</span>
                         </button>
                       </div>
 
@@ -1212,7 +1338,7 @@ export default function GenerateTemplatePage() {
                   <div className="flex items-center justify-between mb-2">
                     <label htmlFor="prompt" className="prompt-label mb-0 flex items-center gap-2">
                       <Edit3 className="w-4 h-4 text-primary" />
-                      <span>{creatorMode === "creator" ? "Live AI Prompt & Architecture Spec Editor" : "Describe your dream website template"}</span>
+                      <span>{creatorMode === "creator" ? "Live Prompt & Architecture Spec Editor" : "Describe your dream website template"}</span>
                     </label>
                     <div className="flex items-center gap-2">
                       {creatorMode === "creator" && (
@@ -1231,7 +1357,7 @@ export default function GenerateTemplatePage() {
                         onClick={handleEnhancePrompt}
                         disabled={isEnhancing}
                         className="px-3 py-1 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                        title="Refine simple prompt ideas into detailed architectural design specs with Gemini Pro"
+                        title="Refine simple prompt ideas into detailed architectural design specs"
                       >
                         {isEnhancing ? (
                           <>
@@ -1241,7 +1367,7 @@ export default function GenerateTemplatePage() {
                         ) : (
                           <>
                             <Sparkles className="w-3.5 h-3.5" />
-                            <span>Enhance Prompt with AI</span>
+                            <span>Enhance Prompt Spec</span>
                           </>
                         )}
                       </button>
@@ -1264,7 +1390,7 @@ export default function GenerateTemplatePage() {
                   <div className="p-3 mb-6 bg-primary/5 border border-primary/20 rounded-xl text-xs text-foreground">
                     <div className="flex items-center gap-2 mb-1 text-primary font-semibold">
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>AI Design Brief Applied</span>
+                      <span>Design Brief Applied</span>
                     </div>
                     <p className="text-muted-foreground mb-2">{enhancedSpecs.enhanced_prompt}</p>
                     <div className="flex flex-wrap gap-2 text-[11px]">
@@ -1299,6 +1425,22 @@ export default function GenerateTemplatePage() {
                       <span>Frontend Frameworks</span>
                       <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary-foreground/20 text-current font-mono">
                         {framework.toUpperCase()}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setTechTab("backend")}
+                      className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-xs transition-all duration-200 flex items-center justify-center gap-2 select-none ${
+                        techTab === "backend"
+                          ? "bg-indigo-600 text-white shadow-md ring-1 ring-indigo-500/40"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                      }`}
+                    >
+                      <Building2 className="w-4 h-4" />
+                      <span>Backend Frameworks</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/20 text-current font-mono">
+                        {backendFramework.toUpperCase()}
                       </span>
                     </button>
 
@@ -1393,7 +1535,81 @@ export default function GenerateTemplatePage() {
                     </div>
                   )}
 
-                  {/* TAB CONTENT 2: CSS & STYLING TOOLS */}
+                  {/* TAB CONTENT 2: BACKEND FRAMEWORKS */}
+                  {techTab === "backend" && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                          <Building2 className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>Select Dedicated Backend API Framework (8 Options)</span>
+                        </span>
+                        <span className="text-[10px] text-muted-foreground font-mono">
+                          Active: {backendFramework.toUpperCase()}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                        {[
+                          { id: "fastapi", name: "FastAPI (Python 3.12)", icon: Building2, badge: "Async Python", color: "from-emerald-500/20 to-teal-600/20 text-emerald-400 border-emerald-500/30", desc: "Ultra-fast async Python API with Pydantic & OpenAPI docs" },
+                          { id: "express", name: "Express.js (Node.js)", icon: Layers, badge: "Node.js", color: "from-amber-500/20 to-yellow-600/20 text-amber-400 border-amber-500/30", desc: "Lightweight, unopinionated Node.js REST API server" },
+                          { id: "nestjs", name: "NestJS (TypeScript)", icon: Sparkles, badge: "TypeScript", color: "from-rose-500/20 to-pink-600/20 text-rose-400 border-rose-500/30", desc: "Progressive enterprise TypeScript microservices framework" },
+                          { id: "django", name: "Django (Python 5)", icon: Wand2, badge: "Django ORM", color: "from-green-600/20 to-emerald-800/20 text-green-300 border-green-500/30", desc: "High-level Python web framework with built-in ORM & admin" },
+                          { id: "springboot", name: "Spring Boot 3 (Java)", icon: LayoutGrid, badge: "Java 21", color: "from-sky-500/20 to-blue-600/20 text-sky-400 border-sky-500/30", desc: "Production-grade Java 21 REST API server & JPA data layer" },
+                          { id: "rails", name: "Ruby on Rails 7", icon: Layers, badge: "Ruby MVC", color: "from-red-500/20 to-rose-700/20 text-rose-300 border-rose-500/30", desc: "Full-stack Ruby MVC engine with ActiveRecord SQLite" },
+                          { id: "laravel", name: "Laravel 11 (PHP 8.3)", icon: Wand2, badge: "PHP Eloquent", color: "from-red-600/20 to-orange-600/20 text-orange-400 border-orange-500/30", desc: "Elegant PHP 8.3 web framework with Eloquent ORM" },
+                          { id: "actix", name: "Actix Web (Rust)", icon: Globe, badge: "Rust Async", color: "from-orange-500/20 to-amber-700/20 text-orange-300 border-orange-500/30", desc: "Blazing-fast, memory-safe Rust HTTP REST server" },
+                        ].map((be) => {
+                          const IconComp = be.icon;
+                          const isSelected = backendFramework === be.id;
+                          return (
+                            <div
+                              key={be.id}
+                              onClick={() => setBackendFramework(be.id)}
+                              className={`group relative p-3 rounded-xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between overflow-hidden select-none ${
+                                isSelected
+                                  ? "bg-indigo-500/10 border-indigo-500 shadow-lg ring-2 ring-indigo-500/40 -translate-y-0.5"
+                                  : "bg-card/80 backdrop-blur-sm border-border hover:border-indigo-500/40 hover:bg-muted/40 hover:-translate-y-0.5"
+                              }`}
+                            >
+                              {isSelected && (
+                                <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-transparent to-transparent pointer-events-none" />
+                              )}
+
+                              <div className="relative z-10">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className={`p-1.5 rounded-lg border bg-gradient-to-br ${be.color} shadow-sm group-hover:scale-105 transition-transform`}>
+                                    <IconComp className="w-3.5 h-3.5" />
+                                  </div>
+
+                                  <div className="flex items-center gap-1.5">
+                                    {isSelected ? (
+                                      <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md bg-indigo-600 text-white font-bold shadow-sm">
+                                        <Check className="w-3 h-3" />
+                                        <span>Active</span>
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-muted text-muted-foreground font-mono font-medium border border-border/60">
+                                        {be.badge}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <h3 className="font-bold text-xs text-foreground mb-0.5 group-hover:text-indigo-400 transition-colors">
+                                  {be.name}
+                                </h3>
+                                <p className="text-[10px] text-muted-foreground leading-snug">
+                                  {be.desc}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB CONTENT 3: CSS & STYLING TOOLS */}
                   {techTab === "css" && (
                     <div className="animate-in fade-in slide-in-from-bottom-2 duration-200">
                       <div className="flex items-center justify-between mb-3">
@@ -1468,6 +1684,97 @@ export default function GenerateTemplatePage() {
                   )}
                 </div>
 
+                {/* BUYER PROJECT ARCHITECTURE SCOPE (FRONTEND vs FULL-STACK BUNDLE) */}
+                <div className="form-group mb-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="prompt-label m-0 text-sm font-bold text-foreground flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-primary" />
+                      <span>Template Architecture & Backend Bundle</span>
+                    </label>
+                    <span className="text-[11px] text-muted-foreground font-mono bg-muted/60 px-2 py-0.5 rounded-md border border-border">
+                      Buyer Option
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div
+                      onClick={() => setProjectScope("fullstack")}
+                      className={`group relative p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between overflow-hidden select-none ${
+                        projectScope === "fullstack"
+                          ? "bg-primary/10 border-primary shadow-lg ring-2 ring-primary/40 -translate-y-0.5"
+                          : "bg-card/80 backdrop-blur-sm border-border hover:border-primary/40 hover:bg-muted/40 hover:-translate-y-0.5"
+                      }`}
+                    >
+                      {projectScope === "fullstack" && (
+                        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-transparent pointer-events-none" />
+                      )}
+
+                      <div className="relative z-10">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="p-2 rounded-lg border bg-gradient-to-br from-indigo-500/20 to-purple-600/20 text-indigo-400 border-indigo-500/30 shadow-sm group-hover:scale-105 transition-transform">
+                            <Zap className="w-4 h-4" />
+                          </div>
+                          {projectScope === "fullstack" ? (
+                            <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md bg-primary text-primary-foreground font-bold shadow-sm">
+                              <Check className="w-3 h-3" />
+                              <span>Selected</span>
+                            </span>
+                          ) : (
+                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-muted text-muted-foreground font-mono font-medium border border-border/60">
+                              RECOMMENDED
+                            </span>
+                          )}
+                        </div>
+
+                        <h3 className="font-bold text-xs text-foreground mb-1 group-hover:text-primary transition-colors">
+                          🚀 Full-Stack App (Frontend + Dedicated API + Isolated DB)
+                        </h3>
+                        <p className="text-[11px] text-muted-foreground leading-relaxed">
+                          Includes standalone Frontend app + dedicated backend API server (`backend/main.py`) + isolated local database (`app.db`).
+                        </p>
+                      </div>
+                    </div>
+
+                    <div
+                      onClick={() => setProjectScope("frontend")}
+                      className={`group relative p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between overflow-hidden select-none ${
+                        projectScope === "frontend"
+                          ? "bg-secondary/10 border-secondary shadow-lg ring-2 ring-secondary/40 -translate-y-0.5"
+                          : "bg-card/80 backdrop-blur-sm border-border hover:border-secondary/40 hover:bg-muted/40 hover:-translate-y-0.5"
+                      }`}
+                    >
+                      {projectScope === "frontend" && (
+                        <div className="absolute inset-0 bg-gradient-to-br from-secondary/10 via-transparent to-transparent pointer-events-none" />
+                      )}
+
+                      <div className="relative z-10">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="p-2 rounded-lg border bg-gradient-to-br from-sky-500/20 to-blue-600/20 text-sky-400 border-sky-500/30 shadow-sm group-hover:scale-105 transition-transform">
+                            <Layers className="w-4 h-4" />
+                          </div>
+                          {projectScope === "frontend" ? (
+                            <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground font-bold shadow-sm">
+                              <Check className="w-3 h-3" />
+                              <span>Selected</span>
+                            </span>
+                          ) : (
+                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-muted text-muted-foreground font-mono font-medium border border-border/60">
+                              UI ONLY
+                            </span>
+                          )}
+                        </div>
+
+                        <h3 className="font-bold text-xs text-foreground mb-1 group-hover:text-secondary transition-colors">
+                          🎨 Frontend UI Only (Standalone Component Package)
+                        </h3>
+                        <p className="text-[11px] text-muted-foreground leading-relaxed">
+                          Clean UI website codebase package (`package.json`, responsive components, styling engine, and Vite configuration).
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <button type="submit" disabled={isPreparing} className="submit-btn group">
                   {isPreparing ? (
                     <>
@@ -1488,12 +1795,12 @@ export default function GenerateTemplatePage() {
               /* Custom Questions Form */
               <div className="prompt-form glass-panel animate-fade-in">
 
-                {/* AI Prompt Analysis & Rationale Banner */}
+                {/* Prompt Analysis & Rationale Banner */}
                 <div className="ai-analysis-banner">
                   <div className="ai-analysis-header">
                     <div className="ai-badge">
                       <Sparkles className="w-4 h-4 text-primary" />
-                      <span>AI Prompt Analysis</span>
+                      <span>Prompt & Architecture Analysis</span>
                     </div>
                     <span className="arch-recommendation-tag">
                       Recommended: {architectureType === "single_page" ? "Single Page (SPA)" : "Multi-Page Site"}
@@ -1653,35 +1960,100 @@ export default function GenerateTemplatePage() {
             )}
 
             {isGenerating && !isGenerationComplete && (
-              /* Progress Step Indicator */
+              /* Autonomous Multi-Agent Progress Step Indicator */
               <div className="generation-loading-panel glass-panel">
-                <div className="loading-title-row">
-                  <Loader2 className="loading-spinner text-primary animate-spin" />
-                  <h2>Generating Template</h2>
+                <div className="loading-title-row flex items-center justify-between gap-4 border-b border-border/30 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                      <Sparkles className="w-5 h-5 animate-pulse" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold text-foreground">Autonomous Multi-Agent Synthesis</h2>
+                      <p className="text-xs text-muted-foreground">
+                        Coordinated 8-Agent pipeline is engineering, auditing, and packaging your full-stack project in real time.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <span className="text-xs font-mono font-bold text-cyan-400">
+                      {Math.min(100, Math.round((completedSteps.length / GENERATION_STEPS.length) * 100))}% Completed
+                    </span>
+                  </div>
                 </div>
-                <p className="loading-desc">
-                  Our advanced AI model is creating structure, mockups, and assets based on your prompt and business specs.
-                </p>
 
+                {/* Overall Top Progress Bar */}
+                <div className="w-full bg-muted/40 rounded-full h-2 overflow-hidden my-4 border border-border/20">
+                  <div
+                    className="bg-gradient-to-r from-cyan-500 via-primary to-emerald-500 h-full transition-all duration-500 rounded-full"
+                    style={{
+                      width: `${Math.min(100, Math.max(8, Math.round((completedSteps.length / GENERATION_STEPS.length) * 100)))}%`
+                    }}
+                  />
+                </div>
+
+                {/* 8 Agent Live Execution Cards */}
                 <div className="steps-list">
                   {GENERATION_STEPS.map((step, idx) => {
                     const isCompleted = completedSteps.includes(step.id);
-                    const isActive = currentStep === idx;
+                    const isActive = currentStep === idx && !isCompleted;
+                    const isPending = !isCompleted && !isActive;
+
                     return (
                       <div
                         key={step.id}
-                        className={`step-item ${isCompleted ? "completed" : ""} ${isActive ? "active" : ""}`}
+                        className={`agent-pipeline-card ${
+                          isCompleted ? "agent-completed" : isActive ? "agent-active" : "agent-pending"
+                        }`}
                       >
-                        <div className="step-bullet">
+                        <div className="agent-status-icon-wrapper">
                           {isCompleted ? (
-                            <CheckCircle2 className="w-5 h-5 text-emerald-500 fill-emerald-500/10" />
+                            <div className="agent-icon-completed">
+                              <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                            </div>
                           ) : isActive ? (
-                            <div className="pulse-bullet" />
+                            <div className="agent-icon-active">
+                              <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />
+                            </div>
                           ) : (
-                            <div className="empty-bullet" />
+                            <div className="agent-icon-pending">
+                              <span className="text-xs text-muted-foreground font-mono font-bold">{idx + 1}</span>
+                            </div>
                           )}
                         </div>
-                        <span className="step-label">{step.label}</span>
+
+                        <div className="agent-content-area">
+                          <div className="agent-title-row">
+                            <div className="flex items-center gap-2">
+                              <span className="text-base">{step.icon}</span>
+                              <span className="agent-name">
+                                {step.agent}
+                              </span>
+                            </div>
+                            {isCompleted && (
+                              <span className="agent-badge completed">
+                                <Check className="w-3 h-3" /> Completed (200 OK)
+                              </span>
+                            )}
+                            {isActive && (
+                              <span className="agent-badge active">
+                                <Sparkles className="w-3 h-3 animate-spin" /> Active Running...
+                              </span>
+                            )}
+                            {isPending && (
+                              <span className="agent-badge pending">
+                                Queued
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="agent-headline text-xs mt-1">
+                            {step.title}
+                          </p>
+
+                          <p className="agent-detail-text text-[11px] mt-0.5">
+                            {isCompleted ? step.detail : isActive ? "Executing live AI synthesis stage..." : "Waiting for preceding agent..."}
+                          </p>
+                        </div>
                       </div>
                     );
                   })}
@@ -1694,13 +2066,13 @@ export default function GenerateTemplatePage() {
               <div className="success-panel glass-panel">
                 <div className="success-header">
                   <CheckCircle2 className="success-icon text-emerald-500 animate-bounce" />
-                  <h2>Generation Successful!</h2>
-                  <p>Your custom website template has been successfully generated and published to the marketplace.</p>
+                  <h2>Project Successfully Created!</h2>
+                  <p>Your custom website project has been generated and saved in your Dashboard under Studio Projects. You can preview and edit it in the live canvas editor, or add it to cart to unlock full source code download and deployment.</p>
                 </div>
 
                 <div
                   className="generated-preview-card cursor-pointer hover:border-primary/50 transition-all group"
-                  onClick={() => navigate(`/preview?template=${generatedTemplate.slug}`)}
+                  onClick={() => navigate(`/preview?template=${generatedTemplate.slug || generatedTemplate.id}`)}
                   title="Click to launch live template viewer & canvas editor"
                 >
                   <div className="card-media">
@@ -1709,12 +2081,12 @@ export default function GenerateTemplatePage() {
                       alt={generatedTemplate.title}
                       className="card-image group-hover:scale-105 transition-transform duration-300"
                     />
-                    <div className="card-badge">AI Generated</div>
+                    <div className="card-badge">Studio Project</div>
                   </div>
                   <div className="card-info">
                     <div className="card-meta">
                       <span className="category-tag">{generatedTemplate.industry}</span>
-                      <span className="price-tag">${generatedTemplate.price}</span>
+                      <span className="price-tag">${generatedTemplate.price || 49}</span>
                     </div>
                     <h3 className="card-title flex items-center justify-between">
                       <span>{generatedTemplate.title}</span>
@@ -1733,6 +2105,44 @@ export default function GenerateTemplatePage() {
                   <button
                     type="button"
                     onClick={() => {
+                      addToCart({
+                        templateId: generatedTemplate.id,
+                        title: generatedTemplate.title,
+                        price: generatedTemplate.price || 49,
+                        thumbnail: generatedTemplate.thumbnail_url,
+                        licenseType: "regular",
+                      });
+                    }}
+                    className={`px-5 py-3 font-bold rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-md ${
+                      isInCart
+                        ? "bg-emerald-500/20 text-emerald-500 border border-emerald-500/40"
+                        : "bg-primary text-primary-foreground hover:opacity-90 shadow-primary/20"
+                    }`}
+                  >
+                    <ShoppingCart className="w-4 h-4" />
+                    <span>{isInCart ? "In Cart (Proceed to Checkout)" : "Add to Cart ($" + (generatedTemplate.price || 49) + ")"}</span>
+                  </button>
+
+                  <Link
+                    to="/dashboard?tab=studio-projects"
+                    className="secondary-action-btn border border-border bg-card text-foreground hover:bg-muted font-semibold py-3 px-4 rounded-xl flex items-center gap-2"
+                  >
+                    <Folder className="w-4 h-4 text-muted-foreground" />
+                    <span>View in Studio Projects</span>
+                  </Link>
+
+                  <Link
+                    to={`/preview?template=${generatedTemplate.slug || generatedTemplate.id}`}
+                    className="secondary-action-btn border border-border bg-card text-foreground hover:bg-muted font-semibold py-3 px-4 rounded-xl flex items-center gap-2"
+                  >
+                    <Eye className="w-4 h-4" />
+                    <span>Open Live Canvas Editor</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </Link>
+
+                  <button
+                    type="button"
+                    onClick={() => {
                       setIsGenerating(false);
                       setGeneratedTemplate(null);
                       setPrompt("");
@@ -1743,21 +2153,6 @@ export default function GenerateTemplatePage() {
                     <Plus className="w-4 h-4 text-muted-foreground" />
                     <span>Generate Another</span>
                   </button>
-                  <Link
-                    to={`/marketplace/${generatedTemplate.slug}`}
-                    className="secondary-action-btn border border-border bg-card text-foreground hover:bg-muted font-medium py-3 px-4 rounded-xl flex items-center gap-2"
-                  >
-                    <ShoppingBag className="w-4 h-4 text-muted-foreground" />
-                    <span>Marketplace Listing</span>
-                  </Link>
-                  <Link
-                    to={`/preview?template=${generatedTemplate.slug}`}
-                    className="primary-action-btn font-semibold py-3 px-5 rounded-xl flex items-center gap-2 shadow-lg shadow-primary/20"
-                  >
-                    <Eye className="w-4 h-4" />
-                    <span>Open Live Template Viewer</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </Link>
                 </div>
               </div>
             )}

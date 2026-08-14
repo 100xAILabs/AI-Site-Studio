@@ -9,8 +9,8 @@ import "./FeaturesSection.css";
 const FEATURES = [
   {
     icon: Brain,
-    title: "AI Content Generator",
-    description: "Describe your business and let AI write all your website copy — headlines, about us, services, and more.",
+    title: "Instant Content Generator",
+    description: "Describe your business and let our studio engine craft all your website copy — headlines, about us, services, and more.",
     gradient: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
   },
   {
@@ -21,8 +21,8 @@ const FEATURES = [
   },
   {
     icon: Palette,
-    title: "Color Palette AI",
-    description: "Tell us your brand mood and industry, and AI generates a perfect color palette for your business.",
+    title: "Dynamic Palette Engine",
+    description: "Tell us your brand mood and industry to generate a harmonic color palette for your business.",
     gradient: "linear-gradient(135deg, #ec4899 0%, #f43f5e 100%)",
   },
   {
@@ -32,15 +32,15 @@ const FEATURES = [
     gradient: "linear-gradient(135deg, #14b8a6 0%, #22c55e 100%)",
   },
   {
-    icon: MessageSquare,
-    title: "Chat Assistant",
-    description: "Ask questions, get template recommendations, and customize your website with a conversational AI.",
+    icon: Zap,
+    title: "One-Click Deployments",
+    description: "Export clean React or HTML source code, or deploy directly to Vercel, Netlify, and GitHub Pages in seconds.",
     gradient: "linear-gradient(135deg, #d946ef 0%, #ec4899 100%)",
   },
   {
     icon: Shield,
-    title: "Accessibility Checker",
-    description: "AI audits your template for WCAG compliance and suggests improvements for better accessibility.",
+    title: "Accessibility Audit",
+    description: "Automated auditing scans your template for WCAG compliance and suggests improvements for better accessibility.",
     gradient: "linear-gradient(135deg, #10b981 0%, #14b8a6 100%)",
   }
 ];
@@ -59,7 +59,7 @@ export default function FeaturesSection() {
             className="section-badge"
           >
             <Zap className="section-badge-icon" />
-            AI-Powered Features
+            Studio Platform Features
           </motion.div>
           <motion.h2
             initial={{ opacity: 0, y: 20 }}
@@ -78,8 +78,8 @@ export default function FeaturesSection() {
             transition={{ duration: 0.5, delay: 0.2 }}
             className="section-subtitle"
           >
-            AI Site Studio is not just a template marketplace — it's a complete
-            AI-powered website launch platform.
+            Site Studio is not just a template marketplace — it's a complete
+            modern website launch platform.
           </motion.p>
         </div>
 

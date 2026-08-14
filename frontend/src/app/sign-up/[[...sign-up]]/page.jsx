@@ -13,13 +13,13 @@ export default function SignUpPage() {
       <div className="signup-content-container">
         <div className="signup-header">
           <Link href="/" className="signup-logo-link">
-            <img src="/logo.png" alt="AI Site Studio Logo" className="navbar-logo-img" width={32} height={32} />
+            <img src="/logo.png" alt="Site Studio Logo" className="navbar-logo-img" width={32} height={32} />
             <span className="signup-logo-text gradient-text">
-              AI Site Studio
+              Site Studio
             </span>
           </Link>
           <h2 className="signup-title">Create your account</h2>
-          <p className="signup-subtitle">Start building and customizing with AI today</p>
+          <p className="signup-subtitle">Start building and customizing your dream site today</p>
         </div>
 
         <div className="signup-form-wrapper">

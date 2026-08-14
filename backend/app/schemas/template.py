@@ -189,6 +189,7 @@ class TemplateListResponse(BaseModel):
 class TemplateFilterParams(BaseModel):
     """Query parameters for marketplace filtering."""
     category: Optional[str] = None
+    sub_category: Optional[str] = None
     min_price: Optional[Decimal] = None
     max_price: Optional[Decimal] = None
     rating: Optional[float] = None
@@ -214,18 +215,51 @@ class TemplateFilterParams(BaseModel):
     developer: Optional[str] = None
 
 
+class TemplateQuestion(BaseModel):
+    id: str
+    question: str
+    options: List[str]
+
+
+class TemplatePageItem(BaseModel):
+    name: str
+    filename: str
+    content_summary: Optional[str] = None
+
+
 class TemplatePrepareRequest(BaseModel):
     prompt: str
     model_tier: Optional[str] = "pro"  # "pro" | "flash"
+    business_name: Optional[str] = None
+    business_type: Optional[str] = None
+    brand_colors: Optional[Dict[str, Any]] = None
+    logo_info: Optional[Dict[str, Any]] = None
+    contact_details: Optional[Dict[str, Any]] = None
+
+
+class TemplatePrepareResponse(BaseModel):
+    architecture_type: str = "multi_page"  # single_page | multi_page
+    is_multipage: bool = True
+    architecture_reasoning: str = ""
+    questions: List[TemplateQuestion] = []
+    suggested_pages: List[TemplatePageItem] = []
 
 
 class TemplateGenerateRequest(BaseModel):
     prompt: str
     framework: Optional[str] = "html"
+    backend_framework: Optional[str] = "fastapi"
     css_engine: Optional[str] = "tailwind"
-    answers: Optional[Dict[str, str]] = None
+    project_scope: Optional[str] = "fullstack"  # "frontend" | "fullstack"
+    answers: Optional[Dict[str, Any]] = None
     pages: Optional[List[Dict[str, Any]]] = None
     architecture_type: Optional[str] = "multi_page"
     is_multipage: Optional[bool] = True
     model_tier: Optional[str] = "pro"  # "pro" | "flash"
+    business_name: Optional[str] = None
+    business_type: Optional[str] = None
+    brand_colors: Optional[Dict[str, Any]] = None
+    logo_info: Optional[Dict[str, Any]] = None
+    contact_details: Optional[Dict[str, Any]] = None
+
 

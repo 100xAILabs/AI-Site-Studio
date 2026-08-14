@@ -51,6 +51,7 @@ function Marketplace() {
     if (Object.keys(params).length > 0) {
       setFilters({
         category: params.category,
+        sub_category: params.sub_category,
         q: params.q,
         sort: params.sort ?? "newest",
         page: params.page ? Number(params.page) : 1,
@@ -130,7 +131,7 @@ function Marketplace() {
               {/* ── Toolbar ──────────────────────────────────────── */}
               <div className="marketplace-toolbar">
 
-                {/* Row 1 — Search bar + AI toggle */}
+                {/* Row 1 — Search bar + Semantic toggle */}
                 <div className="toolbar-row">
                   <div className={cn("marketplace-search-wrapper", filters.semantic && "ai-active")}>
                     <div className="marketplace-search">
@@ -169,10 +170,10 @@ function Marketplace() {
                       type="button"
                       onClick={triggerAISearch}
                       className={cn("ai-toggle-btn", filters.semantic && "active")}
-                      title="Run AI Semantic Search on this query"
+                      title="Run Semantic Search on this query"
                     >
                       <Sparkles className={cn("ai-toggle-icon", filters.semantic && "glow-animation")} />
-                      <span>AI Search</span>
+                      <span>Semantic Search</span>
                     </button>
                   </div>
                 </div>
@@ -197,10 +198,10 @@ function Marketplace() {
                     onClick={() => navigate("/marketplace/generate")}
                     className="marketplace-ai-generate-btn"
                     style={{ marginRight: "0.75rem" }}
-                    title="Generate a custom template using AI"
+                    title="Generate a custom template in the studio"
                   >
                     <Sparkles className="ai-generate-icon animate-pulse" />
-                    <span>AI Creator</span>
+                    <span>Studio Creator</span>
                   </button>
 
                   <div className="view-toggle">

@@ -92,13 +92,13 @@ export default function ReceiptPage() {
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-extrabold text-lg text-primary uppercase tracking-wider print:text-primary">
-                  AI Site Studio
+                  Site Studio
                 </span>
                 <span className="text-[9px] bg-green-500/10 text-green-400 border border-green-500/20 px-2 py-0.5 rounded-full font-bold uppercase flex items-center gap-1">
                   <CheckCircle className="w-2.5 h-2.5" /> PAID
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground mt-1 print:text-slate-500">Premium AI-Powered Website Template Marketplace</p>
+              <p className="text-xs text-muted-foreground mt-1 print:text-slate-500">Premium Website Template Marketplace</p>
             </div>
             <div className="mt-4 sm:mt-0 text-left sm:text-right text-xs text-muted-foreground space-y-1 print:text-slate-500">
               <p className="font-bold text-white print:text-slate-900 text-sm">INVOICE</p>
@@ -111,7 +111,7 @@ export default function ReceiptPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-xs border-b border-white/10 pb-6 print:border-slate-200 print:text-slate-600">
             <div>
               <p className="font-bold text-muted-foreground uppercase tracking-wider mb-2 print:text-slate-400">Sold By</p>
-              <p className="font-bold text-white print:text-slate-900">AI Site Studio LLC</p>
+              <p className="font-bold text-white print:text-slate-900">Site Studio LLC</p>
               <p className="text-muted-foreground print:text-slate-500">Global Website Marketplace</p>
               <p className="text-muted-foreground print:text-slate-500">billing@aisitestudio.com</p>
             </div>
@@ -182,7 +182,7 @@ export default function ReceiptPage() {
 
           {/* Note Footer */}
           <div className="border-t border-white/5 pt-6 text-[10px] text-muted-foreground text-center space-y-1 print:border-slate-200 print:text-slate-400">
-            <p>Thank you for your purchase from AI Site Studio!</p>
+            <p>Thank you for your purchase from Site Studio!</p>
             <p>For support or licensing inquiries, please visit your dashboard or contact support@aisitestudio.com.</p>
           </div>
         </div>

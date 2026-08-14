@@ -70,14 +70,25 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         
-        # Self-healing migration: Ensure deployments table has custom_domain column
-        try:
-            if conn.dialect.name == "sqlite":
-                await conn.execute(text("ALTER TABLE deployments ADD COLUMN custom_domain VARCHAR(255)"))
-            else:
-                await conn.execute(text("ALTER TABLE deployments ADD COLUMN IF NOT EXISTS custom_domain VARCHAR(255)"))
-        except Exception:
-            pass # Column already exists, safe to ignore
+        # Self-healing migration: Ensure deployments table has all multi-tenant columns
+        columns_to_add = [
+            ("custom_domain", "VARCHAR(255)"),
+            ("site_id", "VARCHAR(50)"),
+            ("current_version", "VARCHAR(50) DEFAULT 'v1.0'"),
+            ("deployment_type", "VARCHAR(50) DEFAULT 'static'"),
+            ("health_status", "VARCHAR(50) DEFAULT 'healthy'"),
+            ("deployment_path", "VARCHAR(500)"),
+            ("env_vars", "JSON"),
+            ("is_suspended", "BOOLEAN DEFAULT FALSE"),
+        ]
+        for col_name, col_type in columns_to_add:
+            try:
+                if conn.dialect.name == "sqlite":
+                    await conn.execute(text(f"ALTER TABLE deployments ADD COLUMN {col_name} {col_type}"))
+                else:
+                    await conn.execute(text(f"ALTER TABLE deployments ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
+            except Exception:
+                pass  # Column already exists, safe to ignore
 
     print("Database connected and tables verified")
 

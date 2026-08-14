@@ -165,13 +165,13 @@ export default function SignInPage({ isRegister = false }) {
         <div className="auth-brand-logo">
           <img
             src="/logo.png"
-            alt="AI Site Studio Logo"
+            alt="Site Studio Logo"
             className="navbar-logo-img"
             width={40}
             height={40}
           />
           <span className="auth-logo-text">
-            AI Site Studio
+            Site Studio
           </span>
         </div>
 
@@ -179,8 +179,8 @@ export default function SignInPage({ isRegister = false }) {
         <div className="auth-testimonial-section">
           <blockquote className="auth-blockquote">
             "Launched my portfolio in{" "}
-            <span style={{ color: "hsl(var(--primary))" }}>under 10 minutes</span> — AI
-            filled in the copy and it looked stunning."
+            <span style={{ color: "hsl(var(--primary))" }}>under 10 minutes</span> — Instant Fill
+            crafted the copy and it looked stunning."
           </blockquote>
           <div className="auth-testimonial-author">
             <img
@@ -215,9 +215,9 @@ export default function SignInPage({ isRegister = false }) {
         <div className="auth-form-wrapper">
           {/* Mobile logo */}
           <div className="auth-brand-logo-mobile">
-            <img src="/logo.png" alt="AI Site Studio Logo" className="navbar-logo-img" width={32} height={32} />
+            <img src="/logo.png" alt="Site Studio Logo" className="navbar-logo-img" width={32} height={32} />
             <span className="auth-logo-text">
-              AI Site Studio
+              Site Studio
             </span>
           </div>
 

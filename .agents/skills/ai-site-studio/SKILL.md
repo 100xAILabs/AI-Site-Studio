@@ -47,6 +47,8 @@ This skill guides the AI assistant in developing and maintaining the **AI Site S
 
 ---
 
+---
+
 ## 3. Database Management
 
 - Models use SQLAlchemy ORM declarations.
@@ -60,3 +62,13 @@ This skill guides the AI assistant in developing and maintaining the **AI Site S
   cd backend
   alembic upgrade head
   ```
+
+---
+
+## 4. Template Quality & Full-Stack Architecture Standards
+
+Follow [.agents/rules/template_quality_standard.md](file:///d:/Navin/Proj/Official/AI%20Site%20Studio/.agents/rules/template_quality_standard.md):
+- **100% Page Completeness**: Every listed/advertised page must exist with full content.
+- **100% Working Links**: Relative links across headers, footers, mobile drawers, and CTAs (`about.html`, `contact.html`, etc.) must link seamlessly.
+- **Powerful Multi-Framework Backend**: Fullstack packages must generate a complete REST API with SQLite database, contact/lead endpoints, health check, CORS, and full setup guides for FastAPI, Express, NestJS, Django, Spring Boot, Rails, Laravel, or Actix Web.
+

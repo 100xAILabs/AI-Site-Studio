@@ -163,7 +163,7 @@ export default function SupportButton() {
       };
 
       recognition.onend = () => {
-        // Auto-restart listening if voice mode is still enabled and AI is not speaking
+        // Auto-restart listening if voice mode is still enabled and assistant is not speaking
         if (isListeningRef.current && !isSpeakingRef.current && !loadingRef.current) {
           setTimeout(() => {
             if (isListeningRef.current && !isSpeakingRef.current) {
@@ -243,17 +243,12 @@ export default function SupportButton() {
     msgsEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  // Process and Send User Message to AI
-  const handleSend = async (overrideMessage = null) => {
-    const textToSend = (overrideMessage !== null && typeof overrideMessage === "string" ? overrideMessage : messageRef.current).trim();
+  // Process and Send User Message to Concierge
+  const handleSend = async (customText = null) => {
+    const textToSend = (customText !== null ? customText : message).trim();
     if (!textToSend || loading) return;
 
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-
-    // Pause recognition during send & AI processing
+    // Pause recognition during send & assistant processing
     stopRecognitionSafely();
     setIsListening(false);
     setMessage("");
@@ -263,7 +258,7 @@ export default function SupportButton() {
 
     try {
       const res = await api.post("/ai/chat", { message: textToSend });
-      const replyText = res?.reply || "I am here to assist you with AI Site Studio!";
+      const replyText = res?.reply || "I am here to assist you with Site Studio!";
 
       setMessages((prev) => [...prev, { text: replyText, from: "bot" }]);
 
@@ -275,7 +270,7 @@ export default function SupportButton() {
           const audio = new Audio(audioSrc);
           audio.onended = () => {
             setIsSpeaking(false);
-            // Re-enable voice listening after AI finishes speaking
+            // Re-enable voice listening after assistant finishes speaking
             setIsListening(true);
             startRecognitionSafely();
           };
@@ -300,7 +295,7 @@ export default function SupportButton() {
       }
     } catch (err) {
       console.error(err);
-      const errReply = "Sorry, I couldn't reach the AI assistant. Please try again.";
+      const errReply = "Sorry, I couldn't reach the voice concierge. Please try again.";
       setMessages((prev) => [...prev, { text: errReply, from: "bot" }]);
       speakText(errReply, () => {
         setIsListening(true);
@@ -324,13 +319,13 @@ export default function SupportButton() {
       <button
         className={`support-button ${open ? "active" : ""}`}
         onClick={open ? closeModal : openModal}
-        aria-label="AI Voice Support"
+        aria-label="Voice Support Concierge"
       >
         {open ? (
           <X size={24} className="text-white" />
         ) : (
           <div className="relative flex items-center justify-center">
-            <img src="/logo.png" alt="AI Assistant" className="support-logo-img" />
+            <img src="/logo.png" alt="Studio Concierge" className="support-logo-img" />
             <span className="absolute -top-1 -right-1 flex h-3 w-3">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
@@ -347,7 +342,7 @@ export default function SupportButton() {
             <div className="support-header-dot" />
             <div className="flex items-center gap-1.5 flex-1">
               <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="support-header-title">AI Voice Assistant</span>
+              <span className="support-header-title">Voice Concierge</span>
             </div>
             <button className="support-header-close" onClick={closeModal} aria-label="Close Assistant">
               <X size={16} />
@@ -390,7 +385,7 @@ export default function SupportButton() {
                     {isSpeaking ? (
                       <>
                         <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" />
-                        <span>AI Speaking...</span>
+                        <span>Speaking...</span>
                       </>
                     ) : (
                       <>
@@ -432,7 +427,7 @@ export default function SupportButton() {
                   name="support-message"
                   ref={inputRef}
                   className="support-input"
-                  placeholder="Ask AI Voice Assistant..."
+                  placeholder="Ask Voice Concierge..."
                   value={message}
                   disabled={loading}
                   onChange={(e) => setMessage(e.target.value)}

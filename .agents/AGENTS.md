@@ -73,10 +73,31 @@ ai-site-studio/
 
 ---
 
-## 5. Development & Testing Commands
+## 5. Template Quality & Full-Stack Architecture Rules
+
+All templates generated, developed, or audited must strictly adhere to the following standards:
+
+1. **Complete Page Delivery (Zero Missing Pages)**:
+   - Every page listed, shown, or configured (e.g. `index.html`, `about.html`, `services.html`, `pricing.html`, `contact.html`, `portfolio.html`, etc.) **must physically exist** and contain complete, rich, domain-specific content. No empty stubs or missing files are allowed.
+2. **100% Working Links & Navigation**:
+   - All links in headers, footers, mobile drawers, and CTA buttons must use relative links to other pages (e.g. `href="about.html"`, `href="contact.html"`).
+   - Never use non-functional `#` hrefs where an actual page exists.
+   - The current page navigation item must have an active visual highlight.
+3. **Powerful & Complete Backend Integration**:
+   - When templates include a backend or fullstack scope, generate a complete, production-ready standalone REST API tailored to the selected framework (**FastAPI, Express.js, NestJS, Django, Spring Boot, Ruby on Rails, Laravel, Actix Web**).
+   - Include REST endpoints for contact submissions (`POST /api/contact`), lead capture (`POST /api/leads`), newsletter subscriptions (`POST /api/newsletter`), health checks (`GET /api/health`), and analytics (`GET /api/stats`).
+   - Include local database persistence (SQLite schema with CRUD models), CORS middleware, and complete dependency files.
+   - Frontend forms must be wired to submit asynchronously to backend endpoints with graceful offline fallback.
+4. **Standard Package Structure**:
+   - Fullstack templates must be packaged with clean `frontend/` and `backend/` folders, accompanied by a comprehensive `README.md`.
+
+---
+
+## 6. Development & Testing Commands
 
 *   **Frontend**: `npm run dev` (run from `frontend/`)
 *   **Backend Run**: `uvicorn app.main:app --reload --port 8000` (run from `backend/`)
 *   **Run Migrations**: `alembic upgrade head` (run from `backend/`)
 *   **Seed DB**: `python scripts/seed.py` (run from `backend/`)
 *   **Run Tests**: `pytest` (run from `backend/`)
+

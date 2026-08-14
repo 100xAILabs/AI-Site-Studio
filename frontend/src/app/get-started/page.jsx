@@ -12,7 +12,7 @@ import "./Page.css";
 
 const BUYER_PERKS = [
   "Browse 500+ premium templates",
-  "AI-powered brand customization",
+  "Instant brand customization",
   "Instant one-click deploy",
   "Preview before you buy",
 ];
@@ -20,7 +20,7 @@ const BUYER_PERKS = [
 const SELLER_PERKS = [
   "Sell to 12,000+ active buyers",
   "Keep up to 80% revenue share",
-  "AI-assisted product listings",
+  "Automated product listings",
   "Real-time sales analytics",
 ];
 
@@ -63,9 +63,9 @@ export default function RoleSelectPage() {
         animate={{ opacity: 1, y: 0 }}
         className="get-started-logo"
       >
-        <img src="/logo.png" alt="AI Site Studio Logo" className="navbar-logo-img" width={36} height={36} />
+        <img src="/logo.png" alt="Site Studio Logo" className="navbar-logo-img" width={36} height={36} />
         <span className="logo-text">
-          AI Site Studio
+          Site Studio
         </span>
       </motion.div>
 
@@ -77,7 +77,7 @@ export default function RoleSelectPage() {
         className="get-started-header"
       >
         <h1 className="get-started-title">
-          How will you use AI Site Studio?
+          How will you use Site Studio?
         </h1>
         <p className="get-started-subtitle">
           Pick your role to get the best experience tailored for you.
@@ -103,7 +103,7 @@ export default function RoleSelectPage() {
           <h2 className="role-card-title">I'm a Buyer</h2>
           <p className="role-card-desc">
             Find, preview, and purchase professional website templates with
-            AI-powered customization.
+            instant live customization.
           </p>
 
           <ul className="perks-list">
@@ -133,7 +133,7 @@ export default function RoleSelectPage() {
           <h2 className="role-card-title">I'm a Seller</h2>
           <p className="role-card-desc">
             Upload your best templates, reach thousands of buyers, and grow
-            your passive income with AI tools.
+            your passive income with studio tools.
           </p>
 
           <ul className="perks-list">

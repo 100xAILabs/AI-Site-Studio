@@ -9,6 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Body, Response, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user_optional
 from app.models.user import User
@@ -734,6 +735,9 @@ async def serve_live_preview(
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
         
+    target_slug = template.slug if (template and template.slug) else str(template_id)
+    purchase_url = f"{settings.FRONTEND_URL}/marketplace/{target_slug}?buy=1"
+
     watermark_payload = """
 <!-- Injected Watermark Grid Overlay -->
 <div class="preview-watermark-grid"></div>
@@ -741,7 +745,7 @@ async def serve_live_preview(
 <!-- Injected Purchase Footer Banner -->
 <div class="preview-purchase-footer-banner">
   <span>🔒 Watermarked Draft Preview. Purchase this template to download clean project assets.</span>
-  <a href="/marketplace" target="_parent">Purchase Template &rarr;</a>
+  <a href="__PURCHASE_URL__" target="_top">Purchase Template &rarr;</a>
 </div>
 
 <style>
@@ -762,7 +766,7 @@ async def serve_live_preview(
     pointer-events: none !important;
     z-index: 999999 !important;
     opacity: 0.65 !important;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='250' height='250' viewBox='0 0 250 250'><text x='20' y='150' fill='rgba(128, 128, 128, 0.16)' font-size='13' font-weight='800' font-family='sans-serif' transform='rotate(-30 20 150)'>AI SITE STUDIO PREVIEW</text></svg>") !important;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='250' height='250' viewBox='0 0 250 250'><text x='20' y='150' fill='rgba(128, 128, 128, 0.16)' font-size='13' font-weight='800' font-family='sans-serif' transform='rotate(-30 20 150)'>SITE STUDIO PREVIEW</text></svg>") !important;
     background-repeat: repeat !important;
   }
 
@@ -835,7 +839,7 @@ async def serve_live_preview(
     }, true);
   })();
 </script>
-"""
+""".replace("__PURCHASE_URL__", purchase_url)
     async def serve_fallback(err_msg: str = "Preview compilation"):
         if filepath and not (filepath.endswith(".html") or filepath.endswith(".htm")):
             if filepath.endswith(".css"):
@@ -843,6 +847,104 @@ async def serve_live_preview(
             if filepath.endswith(".js"):
                 return Response(content=b"", media_type="application/javascript")
             return Response(content=b"", media_type="application/octet-stream")
+
+        # 1. First attempt: In-Browser Standalone React/Babel Runner for App.jsx
+        app_jsx_content = None
+        index_css_content = ""
+        preview_dir_loc = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
+        
+        if os.path.isdir(preview_dir_loc):
+            for root, _, files in os.walk(preview_dir_loc):
+                if any(d in root.replace("\\", "/").split("/") for d in ["dist", "build", ".output"]):
+                    continue
+                if "App.jsx" in files:
+                    try:
+                        with open(os.path.join(root, "App.jsx"), "r", encoding="utf-8", errors="ignore") as f:
+                            app_jsx_content = f.read()
+                    except Exception:
+                        pass
+                if "index.css" in files:
+                    try:
+                        with open(os.path.join(root, "index.css"), "r", encoding="utf-8", errors="ignore") as f:
+                            index_css_content = f.read()
+                    except Exception:
+                        pass
+
+        if app_jsx_content:
+            try:
+                # Clean imports/exports for in-browser standalone execution
+                cleaned_jsx = app_jsx_content
+                cleaned_jsx = re.sub(r'import\s+.*?from\s+[\'"].*?[\'"];?', '', cleaned_jsx)
+                cleaned_jsx = re.sub(r'import\s+[\'"].*?[\'"];?', '', cleaned_jsx)
+                cleaned_jsx = re.sub(r'export\s+default\s+[A-Za-z0-9_]+\s*;?', '', cleaned_jsx)
+                cleaned_jsx = re.sub(r'export\s+', '', cleaned_jsx)
+
+                comp_name = "App"
+                if "function App" not in cleaned_jsx and "const App" not in cleaned_jsx and "let App" not in cleaned_jsx:
+                    func_m = re.search(r'function\s+([A-Za-z0-9_]+)', cleaned_jsx)
+                    if func_m:
+                        comp_name = func_m.group(1)
+
+                react_runner_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{template.title} - Live Preview</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
+  <script src="https://unpkg.com/lucide-react@0.344.0/dist/umd/lucide-react.js"></script>
+  <style>
+    body {{ margin: 0; background-color: #0f172a; color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; }}
+    {index_css_content}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const LucideIcons = window.lucide || window.LucideReact || {{}};
+    const {{ 
+      Sparkles = () => null, ArrowLeft = () => null, ArrowRight = () => null, 
+      Loader2 = () => null, CheckCircle2 = () => null, CheckCircle = () => null, 
+      Cpu = () => null, Globe = () => null, Layers = () => null, FileText = () => null, 
+      Plus = () => null, Trash2 = () => null, Info = () => null, Building2 = () => null, 
+      Palette = () => null, Phone = () => null, Mail = () => null, MapPin = () => null, 
+      Share2 = () => null, Wand2 = () => null, Edit3 = () => null, Check = () => null, 
+      RefreshCw = () => null, Eye = () => null, Upload = () => null, ShoppingBag = () => null, 
+      ShoppingCart = () => null, Folder = () => null, ExternalLink = () => null, 
+      Sliders = () => null, Bot = () => null, User = () => null, Zap = () => null, 
+      Heart = () => null, Star = () => null, Code = () => null, Play = () => null, 
+      AlertCircle = () => null, Shield = () => null, Award = () => null,
+      TrendingUp = () => null, DollarSign = () => null, Database = () => null, 
+      Server = () => null, Terminal = () => null, Lock = () => null, Key = () => null
+    }} = LucideIcons;
+
+    const useState = React.useState;
+    const useEffect = React.useEffect;
+    const useRef = React.useRef;
+    const useMemo = React.useMemo;
+    const useCallback = React.useCallback;
+
+    {cleaned_jsx}
+
+    try {{
+      const container = document.getElementById('root');
+      const root = ReactDOM.createRoot(container);
+      root.render(React.createElement({comp_name}));
+    }} catch (e) {{
+      console.error("Mount error:", e);
+      document.getElementById('root').innerHTML = '<div style="padding:2rem;color:#f87171;">Runtime Preview Error: ' + e.message + '</div>';
+    }}
+  </script>
+</body>
+</html>"""
+                return Response(content=react_runner_html.encode("utf-8"), media_type="text/html")
+            except Exception as e_runner:
+                logger.warning(f"In-browser React runner fallback failed: {e_runner}")
+
+        # 2. Visual rich landing page fallback
 
         custom_color = request.query_params.get("primaryColor") or "#6366f1"
         try:
@@ -1204,7 +1306,7 @@ async def serve_live_preview(
   </section>
   
   <footer>
-    <p>&copy; 2026 {b_name}. Powered by AI Site Studio.</p>
+    <p>&copy; 2026 {b_name}. Powered by Site Studio.</p>
   </footer>
   {watermark_payload}
 </body>
@@ -1227,143 +1329,327 @@ async def serve_live_preview(
             
         preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
         os.makedirs(preview_dir, exist_ok=True)
-        
-        # If the folder has package.json but lacks a completed build folder (dist/out/etc. containing index.html),
-        # it means a previous compilation failed. Clear the directory to trigger a fresh extraction and self-healing build.
-        package_json_exists = False
-        build_folder_exists = False
-        for root, dirs, files in os.walk(preview_dir):
-            if "package.json" in files:
-                package_json_exists = True
-                for d in ["dist", "out", "build", ".output", "public"]:
-                    candidate = os.path.join(root, d)
-                    if os.path.isdir(candidate):
-                        for b_root, b_dirs, b_files in os.walk(candidate):
-                            if "index.html" in b_files:
-                                build_folder_exists = True
-                                break
-                        if build_folder_exists:
-                            break
-                break
-    
-        if package_json_exists and not build_folder_exists:
-            try:
-                import shutil
-                shutil.rmtree(preview_dir, ignore_errors=True)
-                os.makedirs(preview_dir, exist_ok=True)
-            except Exception:
-                pass
-    
-        # Extract files if preview_dir is empty (first-time extract)
-        if not os.listdir(preview_dir):
-            if is_external:
-                import httpx
-                try:
-                    async with httpx.AsyncClient() as client:
-                        response = await client.get(zip_url, follow_redirects=True, timeout=30.0)
-                        if response.status_code != 200:
-                            raise HTTPException(status_code=400, detail=f"Failed to fetch external ZIP assets: status {response.status_code}")
-                        zip_data = response.content
-                except Exception as e:
-                    raise HTTPException(status_code=500, detail=f"Failed to download external template ZIP: {str(e)}")
-            else:
-                from app.models import StoredFile
-                result = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
-                stored_file = result.scalar_one_or_none()
-                if not stored_file:
-                    raise HTTPException(status_code=404, detail="Source template archive file not found")
-                zip_data = stored_file.data
-                
-            with zipfile.ZipFile(io.BytesIO(zip_data)) as zip_ref:
-                for member in zip_ref.infolist():
-                    clean_path = os.path.normpath(member.filename).replace("..", "")
-                    if clean_path.startswith("/") or clean_path.startswith("\\"):
-                        clean_path = clean_path[1:]
-                        
-                    target_path = os.path.join(preview_dir, clean_path)
-                    if member.is_dir():
-                        os.makedirs(target_path, exist_ok=True)
-                    else:
-                        os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                        content_bytes = zip_ref.read(member.filename)
-                        # Self-heal previously generated files if they are truncated
-                        is_source = not any(d in target_path.replace("\\", "/").split("/") for d in ["dist", "node_modules", "build", "out", ".output"])
-                        if (target_path.endswith(".jsx") or target_path.endswith(".js") or target_path.endswith(".tsx") or target_path.endswith(".ts")) and is_source:
-                            try:
-                                from app.services.ai_service import repair_truncated_jsx
-                                code_str = content_bytes.decode("utf-8", errors="ignore")
-                                repaired_code = repair_truncated_jsx(code_str)
-                                content_bytes = repaired_code.encode("utf-8")
-                            except Exception as e:
-                                print(f"[On-the-fly Self Heal] Failed to repair {target_path}: {e}")
-                        elif target_path.endswith(".html"):
-                            try:
-                                from app.services.ai_service import repair_truncated_html
-                                code_str = content_bytes.decode("utf-8", errors="ignore")
-                                repaired_code = repair_truncated_html(code_str)
-                                content_bytes = repaired_code.encode("utf-8")
-                            except Exception as e:
-                                print(f"[On-the-fly Self Heal] Failed to repair {target_path}: {e}")
-                        with open(target_path, "wb") as f:
-                            f.write(content_bytes)
-    
-        # Detect package.json to see if this is a Node.js project requiring compilation
+
         import json
-        package_json_path = None
-        # 1. Prioritize package.json that contains a "build" script
-        for root, dirs, files in os.walk(preview_dir):
-            if "package.json" in files:
-                candidate_path = os.path.join(root, "package.json")
-                try:
-                    with open(candidate_path, "r", encoding="utf-8") as f:
-                        pkg_data = json.load(f)
-                        if "scripts" in pkg_data and "build" in pkg_data["scripts"]:
-                            package_json_path = candidate_path
-                            break
-                except Exception:
-                    pass
-                    
-        # 2. Fallback to the first package.json if none have a build script
-        if not package_json_path:
-            for root, dirs, files in os.walk(preview_dir):
-                if "package.json" in files:
-                    package_json_path = os.path.join(root, "package.json")
-                    break
-    
-        serve_root = preview_dir
-        build_dir = None
-    
-        if package_json_path:
-            project_root = os.path.dirname(package_json_path)
-            build_folders = ["dist", "out", "build", ".output", "public"]
+        import shutil
+        from app.models.template import TemplateStatus
+
+        def detect_project_ui_package_json(base_dir: str) -> Optional[str]:
+            # Priority 1: Check standard UI locations
+            for cand in [
+                os.path.join(base_dir, "frontend", "package.json"),
+                os.path.join(base_dir, "package.json"),
+                os.path.join(base_dir, "client", "package.json"),
+                os.path.join(base_dir, "web", "package.json"),
+                os.path.join(base_dir, "ui", "package.json"),
+            ]:
+                if os.path.isfile(cand):
+                    try:
+                        with open(cand, "r", encoding="utf-8") as f:
+                            p_data = json.load(f)
+                            if "scripts" in p_data and ("build" in p_data["scripts"] or "dev" in p_data["scripts"]):
+                                return cand
+                    except Exception:
+                        pass
             
-            # If the template is a DRAFT, we force recompilation to reflect the user's edits
-            from app.models.template import TemplateStatus
-            if template.status == TemplateStatus.DRAFT:
+            # Priority 2: Walk only safe non-vendor directories (NEVER descend into node_modules/backend/dist)
+            for root, dirs, files in os.walk(base_dir):
+                dirs[:] = [d for d in dirs if d not in ["node_modules", ".git", "dist", "build", ".output", "vendor", "backend", ".venv", "env"]]
+                if "package.json" in files:
+                    cand = os.path.join(root, "package.json")
+                    try:
+                        with open(cand, "r", encoding="utf-8") as f:
+                            p_data = json.load(f)
+                            if "scripts" in p_data and ("build" in p_data["scripts"] or "dev" in p_data["scripts"]):
+                                return cand
+                    except Exception:
+                        pass
+            return None
+
+        lock = _build_locks.setdefault(template_id, asyncio.Lock())
+        async with lock:
+            # 1. Detect package.json or check if source files exist
+            package_json_path = detect_project_ui_package_json(preview_dir)
+
+            # If directory is empty or source files / package.json missing, extract fresh from ZIP
+            need_extract = not os.path.exists(preview_dir) or not os.listdir(preview_dir)
+            if not need_extract and not package_json_path:
+                has_html = any(f.endswith(".html") for r, d, files in os.walk(preview_dir) for f in files)
+                if not has_html:
+                    need_extract = True
+
+            if need_extract:
+                if is_external:
+                    import httpx
+                    try:
+                        async with httpx.AsyncClient() as client:
+                            response = await client.get(zip_url, follow_redirects=True, timeout=30.0)
+                            if response.status_code != 200:
+                                raise HTTPException(status_code=400, detail=f"Failed to fetch external ZIP assets: status {response.status_code}")
+                            zip_data = response.content
+                    except Exception as e:
+                        raise HTTPException(status_code=500, detail=f"Failed to download external template ZIP: {str(e)}")
+                else:
+                    from app.models import StoredFile
+                    result = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
+                    stored_file = result.scalar_one_or_none()
+                    if not stored_file:
+                        raise HTTPException(status_code=404, detail="Source template archive file not found")
+                    zip_data = stored_file.data
+
+                with zipfile.ZipFile(io.BytesIO(zip_data)) as zip_ref:
+                    for member in zip_ref.infolist():
+                        clean_path = os.path.normpath(member.filename).replace("..", "")
+                        if clean_path.startswith("/") or clean_path.startswith("\\"):
+                            clean_path = clean_path[1:]
+                        target_path = os.path.join(preview_dir, clean_path)
+                        if member.is_dir():
+                            os.makedirs(target_path, exist_ok=True)
+                        else:
+                            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                            content_bytes = zip_ref.read(member.filename)
+                            # Self-heal previously generated files if they are truncated
+                            is_source = not any(d in target_path.replace("\\", "/").split("/") for d in ["dist", "node_modules", "build", "out", ".output"])
+                            if (target_path.endswith(".jsx") or target_path.endswith(".js") or target_path.endswith(".tsx") or target_path.endswith(".ts")) and is_source:
+                                try:
+                                    from app.services.ai_service import repair_truncated_jsx
+                                    code_str = content_bytes.decode("utf-8", errors="ignore")
+                                    repaired_code = repair_truncated_jsx(code_str)
+                                    content_bytes = repaired_code.encode("utf-8")
+                                except Exception as e:
+                                    print(f"[On-the-fly Self Heal] Failed to repair {target_path}: {e}")
+                            elif target_path.endswith(".html"):
+                                try:
+                                    from app.services.ai_service import repair_truncated_html
+                                    code_str = content_bytes.decode("utf-8", errors="ignore")
+                                    repaired_code = repair_truncated_html(code_str)
+                                    content_bytes = repaired_code.encode("utf-8")
+                                except Exception as e:
+                                    print(f"[On-the-fly Self Heal] Failed to repair {target_path}: {e}")
+                            with open(target_path, "wb") as f:
+                                f.write(content_bytes)
+
+                # Re-detect package.json after extraction
+                package_json_path = detect_project_ui_package_json(preview_dir)
+
+            build_folders = ["dist", "out", "build", ".output"]
+            serve_root = preview_dir
+            build_dir = None
+
+            if package_json_path:
+                project_root = os.path.dirname(package_json_path)
+
+                # Check if project is already compiled
                 for d in build_folders:
                     candidate = os.path.join(project_root, d)
                     if os.path.isdir(candidate):
-                        import shutil
-                        shutil.rmtree(candidate, ignore_errors=True)
-                        print(f"Force deleted build folder {d} for DRAFT template {template_id} to trigger recompilation.")
-            
-            # Check if project is already compiled
-            for d in build_folders:
-                candidate = os.path.join(project_root, d)
-                if os.path.isdir(candidate):
-                    # Search for index.html recursively inside build folder (e.g. dist/index.html)
-                    for b_root, b_dirs, b_files in os.walk(candidate):
-                        if "index.html" in b_files:
-                            build_dir = b_root
+                        for b_root, b_dirs, b_files in os.walk(candidate):
+                            if "index.html" in b_files:
+                                build_dir = b_root
+                                break
+                        if build_dir:
                             break
-                    if build_dir:
-                        break
-    
-            # If not compiled, trigger compilation
-            if not build_dir:
-                lock = _build_locks.setdefault(template_id, asyncio.Lock())
-                async with lock:
-                    # Check again under lock in case another request compiled it
+
+                # If not compiled, trigger compilation
+                if not build_dir:
+                    npm_cmd = "npm.cmd" if platform.system() == "Windows" else "npm"
+                    loop = asyncio.get_running_loop()
+
+                    # 1. Verify that node_modules and Vite/framework binaries are present and functional
+                    node_modules_dir = os.path.join(project_root, "node_modules")
+                    vite_bin = os.path.join(node_modules_dir, "vite", "dist", "node", "cli.js")
+                    vite_pkg = os.path.join(node_modules_dir, "vite", "package.json")
+                    next_pkg = os.path.join(node_modules_dir, "next", "package.json")
+                    is_modules_ready = (os.path.isfile(vite_bin) or os.path.isfile(vite_pkg) or os.path.isfile(next_pkg))
+
+                    if not is_modules_ready:
+                        logger.info(f"[Preview Runner] Clean node_modules install required for {template_id}...")
+                        shutil.rmtree(node_modules_dir, ignore_errors=True)
+                        try:
+                            os.remove(os.path.join(project_root, "package-lock.json"))
+                        except OSError:
+                            pass
+                        def run_npm_install():
+                            return subprocess.run(
+                                [npm_cmd, "install", "--no-audit", "--no-fund"],
+                                cwd=project_root,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE
+                            )
+                        install_res = await loop.run_in_executor(None, run_npm_install)
+                        if install_res.returncode != 0:
+                            print(f"npm install failed for {template_id}: {install_res.stderr.decode('utf-8', errors='ignore')}")
+
+                    # Detect framework characteristics
+                    is_next = False
+                    is_nuxt = False
+                    has_generate_script = False
+                    has_export_script = False
+
+                    try:
+                        with open(package_json_path, "r", encoding="utf-8") as f:
+                            pkg_data = json.load(f)
+                            all_deps = {**pkg_data.get("dependencies", {}), **pkg_data.get("devDependencies", {})}
+                            is_next = "next" in all_deps
+                            is_nuxt = "nuxt" in all_deps
+                            has_generate_script = "generate" in pkg_data.get("scripts", {})
+                            has_export_script = "export" in pkg_data.get("scripts", {})
+                    except Exception:
+                        pass
+
+                    # Framework-specific configuration tuning (e.g., forcing static export for Next.js)
+                    if is_next:
+                        next_cfg_js = os.path.join(project_root, "next.config.js")
+                        next_cfg_mjs = os.path.join(project_root, "next.config.mjs")
+                        if not os.path.exists(next_cfg_js) and not os.path.exists(next_cfg_mjs):
+                            try:
+                                with open(next_cfg_js, "w", encoding="utf-8") as f:
+                                    f.write("module.exports = { output: 'export', images: { unoptimized: true } };\n")
+                            except Exception:
+                                pass
+                        else:
+                            cfg_path = next_cfg_js if os.path.exists(next_cfg_js) else next_cfg_mjs
+                            try:
+                                with open(cfg_path, "r", encoding="utf-8", errors="ignore") as f:
+                                    cfg_content = f.read()
+                                if "output:" not in cfg_content and "output :" not in cfg_content:
+                                    for pattern in ["const nextConfig = {", "module.exports = {", "export default {", "nextConfig = {"]:
+                                        if pattern in cfg_content:
+                                            cfg_content = cfg_content.replace(pattern, f"{pattern}\n  output: 'export',\n  images: {{ unoptimized: true }},", 1)
+                                            break
+                                    with open(cfg_path, "w", encoding="utf-8") as f:
+                                        f.write(cfg_content)
+                            except Exception:
+                                pass
+
+                    # Vite config base path adjustment to enable relative assets inside subfolders
+                    vite_cfg_js = os.path.join(project_root, "vite.config.js")
+                    vite_cfg_ts = os.path.join(project_root, "vite.config.ts")
+                    cfg_file = vite_cfg_js if os.path.exists(vite_cfg_js) else (vite_cfg_ts if os.path.exists(vite_cfg_ts) else None)
+                    if cfg_file:
+                        try:
+                            with open(cfg_file, "r", encoding="utf-8", errors="ignore") as f:
+                                cfg_content = f.read()
+                            if "base:" not in cfg_content and "base :" not in cfg_content:
+                                if "defineConfig({" in cfg_content:
+                                    cfg_content = cfg_content.replace("defineConfig({", "defineConfig({\n  base: './',", 1)
+                                elif "export default {" in cfg_content:
+                                    cfg_content = cfg_content.replace("export default {", "export default {\n  base: './',", 1)
+                                with open(cfg_file, "w", encoding="utf-8") as f:
+                                    f.write(cfg_content)
+                        except Exception:
+                            pass
+
+                    # Determine optimal build/generate command
+                    build_cmd = [npm_cmd, "run", "build"]
+                    if is_nuxt:
+                        if has_generate_script:
+                            build_cmd = [npm_cmd, "run", "generate"]
+                        else:
+                            npx_cmd = "npx.cmd" if platform.system() == "Windows" else "npx"
+                            build_cmd = [npx_cmd, "nuxt", "generate"]
+
+                    # Pre-build self-healing: sanitize all JSX/TSX/JS/HTML files in project to fix truncated code or syntax errors
+                    try:
+                        from app.services.ai_service import repair_truncated_jsx, repair_truncated_html
+                        for s_root, _, s_files in os.walk(project_root):
+                            if any(d in s_root.replace("\\", "/").split("/") for d in ["dist", "node_modules", "build", "out", ".output"]):
+                                continue
+                            for s_fname in s_files:
+                                s_path = os.path.join(s_root, s_fname)
+                                if s_fname.endswith(".jsx") or s_fname.endswith(".tsx") or s_fname.endswith(".js") or s_fname.endswith(".ts"):
+                                    try:
+                                        with open(s_path, "r", encoding="utf-8", errors="ignore") as sf:
+                                            raw_c = sf.read()
+                                        repaired_c = repair_truncated_jsx(raw_c)
+                                        if repaired_c and repaired_c != raw_c:
+                                            with open(s_path, "w", encoding="utf-8") as sf:
+                                                sf.write(repaired_c)
+                                    except Exception as e_heal:
+                                        print(f"[Pre-Build Heal] Could not heal {s_fname}: {e_heal}")
+                                elif s_fname.endswith(".html"):
+                                    try:
+                                        with open(s_path, "r", encoding="utf-8", errors="ignore") as sf:
+                                            raw_c = sf.read()
+                                        h_c = raw_c
+                                        if "</html>" in h_c:
+                                            h_c = h_c.split("</html>")[0] + "</html>\n"
+                                        if "/src/main.tsx" in h_c and not os.path.exists(os.path.join(project_root, "src", "main.tsx")) and os.path.exists(os.path.join(project_root, "src", "main.jsx")):
+                                            h_c = h_c.replace("/src/main.tsx", "/src/main.jsx")
+                                        elif "/src/main.jsx" in h_c and not os.path.exists(os.path.join(project_root, "src", "main.jsx")) and os.path.exists(os.path.join(project_root, "src", "main.tsx")):
+                                            h_c = h_c.replace("/src/main.jsx", "/src/main.tsx")
+                                        repaired_c = repair_truncated_html(h_c)
+                                        if repaired_c and repaired_c != raw_c:
+                                            with open(s_path, "w", encoding="utf-8") as sf:
+                                                sf.write(repaired_c)
+                                    except Exception as e_heal:
+                                        print(f"[Pre-Build Heal] Could not heal {s_fname}: {e_heal}")
+                    except Exception as e_pre_heal:
+                        print(f"[Pre-Build Heal Pass Failed]: {e_pre_heal}")
+
+                    # 2. Compile/build template project
+                    def run_npm_build():
+                        res = subprocess.run(
+                            build_cmd,
+                            cwd=project_root,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE
+                        )
+                        if res.returncode == 0 and is_next and has_export_script:
+                            subprocess.run(
+                                [npm_cmd, "run", "export"],
+                                cwd=project_root,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE
+                            )
+                        return res
+
+                    build_res = await loop.run_in_executor(None, run_npm_build)
+                    if build_res.returncode != 0:
+                        error_out = (build_res.stderr or build_res.stdout or b"").decode('utf-8', errors='ignore')
+                        print(f"npm run build failed for {template_id}: {error_out}")
+
+                        # 🤖 Trigger Autonomous AI Debugger Agent to inspect and repair syntax/compile errors
+                        try:
+                            from app.services.debugger_service import ai_debugger
+                            print(f"[Autonomous AI Debugger] Activating compiler repair agent for template {template_id}...")
+                            is_fixed, fix_log, repaired_map = await ai_debugger.debug_project_build(
+                                project_root=project_root,
+                                build_cmd=build_cmd,
+                                initial_error_log=error_out,
+                                max_attempts=3
+                            )
+                            if is_fixed:
+                                print(f"[Autonomous AI Debugger] Successfully resolved build errors for {template_id}!")
+                                # Also persist repaired files back into the template stored ZIP in database
+                                if repaired_map and file_id and not is_external:
+                                    try:
+                                        from app.models import StoredFile
+                                        sf_res = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
+                                        stored_rec = sf_res.scalar_one_or_none()
+                                        if stored_rec and stored_rec.data:
+                                            in_mem_zip = io.BytesIO()
+                                            with zipfile.ZipFile(io.BytesIO(stored_rec.data), 'r') as zin:
+                                                with zipfile.ZipFile(in_mem_zip, 'w', zipfile.ZIP_DEFLATED) as zout:
+                                                    for item in zin.infolist():
+                                                        item_content = zin.read(item.filename)
+                                                        # Check if this file was repaired
+                                                        norm_name = os.path.normpath(item.filename).replace("\\", "/")
+                                                        for rep_rel, rep_content in repaired_map.items():
+                                                            norm_rep = os.path.normpath(rep_rel).replace("\\", "/")
+                                                            if norm_name.endswith(norm_rep) or norm_rep.endswith(norm_name):
+                                                                item_content = rep_content.encode("utf-8")
+                                                                break
+                                                        zout.writestr(item, item_content)
+                                            stored_rec.data = in_mem_zip.getvalue()
+                                            await db.commit()
+                                            print(f"[Autonomous AI Debugger] Updated stored ZIP with repaired files in database for {template_id}")
+                                    except Exception as e_zip_up:
+                                        print(f"[Autonomous AI Debugger] Could not update stored ZIP: {e_zip_up}")
+                        except Exception as e_ai_debug:
+                            print(f"[Autonomous AI Debugger] Automated repair pass encountered an error: {e_ai_debug}")
+
+                    # Locate build dir again after build
                     for d in build_folders:
                         candidate = os.path.join(project_root, d)
                         if os.path.isdir(candidate):
@@ -1373,129 +1659,11 @@ async def serve_live_preview(
                                     break
                             if build_dir:
                                 break
-                    
-                    if not build_dir:
-                        # Run compilation
-                        npm_cmd = "npm.cmd" if platform.system() == "Windows" else "npm"
-                        loop = asyncio.get_running_loop()
-                        
-                        # 1. npm install
-                        def run_npm_install():
-                            return subprocess.run(
-                                [npm_cmd, "install", "--no-audit", "--no-fund"],
-                                cwd=project_root,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE
-                            )
-                        
-                        install_res = await loop.run_in_executor(None, run_npm_install)
-                        if install_res.returncode != 0:
-                            print(f"npm install failed for {template_id}: {install_res.stderr.decode('utf-8', errors='ignore')}")
-                        
-                        # Detect framework characteristics
-                        is_next = False
-                        is_nuxt = False
-                        has_generate_script = False
-                        has_export_script = False
-                        
-                        try:
-                            with open(package_json_path, "r", encoding="utf-8") as f:
-                                pkg_data = json.load(f)
-                                all_deps = {**pkg_data.get("dependencies", {}), **pkg_data.get("devDependencies", {})}
-                                is_next = "next" in all_deps
-                                is_nuxt = "nuxt" in all_deps
-                                has_generate_script = "generate" in pkg_data.get("scripts", {})
-                                has_export_script = "export" in pkg_data.get("scripts", {})
-                        except Exception:
-                            pass
-    
-                        # Framework-specific configuration tuning (e.g., forcing static export for Next.js)
-                        if is_next:
-                            next_cfg_js = os.path.join(project_root, "next.config.js")
-                            next_cfg_mjs = os.path.join(project_root, "next.config.mjs")
-                            
-                            if not os.path.exists(next_cfg_js) and not os.path.exists(next_cfg_mjs):
-                                try:
-                                    with open(next_cfg_js, "w", encoding="utf-8") as f:
-                                        f.write("module.exports = { output: 'export', images: { unoptimized: true } };\n")
-                                except Exception:
-                                    pass
-                            else:
-                                cfg_path = next_cfg_js if os.path.exists(next_cfg_js) else next_cfg_mjs
-                                try:
-                                    with open(cfg_path, "r", encoding="utf-8", errors="ignore") as f:
-                                        cfg_content = f.read()
-                                    if "output:" not in cfg_content and "output :" not in cfg_content:
-                                        for pattern in ["const nextConfig = {", "module.exports = {", "export default {", "nextConfig = {"]:
-                                            if pattern in cfg_content:
-                                                cfg_content = cfg_content.replace(pattern, f"{pattern}\n  output: 'export',\n  images: {{ unoptimized: true }},", 1)
-                                                break
-                                        with open(cfg_path, "w", encoding="utf-8") as f:
-                                            f.write(cfg_content)
-                                except Exception:
-                                    pass
-    
-                        # Vite config base path adjustment to enable relative assets inside subfolders
-                        vite_cfg_js = os.path.join(project_root, "vite.config.js")
-                        vite_cfg_ts = os.path.join(project_root, "vite.config.ts")
-                        cfg_file = vite_cfg_js if os.path.exists(vite_cfg_js) else (vite_cfg_ts if os.path.exists(vite_cfg_ts) else None)
-                        if cfg_file:
-                            try:
-                                with open(cfg_file, "r", encoding="utf-8", errors="ignore") as f:
-                                    cfg_content = f.read()
-                                if "base:" not in cfg_content and "base :" not in cfg_content:
-                                    if "defineConfig({" in cfg_content:
-                                        cfg_content = cfg_content.replace("defineConfig({", "defineConfig({\n  base: './',", 1)
-                                    elif "export default {" in cfg_content:
-                                        cfg_content = cfg_content.replace("export default {", "export default {\n  base: './',", 1)
-                                    with open(cfg_file, "w", encoding="utf-8") as f:
-                                        f.write(cfg_content)
-                            except Exception:
-                                pass
 
-                        # Determine optimal build/generate command
-                        build_cmd = [npm_cmd, "run", "build"]
-                        if is_nuxt:
-                            if has_generate_script:
-                                build_cmd = [npm_cmd, "run", "generate"]
-                            else:
-                                npx_cmd = "npx.cmd" if platform.system() == "Windows" else "npx"
-                                build_cmd = [npx_cmd, "nuxt", "generate"]
-    
-                        # 2. Compile/build template project
-                        def run_npm_build():
-                            res = subprocess.run(
-                                build_cmd,
-                                cwd=project_root,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE
-                            )
-                            if res.returncode == 0 and is_next and has_export_script:
-                                subprocess.run(
-                                    [npm_cmd, "run", "export"],
-                                    cwd=project_root,
-                                    stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE
-                                )
-                            return res
-                            
-                        build_res = await loop.run_in_executor(None, run_npm_build)
-                        if build_res.returncode != 0:
-                            print(f"npm run build failed for {template_id}: {build_res.stderr.decode('utf-8', errors='ignore')}")
-                            
-                        # Locate build dir again after build
-                        for d in build_folders:
-                            candidate = os.path.join(project_root, d)
-                            if os.path.isdir(candidate):
-                                for b_root, b_dirs, b_files in os.walk(candidate):
-                                    if "index.html" in b_files:
-                                        build_dir = b_root
-                                        break
-                                if build_dir:
-                                    break
-    
             if build_dir:
                 serve_root = build_dir
+            elif package_json_path:
+                return await serve_fallback("Preview compilation fallback")
             else:
                 serve_root = project_root
     
@@ -1692,6 +1860,11 @@ async def serve_live_preview(
           if (link) {{
             const rawHref = link.getAttribute('href');
             if (!rawHref) return;
+            if (rawHref.includes('/marketplace') || link.closest('.preview-purchase-footer-banner')) {{
+              e.preventDefault();
+              window.top.location.href = "{settings.FRONTEND_URL}/marketplace/{template.slug if template and template.slug else template_id}";
+              return;
+            }}
             if (rawHref.startsWith('#')) {{
               e.preventDefault();
               window.location.hash = rawHref;
@@ -1728,6 +1901,9 @@ async def serve_live_preview(
                     html_content = sandbox_script + "\n" + html_content
     
                 # Inject Watermarks & Copy/Inspect/Print Restrictions before </body>
+                target_slug = template.slug if (template and template.slug) else str(template_id)
+                purchase_url = f"{settings.FRONTEND_URL}/marketplace/{target_slug}?buy=1"
+
                 watermark_payload = """
     <!-- Injected Watermark Grid Overlay -->
     <div class="preview-watermark-grid"></div>
@@ -1735,7 +1911,7 @@ async def serve_live_preview(
     <!-- Injected Purchase Footer Banner -->
     <div class="preview-purchase-footer-banner">
       <span>🔒 Watermarked Draft Preview. Purchase this template to download clean project assets.</span>
-      <a href="/marketplace" target="_parent">Purchase Template &rarr;</a>
+      <a href="__PURCHASE_URL__" target="_top">Purchase Template &rarr;</a>
     </div>
     
     <style>
@@ -1756,7 +1932,7 @@ async def serve_live_preview(
         pointer-events: none !important;
         z-index: 999999 !important;
         opacity: 0.65 !important;
-        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='250' height='250' viewBox='0 0 250 250'><text x='20' y='150' fill='rgba(128, 128, 128, 0.16)' font-size='13' font-weight='800' font-family='sans-serif' transform='rotate(-30 20 150)'>AI SITE STUDIO PREVIEW</text></svg>") !important;
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='250' height='250' viewBox='0 0 250 250'><text x='20' y='150' fill='rgba(128, 128, 128, 0.16)' font-size='13' font-weight='800' font-family='sans-serif' transform='rotate(-30 20 150)'>SITE STUDIO PREVIEW</text></svg>") !important;
         background-repeat: repeat !important;
       }
     
@@ -1829,17 +2005,21 @@ async def serve_live_preview(
         }, true);
       })();
     </script>
-    """
+    """.replace("__PURCHASE_URL__", purchase_url)
                 if "</body>" in html_content:
                     html_content = html_content.replace("</body>", f"{watermark_payload}\n</body>", 1)
                 else:
                     html_content = html_content + "\n" + watermark_payload
+
+                # Ensure all /marketplace links point to the React frontend application
+                html_content = html_content.replace('href="/marketplace"', f'href="{purchase_url}"')
+                html_content = html_content.replace("href='/marketplace'", f"href='{purchase_url}'")
     
                 content = html_content.encode("utf-8")
             except Exception:
                 pass
-            
-        return Response(content=content, media_type=mime_type)
+        from app.services.security_scanner import security_scanner
+        return Response(content=content, media_type=mime_type, headers=security_scanner.get_secure_preview_headers())
     except Exception as e:
         return await serve_fallback(str(e))
 
@@ -1856,5 +2036,122 @@ class ManualEditRequest(BaseModel):
 
 class AIEditRequest(BaseModel):
     prompt: str
+
+
+@router.post("/live/{template_id}/ai-debug")
+async def ai_debug_template_code(
+    template_id: uuid.UUID,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    On-demand AI Debugger endpoint:
+    Scans the template codebase, detects any broken JSX/TSX/HTML or syntax defects,
+    invokes Gemini AI Debugger to fix them, rebuilds the project, and persists the fixes.
+    """
+    import shutil
+    import tempfile
+    import zipfile
+    import io
+    from sqlalchemy import select
+    from app.services.debugger_service import ai_debugger
+    from app.models.template import Template
+    from app.models.stored_file import StoredFile
+
+    preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
+    
+    # 1. Fetch template from DB
+    result = await db.execute(select(Template).where(Template.id == template_id))
+    template = result.scalar_one_or_none()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    download_assets = template.download_assets or {}
+    zip_url = download_assets.get("zip")
+    if not zip_url:
+        raise HTTPException(status_code=400, detail="Template does not have source ZIP archive")
+
+    file_id_str = zip_url.split("/")[-1]
+    stored_file = None
+    try:
+        file_id = uuid.UUID(file_id_str)
+        sf_res = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
+        stored_file = sf_res.scalar_one_or_none()
+    except Exception:
+        pass
+
+    if not stored_file or not stored_file.data:
+        raise HTTPException(status_code=404, detail="Source archive data not found")
+
+    # 2. Extract to preview_dir
+    os.makedirs(preview_dir, exist_ok=True)
+    with zipfile.ZipFile(io.BytesIO(stored_file.data), "r") as z:
+        z.extractall(preview_dir)
+
+    # 3. Locate package.json and scan all source files
+    fixed_files_count = 0
+    repaired_map = {}
+
+    for root, _, files in os.walk(preview_dir):
+        if any(d in root.replace("\\", "/").split("/") for d in ["dist", "node_modules", "build", ".output"]):
+            continue
+        for fname in files:
+            ext = os.path.splitext(fname)[1].lower()
+            if ext in [".jsx", ".tsx", ".js", ".ts", ".html"]:
+                fpath = os.path.join(root, fname)
+                try:
+                    with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                        code = f.read()
+
+                    # Sanitize heuristics first
+                    healed = ai_debugger.sanitize_code_heuristics(code, ext)
+                    
+                    # If suspect syntax or defects detected, invoke Gemini AI Debugger
+                    if ");</" in code or ";</" in code or "export default" not in code or code.count("{") != code.count("}") or code.count("<div") != code.count("</div"):
+                        rel_path = os.path.relpath(fpath, preview_dir)
+                        healed = await ai_debugger.debug_code_with_ai(
+                            code=code,
+                            filename=rel_path,
+                            error_message="Fix unbalanced tags, stray semicolons, missing brackets, and broken exports."
+                        )
+
+                    if healed and healed != code:
+                        with open(fpath, "w", encoding="utf-8") as f:
+                            f.write(healed)
+                        rel_p = os.path.relpath(fpath, preview_dir)
+                        repaired_map[rel_p] = healed
+                        fixed_files_count += 1
+                except Exception as e_file:
+                    logger.warning(f"AI Debugger skipped {fname}: {e_file}")
+
+    # 4. If files were fixed, re-package the ZIP and save to DB
+    if repaired_map and stored_file:
+        in_mem = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(stored_file.data), "r") as zin:
+            with zipfile.ZipFile(in_mem, "w", zipfile.ZIP_DEFLATED) as zout:
+                for item in zin.infolist():
+                    item_data = zin.read(item.filename)
+                    norm_name = os.path.normpath(item.filename).replace("\\", "/")
+                    for rep_rel, rep_content in repaired_map.items():
+                        norm_rep = os.path.normpath(rep_rel).replace("\\", "/")
+                        if norm_name.endswith(norm_rep) or norm_rep.endswith(norm_name):
+                            item_data = rep_content.encode("utf-8")
+                            break
+                    zout.writestr(item, item_data)
+        stored_file.data = in_mem.getvalue()
+        await db.commit()
+
+    # 5. Clear compiled dist/build directories in preview_dir to trigger fresh build
+    for b_dir in ["dist", "out", "build", ".output"]:
+        for root, dirs, _ in os.walk(preview_dir):
+            if b_dir in dirs:
+                shutil.rmtree(os.path.join(root, b_dir), ignore_errors=True)
+
+    return {
+        "status": "success",
+        "message": f"AI Debugger analyzed project and successfully fixed {fixed_files_count} file(s).",
+        "fixed_files": list(repaired_map.keys()),
+        "fixed_count": fixed_files_count
+    }
 
 

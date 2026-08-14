@@ -87,6 +87,8 @@ yarn-error.log*
 *.tmp
 .venv_backup/
 uploads/
+static/deployments/
+backend/static/deployments/
 
 # ==================== Executables / Media ====================
 *.exe

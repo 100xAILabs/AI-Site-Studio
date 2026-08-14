@@ -55,7 +55,7 @@ function Typewriter() {
 const STATS = [
   { label: "Templates", value: "500+" },
   { label: "Happy Customers", value: "12K+" },
-  { label: "AI Powered", value: "100%" },
+  { label: "Live Customizable", value: "100%" },
   { label: "Average Rating", value: "4.9 ★" },
 ];
 
@@ -86,7 +86,7 @@ export default function HeroSection() {
             className="hero-badge"
           >
             <Sparkles className="hero-badge-sparkle" />
-            <span className="hero-badge-text">Powered by Gemini & GPT AI Models</span>
+            <span className="hero-badge-text">Powered by Next-Gen Dynamic Design Engines</span>
             <span className="hero-badge-new-tag">NEW</span>
           </motion.div>
 
@@ -97,7 +97,7 @@ export default function HeroSection() {
             transition={{ duration: 0.6, delay: 0.1 }}
             className="hero-title"
           >
-            The AI template
+            The curated template
             <br />
             marketplace for{" "}
             <Typewriter />
@@ -111,7 +111,7 @@ export default function HeroSection() {
             className="hero-subtitle"
           >
             Browse professional website templates. Preview with your own brand,
-            let AI fill in the content, and download instantly for free.
+            let Instant Fill craft your content, and download instantly for free.
           </motion.p>
 
           {/* CTAs */}

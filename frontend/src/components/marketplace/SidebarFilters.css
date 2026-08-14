@@ -397,9 +397,11 @@
 }
 
 .sub-category-selected {
-  color: hsl(var(--primary));
-  font-weight: 500;
-  background: hsl(var(--primary) / 0.09);
+  color: hsl(var(--primary)) !important;
+  font-weight: 600 !important;
+  background: hsl(var(--primary) / 0.12) !important;
+  border-left: 2px solid hsl(var(--primary)) !important;
+  padding-left: 0.625rem !important;
 }
 
 /* ── Rating stars ──────────────────────────────────────────── */

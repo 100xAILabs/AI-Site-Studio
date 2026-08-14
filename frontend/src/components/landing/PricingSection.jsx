@@ -12,7 +12,7 @@ const PLANS = [
     description: "Everything you need to analyze, customize, and export website templates.",
     features: [
       "Browse professional frontend templates",
-      "Unlimited ZIP uploads & AI code analysis",
+      "Unlimited ZIP uploads & automated code analysis",
       "Dynamic interactive live browser previews",
       "One-click direct source ZIP downloads",
       "Derive brand CSS templates & color schemes",
@@ -39,7 +39,7 @@ export default function PricingSection() {
             No Fees. No Signups required to browse. <span className="gradient-text">Just Build.</span>
           </h2>
           <p className="section-subtitle">
-            AI Site Studio is a free utility platform for frontend developers to analyze, live preview, and download templates.
+            Site Studio is a free utility platform for frontend developers to analyze, live preview, and download templates.
           </p>
         </div>
 

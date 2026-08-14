@@ -11,7 +11,7 @@ export default function AboutPage() {
       links: [
         { name: "Marketplace", path: "/marketplace" },
         { name: "Pricing", path: "/pricing" },
-        { name: "AI Features", path: "/#features" }
+        { name: "Features", path: "/#features" }
       ]
     },
     {
@@ -39,7 +39,7 @@ export default function AboutPage() {
             <span>Our Mission</span>
           </div>
           <h1 className="about-title">
-            Democratizing Web Design with <span className="gradient-text">Intelligent AI</span>
+            Democratizing Web Design with <span className="gradient-text">Dynamic Studio Tools</span>
           </h1>
           <p className="about-subtitle">
             We empower creators, developers, and brands to design, customize, and deploy stunning, production-ready websites in seconds using generative intelligence and curated template mechanics.
@@ -77,7 +77,7 @@ export default function AboutPage() {
                 Historically, building a premium custom website required selecting between rigid templates or committing thousands of dollars and weeks of engineering effort. We believed there had to be a better way.
               </p>
               <p className="narrative-text">
-                Founded in 2026, AI Site Studio bridges the gap. By combining high-performance design frameworks with real-time AI generation, we enable users to sculpt bespoke branding, copy, palettes, and configurations natively inside the browser.
+                Founded in 2026, Site Studio bridges the gap. By combining high-performance design frameworks with real-time dynamic customization, we enable users to sculpt bespoke branding, copy, palettes, and configurations natively inside the browser.
               </p>
             </div>
             <div className="narrative-visual glass p-8 rounded-2xl flex flex-col justify-center space-y-4">
@@ -87,8 +87,8 @@ export default function AboutPage() {
                   <Brain className="w-5 h-5" />
                 </div>
                 <div>
-                  <h4>Generative Context</h4>
-                  <p>AI understands your industry, target audience, and brand tone automatically.</p>
+                  <h4>Contextual Synthesis</h4>
+                  <p>Understand your industry, target audience, and brand tone automatically.</p>
                 </div>
               </div>
               <div className="pillar-item">
@@ -146,7 +146,7 @@ export default function AboutPage() {
             <Sparkles className="cta-icon" />
             <h2 className="cta-title">Build your dream site today</h2>
             <p className="cta-desc text-muted-foreground max-w-lg mx-auto mb-6 text-sm text-center">
-              Join thousands of makers and agencies building high-converting websites using our AI marketplace.
+              Join thousands of makers and agencies building high-converting websites using our template marketplace.
             </p>
             <div className="flex gap-4 justify-center">
               <Link href="/marketplace" className="cta-btn-primary">
@@ -165,15 +165,15 @@ export default function AboutPage() {
               <Link href="/" className="footer-brand-logo-link">
                 <img
                   src="/logo.png"
-                  alt="AI Site Studio Logo"
+                  alt="Site Studio Logo"
                   className="navbar-logo-img"
                   width={32}
                   height={32}
                 />
-                <span className="font-bold text-lg gradient-text">AI Site Studio</span>
+                <span className="font-bold text-lg gradient-text">Site Studio</span>
               </Link>
               <p className="text-sm text-muted-foreground leading-relaxed max-w-xs">
-                The AI-powered website template marketplace. Build stunning websites in minutes, not months.
+                The next-generation website template marketplace. Build stunning websites in minutes, not months.
               </p>
               <div className="footer-social-row">
                 <a href="#" className="footer-social-btn" aria-label="GitHub">
@@ -203,8 +203,8 @@ export default function AboutPage() {
             ))}
           </div>
           <div className="footer-bottom">
-            <p>&copy; {new Date().getFullYear()} AI Site Studio. All rights reserved.</p>
-            <p>Made with ❤️ and AI</p>
+            <p>&copy; {new Date().getFullYear()} Site Studio. All rights reserved.</p>
+            <p>Made with ❤️ for creators and developers</p>
           </div>
         </div>
       </footer>

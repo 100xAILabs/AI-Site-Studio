@@ -11,7 +11,7 @@ export default function ContactPage() {
       links: [
         { name: "Marketplace", path: "/marketplace" },
         { name: "Pricing", path: "/pricing" },
-        { name: "AI Features", path: "/#features" }
+        { name: "Features", path: "/#features" }
       ]
     },
     {
@@ -111,15 +111,15 @@ export default function ContactPage() {
               <Link href="/" className="footer-brand-logo-link">
                 <img
                   src="/logo.png"
-                  alt="AI Site Studio Logo"
+                  alt="Site Studio Logo"
                   className="navbar-logo-img"
                   width={32}
                   height={32}
                 />
-                <span className="font-bold text-lg gradient-text">AI Site Studio</span>
+                <span className="font-bold text-lg gradient-text">Site Studio</span>
               </Link>
               <p className="text-sm text-muted-foreground leading-relaxed max-w-xs">
-                The AI-powered website template marketplace. Build stunning websites in minutes, not months.
+                The next-generation website template marketplace. Build stunning websites in minutes, not months.
               </p>
               <div className="footer-social-row">
                 <a href="#" className="footer-social-btn" aria-label="GitHub">
@@ -149,8 +149,8 @@ export default function ContactPage() {
             ))}
           </div>
           <div className="footer-bottom">
-            <p>&copy; {new Date().getFullYear()} AI Site Studio. All rights reserved.</p>
-            <p>Made with ❤️ and AI</p>
+            <p>&copy; {new Date().getFullYear()} Site Studio. All rights reserved.</p>
+            <p>Made with ❤️ for creators and developers</p>
           </div>
         </div>
       </footer>

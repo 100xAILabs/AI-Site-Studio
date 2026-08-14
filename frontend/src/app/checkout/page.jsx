@@ -106,7 +106,7 @@ function Checkout() {
             </div>
             <h1 className="checkout-restricted-title">Purchase Restricted</h1>
             <p className="checkout-restricted-desc">
-              As a registered Seller on AI Site Studio, you cannot purchase templates. If you want to buy templates, please sign in with a Buyer account.
+              As a registered Seller on Site Studio, you cannot purchase templates. If you want to buy templates, please sign in with a Buyer account.
             </p>
             <Link
               href="/dashboard"

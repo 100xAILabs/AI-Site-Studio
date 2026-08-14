@@ -1,17 +1,17 @@
 "use client";
 
 /**
- * AI Preview Editor Page — 2-column split screen studio (React JSX).
- * Left Side: Live Compiled Template Demo (IFrame) & Interactive Component Sandbox.
- * Right Side: Dual-mode Editor:
- *   1. Manual Edit (Replaces code values via backend & updates live demo iframe)
- *   2. AI Edit (Natural language prompt assistant refactoring live template code via Gemini)
+ * Live Preview Editor Page — 2-column split screen studio (React JSX).
+ * 
+ * Supports 2 editor modes:
+ *   1. Manual Edit (Controls for Title, Tagline, Brand Colors, Contact info, etc.)
+ *   2. Live Prompt Edit (Natural language prompt assistant refactoring live template code)
  */
 
 export const dynamic = "force-dynamic";
 
 import { useState, useEffect, useRef, Suspense } from "react";
-import { navigate } from "@/components/Link";
+import Link, { navigate } from "@/components/Link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Sparkles, Eye, Loader2, Palette, FileText, Globe,
@@ -22,6 +22,7 @@ import {
   Play, Code, ExternalLink, AlertCircle
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
+import { useCartStore } from "@/store";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import "./Page.css";
@@ -31,11 +32,11 @@ const useSearchParams = () => {
   return new URLSearchParams(window.location.search);
 };
 
-// Preset AI Prompts for instant one-click AI transformation
+// Preset Prompts for instant one-click transformation
 const AI_PRESETS = [
   { label: "⚡ Dark Glassmorphism", prompt: "Convert theme to a sleek dark mode with glassmorphic cards and neon violet accents." },
   { label: "☕ Parisian Coffee & Bakery", prompt: "Rebrand content for 'Café de Paris', a luxury French bakery in Paris serving organic roast coffee and warm croissants." },
-  { label: "🚀 High-Converting B2B SaaS", prompt: "Rewrite hero and about copy into high-converting tech SaaS copy for an AI workflow automation startup." },
+  { label: "🚀 High-Converting B2B SaaS", prompt: "Rewrite hero and about copy into high-converting tech SaaS copy for a cloud workflow automation startup." },
   { label: "🏥 Modern Dental & Health", prompt: "Rebrand for 'Aura Medical & Dental', a modern luxury wellness clinic in Beverly Hills with emerald green accents." },
   { label: "🌿 Emerald Green & Gold", prompt: "Change brand palette to emerald green (#059669) and gold (#d97706) with elegant serif typography." },
 ];
@@ -49,11 +50,43 @@ function PreviewEditorInner() {
   const [templateData, setTemplateData] = useState(null);
   const [loadingTemplate, setLoadingTemplate] = useState(false);
 
+  // Cart store integration
+  const addToCart = useCartStore((s) => s.addItem);
+  const isInCart = useCartStore((s) => s.isInCart(templateData?.id || activeTemplateId));
+
+  const handlePurchaseTemplate = (e) => {
+    if (e) e.preventDefault();
+    if (templateData) {
+      addToCart({
+        templateId: templateData.id,
+        title: templateData.title,
+        price: Number(templateData.price || 49),
+        thumbnail: templateData.thumbnail_url || templateData.images?.[0] || "",
+        licenseType: "regular",
+      });
+      navigate("/checkout");
+    } else if (activeTemplateId && activeTemplateId !== "default") {
+      navigate(`/marketplace/${activeTemplateId}?buy=1`);
+    } else {
+      navigate("/marketplace");
+    }
+  };
+
   // View mode: "live" (real running template iframe) | "mockup" (component sandbox)
   const [viewMode, setViewMode] = useState("live");
   const [iframeKey, setIframeKey] = useState(0);
   const [iframeLoading, setIframeLoading] = useState(true);
   const [iframeError, setIframeError] = useState(false);
+
+  // Safety timer to clear loading overlay if iframe takes too long
+  useEffect(() => {
+    if (iframeLoading) {
+      const timer = setTimeout(() => {
+        setIframeLoading(false);
+      }, 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [iframeLoading, iframeKey]);
 
   // Studio Mode State: "manual" | "ai"
   const [editorMode, setEditorMode] = useState("manual");
@@ -71,12 +104,31 @@ function PreviewEditorInner() {
   const [replaceText, setReplaceText] = useState("");
   const [isReplacing, setIsReplacing] = useState(false);
   const [replaceNotice, setReplaceNotice] = useState(null);
+  const [isDebugging, setIsDebugging] = useState(false);
+
+  // Trigger Autonomous AI Debugger & Fixer
+  const handleRunAIDebugger = async () => {
+    if (!activeTemplateId || activeTemplateId === "default") return;
+    setIsDebugging(true);
+    try {
+      const res = await api.post(`/preview/live/${activeTemplateId}/ai-debug`, {}, token);
+      setEditNotice(res.message || "AI Debugger analyzed and fixed syntax errors.");
+      // Reload iframe
+      setIframeKey((prev) => prev + 1);
+      setTimeout(() => setEditNotice(""), 8000);
+    } catch (err) {
+      console.error("AI Debugger error:", err);
+      alert("AI Debugger: " + (err.message || "Failed to debug project."));
+    } finally {
+      setIsDebugging(false);
+    }
+  };
 
   // Master Brand & Content State (Synced Live to Preview Canvas)
   const [brand, setBrand] = useState({
-    business_name: "Apex AI Studio",
-    tagline: "Next-Generation Web & AI Solutions",
-    logo_text: "APEX AI",
+    business_name: "Apex Design Studio",
+    tagline: "Next-Generation Web & Design Solutions",
+    logo_text: "APEX STUDIO",
     primary_color: "#6366f1",
     secondary_color: "#ec4899",
     font_family: "Inter",
@@ -86,8 +138,8 @@ function PreviewEditorInner() {
 
   const [pages, setPages] = useState({
     home: {
-      hero_title: "Build Production-Ready Web Apps 10x Faster with AI",
-      hero_subtitle: "Deploy beautifully engineered React and Next.js templates pre-linked with intelligent AI agents and design tokens.",
+      hero_title: "Build Production-Ready Web Apps 10x Faster",
+      hero_subtitle: "Deploy beautifully engineered React and Next.js templates pre-linked with dynamic components and design tokens.",
       cta_primary: "Explore Templates",
       cta_secondary: "Watch Product Demo",
       stat1_value: "99.9%",
@@ -99,21 +151,21 @@ function PreviewEditorInner() {
     },
     about: {
       title: "Crafting the Future of Agentic Web Design",
-      story: "Founded in 2024, our studio bridges the gap between AI code generation and human craft. We provide creators, developers, and enterprises with production-ready website templates.",
+      story: "Founded in 2024, our studio bridges the gap between dynamic code generation and human craft. We provide creators, developers, and enterprises with production-ready website templates.",
       mission: "To empower every creator to build, customize, and launch world-class digital experiences effortlessly.",
       team_count: "24 Engineers & Designers",
     },
     services: {
       title: "Comprehensive Digital Capabilities",
-      s1_title: "AI Code Generation",
-      s1_desc: "Instant React & HTML layout synthesis powered by advanced LLM agentic pipelines.",
+      s1_title: "Dynamic Code Generation",
+      s1_desc: "Instant React & HTML layout synthesis powered by advanced dynamic pipelines.",
       s2_title: "Smart Copywriting",
       s2_desc: "Niche-tailored, high-converting copy and localized metatag generation.",
       s3_title: "SEO & Performance",
       s3_desc: "Lighthouse 100 optimization with automated JSON-LD schema markup.",
     },
     contact: {
-      email: "hello@apex-aistudio.com",
+      email: "hello@apex-studio.com",
       phone: "+1 (800) 555-0199",
       address: "500 Innovation Way, Suite 400, San Francisco, CA",
       hours: "Mon - Fri: 9:00 AM - 6:00 PM PST",
@@ -234,7 +286,7 @@ function PreviewEditorInner() {
     }
   }, [activeTemplateId]);
 
-  // AI Prompt Edit State (Claude / Antigravity IDE style)
+  // Live Prompt Edit State
   const [aiInput, setAiInput] = useState("");
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [aiLogs, setAiLogs] = useState([]);
@@ -242,7 +294,7 @@ function PreviewEditorInner() {
     {
       id: "init",
       role: "assistant",
-      text: "Hello! I am your AI Preview Assistant. Describe any changes in plain text (e.g., 'Make hero title bold and change theme to dark emerald green'), and I will refactor the live template code for you in real-time.",
+      text: "Hello! I am your Studio Design Assistant. Describe any changes in plain text (e.g., 'Make hero title bold and change theme to dark emerald green'), and I will refactor the live template code for you in real-time.",
       timestamp: "Just now",
     },
   ]);
@@ -345,27 +397,24 @@ function PreviewEditorInner() {
     }
   };
 
-  // Handle AI Prompt Execution (Claude & Antigravity IDE style)
-  const executeAiPrompt = async (promptText) => {
-    const query = promptText || aiInput;
-    if (!query.trim() || isAiProcessing) return;
+  // Handle Live Prompt Execution
+  const executeAiPrompt = async (customPrompt) => {
+    const promptToRun = customPrompt || aiInput;
+    if (!promptToRun.trim() || isAiProcessing) return;
 
-    const userMsgId = Date.now().toString();
-    setAiHistory((prev) => [
-      ...prev,
-      {
-        id: userMsgId,
-        role: "user",
-        text: query,
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      },
-    ]);
+    const userMsg = {
+      id: Date.now().toString(),
+      role: "user",
+      text: promptToRun,
+      timestamp: "Just now",
+    };
 
+    setAiHistory((prev) => [...prev, userMsg]);
     setAiInput("");
     setIsAiProcessing(true);
     setAiLogs([]);
 
-    // Step logs for AI processing
+    // Step logs for prompt processing
     const logSteps = [
       "Analyzing user prompt & code AST...",
       "Generating tailored copywriting & CSS tokens via Gemini...",
@@ -382,7 +431,7 @@ function PreviewEditorInner() {
     let diffBadge = "✨ Code Refactored";
     if (activeTemplateId !== "default") {
       try {
-        const res = await api.post(`/preview/live/${activeTemplateId}/edit-ai`, { prompt: query });
+        const res = await api.post(`/preview/live/${activeTemplateId}/edit-ai`, { prompt: promptToRun });
         if (res && res.template_id && res.template_id !== activeTemplateId) {
           setActiveTemplateId(res.template_id);
           const params = new URLSearchParams(window.location.search);
@@ -398,7 +447,7 @@ function PreviewEditorInner() {
     }
 
     // Update local state fallback
-    const qLower = query.toLowerCase();
+    const qLower = promptToRun.toLowerCase();
 
     let newPrimary = brand.primary_color;
     let newSecondary = brand.secondary_color;
@@ -422,13 +471,13 @@ function PreviewEditorInner() {
       newAboutStory = "Established in 1974, Café de Paris brings authentic French pastry techniques and single-origin coffee to gourmet enthusiasts worldwide.";
       diffBadge = "☕ Parisian Bakery Brand";
     } else if (qLower.includes("saas") || qLower.includes("tech") || qLower.includes("b2b")) {
-      newName = "Nexus Flow AI";
+      newName = "Nexus Flow";
       newPrimary = "#2563eb";
       newSecondary = "#3b82f6";
-      newHeroTitle = "Autonomous AI Workflows for Modern Engineering Teams";
-      newHeroSubtitle = "Connect your repository, automate CI/CD pipelines, and let AI agents refactor codebase bottlenecks in real-time.";
-      newAboutTitle = "Building the Operating System for AI Development";
-      newAboutStory = "Nexus Flow AI powers over 10,000 engineering teams with autonomous code analysis, test generation, and seamless cloud deployments.";
+      newHeroTitle = "Autonomous Workflows for Modern Engineering Teams";
+      newHeroSubtitle = "Connect your repository, automate CI/CD pipelines, and refactor codebase bottlenecks in real-time.";
+      newAboutTitle = "Building the Operating System for Modern Cloud Development";
+      newAboutStory = "Nexus Flow powers over 10,000 engineering teams with code analysis, test generation, and seamless cloud deployments.";
       diffBadge = "🚀 B2B SaaS Copywriting";
     } else if (qLower.includes("health") || qLower.includes("dental") || qLower.includes("clinic")) {
       newName = "Aura Wellness & Dental";
@@ -475,7 +524,7 @@ function PreviewEditorInner() {
       {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        text: `I have refactored the template source code based on: "${query}". Live preview iframe recompiled and reloaded.`,
+        text: `I have refactored the template source code based on: "${promptToRun}". Live preview iframe recompiled and reloaded.`,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         diffBadge: diffBadge,
       },
@@ -650,7 +699,7 @@ function PreviewEditorInner() {
                   className={cn("device-btn", device === "laptop" && "active")}
                   title="Laptop View (1024px)"
                 >
-                  <LaptopIcon className="w-3.5 h-3.5" />
+                  <Monitor className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => setDevice("tablet")}
@@ -688,13 +737,14 @@ function PreviewEditorInner() {
                 </a>
               )}
 
-              <a
-                href={activeTemplateId !== "default" ? `/marketplace/${activeTemplateId}` : "/marketplace"}
+              <button
+                onClick={handlePurchaseTemplate}
                 className="purchase-cta-btn"
+                title="Directly add to cart and checkout"
               >
                 <ShoppingBag className="w-3.5 h-3.5" />
-                Purchase Template
-              </a>
+                {isInCart ? "Proceed to Checkout" : "Buy Template"}
+              </button>
             </div>
           </div>
 
@@ -718,7 +768,7 @@ function PreviewEditorInner() {
 
                 {/* Watermark Stamp Overlay */}
                 <div className="preview-watermark-stamp">
-                  <span>AI SITE STUDIO · WATERMARKED DRAFT</span>
+                  <span>SITE STUDIO · WATERMARKED DRAFT</span>
                 </div>
 
               {/* ──────────────────────────────────────────────────────────
@@ -910,7 +960,7 @@ function PreviewEditorInner() {
                         <div className="sim-pricing-grid">
                           {[
                             { name: "Starter License", price: "$49", features: ["1 Domain", "Clean React Code", "6 Mo Support"] },
-                            { name: "Commercial License", price: "$129", features: ["Unlimited Domains", "AI Agent Hooks", "Priority SLA"], popular: true },
+                            { name: "Commercial License", price: "$129", features: ["Unlimited Domains", "Custom Webhook Integrations", "Priority SLA"], popular: true },
                             { name: "Extended License", price: "$299", features: ["SaaS Re-distribution", "Full Source ZIP", "Lifetime Updates"] },
                           ].map((p, idx) => (
                             <div key={idx} className={cn("sim-pricing-card", p.popular && "popular")} style={p.popular ? { borderColor: brand.primary_color } : {}}>
@@ -968,7 +1018,7 @@ function PreviewEditorInner() {
                   <footer className="sim-footer">
                     <div className="flex items-center justify-between text-xs text-muted-foreground">
                       <span>© {new Date().getFullYear()} {brand.business_name}. All rights reserved.</span>
-                      <span>Powered by AI Site Studio</span>
+                      <span>Powered by Site Studio</span>
                     </div>
                   </footer>
                 </div>
@@ -981,11 +1031,11 @@ function PreviewEditorInner() {
         {/* ═════════════════════════════════════════════════════════════════════
            RIGHT PANEL: Dual-Mode Studio Editor (~38% Width)
            Mode 1: Manual Edit (Replace fields directly per page)
-           Mode 2: AI Edit (Claude & Antigravity IDE natural language prompt agent)
+           Mode 2: Live Prompt Edit (Natural language prompt agent)
         ═══════════════════════════════════════════════════════════════════════ */}
         <div className="preview-right-column">
 
-          {/* Mode Switcher Tabs (Manual Edit vs AI Prompt Edit) */}
+          {/* Mode Switcher Tabs (Manual Edit vs Live Prompt Edit vs AI Auto-Fix) */}
           <div className="studio-mode-switcher">
             <button
               onClick={() => setEditorMode("manual")}
@@ -999,8 +1049,22 @@ function PreviewEditorInner() {
               className={cn("studio-mode-btn", editorMode === "ai" && "active")}
             >
               <Bot className="w-4 h-4 text-purple-400" />
-              <span>2. AI Prompt Edit</span>
-              <span className="mode-ai-badge">AI</span>
+              <span>2. Live Prompt Editor</span>
+              <span className="mode-ai-badge">LIVE</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleRunAIDebugger}
+              disabled={isDebugging}
+              className="studio-mode-btn border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 cursor-pointer"
+              title="Autonomous AI Debugger: Analyzes and fixes React/JSX compile and syntax errors"
+            >
+              {isDebugging ? (
+                <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+              ) : (
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+              )}
+              <span>{isDebugging ? "Fixing..." : "AI Auto-Fix"}</span>
             </button>
           </div>
 
@@ -1052,7 +1116,7 @@ function PreviewEditorInner() {
                       <input
                         value={brand.business_name}
                         onChange={(e) => handleBrandChange("business_name", e.target.value)}
-                        placeholder="e.g. Apex AI Studio"
+                        placeholder="e.g. Apex Design Studio"
                         className="manual-input"
                       />
                     </div>
@@ -1062,7 +1126,7 @@ function PreviewEditorInner() {
                       <input
                         value={brand.logo_text}
                         onChange={(e) => handleBrandChange("logo_text", e.target.value)}
-                        placeholder="e.g. APEX AI"
+                        placeholder="e.g. APEX STUDIO"
                         className="manual-input font-mono uppercase"
                       />
                     </div>
@@ -1072,7 +1136,7 @@ function PreviewEditorInner() {
                       <input
                         value={brand.tagline}
                         onChange={(e) => handleBrandChange("tagline", e.target.value)}
-                        placeholder="e.g. Next-Generation AI Web Solutions"
+                        placeholder="e.g. Next-Generation Web Solutions"
                         className="manual-input"
                       />
                     </div>
@@ -1283,12 +1347,12 @@ function PreviewEditorInner() {
           )}
 
           {/* ─────────────────────────────────────────────────────────────────
-             MODE 2: AI PROMPT EDIT (Claude & Antigravity IDE Agent Style)
+             MODE 2: LIVE PROMPT EDIT
           ─────────────────────────────────────────────────────────────────── */}
           {editorMode === "ai" && (
             <div className="studio-ai-agent-container">
 
-              {/* AI Agent Header Bar */}
+              {/* Assistant Header Bar */}
               <div className="ai-agent-header">
                 <div className="flex items-center gap-2">
                   <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-white font-bold text-xs shadow-md">
@@ -1296,10 +1360,10 @@ function PreviewEditorInner() {
                   </div>
                   <div>
                     <h4 className="font-bold text-sm text-foreground flex items-center gap-1.5">
-                      Antigravity AI Agent
+                      Studio Design Assistant
                       <span className="online-dot" />
                     </h4>
-                    <p className="text-[10px] text-muted-foreground">Claude / Gemini 3.5 Natural Language Code Refactor</p>
+                    <p className="text-[10px] text-muted-foreground">Natural Language Code Refactor</p>
                   </div>
                 </div>
 
@@ -1312,7 +1376,7 @@ function PreviewEditorInner() {
                 </button>
               </div>
 
-              {/* AI Chat & History Feed */}
+              {/* Chat & History Feed */}
               <div className="ai-chat-feed">
                 {aiHistory.map((msg) => (
                   <div key={msg.id} className={cn("ai-msg-row", msg.role)}>
@@ -1325,7 +1389,7 @@ function PreviewEditorInner() {
                     </div>
                     <div className="ai-msg-bubble">
                       <div className="ai-msg-meta">
-                        <span className="ai-msg-name">{msg.role === "assistant" ? "AI Studio Assistant" : "You"}</span>
+                        <span className="ai-msg-name">{msg.role === "assistant" ? "Studio Assistant" : "You"}</span>
                         <span className="ai-msg-time">{msg.timestamp}</span>
                       </div>
                       <p className="ai-msg-text">{msg.text}</p>
@@ -1338,12 +1402,12 @@ function PreviewEditorInner() {
                   </div>
                 ))}
 
-                {/* Animated AI Agent Execution Step Logs */}
+                {/* Animated Execution Step Logs */}
                 {isAiProcessing && (
                   <div className="ai-terminal-box">
                     <div className="ai-terminal-header">
                       <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-400" />
-                      <span>AI Agent Refactoring Code Base...</span>
+                      <span>Studio Engine Refactoring Code Base...</span>
                     </div>
                     <div className="ai-terminal-logs">
                       {aiLogs.map((log, index) => (
@@ -1359,10 +1423,10 @@ function PreviewEditorInner() {
                 <div ref={aiChatEndRef} />
               </div>
 
-              {/* AI Prompt Quick Presets (Clickable Pills) */}
+              {/* Prompt Quick Presets (Clickable Pills) */}
               <div className="ai-presets-box">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 flex items-center gap-1">
-                  <Wand2 className="w-3 h-3 text-purple-400" /> Quick AI Style Presets:
+                  <Wand2 className="w-3 h-3 text-purple-400" /> Quick Style Presets:
                 </div>
                 <div className="ai-preset-pills">
                   {AI_PRESETS.map((preset, idx) => (
@@ -1378,7 +1442,7 @@ function PreviewEditorInner() {
                 </div>
               </div>
 
-              {/* AI Prompt Input Bar */}
+              {/* Prompt Input Bar */}
               <div className="ai-input-wrapper">
                 <div className="ai-input-box">
                   <textarea
@@ -1406,7 +1470,7 @@ function PreviewEditorInner() {
                       ) : (
                         <>
                           <Send className="w-3.5 h-3.5" />
-                          <span>Apply AI Edit</span>
+                          <span>Apply Prompt Edit</span>
                         </>
                       )}
                     </button>
@@ -1440,7 +1504,7 @@ export default function PreviewPage() {
         <div className="preview-loading-screen">
           <div className="preview-loading-box">
             <Loader2 className="preview-big-loader animate-spin" />
-            <p className="text-muted-foreground text-sm">Initializing AI Preview Studio...</p>
+            <p className="text-muted-foreground text-sm">Initializing Studio Preview...</p>
           </div>
         </div>
       }

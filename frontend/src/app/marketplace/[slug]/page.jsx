@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import Image from "@/components/Image";
 import Link, { navigate } from "@/components/Link";
 import { useAppAuth, useAppUser } from "@/lib/auth";
@@ -30,6 +30,7 @@ import "./Page.css";
 
 export default function TemplateDetailsPage({ slug: propSlug }) {
   const { slug: routeSlug } = useParams();
+  const [searchParams] = useSearchParams();
   const slug = propSlug || routeSlug;
 
   const { getToken, isSignedIn } = useAppAuth();
@@ -42,7 +43,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
   // Live Preview Device section
   const [deviceTab, setDeviceTab] = useState("desktop"); // desktop, laptop, tablet, mobile
 
-  // AI Preview generation simulation states
+  // Live Preview generation simulation states
   const [aiForm, setAiForm] = useState({
     businessName: "",
     industry: "Agency",
@@ -95,7 +96,6 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
   // Load customizations state from shared link query params on mount
   useEffect(() => {
     if (!template) return;
-    const searchParams = new URLSearchParams(window.location.search);
     const isEdited = searchParams.get("isEdited") === "true";
 
     if (isEdited) {
@@ -122,7 +122,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
       setAiPrimaryColor(pColor);
       setIsGenerated(true);
     }
-  }, [template]);
+  }, [template, searchParams]);
   const previewSrc = (() => {
     let base = template?.preview_url && !template.preview_url.includes("example.com")
       ? template.preview_url
@@ -232,8 +232,22 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
         primaryColor: primaryCol,
       }));
       setAiPrimaryColor(primaryCol);
+
+      // If user arrived with ?buy=1 or ?action=buy, directly add to cart and route to checkout
+      const buyParam = searchParams.get("buy");
+      const actionParam = searchParams.get("action");
+      if (buyParam === "1" || actionParam === "buy" || buyParam === "true") {
+        addToCart({
+          templateId: template.id,
+          title: template.title,
+          price: Number(template.price),
+          thumbnail: template.thumbnail_url || template.gallery_images?.[0] || "",
+          licenseType: "regular",
+        });
+        navigate("/checkout");
+      }
     }
-  }, [template]);
+  }, [template, searchParams]);
 
   const handleAddToCart = () => {
     if (!template) return;
@@ -320,14 +334,14 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
     }
   };
 
-  // Simulated AI Generation Terminal steps
+  // Simulated Live Generation Terminal steps
   const generatorSteps = [
     "Analyzing template framework structure & design style...",
     "Scanning industry-specific landing pages and branding rules...",
     "Synthesizing customized HSL color palette based on primary color preference...",
-    "Drafting tailored copywriting headlines (AI Content Generator)...",
-    "Selecting business-specific visual mockups (AI Image Generator)...",
-    "Injecting schema metadata and tag frameworks (AI SEO Optimization)...",
+    "Drafting tailored copywriting headlines (Instant Content Generator)...",
+    "Selecting business-specific visual mockups (Dynamic Graphics Generator)...",
+    "Injecting schema metadata and tag frameworks (Automated SEO Optimization)...",
     "Provisioning custom editor preview sandbox..."
   ];
 
@@ -342,7 +356,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
 
     // Dynamic text defaults based on inputs
     setEditableTitle(`Customized ${template.title} for ${aiForm.businessName}`);
-    setEditableSubtitle(`Optimized for the ${aiForm.industry} sector in ${aiForm.location || "your region"}. This is an interactive watermarked AI mockup draft.`);
+    setEditableSubtitle(`Optimized for the ${aiForm.industry} sector in ${aiForm.location || "your region"}. This is an interactive watermarked draft.`);
     setEditableCta(`Partner with ${aiForm.businessName}`);
     setAiPrimaryColor(aiForm.primaryColor);
 
@@ -563,7 +577,7 @@ npm run build`;
                       )}
                     </div>
                   ) : (
-                    /* Premium AI Auto-Scrolling Video Walkthrough Simulation */
+                    /* Premium Live Auto-Scrolling Video Walkthrough Simulation */
                     <div className="video-walkthrough-player">
                       {/* Top HUD: REC indicator */}
                       <div className="video-player-hud-top">
@@ -580,7 +594,7 @@ npm run build`;
                       <div className="video-player-screen">
                         <iframe
                           src={previewSrc}
-                          title={`AI Live Video Walkthrough — ${template.title}`}
+                          title={`Live Video Walkthrough — ${template.title}`}
                           sandbox="allow-scripts allow-same-origin allow-forms"
                           className="autoscroll-iframe"
                         />
@@ -841,7 +855,7 @@ npm run build`;
                   <h3 className="section-title">Technology Stack</h3>
                   <div className="flex flex-wrap gap-2.5">
                     {(() => {
-                      // If we have AI report, use it
+                      // If we have audit report, use it
                       if (template.changelog?.ai_report) {
                         return [
                           template.changelog.ai_report.framework_detected,
@@ -1213,7 +1227,7 @@ npm run build`;
                         {rev.admin_reply && (
                           <div className="p-3 bg-muted/20 border-l-2 border-primary/40 rounded-r-lg space-y-1.5 ml-4">
                             <div className="flex items-center gap-1.5">
-                              <span className="font-bold text-[10px] text-foreground">{template.developer_name || "AI Studio"}</span>
+                              <span className="font-bold text-[10px] text-foreground">{template.developer_name || "Site Studio"}</span>
                               <span className="text-[8px] bg-primary/10 text-primary border border-primary/20 px-1 rounded uppercase">Seller</span>
                             </div>
                             <p className="text-xs text-muted-foreground leading-relaxed">{rev.admin_reply}</p>
@@ -1439,7 +1453,7 @@ npm run build`;
                     style={{ textDecoration: 'none' }}
                   >
                     <Sparkles className="w-3.5 h-3.5" />
-                    Try AI Preview Editor
+                    Try Live Preview Editor
                   </Link>
                 </div>
 
@@ -1472,11 +1486,11 @@ npm run build`;
               <div className="details-developer-card">
                 <div className="seller-top">
                   <div className="seller-avatar">
-                    <Image src={template.developer_avatar || "https://picsum.photos/seed/avatar/100/100"} alt={template.developer_name || "AI Studio"} width={40} height={40} />
+                    <Image src={template.developer_avatar || "https://picsum.photos/seed/avatar/100/100"} alt={template.developer_name || "Site Studio"} width={40} height={40} />
                   </div>
                   <div>
                     <div className="seller-info-name">
-                      {template.developer_name || "AI Studio"}
+                      {template.developer_name || "Site Studio"}
                       <Award className="w-4 h-4 text-primary" />
                     </div>
                     <span className="seller-verified-label">Verified Author</span>
@@ -1529,8 +1543,8 @@ npm run build`;
                 a: "Yes. All template licenses include lifetime minor updates and 1 year of major version updates free of charge."
               },
               {
-                q: "Can the AI rewrite my copy automatically?",
-                a: "Yes, our preview generator uses optimized OpenAI frameworks to compose marketing copy suited for your industry, location, and metadata."
+                q: "Can Instant Fill rewrite my copy automatically?",
+                a: "Yes, our preview generator uses intelligent copywriting models to compose marketing copy suited for your industry, location, and metadata."
               },
               {
                 q: "How does the download delivery work?",
@@ -1564,7 +1578,7 @@ npm run build`;
           <div className="cta-glow" />
           <h2 className="cta-heading">Ready to build your professional site?</h2>
           <p className="cta-sub">
-            Try the template first in our AI Sandbox editor, or purchase a commercial license to download the source archives immediately.
+            Try the template first in our Live Sandbox editor, or purchase a commercial license to download the source archives immediately.
           </p>
           <div className="cta-buttons">
             <Link
@@ -1572,7 +1586,7 @@ npm run build`;
               className="cta-primary-btn"
               style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
             >
-              Try AI Preview Editor
+              Try Live Preview Editor
             </Link>
             <button
               onClick={handleAddToCart}

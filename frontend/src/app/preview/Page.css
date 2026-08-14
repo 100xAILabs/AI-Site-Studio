@@ -1,5 +1,5 @@
 /* ═════════════════════════════════════════════════════════════════════
-   AI PREVIEW STUDIO EDITOR — High-End Modern IDE Layout CSS
+   LIVE PREVIEW STUDIO EDITOR — High-End Modern IDE Layout CSS
 ═══════════════════════════════════════════════════════════════════════ */
 
 /* Global Studio Root */
@@ -548,7 +548,7 @@
   transform: translateY(-1px);
 }
 
-/* Mode 2: AI Prompt Agent Styles (Claude / Antigravity IDE) */
+/* Mode 2: Live Prompt Agent Styles */
 .studio-ai-agent-container {
   display: flex;
   flex-direction: column;
@@ -692,7 +692,7 @@
   color: #94a3b8;
 }
 
-/* AI Presets Section */
+/* Prompt Presets Section */
 .ai-presets-box {
   padding: 0.625rem 1rem;
   border-top: 1px solid hsl(var(--border) / 0.4);
@@ -724,7 +724,7 @@
   background-color: rgba(139, 92, 246, 0.08);
 }
 
-/* AI Input Box */
+/* Prompt Input Box */
 .ai-input-wrapper {
   padding: 0.75rem 1rem;
   border-top: 1px solid hsl(var(--border) / 0.5);

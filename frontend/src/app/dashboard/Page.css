@@ -856,7 +856,7 @@
 }
 
 /* ==========================================
-   ZIP Uploader & AI Scanner UI
+   ZIP Uploader & Project Audit UI
    ========================================== */
 
 .db-upload-dropzone {
@@ -916,7 +916,7 @@
   border: 1px solid hsla(var(--primary) / 0.12);
 }
 
-/* AI Scanner loading view */
+/* Project Scanner loading view */
 .db-analysis-loading-shell {
   display: flex;
   flex-direction: column;
@@ -985,41 +985,41 @@
   align-items: center;
 }
 
-/* AI Report card */
-.db-ai-report-card {
+/* Project Audit Report card */
+.db-studio-report-card {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
 }
 
-.db-ai-report-header {
+.db-studio-report-header {
   display: flex;
   align-items: center;
-  justify-content: justify;
   justify-content: space-between;
   border-bottom: 1px solid hsl(var(--border) / 0.5);
   padding-bottom: 1rem;
 }
 
-.db-ai-badge {
+.db-studio-badge {
   font-size: 0.625rem;
   font-weight: 700;
   text-transform: uppercase;
-  background-color: rgba(234, 179, 8, 0.1);
-  color: #eab308;
-  border: 1px solid rgba(234, 179, 8, 0.2);
-  padding: 0.125rem 0.5rem;
-  border-radius: 0.25rem;
+  background-color: hsla(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+  border: 1px solid hsla(var(--primary) / 0.25);
+  padding: 0.125rem 0.625rem;
+  border-radius: 9999px;
+  letter-spacing: 0.05em;
 }
 
-.db-ai-report-grid {
+.db-studio-report-grid {
   display: grid;
   grid-template-columns: 1fr;
   gap: 1.5rem;
 }
 
 @media (min-width: 1024px) {
-  .db-ai-report-grid {
+  .db-studio-report-grid {
     grid-template-columns: 1.2fr 1fr;
   }
 }
@@ -1094,9 +1094,9 @@
   text-align: center;
 }
 
-.db-ai-score-block {
-  background-color: rgba(234, 179, 8, 0.03);
-  border-color: rgba(234, 179, 8, 0.15);
+.db-studio-score-block {
+  background-color: hsla(var(--primary) / 0.04);
+  border-color: hsla(var(--primary) / 0.2);
 }
 
 .db-score-circle-big {

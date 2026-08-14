@@ -4,7 +4,7 @@ Templates routes — public browsing and admin CRUD.
 
 import uuid
 import logging
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +18,13 @@ from app.core.dependencies import get_current_user_optional, require_admin, requ
 from app.models.user import User
 from app.services.template_service import TemplateService
 from app.services.project_analyzer import project_analyzer
+from app.services.multi_agent_service import multi_agent_orchestrator
+from app.services.backend_generator import generate_standalone_backend
 from app.schemas.template import (
     TemplateCreate, TemplateUpdate, TemplateResponse,
     TemplateListResponse, TemplateFilterParams, TemplateCardResponse,
+    TemplatePrepareRequest, TemplatePrepareResponse, TemplateQuestion, TemplatePageItem,
+    TemplateGenerateRequest,
 )
 from app.models.template import TemplateFramework, TemplateLicense, TemplateStatus
 from app.models.order import Order, OrderItem, OrderStatus
@@ -43,8 +47,9 @@ class GitAnalyzeRequest(BaseModel):
 async def list_templates(
     # Search
     q: Optional[str] = Query(None, description="Text search query"),
-    # Category
+    # Category & Sub-category
     category: Optional[str] = Query(None, description="Category slug or name"),
+    sub_category: Optional[str] = Query(None, description="Subcategory slug or name"),
     # Price
     min_price: Optional[Decimal] = Query(None, ge=0),
     max_price: Optional[Decimal] = Query(None, ge=0),
@@ -80,7 +85,7 @@ async def list_templates(
     All filter params are optional and combinable.
     """
     filters = TemplateFilterParams(
-        q=q, category=category, min_price=min_price, max_price=max_price,
+        q=q, category=category, sub_category=sub_category, min_price=min_price, max_price=max_price,
         rating=rating, is_free=is_free, is_on_sale=is_on_sale,
         has_dark_mode=has_dark_mode, is_ai_ready=is_ai_ready, is_featured=is_featured,
         framework=framework, industry=industry, color_scheme=color_scheme,
@@ -300,9 +305,9 @@ async def update_template(
 async def delete_template(
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_seller_or_admin),
+    current_user: User = Depends(get_current_user),
 ):
-    """Delete a template. Admins can delete any template; sellers can only delete their own."""
+    """Delete a template or studio project. Admins can delete any template; users can delete their own."""
     service = TemplateService(db)
     await service.delete_template(template_id, current_user)
 
@@ -323,8 +328,9 @@ async def download_template(
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
         
-    is_owner = template.seller_id == current_user.id
-    if not template.is_free and not is_owner:
+    is_seller_or_admin = current_user.role in (UserRole.SELLER, UserRole.ADMIN, UserRole.SUPER_ADMIN)
+    is_authorized_creator = template.seller_id == current_user.id and is_seller_or_admin
+    if not template.is_free and not is_authorized_creator:
         purchase = await db.execute(
             select(OrderItem.id)
             .join(Order, OrderItem.order_id == Order.id)
@@ -363,51 +369,6 @@ async def download_template(
         zip_url = f"{zip_url}?expires={expires}&signature={signature}"
 
     return {"download_url": zip_url}
-
-
-class TemplatePrepareRequest(BaseModel):
-    prompt: str
-    model_tier: Optional[str] = "pro"  # "pro" | "flash"
-    business_name: Optional[str] = None
-    business_type: Optional[str] = None
-    brand_colors: Optional[dict] = None
-    logo_info: Optional[dict] = None
-    contact_details: Optional[dict] = None
-
-
-class TemplateQuestion(BaseModel):
-    id: str
-    question: str
-    options: list[str]
-
-
-class TemplatePageItem(BaseModel):
-    name: str
-    filename: str
-    content_summary: Optional[str] = None
-
-
-class TemplatePrepareResponse(BaseModel):
-    architecture_type: str = "multi_page"  # single_page | multi_page
-    is_multipage: bool = True
-    architecture_reasoning: str = ""
-    questions: list[TemplateQuestion]
-    suggested_pages: list[TemplatePageItem]
-
-
-class TemplateGenerateRequest(BaseModel):
-    prompt: str
-    framework: str = "html"  # html | react
-    answers: Optional[dict] = None
-    pages: Optional[list[dict]] = None
-    is_multipage: Optional[bool] = None
-    architecture_type: Optional[str] = None
-    model_tier: Optional[str] = "pro"  # "pro" | "flash"
-    business_name: Optional[str] = None
-    business_type: Optional[str] = None
-    brand_colors: Optional[dict] = None
-    logo_info: Optional[dict] = None
-    contact_details: Optional[dict] = None
 
 
 @router.post("/generate/prepare", response_model=TemplatePrepareResponse)
@@ -548,6 +509,391 @@ async def generate_template_by_prompt(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Template generation failed: {str(e)}"
         )
+
+
+def scaffold_react_multipage_files(
+    app_jsx_code: str,
+    pages: List[str],
+    title: str,
+    color_scheme: str,
+    industry: str,
+    developer_avatar: str = "",
+    thumbnail_url: str = "",
+) -> Dict[str, str]:
+    """
+    Ensures that every page listed in `pages` physically exists as an individual
+    React component file in `src/pages/<PageName>.jsx`, along with `src/components/Navbar.jsx`,
+    `src/components/Footer.jsx`, and a master `src/App.jsx` router.
+    """
+    import re
+    files = {}
+    
+    # 1. Navbar component
+    nav_links = []
+    for p in pages:
+        state_key = p.lower().replace(" ", "-")
+        nav_links.append(f"""          <button
+            onClick={{() => setCurrentPage('{state_key}')}}
+            className={{`px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-all ${{
+              currentPage === '{state_key}' ? 'text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 font-bold' : 'text-slate-300 hover:text-white'
+            }}`}}
+          >
+            {p}
+          </button>""")
+    nav_links_str = "\n".join(nav_links)
+
+    navbar_code = f"""import React, {{ useState }} from 'react';
+import {{ Sparkles, Menu, X, ArrowRight }} from 'lucide-react';
+
+export default function Navbar({{ currentPage, setCurrentPage }}) {{
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  return (
+    <header className="sticky top-0 z-50 backdrop-blur-xl bg-slate-950/85 border-b border-white/10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <div className="flex items-center gap-3 cursor-pointer" onClick={{() => setCurrentPage('home')}}>
+          {f'<img src="{developer_avatar}" alt="{title}" className="w-8 h-8 rounded-lg object-cover" />' if developer_avatar else '<div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-cyan-500 to-indigo-500 flex items-center justify-center font-bold text-white text-sm">AI</div>'}
+          <span className="font-extrabold tracking-wide text-base text-white">{title}</span>
+        </div>
+
+        <nav className="hidden md:flex items-center gap-2">
+{nav_links_str}
+        </nav>
+
+        <div className="hidden md:flex items-center">
+          <button
+            onClick={{() => setCurrentPage('contact')}}
+            className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs shadow-lg shadow-cyan-500/20 transition-all flex items-center gap-1.5"
+          >
+            <span>Get Started</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <button onClick={{() => setMobileOpen(!mobileOpen)}} className="md:hidden p-2 text-slate-300 hover:text-white">
+          {{mobileOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}}
+        </button>
+      </div>
+
+      {{mobileOpen && (
+        <div className="md:hidden bg-slate-950/95 border-b border-white/10 px-4 py-4 space-y-2">
+{nav_links_str}
+        </div>
+      )}}
+    </header>
+  );
+}}"""
+    files["src/components/Navbar.jsx"] = navbar_code
+
+    # 2. Footer component
+    footer_code = f"""import React from 'react';
+import {{ Twitter, Instagram, Linkedin, Github, Heart }} from 'lucide-react';
+
+export default function Footer({{ currentPage, setCurrentPage }}) {{
+  return (
+    <footer className="bg-slate-950 border-t border-white/10 text-slate-400 py-12">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-4 gap-8">
+        <div>
+          <h4 className="text-white font-bold text-base mb-3">{title}</h4>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Engineered with modern full-stack performance, responsive styling, and robust architecture.
+          </p>
+        </div>
+        <div>
+          <h5 className="text-white font-semibold text-xs uppercase tracking-wider mb-3">Navigation</h5>
+          <div className="space-y-1.5 flex flex-col text-xs">
+{nav_links_str}
+          </div>
+        </div>
+        <div>
+          <h5 className="text-white font-semibold text-xs uppercase tracking-wider mb-3">Connect</h5>
+          <div className="flex gap-3 text-slate-400">
+            <a href="#twitter" className="hover:text-cyan-400 transition-colors"><Twitter className="w-4 h-4" /></a>
+            <a href="#linkedin" className="hover:text-cyan-400 transition-colors"><Linkedin className="w-4 h-4" /></a>
+            <a href="#github" className="hover:text-cyan-400 transition-colors"><Github className="w-4 h-4" /></a>
+          </div>
+        </div>
+        <div>
+          <h5 className="text-white font-semibold text-xs uppercase tracking-wider mb-3">Newsletter</h5>
+          <div className="flex gap-2">
+            <input placeholder="Enter email..." className="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-xs text-white" />
+            <button className="px-3 py-2 bg-cyan-500 text-slate-950 font-bold rounded-lg text-xs">Join</button>
+          </div>
+        </div>
+      </div>
+      <div className="max-w-7xl mx-auto px-4 mt-8 pt-6 border-t border-white/5 text-center text-xs text-slate-500">
+        &copy; {{new Date().getFullYear()}} {title}. All rights reserved.
+      </div>
+    </footer>
+  );
+}}"""
+    files["src/components/Footer.jsx"] = footer_code
+
+    # 3. Individual Page Components in src/pages/
+    page_imports = []
+    page_switches = []
+    
+    for p in pages:
+        p_clean = re.sub(r'[^a-zA-Z0-9]+', '', p.title())
+        comp_name = f"{p_clean}Page"
+        state_key = p.lower().replace(" ", "-")
+        page_file = f"src/pages/{comp_name}.jsx"
+        page_imports.append(f"import {comp_name} from './pages/{comp_name}.jsx';")
+        page_switches.append(f"        {{currentPage === '{state_key}' && <{comp_name} setCurrentPage={{setCurrentPage}} />}}")
+
+        # Create distinct rich page component
+        page_code = f"""import React, {{ useState }} from 'react';
+import {{ Sparkles, Check, ArrowRight, Shield, Zap, Globe, Layers, Mail, Phone, MapPin }} from 'lucide-react';
+
+export default function {comp_name}({{ setCurrentPage }}) {{
+  return (
+    <div className="py-16 sm:py-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+      <div className="text-center max-w-3xl mx-auto mb-16">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-mono mb-4">
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>{p} View</span>
+        </div>
+        <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white mb-4">
+          {p} — {title}
+        </h1>
+        <p className="text-sm sm:text-base text-slate-400 leading-relaxed">
+          Comprehensive, production-ready {p.lower()} layout tailored for {industry} industry.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="p-6 rounded-2xl bg-slate-900/60 border border-white/10 hover:border-cyan-500/40 transition-all">
+          <Zap className="w-6 h-6 text-cyan-400 mb-3" />
+          <h3 className="text-lg font-bold text-white mb-2">High Performance</h3>
+          <p className="text-xs text-slate-400">Optimized component rendering with responsive layouts.</p>
+        </div>
+        <div className="p-6 rounded-2xl bg-slate-900/60 border border-white/10 hover:border-cyan-500/40 transition-all">
+          <Shield className="w-6 h-6 text-cyan-400 mb-3" />
+          <h3 className="text-lg font-bold text-white mb-2">Secure Architecture</h3>
+          <p className="text-xs text-slate-400">Enterprise grade reliability and isolated REST API endpoints.</p>
+        </div>
+        <div className="p-6 rounded-2xl bg-slate-900/60 border border-white/10 hover:border-cyan-500/40 transition-all">
+          <Globe className="w-6 h-6 text-cyan-400 mb-3" />
+          <h3 className="text-lg font-bold text-white mb-2">Global Scale</h3>
+          <p className="text-xs text-slate-400">Deployable instantly with modern Vite bundler.</p>
+        </div>
+      </div>
+    </div>
+  );
+}}"""
+        files[page_file] = page_code
+
+    # 4. Master App.jsx router
+    imports_str = "\n".join(page_imports)
+    switches_str = "\n".join(page_switches)
+    first_state = pages[0].lower().replace(" ", "-") if pages else "home"
+
+    master_app_jsx = f"""import React, {{ useState }} from 'react';
+import Navbar from './components/Navbar.jsx';
+import Footer from './components/Footer.jsx';
+{imports_str}
+
+export default function App() {{
+  const [currentPage, setCurrentPage] = useState('{first_state}');
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between selection:bg-cyan-500 selection:text-black">
+      <Navbar currentPage={{currentPage}} setCurrentPage={{setCurrentPage}} />
+      <main className="flex-1">
+{switches_str}
+      </main>
+      <Footer currentPage={{currentPage}} setCurrentPage={{setCurrentPage}} />
+    </div>
+  );
+}}"""
+
+    if app_jsx_code and len(app_jsx_code) > 400:
+        files["src/App.jsx"] = app_jsx_code
+        files["src/pages/HomePage.jsx"] = app_jsx_code
+    else:
+        files["src/App.jsx"] = master_app_jsx
+
+    return files
+
+
+def scaffold_vue_multipage_files(
+    pages: List[str],
+    title: str,
+    color_scheme: str,
+    industry: str,
+    developer_avatar: str = "",
+    thumbnail_url: str = "",
+) -> Dict[str, str]:
+    """Scaffold complete Vue 3 multi-page template structure."""
+    import re
+    files = {}
+
+    nav_buttons = []
+    for p in pages:
+        state_key = p.lower().replace(" ", "-")
+        nav_buttons.append(f"""        <button @click="currentPage = '{state_key}'" :class="currentPage === '{state_key}' ? 'text-cyan-400 bg-cyan-500/10 font-bold' : 'text-slate-300'" class="px-3 py-1.5 rounded-lg text-xs uppercase tracking-wider">{p}</button>""")
+    nav_buttons_str = "\n".join(nav_buttons)
+
+    # 1. Navbar.vue
+    files["src/components/Navbar.vue"] = f"""<template>
+  <header class="sticky top-0 z-50 backdrop-blur-xl bg-slate-950/85 border-b border-white/10">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3 cursor-pointer" @click="$emit('update:page', 'home')">
+        <span class="font-extrabold tracking-wide text-base text-white">{title}</span>
+      </div>
+      <nav class="hidden md:flex items-center gap-2">
+{nav_buttons_str}
+      </nav>
+      <button @click="$emit('update:page', 'contact')" class="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 font-bold text-xs">Get Started</button>
+    </div>
+  </header>
+</template>
+<script setup>
+defineProps(['currentPage']);
+defineEmits(['update:page']);
+</script>"""
+
+    # 2. Pages
+    page_switches = []
+    for p in pages:
+        p_clean = re.sub(r'[^a-zA-Z0-9]+', '', p.title())
+        comp_name = f"{p_clean}Page"
+        state_key = p.lower().replace(" ", "-")
+        page_file = f"src/pages/{comp_name}.vue"
+        page_switches.append(f"""      <{comp_name} v-if="currentPage === '{state_key}'" @navigate="(p) => currentPage = p" />""")
+
+        files[page_file] = f"""<template>
+  <div class="py-16 sm:py-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto text-center">
+    <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 text-cyan-400 text-xs font-mono mb-4">{p} View</span>
+    <h1 class="text-4xl sm:text-5xl font-extrabold text-white mb-4">{p} — {title}</h1>
+    <p class="text-slate-400 text-sm max-w-2xl mx-auto mb-12">Production-ready Vue 3 template page for {industry} industry.</p>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
+      <div class="p-6 rounded-2xl bg-slate-900/60 border border-white/10">
+        <h3 class="text-white font-bold text-base mb-2">Fast Vue 3 Setup</h3>
+        <p class="text-slate-400 text-xs">Composed with Vue Composition API & Vite bundler.</p>
+      </div>
+      <div class="p-6 rounded-2xl bg-slate-900/60 border border-white/10">
+        <h3 class="text-white font-bold text-base mb-2">Enterprise REST API</h3>
+        <p class="text-slate-400 text-xs">Isolated database persistence with backend endpoints.</p>
+      </div>
+      <div class="p-6 rounded-2xl bg-slate-900/60 border border-white/10">
+        <h3 class="text-white font-bold text-base mb-2">Zero Missing Pages</h3>
+        <p class="text-slate-400 text-xs">All multi-page navigation links are fully connected.</p>
+      </div>
+    </div>
+  </div>
+</template>
+<script setup>
+defineEmits(['navigate']);
+</script>"""
+
+    # 3. Master App.vue
+    switches_str = "\n".join(page_switches)
+    first_state = pages[0].lower().replace(" ", "-") if pages else "home"
+    files["src/App.vue"] = f"""<template>
+  <div class="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between">
+    <Navbar :currentPage="currentPage" @update:page="(p) => currentPage = p" />
+    <main class="flex-1">
+{switches_str}
+    </main>
+    <footer class="py-8 bg-slate-950 text-xs text-slate-500 text-center border-t border-white/5">
+      &copy; {{{{ new Date().getFullYear() }}}} {title}. All rights reserved.
+    </footer>
+  </div>
+</template>
+<script setup>
+import {{ ref }} from 'vue';
+import Navbar from './components/Navbar.vue';
+{chr(10).join(f"import {re.sub(r'[^a-zA-Z0-9]+', '', p.title())}Page from './pages/{re.sub(r'[^a-zA-Z0-9]+', '', p.title())}Page.vue';" for p in pages)}
+
+const currentPage = ref('{first_state}');
+</script>"""
+
+    return files
+
+
+def scaffold_nextjs_multipage_files(
+    pages: List[str],
+    title: str,
+    color_scheme: str,
+    industry: str,
+    developer_avatar: str = "",
+    thumbnail_url: str = "",
+) -> Dict[str, str]:
+    """Scaffold complete Next.js App Router multi-page template structure."""
+    import re
+    files = {}
+
+    nav_links = []
+    for p in pages:
+        href = "/" if p.lower() in ["home", "homepage"] else f"/{p.lower().replace(' ', '-')}"
+        nav_links.append(f"""        <Link href="{href}" className="text-xs font-semibold uppercase tracking-wider text-slate-300 hover:text-white transition-colors">{p}</Link>""")
+    nav_links_str = "\n".join(nav_links)
+
+    # 1. Navbar.jsx
+    files["components/Navbar.jsx"] = f"""import React from 'react';
+import Link from 'next/link';
+import {{ Sparkles, ArrowRight }} from 'lucide-react';
+
+export default function Navbar() {{
+  return (
+    <header className="sticky top-0 z-50 backdrop-blur-xl bg-slate-950/85 border-b border-white/10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <Link href="/" className="font-extrabold tracking-wide text-base text-white">{title}</Link>
+        <nav className="hidden md:flex items-center gap-6">
+{nav_links_str}
+        </nav>
+        <Link href="/contact" className="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 font-bold text-xs shadow-lg shadow-cyan-500/20">
+          Get Started
+        </Link>
+      </div>
+    </header>
+  );
+}}"""
+
+    # 2. Next.js App Router Pages
+    for p in pages:
+        p_slug = "" if p.lower() in ["home", "homepage"] else p.lower().replace(" ", "-")
+        route_path = "app/page.jsx" if not p_slug else f"app/{p_slug}/page.jsx"
+
+        files[route_path] = f"""import React from 'react';
+import Navbar from {'"../components/Navbar"' if p_slug else '"@/components/Navbar"'};
+import {{ Sparkles, Zap, Shield, Globe }} from 'lucide-react';
+
+export default function Page() {{
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between">
+      <Navbar />
+      <main className="flex-1 py-16 sm:py-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto text-center">
+        <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 text-cyan-400 text-xs font-mono mb-4">{p} View</span>
+        <h1 className="text-4xl sm:text-5xl font-extrabold text-white mb-4">{p} — {title}</h1>
+        <p className="text-slate-400 text-sm max-w-2xl mx-auto mb-12">Production-ready Next.js App Router page for {industry} industry.</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
+          <div className="p-6 rounded-2xl bg-slate-900/60 border border-white/10">
+            <Zap className="w-6 h-6 text-cyan-400 mb-3" />
+            <h3 className="text-white font-bold text-base mb-2">Server Components</h3>
+            <p className="text-slate-400 text-xs">Optimized rendering with Next.js App Router.</p>
+          </div>
+          <div className="p-6 rounded-2xl bg-slate-900/60 border border-white/10">
+            <Shield className="w-6 h-6 text-cyan-400 mb-3" />
+            <h3 className="text-white font-bold text-base mb-2">Secure API Routes</h3>
+            <p className="text-slate-400 text-xs">Isolated database persistence with backend endpoints.</p>
+          </div>
+          <div className="p-6 rounded-2xl bg-slate-900/60 border border-white/10">
+            <Globe className="w-6 h-6 text-cyan-400 mb-3" />
+            <h3 className="text-white font-bold text-base mb-2">SEO Optimized</h3>
+            <p className="text-slate-400 text-xs">Pre-rendered with dynamic metadata tags.</p>
+          </div>
+        </div>
+      </main>
+      <footer className="py-8 bg-slate-950 text-xs text-slate-500 text-center border-t border-white/5">
+        &copy; {title}. All rights reserved.
+      </footer>
+    </div>
+  );
+}}"""
+
+    return files
 
 
 async def _generate_template_by_prompt_impl(
@@ -804,14 +1150,20 @@ THE METADATA AND VISUAL DESIGN SPECS YOU MUST MATCH EXACTLY:
 
 NEXT-LEVEL CORE ARCHITECTURE REQUIREMENTS (DO NOT SKIP ANY SECTION):
 
-1. AWWWARDS-LEVEL VISUAL DESIGN SYSTEM & TYPOGRAPHY:
+1. MANDATORY MULTI-PAGE COMPLETENESS & LINKING RULES (ZERO DEAD LINKS):
+   - COMPLETE FILE DELIVERY: You MUST generate full, production-ready code for EVERY single page in {html_pages_list_str}. Do not omit any page or abbreviate sections.
+   - 100% WORKING RELATIVE LINKS: Every header navigation menu, footer quick links column, hero CTA button, and mobile menu drawer across ALL generated pages MUST link to the other pages with exact relative links (e.g. href="index.html", href="about.html", href="services.html", href="pricing.html", href="contact.html"). Never use placeholder '#' links when an actual destination page is part of this site!
+   - ACTIVE NAVIGATION HIGHLIGHTING: On each page, the navigation item corresponding to that current page MUST be visually highlighted with an active class (e.g. text-primary font-bold border-b-2 border-primary).
+   - FORM TO BACKEND API INTEGRATION: Contact and newsletter forms on all pages must include interactive JavaScript that asynchronously submits to the backend API (POST http://localhost:8001/api/contact and POST http://localhost:8001/api/newsletter) with a modern floating success toast and graceful offline fallback.
+
+2. AWWWARDS-LEVEL VISUAL DESIGN SYSTEM & TYPOGRAPHY:
    - Palette & Theme CSS variables: Injected into `<head>` under `:root` (`--color-primary`, `--color-primary-glow`, `--color-secondary`, `--color-accent`, `--color-bg`, `--color-card`, `--color-text`).
    - Glassmorphic & Ambient Lighting: Background glow elements (`bg-gradient-to-tr from-indigo-500/20 via-transparent to-purple-500/20 blur-3xl`), glassmorphic cards (`bg-slate-900/70 backdrop-blur-xl border border-white/10 shadow-2xl`), interactive gradient borders.
    - Typography Pairing: Import matching Google Fonts in `<head>` (e.g. Outfit / Plus Jakarta Sans / Inter / Playfair Display).
 
-2. RICH BESPOKE SECTIONS SUITE (ALL FULLY WRITTEN OUT WITH ZERO SHORTCUTS):
+3. RICH BESPOKE SECTIONS SUITE (ALL FULLY WRITTEN OUT WITH ZERO SHORTCUTS):
    - Announcement Bar at top: E.g., "✨ Launch Special: Get started with {title} today →" with close button.
-   - Glassmorphic Sticky Header: Featuring Brand Logo (`{developer_avatar}`), brand name (`{title}`), interactive navigation links, Theme Switcher button, and responsive mobile menu drawer toggler.
+   - Glassmorphic Sticky Header: Featuring Brand Logo (`{developer_avatar}`), brand name (`{title}`), interactive navigation links to all pages, Theme Switcher button, and responsive mobile menu drawer toggler.
    - High-Impact Hero Banner: Headline with gradient text, domain badge, photo backdrop (`{thumbnail_url}`), dual CTA buttons ("Get Started" / "Learn More"), and floating live stats badge.
    - Client Logos / Tech Stack Marquee: Infinite smooth scrolling ticker of brand logos or tech badges.
    - Domain-Specific Feature Grid Cards: Bespoke grid cards with hover scale glow effect and inline SVG vector icons.
@@ -820,24 +1172,24 @@ NEXT-LEVEL CORE ARCHITECTURE REQUIREMENTS (DO NOT SKIP ANY SECTION):
    - Customer Testimonials Section: Verified buyer cards with 5-star ratings and user avatars.
    - Interactive Accordion FAQ: Collapsible question items with smooth expandable JS triggers.
    - High-Converting CTA Banner: Full-width gradient banner with newsletter input & subscribe button.
-   - Comprehensive 4-Column Footer: Column 1 (Brand logo, bio, contact info), Column 2 (Quick links), Column 3 (Services/Products), Column 4 (Newsletter form, legal links, social links, copyright).
+   - Comprehensive 4-Column Footer: Column 1 (Brand logo, bio, contact info), Column 2 (Quick links to all pages), Column 3 (Services/Products), Column 4 (Newsletter form, legal links, social links, copyright).
 
-3. ADVANCED INTERACTIVE JS (INLINED AT BOTTOM OF EVERY PAGE BEFORE </body>):
+4. ADVANCED INTERACTIVE JS (INLINED AT BOTTOM OF EVERY PAGE BEFORE </body>):
    - `toggleMobileMenu()`: Smooth slide-in mobile navigation menu drawer.
    - `filterGallery(category)`: Instant category filtering for portfolio/showcase cards.
    - `togglePricingBilling(billingCycle)`: Switches prices between monthly and annual rates dynamically.
    - `toggleAccordion(id)`: Expands/collapses FAQ accordion items smoothly.
    - `openImageLightbox(src)`: Fullscreen modal lightbox when clicking gallery images.
-   - `handleFormSubmit(event)`: Prevents page reload, displays a floating glassmorphic success toast notification ("Thank you! Your request has been received."), and clears input fields.
+   - `handleFormSubmit(event)`: Submits asynchronously to `http://localhost:8001/api/contact`, displays a floating glassmorphic success toast notification ("Thank you! Your request has been received."), and clears input fields.
    - `scrollToTop()`: Floating back-to-top button appearing on scroll.
 
-4. ADVANCED SEO & SCHEMA.ORG STRUCTURED DATA:
+5. ADVANCED SEO & SCHEMA.ORG STRUCTURED DATA:
    - Full HTML5 Doctypes, UTF-8 charset, responsive viewport.
    - Complete SEO Meta Tags (`<title>`, `<meta name="description">`, `<meta name="keywords">`, `<meta name="robots" content="index, follow">`).
    - OpenGraph & Twitter Cards (`og:title`, `og:description`, `og:image`, `og:type`, `twitter:card`).
    - Valid JSON-LD Schema.org script (`<script type="application/ld+json">`) for `Organization` or `LocalBusiness` or `Person`.
 
-5. 100% MOBILE RESPONSIVENESS & ACCESSIBILITY:
+6. 100% MOBILE RESPONSIVENESS & ACCESSIBILITY:
    - Built with Tailwind CSS responsive utilities (`sm:`, `md:`, `lg:`, `xl:`).
    - Focus visible rings (`focus-visible:ring-2 focus-visible:ring-primary`).
    - Keyframe animations (`@keyframes fadeInUp`, `@keyframes floatSlow`, `@keyframes pulseGlow`) with `@media (prefers-reduced-motion: reduce)`.
@@ -853,13 +1205,60 @@ Do not include markdown code block syntax (like ```json) or explanations."""
             logger.error(f"Gemini HTML code generation or JSON parse failed: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to generate template HTML codebase: {str(e)}")
 
+        project_scope = (request.project_scope or "fullstack").lower().strip()
+        backend_fw = (request.backend_framework or "fastapi").lower().strip()
+
         # Package ZIP
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-            for fname, fcontent in files_dict.items():
-                if fname.endswith(".html"):
-                    fcontent = repair_truncated_html(fcontent)
-                zip_file.writestr(fname, fcontent)
+            if project_scope == "fullstack":
+                # Full-Stack HTML Project
+                for fname, fcontent in files_dict.items():
+                    if fname.endswith(".html"):
+                        fcontent = repair_truncated_html(fcontent)
+                    zip_file.writestr(f"frontend/{fname}", fcontent)
+
+                # Generate dedicated standalone backend
+                backend_files = generate_standalone_backend(backend_fw, title, industry)
+                for bpath, bcontent in backend_files.items():
+                    zip_file.writestr(f"backend/{bpath}", bcontent)
+
+                html_fullstack_readme = f"""# {title} — Full-Stack Multi-Page Application Package
+
+## Overview
+This package contains a **multi-page HTML frontend** and a **dedicated standalone {backend_fw.upper()} REST API backend**.
+
+## Directory Structure
+- `frontend/` — Multi-page HTML templates with complete inter-page navigation links (`index.html`, `about.html`, `services.html`, `contact.html`, etc.).
+- `backend/` — Dedicated {backend_fw.upper()} REST API server with an isolated local database.
+
+## Quick Start Instructions
+
+### 1. Start the Backend REST API Server:
+Refer to `backend/README.md` for framework-specific startup commands.
+> The API runs at `http://localhost:8001` with active endpoints for contact submissions and lead capture.
+
+### 2. View the Frontend Website:
+Open `frontend/index.html` in any modern web browser or serve with a static server (e.g. `npx serve frontend` or VS Code Live Server).
+"""
+                zip_file.writestr("README.md", html_fullstack_readme)
+            else:
+                # Standalone Frontend HTML Package
+                for fname, fcontent in files_dict.items():
+                    if fname.endswith(".html"):
+                        fcontent = repair_truncated_html(fcontent)
+                    zip_file.writestr(fname, fcontent)
+
+                html_frontend_readme = f"""# {title} — Multi-Page Website Template
+
+## Overview
+Production-ready multi-page HTML website with interactive navigation, styling, and animations.
+
+## Getting Started
+Open `index.html` in any web browser or deploy directly to GitHub Pages, Netlify, or Vercel.
+"""
+                zip_file.writestr("README.md", html_frontend_readme)
+
         zip_bytes = zip_buffer.getvalue()
 
     else:  # react
@@ -946,8 +1345,27 @@ Return ONLY the complete React ES6 Javascript code. Do not include markdown code
             generated_code = clean_code_response(raw_code, "jsx")
             # If generated code still starts with js/jsx block, strip it
             generated_code = clean_code_response(generated_code, "javascript")
-            # Auto-repair truncated JSX markup and brackets
-            generated_code = repair_truncated_jsx(generated_code)
+            
+            # 🤖 Autonomous AI Debugger Pre-Audit & Healing Pass
+            from app.services.debugger_service import ai_debugger
+            generated_code = ai_debugger.sanitize_code_heuristics(generated_code, ext=".jsx")
+            
+            # If severe truncation or syntax imbalance is detected, run the AI Debugger pass before packaging!
+            if (
+                ");<" in generated_code
+                or ";<" in generated_code
+                or "export default" not in generated_code
+                or generated_code.count("{") != generated_code.count("}")
+                or len(generated_code.strip()) < 300
+            ):
+                logger.info("🛠️ [Generation Pipeline] Syntax defect detected in initial LLM output. Invoking Gemini AI Debugger...")
+                fixed_code = await ai_debugger.debug_code_with_ai(
+                    code=generated_code,
+                    filename="App.jsx",
+                    error_message="Fix syntax defects, balance all JSX tags, ensure valid React exports, and complete any truncated component code."
+                )
+                if fixed_code and len(fixed_code) > 300:
+                    generated_code = fixed_code
         except Exception as e:
             logger.error(f"Gemini React code generation failed: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to generate template React codebase: {str(e)}")
@@ -1030,14 +1448,77 @@ body {
 }
 """
 
+        project_scope = (request.project_scope or "fullstack").lower().strip()
+        backend_fw = (request.backend_framework or "fastapi").lower().strip()
+
+        standalone_readme = f"""# {title} — Full-Stack Application Package
+
+This package contains a **standalone React Frontend application** and its **dedicated isolated {backend_fw.upper()} REST API backend**.
+
+## Directory Structure
+- `frontend/` — {framework_lower.upper()} application with {css_engine_str.upper()} styling.
+- `backend/` — Dedicated {backend_fw.upper()} REST API server with an isolated local database.
+
+## Quick Start Instructions
+
+### 1. Start the Standalone Backend API:
+Refer to `backend/README.md` for startup commands.
+> The API will run locally at `http://localhost:8001`.
+
+### 2. Start the Frontend Application:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+> Open `http://localhost:5173` to interact with your application live!
+"""
+
+        # Generate modular multi-page React components and router
+        react_files = scaffold_react_multipage_files(
+            app_jsx_code=generated_code,
+            pages=pages,
+            title=title,
+            color_scheme=color_scheme,
+            industry=industry,
+            developer_avatar=developer_avatar,
+            thumbnail_url=thumbnail_url,
+        )
+
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-            zip_file.writestr("package.json", json.dumps(package_json, indent=2))
-            zip_file.writestr("vite.config.js", vite_config)
-            zip_file.writestr("index.html", index_html)
-            zip_file.writestr("src/main.jsx", main_jsx)
-            zip_file.writestr("src/App.jsx", generated_code)
-            zip_file.writestr("src/index.css", index_css)
+            if project_scope == "fullstack":
+                # Full-Stack Structure: frontend/ and backend/ directories
+                zip_file.writestr("frontend/package.json", json.dumps(package_json, indent=2))
+                zip_file.writestr("frontend/vite.config.js", vite_config)
+                zip_file.writestr("frontend/index.html", index_html)
+                zip_file.writestr("frontend/src/main.jsx", main_jsx)
+                zip_file.writestr("frontend/src/index.css", index_css)
+                
+                # Write all React modular pages and components
+                for rpath, rcontent in react_files.items():
+                    zip_file.writestr(f"frontend/{rpath}", rcontent)
+
+                # Generate dedicated standalone backend
+                backend_files = generate_standalone_backend(backend_fw, title, industry)
+                for bpath, bcontent in backend_files.items():
+                    zip_file.writestr(f"backend/{bpath}", bcontent)
+
+                zip_file.writestr("README.md", standalone_readme)
+            else:
+                # Standalone UI Package
+                zip_file.writestr("package.json", json.dumps(package_json, indent=2))
+                zip_file.writestr("vite.config.js", vite_config)
+                zip_file.writestr("index.html", index_html)
+                zip_file.writestr("src/main.jsx", main_jsx)
+                zip_file.writestr("src/index.css", index_css)
+                
+                # Write all React modular pages and components
+                for rpath, rcontent in react_files.items():
+                    zip_file.writestr(rpath, rcontent)
+
+                zip_file.writestr("README.md", standalone_readme)
+
         zip_bytes = zip_buffer.getvalue()
 
     # Stage F: Project ZIP Architecture Analysis (GEMINI_MODEL_PROJECT_ZIP_ANALYSIS)
@@ -1080,7 +1561,7 @@ body {
     # Buyers/Regular Users -> TemplateStatus.DRAFT (Stored in user's AI projects dashboard, hidden from public marketplace)
     # Sellers/Admins -> TemplateStatus.PUBLISHED (Published to public marketplace template catalog)
     is_seller_or_admin = current_user.role in (UserRole.SELLER, UserRole.ADMIN, UserRole.SUPER_ADMIN)
-    template_status = TemplateStatus.PUBLISHED if is_seller_or_admin else TemplateStatus.DRAFT
+    template_status = TemplateStatus.DRAFT  # Generated studio projects remain private drafts in user dashboard
 
     new_template = Template(
         title=title,
@@ -1126,8 +1607,8 @@ body {
     await db.commit()
     await db.refresh(new_template)
 
-    # 7. Index in Qdrant Vector search ONLY if published to public marketplace (Sellers/Admins)
-    if is_seller_or_admin:
+    # 7. Index in Qdrant Vector search ONLY if published to public marketplace
+    if new_template.status == TemplateStatus.PUBLISHED:
         try:
             search_service = SearchService(db)
             await search_service.index_template(

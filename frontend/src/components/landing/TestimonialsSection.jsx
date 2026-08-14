@@ -10,14 +10,14 @@ const TESTIMONIALS = [
     role: "Freelance Web Designer",
     avatar: "https://picsum.photos/seed/sarah/80/80",
     rating: 5,
-    review: "The AI preview feature is incredible. I showed my client a preview with their actual logo and colors before they even purchased. Closed the deal in one call!",
+    review: "The live preview feature is incredible. I showed my client a preview with their actual logo and colors before they even purchased. Closed the deal in one call!",
   },
   {
     name: "Marcus Williams",
     role: "Founder, LaunchFast Agency",
     avatar: "https://picsum.photos/seed/marcus/80/80",
     rating: 5,
-    review: "We've saved 40+ hours per client project using AI Site Studio templates. The AI content generator fills in 80% of the copy automatically. Game changer.",
+    review: "We've saved 40+ hours per client project using Site Studio templates. The Instant Fill generator crafts 80% of the copy automatically. Game changer.",
   },
   {
     name: "Priya Patel",
@@ -38,7 +38,7 @@ const TESTIMONIALS = [
     role: "Small Business Owner",
     avatar: "https://picsum.photos/seed/aisha/80/80",
     rating: 5,
-    review: "I have zero coding experience. The AI filled in my business content, I chose my colors, and my restaurant website was live in a single afternoon. Magical!",
+    review: "I have zero coding experience. Instant Fill generated my business content, I chose my colors, and my restaurant website was live in a single afternoon. Magical!",
   },
   {
     name: "Lucas Silva",

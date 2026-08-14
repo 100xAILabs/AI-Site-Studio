@@ -57,13 +57,13 @@ function NavbarComponent() {
           <Link href="/" className="logo-container">
             <img
               src="/logo.png"
-              alt="AI Site Studio Logo"
+              alt="Site Studio Logo"
               className="navbar-logo-img"
               width={36}
               height={36}
             />
             <span className="logo-text gradient-text">
-              AI Site Studio
+              Site Studio
             </span>
           </Link>
 

@@ -1,5 +1,5 @@
 """
-AI Site Studio — FastAPI Application Entry Point
+AI Site Studio — FastAPI Application Entry Point (Active: Gemini 3.5 Models)
 
 This module creates and configures the FastAPI application with:
 - CORS middleware
@@ -31,12 +31,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_db()
     redis = await get_redis_client()
     app.state.redis = redis
-    print(f"AI Site Studio API started | env={settings.ENVIRONMENT}")
+    print(f"Site Studio API started | env={settings.ENVIRONMENT}")
     yield
     # Shutdown
     if hasattr(app.state, "redis"):
         await app.state.redis.aclose()
-    print("🛑 AI Site Studio API shutting down")
+    print("🛑 Site Studio API shutting down")
 
 
 def create_application() -> FastAPI:
@@ -103,7 +103,9 @@ def create_application() -> FastAPI:
         )
 
     # ── Routes ────────────────────────────────────────────────────────────────
+    from app.api.v1.routes.site_router import router as site_workload_router
     app.include_router(api_router, prefix="/api/v1")
+    app.include_router(site_workload_router)
 
     from fastapi.staticfiles import StaticFiles
     import os
@@ -113,7 +115,7 @@ def create_application() -> FastAPI:
     @app.get("/", tags=["Root"])
     async def root() -> dict:
         return {
-            "message": "Welcome to AI Site Studio API",
+            "message": "Welcome to Site Studio API",
             "docs": "/docs",
             "health": "/health"
         }
@@ -126,6 +128,28 @@ def create_application() -> FastAPI:
             "version": settings.APP_VERSION,
             "environment": settings.ENVIRONMENT,
         }
+
+    # ── Frontend Soft Navigation Redirects ─────────────────────────────────────
+    @app.get("/marketplace", include_in_schema=False)
+    @app.get("/marketplace/{path:path}", include_in_schema=False)
+    async def redirect_marketplace(request: Request, path: str = ""):
+        from fastapi.responses import RedirectResponse
+        target = f"{settings.FRONTEND_URL}/marketplace"
+        if path:
+            target += f"/{path}"
+        if request.url.query:
+            target += f"?{request.url.query}"
+        return RedirectResponse(url=target, status_code=307)
+
+    @app.get("/preview", include_in_schema=False)
+    @app.get("/checkout", include_in_schema=False)
+    @app.get("/dashboard", include_in_schema=False)
+    async def redirect_frontend_pages(request: Request):
+        from fastapi.responses import RedirectResponse
+        target = f"{settings.FRONTEND_URL}{request.url.path}"
+        if request.url.query:
+            target += f"?{request.url.query}"
+        return RedirectResponse(url=target, status_code=307)
 
     return app
 

@@ -56,7 +56,7 @@ class PreviewService:
         """
         Apply a diagonal tiled watermark to a preview image.
 
-        Watermark text: "AI SITE STUDIO  PREVIEW ONLY  <email>"
+        Watermark text: "SITE STUDIO  PREVIEW ONLY  <email>"
         Opacity: ~15% (38/255)
         """
         img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
@@ -74,7 +74,7 @@ class PreviewService:
             font_large = ImageFont.load_default()
             font_small = ImageFont.load_default()
 
-        watermark_lines = ["AI SITE STUDIO", "PREVIEW ONLY"]
+        watermark_lines = ["SITE STUDIO", "PREVIEW ONLY"]
         if user_email:
             watermark_lines.append(user_email)
 
