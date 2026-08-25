@@ -1,0 +1,118 @@
+/* Template Grid custom modular styles */
+
+.marketplace-grid {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+
+@media (min-width: 640px) {
+  .marketplace-grid:not(.list-view) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .marketplace-grid:not(.list-view) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Skeleton items */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 25%,
+    hsl(var(--muted-foreground) / 0.1) 50%,
+    hsl(var(--muted)) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton-body {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.skeleton-line {
+  background-color: hsl(var(--muted));
+  border-radius: 0.25rem;
+}
+
+.skeleton-line.title {
+  height: 1rem;
+  width: 75%;
+}
+
+.skeleton-line.desc-1 {
+  height: 0.75rem;
+  width: 50%;
+}
+
+.skeleton-line.desc-2 {
+  height: 0.75rem;
+  width: 33.333%;
+}
+
+.skeleton-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.25rem;
+}
+
+.skeleton-pill {
+  background-color: hsl(var(--muted));
+  border-radius: 0.25rem;
+}
+
+.skeleton-pill.left {
+  height: 1.25rem;
+  width: 4rem;
+}
+
+.skeleton-pill.right {
+  height: 1rem;
+  width: 5rem;
+}
+
+/* Empty State Card */
+.grid-empty-state {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-block: 6rem;
+  text-align: center;
+}
+
+.empty-emoji {
+  font-size: 3.75rem;
+  margin-bottom: 1rem;
+}
+
+.empty-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: hsl(var(--foreground));
+}
+
+.empty-subtitle {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.875rem;
+  max-width: 24rem;
+}

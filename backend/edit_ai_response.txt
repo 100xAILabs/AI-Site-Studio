@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+  <base href="/api/v1/preview/live/140e5929-d05c-4255-acdd-248d5f4bdcc7/" />
+    <script>
+      (function() {
+        const basePrefix = "/api/v1/preview/live/140e5929-d05c-4255-acdd-248d5f4bdcc7";
+        
+        // Intercept fetch calls to rewrite root-relative API calls
+        const originalFetch = window.fetch;
+        window.fetch = function(input, init) {
+          let url = typeof input === 'string' ? input : (input instanceof Request ? input.url : '');
+          if (url.startsWith('/api/')) {
+            url = basePrefix + url;
+            if (input instanceof Request) {
+              input = new Request(url, input);
+            } else {
+              input = url;
+            }
+          }
+          return originalFetch(input, init);
+        };
+
+        // Intercept XMLHttpRequest
+        const originalOpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function(method, url, ...args) {
+          if (typeof url === 'string' && url.startsWith('/api/')) {
+            url = basePrefix + url;
+          }
+          return originalOpen.apply(this, [method, url, ...args]);
+        };
+
+        // 1. Instantly rewrite history state to relative path so client-side routers match the root route
+        try {
+          if (true && window.location.pathname.startsWith(basePrefix)) {
+            let targetPath = window.location.pathname.slice(basePrefix.length);
+            if (!targetPath.startsWith('/')) {
+              targetPath = '/' + targetPath;
+            }
+            window.history.replaceState(null, '', targetPath);
+          }
+        } catch (e) {
+          console.error("[Live Preview Sandbox] Failed to replace initial state:", e);
+        }
+    
+        // 2. Intercept click events on absolute links to keep them inside the sandbox
+        document.addEventListener('click', function(e) {
+          const link = e.target.closest('a');
+          if (link) {
+            const rawHref = link.getAttribute('href');
+            if (rawHref && rawHref.startsWith('#')) {
+              e.preventDefault();
+              window.location.hash = rawHref;
+              return;
+            }
+            if (rawHref && rawHref.startsWith('javascript:')) {
+              return;
+            }
+            if (link.href) {
+              try {
+                const url = new URL(link.href);
+                if (url.origin === window.location.origin) {
+                  let path = url.pathname;
+                  if (path.startsWith('/') && !path.startsWith(basePrefix)) {
+                    link.href = url.origin + basePrefix + path + url.search + url.hash;
+                  }
+                }
+              } catch (err) {}
+            }
+          }
+        }, true);
+      })();
+    </script>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="AeroCast is an interactive Salesforce and marketing growth forecasting dashboard. Model campaign spend, conversion rates, and MRR bounds in real-time." />
+    <title>AeroCast - Salesforce & Marketing Growth Forecaster</title>
+    <script type="module" crossorigin src="./assets/index-iA-doXha.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-D6UAie2c.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  
+    <!-- Injected Watermark Grid Overlay -->
+    <div class="preview-watermark-grid"></div>
+    
+    <!-- Injected Purchase Footer Banner -->
+    <div class="preview-purchase-footer-banner">
+      <span>🔒 Watermarked Draft Preview. Purchase this template to download clean project assets.</span>
+      <a href="/marketplace" target="_parent">Purchase Template &rarr;</a>
+    </div>
+    
+    <style>
+      /* Disable text selection across all elements */
+      * {
+        user-select: none !important;
+        -webkit-user-select: none !important;
+        -moz-user-select: none !important;
+        -ms-user-select: none !important;
+      }
+    
+      /* Watermark grid covering full page with pointer-events disabled */
+      .preview-watermark-grid {
+        position: fixed !important;
+        inset: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        pointer-events: none !important;
+        z-index: 999999 !important;
+        opacity: 0.65 !important;
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='250' height='250' viewBox='0 0 250 250'><text x='20' y='150' fill='rgba(128, 128, 128, 0.16)' font-size='13' font-weight='800' font-family='sans-serif' transform='rotate(-30 20 150)'>AI SITE STUDIO PREVIEW</text></svg>") !important;
+        background-repeat: repeat !important;
+      }
+    
+      /* Bottom floating warning banner */
+      .preview-purchase-footer-banner {
+        position: fixed !important;
+        bottom: 1.5rem !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        background: rgba(15, 23, 42, 0.96) !important;
+        backdrop-filter: blur(12px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.15) !important;
+        color: #ffffff !important;
+        padding: 0.625rem 1.25rem !important;
+        font-size: 0.75rem !important;
+        font-weight: 700 !important;
+        border-radius: 9999px !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 1rem !important;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4) !important;
+        z-index: 999998 !important;
+        white-space: nowrap !important;
+        font-family: system-ui, -apple-system, sans-serif !important;
+      }
+    
+      .preview-purchase-footer-banner a {
+        color: #38bdf8 !important;
+        text-decoration: none !important;
+        font-weight: 800 !important;
+        border-left: 1px solid rgba(255, 255, 255, 0.2) !important;
+        padding-left: 1rem !important;
+        transition: color 0.2s ease !important;
+      }
+    
+      .preview-purchase-footer-banner a:hover {
+        color: #0ea5e9 !important;
+      }
+    
+      /* Block PDF printing */
+      @media print {
+        body {
+          display: none !important;
+        }
+      }
+    </style>
+    
+    <script>
+      (function() {
+        // 1. Disable Right-Click Context Menu
+        document.addEventListener('contextmenu', function(e) {
+          e.preventDefault();
+        }, true);
+    
+        // 2. Intercept Inspector, View-Source, Copy and Save keys
+        document.addEventListener('keydown', function(e) {
+          if (
+            e.key === 'F12' ||
+            (e.ctrlKey && e.shiftKey && e.key === 'I') ||
+            (e.ctrlKey && e.shiftKey && e.key === 'C') ||
+            (e.ctrlKey && e.shiftKey && e.key === 'J') ||
+            (e.ctrlKey && e.key === 'u') ||
+            (e.ctrlKey && e.key === 'c') ||
+            (e.ctrlKey && e.key === 's')
+          ) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+          }
+        }, true);
+      })();
+    </script>
+    
+</body>
+</html>

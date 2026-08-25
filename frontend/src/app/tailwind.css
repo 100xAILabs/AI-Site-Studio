@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import "./globals.css";
+@import "./Layout.css";
+@import "./about/Page.css";
+@import "./contact/Page.css";
+@import "./dashboard/Page.css";
+@import "./onboarding/Page.css";
+@import "./marketplace/Page.css";
+@import "./preview/Page.css";
+@import "./sign-in/Page.css";
+@import "./verify-otp/otp.css";
+@import "../App.css";
+@import "../components/marketplace/TemplateCard.css";
+@import "../components/landing/HeroSection.css";

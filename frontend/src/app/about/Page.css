@@ -1,0 +1,338 @@
+/* About Page Premium Layout & Aesthetics */
+
+.about-wrapper {
+  position: relative;
+  min-height: 100vh;
+  padding-top: 8rem;
+  padding-bottom: 6rem;
+  overflow: hidden;
+}
+
+/* Moving ambient glow/orbs for rich premium aesthetic */
+.about-glow-orb-1 {
+  position: absolute;
+  top: 10%;
+  left: -15%;
+  width: 50vw;
+  height: 50vw;
+  max-width: 600px;
+  background: radial-gradient(circle, hsla(var(--primary) / 0.08) 0%, transparent 70%);
+  filter: blur(80px);
+  pointer-events: none;
+  z-index: 0;
+  animation: floatOrb 20s infinite alternate ease-in-out;
+}
+
+.about-glow-orb-2 {
+  position: absolute;
+  bottom: 20%;
+  right: -15%;
+  width: 45vw;
+  height: 45vw;
+  max-width: 500px;
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.05) 0%, transparent 70%);
+  filter: blur(80px);
+  pointer-events: none;
+  z-index: 0;
+  animation: floatOrb 25s infinite alternate-reverse ease-in-out;
+}
+
+@keyframes floatOrb {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    transform: translate(8%, 12%) scale(1.1);
+  }
+}
+
+/* Container limits and alignments */
+.container-xl {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 1200px;
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+}
+
+/* Badge block */
+.about-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 9999px;
+  background: hsla(var(--primary) / 0.06);
+  border: 1px solid hsla(var(--primary) / 0.15);
+  color: hsl(var(--primary));
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 1.5rem;
+}
+
+.about-badge-icon {
+  width: 0.875rem;
+  height: 0.875rem;
+  animation: spinSlow 8s infinite linear;
+}
+
+@keyframes spinSlow {
+  to { transform: rotate(360deg); }
+}
+
+/* Hero Section */
+.about-hero {
+  text-align: center;
+  max-width: 800px;
+  margin-bottom: 5rem;
+}
+
+.about-title {
+  font-size: 2.75rem;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  color: hsl(var(--foreground));
+  margin-bottom: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .about-title {
+    font-size: 4rem;
+  }
+}
+
+.about-subtitle {
+  font-size: 1.125rem;
+  line-height: 1.6;
+  color: hsl(var(--muted-foreground));
+  max-width: 680px;
+  margin-inline: auto;
+}
+
+@media (min-width: 768px) {
+  .about-subtitle {
+    font-size: 1.25rem;
+  }
+}
+
+/* Stats Section */
+.about-stats {
+  margin-bottom: 7rem;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .stats-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.stat-card {
+  padding: 2.25rem 1.5rem;
+  text-align: center;
+  border-radius: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stat-card:hover {
+  transform: translateY(-4px);
+  border-color: hsla(var(--primary) / 0.25) !important;
+  box-shadow: 0 12px 24px -10px hsla(var(--primary) / 0.15);
+}
+
+.stat-value {
+  font-size: 2.25rem;
+  font-weight: 800;
+  color: hsl(var(--foreground));
+  letter-spacing: -0.02em;
+}
+
+.stat-label {
+  font-size: 0.875rem;
+  color: hsl(var(--muted-foreground));
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Vision / Narrative Section */
+.about-narrative {
+  margin-bottom: 7rem;
+}
+
+.narrative-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 3.5rem;
+  align-items: center;
+}
+
+@media (min-width: 992px) {
+  .narrative-grid {
+    grid-template-columns: 1.1fr 0.9fr;
+  }
+}
+
+.narrative-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  text-align: left;
+}
+
+.section-heading {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: hsl(var(--foreground));
+}
+
+@media (min-width: 768px) {
+  .section-heading {
+    font-size: 2.5rem;
+  }
+}
+
+.narrative-text {
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  color: hsl(var(--muted-foreground));
+}
+
+.narrative-visual {
+  border-radius: 1.5rem;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.visual-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+  margin-bottom: 0.25rem;
+}
+
+.pillar-item {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.pillar-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid hsla(var(--primary) / 0.15);
+}
+
+.pillar-item h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  margin-bottom: 0.25rem;
+}
+
+.pillar-item p {
+  font-size: 0.875rem;
+  color: hsl(var(--muted-foreground));
+  line-height: 1.5;
+}
+
+/* Core Values Section */
+.about-values {
+  margin-bottom: 7rem;
+}
+
+.section-header-centered {
+  text-align: center;
+  max-width: 600px;
+  margin-inline: auto;
+  margin-bottom: 3.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.section-heading-center {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: hsl(var(--foreground));
+}
+
+.section-subheading-center {
+  font-size: 1rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.values-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2rem;
+}
+
+@media (min-width: 768px) {
+  .values-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.value-card {
+  padding: 2.5rem 2rem;
+  border-radius: 1.5rem;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.value-card:hover {
+  transform: translateY(-5px);
+  border-color: hsla(var(--primary) / 0.25) !important;
+  box-shadow: 0 15px 30px -15px hsla(var(--primary) / 0.2);
+}
+
+.value-icon {
+  width: 3rem;
+  height: 3rem;
+  padding: 0.625rem;
+  border-radius: 1rem;
+  background: hsla(var(--primary) / 0.05);
+  border: 1px solid hsla(var(--primary) / 0.1);
+}
+
+.value-card h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+}
+
+.value-card p {
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: hsl(var(--muted-foreground));
+}
+
+/* CTA styling spacing override */
+.about-cta {
+  margin-bottom: 2rem;
+}

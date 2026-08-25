@@ -1,0 +1,389 @@
+/* ═══════════════════════════════════════════════
+   Site Studio — Floating Voice Assistant & Concierge
+   ═══════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* ─── Floating Trigger Button ─── */
+.support-button {
+  position: fixed;
+  bottom: 1.75rem;
+  right: 1.75rem;
+  width: 56px;
+  height: 56px;
+  border: none;
+  background: #212121;
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 24px rgba(0,0,0,.45);
+  transition: transform .25s ease, box-shadow .25s ease;
+}
+
+.support-button:hover {
+  transform: scale(1.08);
+  box-shadow: 0 8px 32px rgba(0,0,0,.55);
+}
+
+.support-logo-img {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+
+/* ─── Popup Shell ─── */
+.support-chat-popup {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 5.5rem;
+  width: 380px;
+  max-height: 560px;
+  display: flex;
+  flex-direction: column;
+  /* fully transparent shell — only bubbles & input row are visible */
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  font-family: 'Inter', system-ui, sans-serif;
+  animation: sb-popup .3s cubic-bezier(.22,.68,0,1.2) both;
+  z-index: 9998;
+}
+
+@keyframes sb-popup {
+  from { opacity: 0; transform: translateY(18px) scale(.96); }
+  to   { opacity: 1; transform: none; }
+}
+
+
+/* ─── Header ─── */
+.support-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(30,30,30,.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-radius: 14px;
+  margin: 0 0 6px;
+  border: 1px solid rgba(255,255,255,.07);
+  box-shadow: 0 4px 20px rgba(0,0,0,.35);
+}
+
+.support-header-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #19c37d;
+  box-shadow: 0 0 6px #19c37d;
+  flex-shrink: 0;
+}
+
+.support-header-title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ececec;
+  letter-spacing: .01em;
+}
+
+.support-header-close {
+  background: none;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color .2s, background .2s;
+  line-height: 1;
+  font-size: 18px;
+}
+
+.support-header-close:hover {
+  color: #ececec;
+  background: rgba(255,255,255,.07);
+}
+
+
+/* ─── Messages Area ─── */
+.support-msgs-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 4px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  scrollbar-width: none;         /* fully transparent — no track */
+  background: transparent;
+}
+
+.support-msgs-area::-webkit-scrollbar { width: 4px; }
+.support-msgs-area::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,.12);
+  border-radius: 20px;
+}
+
+
+/* ─── Message Bubbles — standalone floating pop-ups ─── */
+.support-msg {
+  max-width: 84%;
+  padding: 11px 15px;
+  font-size: 14px;
+  line-height: 1.65;
+  border-radius: 18px;
+  /* each bubble floats on its own */
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  animation: sb-msg .28s cubic-bezier(.22,.68,0,1.3) both;
+}
+
+@keyframes sb-msg {
+  from { opacity: 0; transform: translateY(10px) scale(.92); }
+  to   { opacity: 1; transform: none; }
+}
+
+.support-msg-bot {
+  align-self: flex-start;
+  background: rgba(35,35,35,.78);
+  color: #f0f0f0;
+  border: 1px solid rgba(255,255,255,.1);
+  border-bottom-left-radius: 5px;
+  box-shadow:
+    0 6px 24px rgba(0,0,0,.35),
+    0 1px 0 rgba(255,255,255,.05) inset;
+}
+
+.support-msg-user {
+  align-self: flex-end;
+  background: rgba(25,195,125,.88);
+  color: #021a0e;
+  font-weight: 600;
+  border-bottom-right-radius: 5px;
+  box-shadow:
+    0 6px 24px rgba(25,195,125,.35),
+    0 1px 0 rgba(255,255,255,.2) inset;
+}
+
+
+/* ─── Input Row — floats as its own glass pill ─── */
+.support-input-row {
+  padding: 10px;
+  border-top: none;
+  background: rgba(28,28,28,.82);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,.08);
+  box-shadow: 0 8px 32px rgba(0,0,0,.45);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.support-input {
+  flex: 1;
+  background: #2f2f2f;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 14px;
+  color: #ececec;
+  outline: none;
+  font-family: inherit;
+  transition: border-color .2s, box-shadow .2s;
+}
+
+.support-input::placeholder { color: #6b7280; }
+
+.support-input:focus {
+  border-color: rgba(25, 195, 125, .45);
+  box-shadow: 0 0 0 3px rgba(25, 195, 125, .12);
+}
+
+.support-input:disabled { opacity: .5; }
+
+
+/* ─── Mic Button (idle) ─── */
+.support-mic {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,.1);
+  background: #2f2f2f;
+  color: #9ca3af;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background .2s, color .2s, transform .2s;
+}
+
+.support-mic:hover {
+  background: #3a3a3a;
+  color: #ececec;
+  transform: scale(1.08);
+}
+
+.support-mic.listening {
+  background: rgba(239,68,68,.15);
+  color: #ef4444;
+  border-color: rgba(239,68,68,.3);
+}
+
+
+/* ─── Send Button ─── */
+.support-send {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: none;
+  background: #19c37d;
+  color: #0d1117;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform .2s, background .2s;
+}
+
+.support-send:hover { transform: scale(1.08); background: #15a86c; }
+.support-send:disabled { opacity: .4; cursor: not-allowed; }
+
+
+/* ══════════════════════════════════════════
+   VOICE / LISTENING MODE — audio heartbeat ball
+   ══════════════════════════════════════════ */
+
+.support-listening-row {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 28px 16px 22px;
+}
+
+/* Centers the ball */
+.support-heartbeat-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── The heartbeat ball ──
+   JS drives transform: scale(audioScale) inline.
+   At silence audioScale ≈ 1 → 48 px.
+   At loud speech audioScale ≈ 1.8 → ~86 px.
+   The CSS idle-pulse ensures it's never totally still. */
+.support-heartbeat-dot {
+  display: block;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  flex-shrink: 0;
+
+  /* depth gradient so it looks 3-D */
+  background: radial-gradient(
+    circle at 36% 34%,
+    #4fffb5 0%,
+    #19c37d 45%,
+    #0d8c55 100%
+  );
+
+  /* glow shadow — softens as it breathes */
+  box-shadow:
+    0 0 0   6px rgba(25, 195, 125, .18),
+    0 0 0  16px rgba(25, 195, 125, .10),
+    0 0 28px 0   rgba(25, 195, 125, .35);
+
+  /* fast follow-through for mic volume changes */
+  transition: transform .07s linear;
+
+  /* idle breathing so it's never static */
+  animation: hb-idle 2.2s ease-in-out infinite;
+}
+
+.support-heartbeat-dot.speaking {
+  animation: hb-speaking 1s ease-in-out infinite alternate;
+}
+
+@keyframes hb-speaking {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.2), 0 0 20px 0 rgba(16, 185, 129, 0.4);
+  }
+  100% {
+    transform: scale(1.18);
+    box-shadow: 0 0 0 16px rgba(16, 185, 129, 0.35), 0 0 45px 0 rgba(16, 185, 129, 0.7);
+  }
+}
+
+@keyframes hb-idle {
+  0%,100% { box-shadow: 0 0 0  6px rgba(25,195,125,.18), 0 0 0 16px rgba(25,195,125,.10), 0 0 28px 0 rgba(25,195,125,.30); }
+  50%     { box-shadow: 0 0 0 10px rgba(25,195,125,.28), 0 0 0 24px rgba(25,195,125,.08), 0 0 44px 0 rgba(25,195,125,.45); }
+}
+
+/* Label area */
+.support-listening-text { display: none; }
+
+.voice-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.voice-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #ececec;
+  letter-spacing: .01em;
+}
+
+.voice-transcript {
+  font-size: 13px;
+  color: #9ca3af;
+  min-height: 18px;
+  max-width: 290px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+/* Stop & Send button */
+.support-stop-send-btn {
+  border: none;
+  cursor: pointer;
+  padding: 10px 22px;
+  border-radius: 99px;
+  color: #0d1117;
+  font-size: 13px;
+  font-weight: 600;
+  background: #19c37d;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  transition: transform .2s, background .2s, box-shadow .2s;
+  box-shadow: 0 4px 16px rgba(25,195,125,.3);
+}
+
+.support-stop-send-btn:hover {
+  transform: translateY(-2px);
+  background: #15a86c;
+  box-shadow: 0 8px 24px rgba(25,195,125,.4);
+}

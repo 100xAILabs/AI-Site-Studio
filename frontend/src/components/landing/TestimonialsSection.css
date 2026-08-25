@@ -1,0 +1,119 @@
+/* Testimonials Section custom modular styles */
+
+.section-header {
+  text-align: center;
+  margin-bottom: 4rem;
+}
+
+.section-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 9999px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-bottom: 1rem;
+}
+
+.section-title {
+  font-size: 2.25rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+}
+
+@media (min-width: 768px) {
+  .section-title {
+    font-size: 3rem;
+  }
+}
+
+.section-subtitle {
+  font-size: 1.25rem;
+  color: hsl(var(--muted-foreground));
+  max-width: 42rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.testimonials-grid {
+  display: grid;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  gap: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .testimonials-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .testimonials-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.testimonial-card {
+  padding: 1.5rem;
+  border-radius: 1rem;
+  border: 1px solid hsl(var(--border));
+  transition: all 0.2s ease;
+  background: hsl(var(--card));
+  box-shadow: 0 1px 6px rgba(99, 102, 241, 0.04);
+}
+
+.testimonial-card:hover {
+  border-color: hsl(var(--primary) / 0.2);
+  box-shadow: 0 6px 20px hsl(var(--primary) / 0.08);
+}
+
+.testimonial-star-icon {
+  width: 0.75rem;
+  height: 0.75rem;
+  fill: #facc15;
+  color: #facc15;
+}
+
+.testimonial-quote-icon {
+  width: 2rem;
+  height: 2rem;
+  color: hsla(var(--primary) / 0.3);
+  margin-bottom: 1rem;
+}
+
+.testimonial-text {
+  font-size: 0.875rem;
+  color: hsl(var(--muted-foreground));
+  line-height: 1.625;
+  margin-bottom: 1.5rem;
+}
+
+.testimonial-author-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.testimonial-avatar {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 9999px;
+  object-fit: cover;
+}
+
+.testimonial-author-name {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.testimonial-author-role {
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.testimonial-rating {
+  margin-left: auto;
+  display: flex;
+  gap: 0.125rem;
+}

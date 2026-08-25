@@ -1,0 +1,43 @@
+/* Root layout custom styles */
+.root-body {
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  display: flex;
+  flex-direction: column;
+}
+
+.root-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  position: relative;
+}
+
+.glow-top-left {
+  position: absolute;
+  top: -10%;
+  left: -10%;
+  width: 40%;
+  height: 40%;
+  border-radius: 9999px;
+  background-color: hsl(var(--primary) / 0.05);
+  filter: blur(120px);
+  pointer-events: none;
+}
+
+.glow-bottom-right {
+  position: absolute;
+  bottom: -10%;
+  right: -10%;
+  width: 30%;
+  height: 30%;
+  border-radius: 9999px;
+  background-color: hsl(var(--secondary) / 0.06); /* teal accent, very subtle */
+  filter: blur(120px);
+  pointer-events: none;
+}

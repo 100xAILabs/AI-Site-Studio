@@ -1,0 +1,86 @@
+/* ═══════════════════════════════════════════════════════════════
+   App Component Styles
+═══════════════════════════════════════════════════════════════ */
+
+.app-loading-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.app-loading-spinner {
+  position: relative;
+  width: 3rem;
+  height: 3rem;
+}
+
+.app-spinner-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 4px solid hsl(var(--primary) / 0.2);
+}
+
+.app-spinner-head {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 4px solid transparent;
+  border-top-color: hsl(var(--primary));
+  animation: app-spin 1s linear infinite;
+}
+
+@keyframes app-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.app-root-container {
+  flex: 1 1 0%;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  position: relative;
+  min-height: 100vh;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.app-root-container ::selection {
+  background-color: hsl(var(--primary) / 0.2);
+}
+
+.app-bg-glow {
+  position: fixed;
+  border-radius: 9999px;
+  filter: blur(150px);
+  pointer-events: none;
+}
+
+.app-bg-glow-top-left {
+  top: -20%;
+  left: -10%;
+  width: 50%;
+  height: 50%;
+  background-color: rgba(37, 99, 235, 0.03);
+}
+
+.app-bg-glow-bottom-right {
+  bottom: -20%;
+  right: -10%;
+  width: 50%;
+  height: 50%;
+  background-color: rgba(13, 148, 136, 0.03);
+}
+
+.app-bg-glow-center-right {
+  top: 40%;
+  left: 60%;
+  width: 30%;
+  height: 30%;
+  background-color: rgba(14, 165, 233, 0.02);
+}

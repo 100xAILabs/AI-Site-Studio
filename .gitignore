@@ -1,0 +1,98 @@
+# ==================== Node / Next.js ====================
+node_modules/
+.next/
+out/
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+.vercel/
+
+# ==================== Python / FastAPI ====================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# ==================== Environment ====================
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+.envrc
+*.local
+*.local.*
+secrets/
+**/secrets/
+*.pem
+*.p12
+*.pfx
+*.key
+*.crt
+*.csr
+*.ppk
+*.token
+*.secret
+*.service-account.json
+service-account*.json
+google-services.json
+firebase*.json
+credentials*.json
+
+# ==================== IDEs ====================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ==================== Logs ====================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ==================== Database ====================
+*.db
+*.sqlite
+*.sqlite3
+
+# ==================== Docker ====================
+.docker/
+
+# ==================== Misc ====================
+.cache/
+*.bak
+*.tmp
+.venv_backup/
+uploads/
+static/deployments/
+backend/static/deployments/
+
+# ==================== Executables / Media ====================
+*.exe
+*.mp3
+*.wav
+backend/pgsql/
+scratch/

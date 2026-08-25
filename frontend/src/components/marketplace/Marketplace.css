@@ -1,0 +1,284 @@
+/* Marketplace modular styles (Filters, Cards, Grid Layouts) */
+
+/* Sidebar filter rules */
+.filter-section {
+  border-bottom: 1px solid hsla(var(--border) / 0.5);
+  padding-bottom: 1rem;
+}
+
+.filter-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.5rem 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: hsl(var(--foreground));
+  transition: color 0.15s;
+}
+
+.filter-toggle-btn:hover {
+  color: hsl(var(--primary));
+}
+
+.checkbox-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-indicator {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 0.25rem;
+  border: 2px solid hsl(var(--border));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.checkbox-option:hover .checkbox-indicator {
+  border-color: hsla(var(--primary) / 0.5);
+}
+
+.checkbox-indicator.checked {
+  background-color: hsl(var(--primary));
+  border-color: hsl(var(--primary));
+}
+
+.checkbox-label {
+  font-size: 0.875rem;
+  color: hsl(var(--muted-foreground));
+  transition: color 0.15s ease;
+}
+
+.checkbox-option:hover .checkbox-label {
+  color: hsl(var(--foreground));
+}
+
+/* Template Card frame */
+.template-card {
+  position: relative;
+  border-radius: 1rem;
+  overflow: hidden;
+  border: 1px solid hsla(var(--border) / 0.5);
+  background-color: hsl(var(--card));
+  transition: all 0.3s ease;
+}
+
+.template-card:hover {
+  border-color: hsla(var(--primary) / 0.3);
+  box-shadow: 0 0 15px hsla(var(--primary) / 0.3);
+}
+
+.card-thumbnail-container {
+  position: relative;
+  aspect-ratio: 16/10;
+  overflow: hidden;
+  background-color: hsl(var(--muted));
+}
+
+.card-thumbnail-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.5s ease;
+}
+
+.template-card:hover .card-thumbnail-img {
+  transform: scale(1.05);
+}
+
+.card-thumbnail-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, hsla(var(--brand) / 0.5) 0%, hsla(var(--secondary) / 0.5) 100%);
+}
+
+/* Overlay & interactive actions */
+.card-hover-overlay {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.overlay-btn-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background-color: #ffffff;
+  color: #000000;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-decoration: none;
+  transition: background-color 0.15s;
+}
+
+.overlay-btn-preview:hover {
+  background-color: rgba(255, 255, 255, 0.9);
+}
+
+.overlay-btn-cart {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.overlay-btn-cart.add-to-cart {
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.overlay-btn-cart.add-to-cart:hover {
+  background-color: hsla(var(--primary) / 0.9);
+}
+
+.overlay-btn-cart.in-cart {
+  background-color: #22c55e;
+  color: #ffffff;
+}
+
+/* Badges and absolute actions */
+.card-badge-list {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.card-badge-item {
+  padding: 0.125rem 0.5rem;
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-radius: 9999px;
+}
+
+.card-badge-item.bestseller { background-color: #f97316; }
+.card-badge-item.new { background-color: #22c55e; }
+.card-badge-item.onsale { background-color: #ef4444; }
+.card-badge-item.featured { background-color: #0ea5e9; }
+
+.card-action-list {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.card-action-btn {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background-color 0.15s;
+  border: none;
+  cursor: pointer;
+}
+
+/* Body layout inside card */
+.card-body {
+  padding: 1rem;
+}
+
+.card-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.card-title {
+  font-weight: 600;
+  font-size: 0.875rem;
+  line-height: 1.25;
+  transition: color 0.15s ease;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+}
+
+.template-card:hover .card-title {
+  color: hsl(var(--primary));
+}
+
+.card-desc {
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  margin-top: 0.125rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+}
+
+.card-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.framework-tag {
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  background-color: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.card-price-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 0.25rem;
+}
+
+.price-val {
+  font-weight: 700;
+  color: hsl(var(--foreground));
+}
+
+.original-price-val {
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  text-decoration: line-through;
+}

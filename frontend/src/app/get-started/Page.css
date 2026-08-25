@@ -1,0 +1,243 @@
+/* Get Started Page Custom Styles */
+.get-started-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 1rem;
+  padding-top: 4rem;
+  padding-bottom: 4rem;
+  position: relative;
+  overflow: hidden;
+  background-color: hsl(var(--background));
+}
+
+.get-started-close-btn {
+  position: absolute;
+  top: 1.5rem;
+  left: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: hsl(var(--muted-foreground));
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: color 0.15s ease;
+}
+
+.get-started-close-btn:hover {
+  color: hsl(var(--foreground));
+}
+
+.get-started-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 3rem;
+}
+
+.logo-box {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--secondary)) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 6px -1px hsla(var(--primary) / 0.2);
+}
+
+.logo-text {
+  font-weight: 700;
+  font-size: 1.25rem;
+  letter-spacing: -0.025em;
+  background: linear-gradient(90deg, hsl(var(--primary)) 0%, hsl(var(--secondary)) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.get-started-header {
+  text-align: center;
+  margin-bottom: 2.5rem;
+}
+
+.get-started-title {
+  font-size: 2.25rem;
+  font-weight: 800;
+  color: hsl(var(--foreground));
+  margin-bottom: 0.75rem;
+}
+
+@media (min-width: 768px) {
+  .get-started-title {
+    font-size: 3rem;
+  }
+}
+
+.get-started-subtitle {
+  font-size: 1.125rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.get-started-cards-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  width: 100%;
+  max-width: 48rem; /* max-w-3xl */
+  margin-bottom: 2.5rem;
+}
+
+@media (min-width: 768px) {
+  .get-started-cards-grid {
+    flex-direction: row;
+  }
+}
+
+.role-card {
+  flex: 1 1 0%;
+  text-align: left;
+  padding: 2rem;
+  border-radius: 1rem;
+  border: 1px solid hsl(var(--border));
+  background-color: hsl(var(--card));
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.role-card:hover {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 10px 15px -3px hsla(var(--primary) / 0.05);
+}
+
+.role-icon-box {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.25rem;
+  background-color: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  transition: all 0.2s ease;
+}
+
+.role-card:hover .role-icon-box {
+  background-color: hsla(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+}
+
+.role-card-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+  margin-bottom: 0.5rem;
+}
+
+.role-card-desc {
+  font-size: 0.875rem;
+  color: hsl(var(--muted-foreground));
+  margin-bottom: 1.5rem;
+  line-height: 1.5;
+}
+
+.perks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.perk-item {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  font-size: 0.875rem;
+}
+
+.perk-icon {
+  width: 1rem;
+  height: 1rem;
+  color: hsl(var(--muted-foreground));
+  flex-shrink: 0;
+  transition: color 0.2s ease;
+}
+
+.role-card:hover .perk-icon {
+  color: hsl(var(--primary));
+}
+
+.perk-text {
+  color: hsl(var(--muted-foreground));
+  transition: color 0.2s ease;
+}
+
+.role-card:hover .perk-text {
+  color: hsl(var(--foreground));
+}
+
+.get-started-footer-text {
+  margin-top: 1.5rem;
+  font-size: 0.875rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.get-started-signin-link {
+  color: hsl(var(--primary));
+  font-weight: 600;
+  text-decoration: underline;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* Extracted custom styling rules replacing Tailwind utility tags */
+.get-started-glow-top {
+  position: absolute;
+  top: -10%;
+  left: -10%;
+  width: 50%;
+  height: 50%;
+  border-radius: 9999px;
+  filter: blur(150px);
+  pointer-events: none;
+  background: rgba(37, 99, 235, 0.03);
+}
+
+.get-started-glow-bottom {
+  position: absolute;
+  bottom: -10%;
+  right: -10%;
+  width: 50%;
+  height: 50%;
+  border-radius: 9999px;
+  filter: blur(150px);
+  pointer-events: none;
+  background: rgba(13, 148, 136, 0.03);
+}
+
+.get-started-close-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.logo-sparkle-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: #ffffff;
+}
+
+.role-card-icon {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
