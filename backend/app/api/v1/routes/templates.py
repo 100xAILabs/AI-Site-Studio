@@ -3,7 +3,10 @@ Templates routes — public browsing and admin CRUD.
 """
 
 import uuid
+import os
+import tempfile
 import logging
+from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -15,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 from app.core.database import get_db
 from app.core.dependencies import get_current_user_optional, require_admin, require_seller_or_admin, get_current_user
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services.template_service import TemplateService
 from app.repositories.template_repo import TemplateRepository
 from app.services.project_analyzer import project_analyzer
@@ -277,6 +280,27 @@ async def analyze_git_repo(
         )
 
 
+@router.post("/audit")
+async def audit_template_zip(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Run pre-upload Security & Quality Audit on a template ZIP archive.
+    Returns 0-100 Overall Score, malware check, page completeness, and relative link health.
+    """
+    if not file.filename.endswith(".zip"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File must be a ZIP archive (.zip)",
+        )
+
+    content = await file.read()
+    from app.services.security_scanner import security_scanner
+    report = security_scanner.audit_zip_template(content, file.filename)
+    return report
+
+
 # ── Admin Endpoints ───────────────────────────────────────────────────────────
 
 @router.post("", response_model=TemplateResponse, status_code=status.HTTP_201_CREATED)
@@ -301,6 +325,71 @@ async def update_template(
     """Update an existing template."""
     service = TemplateService(db)
     return await service.update_template(template_id, data, current_user)
+
+
+@router.post("/{template_id}/reupload", response_model=TemplateResponse)
+async def reupload_template_zip(
+    template_id: str | uuid.UUID,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_seller_or_admin),
+):
+    """
+    Re-upload and replace a template's source ZIP file.
+    Automatically purges dangerous executables, updates download_assets,
+    clears live preview disk cache, and updates updated_at timestamp.
+    """
+    if not file.filename.endswith(".zip"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File must be a ZIP archive (.zip)",
+        )
+
+    t_uuid = uuid.UUID(str(template_id))
+    from app.repositories.template_repo import TemplateRepository
+    template_repo = TemplateRepository(db)
+    template = await template_repo.get_by_id(t_uuid)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    if str(role_val).lower() not in ("admin", "super_admin") and str(template.seller_id or "") != str(current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only re-upload ZIP files for your own templates.",
+        )
+
+    zip_bytes = await file.read()
+    from app.models.stored_file import StoredFile
+    from app.api.v1.routes.files import create_signed_url
+
+    # Save to StoredFile table in PostgreSQL
+    sf = StoredFile(
+        filename=f"templates/{t_uuid}_{file.filename}",
+        original_filename=file.filename,
+        content_type="application/zip",
+        size=len(zip_bytes),
+        data=zip_bytes,
+        created_by_id=current_user.id,
+    )
+    db.add(sf)
+    await db.flush()
+
+    signed_url = create_signed_url(sf.id, expires_in_seconds=86400 * 365)
+    download_assets = dict(template.download_assets or {})
+    download_assets["zip"] = signed_url
+    template.download_assets = download_assets
+    template.updated_at = datetime.utcnow()
+    await db.commit()
+
+    # Clear stale preview disk cache so live demo re-extracts new ZIP contents
+    preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(t_uuid))
+    if os.path.exists(preview_dir):
+        import shutil
+        shutil.rmtree(preview_dir, ignore_errors=True)
+
+    service = TemplateService(db)
+    return await service.get_template_by_id(t_uuid)
 
 
 @router.delete("/{template_id}", status_code=status.HTTP_204_NO_CONTENT)

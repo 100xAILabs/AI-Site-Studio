@@ -97,8 +97,15 @@ function Checkout() {
 
   const isSeller = user?.role === "seller" || user?.role === "SELLER";
 
+  const [liveRate, setLiveRate] = useState(95.48);
+
   useEffect(() => {
     getToken().then(setAuthToken);
+    api.get("/payment/exchange-rate")
+      .then(res => {
+        if (res?.rate) setLiveRate(res.rate);
+      })
+      .catch(() => {});
   }, [getToken]);
 
   // Real-time polling effect for UPI payment status
@@ -302,8 +309,9 @@ function Checkout() {
     }
   };
 
-  const inrAmountString = `₹${(total() * 83.5).toFixed(2)}`;
-  const defaultUpiUri = initiatedPayment?.upi_uri || `upi://pay?pa=aisitestudio@upi&pn=AI%20Site%20Studio&am=${(total() * 83.5).toFixed(2)}&cu=INR&tn=Order%20${initiatedOrder?.id?.slice(0, 8) || "ASS"}`;
+  const inrAmountVal = initiatedPayment?.amount ? (initiatedPayment.amount / 100) : (total() * liveRate);
+  const inrAmountString = `₹${inrAmountVal.toFixed(2)}`;
+  const defaultUpiUri = initiatedPayment?.upi_uri || `upi://pay?pa=aisitestudio@upi&pn=AI%20Site%20Studio&am=${inrAmountVal.toFixed(2)}&cu=INR&tn=Order%20${initiatedOrder?.id?.slice(0, 8) || "ASS"}`;
 
   return (
     <>

@@ -69,6 +69,53 @@ function AdminPanel() {
     enabled: !!authToken,
   });
 
+  // Fetch real-time infrastructure health overview
+  const { data: healthData } = useQuery({
+    queryKey: ["admin-health-overview"],
+    queryFn: () => api.get("/admin/health-overview", authToken ?? undefined),
+    enabled: !!authToken,
+    refetchInterval: 10000,
+  });
+
+  // Fetch real-time platform operational analytics
+  const { data: platformAnalytics } = useQuery({
+    queryKey: ["admin-analytics"],
+    queryFn: () => api.get("/admin/analytics", authToken ?? undefined),
+    enabled: !!authToken,
+    refetchInterval: 15000,
+  });
+
+  // Fetch seller withdrawal requests for moderation
+  const { data: sellerWithdrawals = [] } = useQuery({
+    queryKey: ["admin-withdrawals"],
+    queryFn: () => api.get("/payouts/withdrawals", authToken ?? undefined),
+    enabled: !!authToken,
+  });
+
+  // Fetch customer reviews for moderation
+  const { data: adminReviewsData } = useQuery({
+    queryKey: ["admin-reviews"],
+    queryFn: () => api.get("/reviews/admin?page_size=50", authToken ?? undefined),
+    enabled: !!authToken,
+  });
+
+  // Approve / Reject Review Mutation
+  const toggleReviewApprovalMutation = useMutation({
+    mutationFn: ({ reviewId, isApproved }) => api.patch(`/reviews/${reviewId}/approve?is_approved=${isApproved}`, {}, authToken ?? undefined),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-reviews"] });
+    },
+  });
+
+  // Update Withdrawal Request Status Mutation
+  const updateWithdrawalStatusMutation = useMutation({
+    mutationFn: ({ withdrawalId, status }) => api.patch(`/payouts/withdrawals/${withdrawalId}/status`, { status }, authToken ?? undefined),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-withdrawals"] });
+    },
+  });
+
+
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [categoryForm, setCategoryForm] = useState({
     name: "",
@@ -180,6 +227,7 @@ function AdminPanel() {
           <div className="admin-tab-group">
             {[
               { id: "metrics", label: "Metrics & Logs", icon: TrendingUp },
+              { id: "moderation", label: "Moderation & Payouts", icon: Layers },
               { id: "templates", label: "Templates", icon: FileCode },
               { id: "categories", label: "Categories", icon: Layers },
               { id: "users", label: "Users", icon: Users },
@@ -208,9 +256,12 @@ function AdminPanel() {
               <div className="space-y-6">
                 <div className="admin-metrics-grid">
                   {[
-                    { label: "Total Platform Users", value: stats?.total_users ?? 0, icon: Users },
+                    { label: "Gross Sales (USD)", value: `$${platformAnalytics?.gross_sales_usd || stats?.gross_revenue || 0}`, icon: TrendingUp },
+                    { label: "Platform Fee Revenue (20%)", value: `$${platformAnalytics?.platform_fee_revenue_usd || stats?.commission_revenue || 0}`, icon: Coins },
+                    { label: "Active Live Deployments", value: platformAnalytics?.active_live_deployments ?? 0, icon: Zap },
+                    { label: "Sellers / Creators", value: platformAnalytics?.sellers_count ?? 0, icon: Users },
+                    { label: "Buyers / Customers", value: platformAnalytics?.buyers_count ?? 0, icon: Users },
                     { label: "Published Templates", value: stats?.total_templates ?? 0, icon: FileCode },
-                    { label: "Completed Orders", value: stats?.total_orders ?? 0, icon: TrendingUp },
                   ].map((metric) => {
                     const Icon = metric.icon;
                     return (
@@ -225,14 +276,24 @@ function AdminPanel() {
                   })}
                 </div>
                 <div className="glass border border-border/40 rounded-2xl p-6">
-                  <h3 className="font-bold text-base mb-2">Platform Engine Status</h3>
-                  <p className="text-sm text-muted-foreground mb-4">Core services cluster monitor.</p>
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="font-bold text-base mb-1">Platform Infrastructure Health</h3>
+                      <p className="text-sm text-muted-foreground">Real-time core services cluster & storage monitor.</p>
+                    </div>
+                    <span className={cn(
+                      "px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider",
+                      healthData?.status === "HEALTHY" ? "bg-green-500/10 text-green-400 border border-green-500/20" : "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                    )}>
+                      {healthData?.status || "HEALTHY"}
+                    </span>
+                  </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                     {[
-                      { name: "Postgres Cluster", status: "Operational", color: "text-green-500" },
-                      { name: "Redis Cache Engine", status: "Operational", color: "text-green-500" },
-                      { name: "Celery Worker Node", status: "Online", color: "text-green-500" },
-                      { name: "Qdrant Vector DB", status: "Online", color: "text-green-500" },
+                      { name: "PostgreSQL Database", status: healthData?.components?.postgresql || "ONLINE", color: "text-green-500" },
+                      { name: "Redis Cache & Queue", status: healthData?.components?.redis || "ONLINE", color: "text-green-500" },
+                      { name: "Qdrant Vector Engine", status: healthData?.components?.qdrant_vector_db || "ONLINE", color: "text-green-500" },
+                      { name: "File Storage Used", status: `${healthData?.components?.storage_used_mb || 0} MB`, color: "text-indigo-400" },
                     ].map((svc) => (
                       <div key={svc.name} className="p-4 bg-muted/30 border border-border/50 rounded-xl space-y-1">
                         <div className="text-xs text-muted-foreground font-medium">{svc.name}</div>
@@ -245,6 +306,61 @@ function AdminPanel() {
                 </div>
               </div>
             )}
+
+            {/* MODERATION & PAYOUTS */}
+            {activeTab === "moderation" && (
+              <div className="space-y-6">
+                <div className="glass border border-border/40 rounded-2xl p-6">
+                  <h3 className="font-bold text-base mb-2">Pending Seller Withdrawal Requests</h3>
+                  <p className="text-sm text-muted-foreground mb-4">Review and approve manual payout requests from creators.</p>
+                  {sellerWithdrawals.length === 0 ? (
+                    <div className="text-center py-6 text-sm text-muted-foreground">No pending withdrawal requests.</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="admin-table">
+                        <thead>
+                          <tr className="admin-tr">
+                            <th className="admin-th">Amount</th>
+                            <th className="admin-th">Bank Name</th>
+                            <th className="admin-th">Account Number</th>
+                            <th className="admin-th">Status</th>
+                            <th className="admin-th text-right" style={{ textAlign: "right" }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border/50 text-sm">
+                          {sellerWithdrawals.map((w) => (
+                            <tr key={w.id} className="admin-tr">
+                              <td className="admin-td font-bold">${w.amount}</td>
+                              <td className="admin-td">{w.bank_name || "N/A"}</td>
+                              <td className="admin-td">{w.account_number || "N/A"}</td>
+                              <td className="admin-td">
+                                <span className={cn(
+                                  "px-2.5 py-0.5 rounded-full text-xs font-semibold",
+                                  w.status === "completed" ? "bg-green-500/10 text-green-400" : "bg-amber-500/10 text-amber-400"
+                                )}>
+                                  {w.status}
+                                </span>
+                              </td>
+                              <td className="admin-td text-right" style={{ textAlign: "right" }}>
+                                {w.status === "pending" && (
+                                  <button
+                                    onClick={() => updateWithdrawalStatusMutation.mutate({ withdrawalId: w.id, status: "completed" })}
+                                    className="px-3 py-1 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-500 transition-colors"
+                                  >
+                                    Approve Payout
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
 
             {/* TEMPLATES */}
             {activeTab === "templates" && (

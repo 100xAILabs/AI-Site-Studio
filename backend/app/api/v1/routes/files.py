@@ -50,7 +50,7 @@ async def get_stored_file(
     # 2. Fall back to current_user depending on file type sensitivity
     if not authorized:
         if content_type == "application/zip":
-            # ZIP files (paid template assets) require a valid signature URL, Admin, Owner creator, or Buyer Purchase
+            # ZIP files (paid template assets) require a valid signature URL, Admin, Owner seller, Buyer purchase, or Free template
             if current_user is not None:
                 role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
                 if str(role_val).lower() in ("admin", "super_admin"):
@@ -59,16 +59,41 @@ async def get_stored_file(
                     try:
                         from app.models.template import Template
                         from sqlalchemy import select
+                        # 2a. Check if seller created/uploaded this template
                         tmpl_res = await db.execute(
-                            select(Template).where(Template.creator_id == current_user.id)
+                            select(Template).where(Template.seller_id == current_user.id)
                         )
                         for t in tmpl_res.scalars().all():
                             d_assets = t.download_assets or {}
-                            if str(file_uuid) in str(list(d_assets.values())):
+                            if t.source_file_id == file_uuid or str(file_uuid) in str(list(d_assets.values())):
                                 authorized = True
                                 break
                     except Exception:
                         pass
+
+                    # 2b. Check if buyer purchased this template or template is free
+                    if not authorized:
+                        try:
+                            from app.models.order import Order, OrderItem, OrderStatus
+                            from app.models.template import Template
+                            from sqlalchemy import or_
+                            ord_res = await db.execute(
+                                select(Template.id)
+                                .outerjoin(OrderItem, OrderItem.template_id == Template.id)
+                                .outerjoin(Order, OrderItem.order_id == Order.id)
+                                .where(
+                                    (Template.source_file_id == file_uuid) | (Template.id == file_uuid),
+                                    or_(
+                                        Template.is_free == True,
+                                        (Order.user_id == current_user.id) & (Order.status == OrderStatus.COMPLETED)
+                                    )
+                                )
+                                .limit(1)
+                            )
+                            if ord_res.scalar_one_or_none():
+                                authorized = True
+                        except Exception:
+                            pass
         else:
             # Non-zip files (thumbnails, preview images, developer avatars, etc.) are public
             authorized = True

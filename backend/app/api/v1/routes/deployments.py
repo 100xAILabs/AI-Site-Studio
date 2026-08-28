@@ -11,7 +11,7 @@ Provides tenant-scoped lifecycle management:
 import uuid
 import asyncio
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status, Query
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -274,6 +274,48 @@ async def get_deployment_logs(
     stmt = select(DeploymentLog).where(DeploymentLog.deployment_id == deployment_id).order_by(desc(DeploymentLog.timestamp)).limit(100)
     res = await db.execute(stmt)
     return res.scalars().all()
+@router.patch("/{deployment_id}/domain", response_model=DeploymentResponse)
+async def update_custom_domain(
+    deployment_id: uuid.UUID,
+    custom_domain: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Directly links or unlinks a custom domain for a deployment.
+    """
+    d_res = await db.execute(
+        select(Deployment).where(Deployment.id == deployment_id, Deployment.user_id == current_user.id)
+    )
+    deployment = d_res.scalar_one_or_none()
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found.")
+
+    if custom_domain and custom_domain.strip():
+        clean_domain = custom_domain.strip().lower()
+        deployment.custom_domain = clean_domain
+        # Create domain record if not existing
+        dom_res = await db.execute(
+            select(Domain).where(Domain.deployment_id == deployment.id, Domain.domain == clean_domain)
+        )
+        if not dom_res.scalar_one_or_none():
+            domain_record = Domain(
+                deployment_id=deployment.id,
+                user_id=current_user.id,
+                domain=clean_domain,
+                domain_type="custom",
+                verification_status="verified",
+                ssl_status="active",
+                verification_token=f"verify-{uuid.uuid4().hex[:8]}",
+            )
+            db.add(domain_record)
+    else:
+        deployment.custom_domain = None
+
+    await db.commit()
+    await db.refresh(deployment)
+    return deployment
+
 
 
 @router.post("/{deployment_id}/domains", response_model=DomainResponse)

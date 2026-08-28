@@ -114,9 +114,12 @@ class TemplateService:
         download_assets = template.download_assets or {}
         if (not response.included_pages or response.included_pages == ["index.html"] or response.included_pages == ["Home"] or response.included_pages == ["Home Page"]) and "zip" in download_assets:
             try:
+                import re
                 zip_url = download_assets["zip"]
-                file_id_str = zip_url.split("/")[-1]
-                file_id = uuid.UUID(file_id_str)
+                file_id = None
+                match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
+                if match:
+                    file_id = uuid.UUID(match.group(1))
                 from app.models.stored_file import StoredFile
                 from sqlalchemy import select
                 result = await self.db.execute(select(StoredFile).where(StoredFile.id == file_id))
@@ -218,7 +221,8 @@ class TemplateService:
         template = await self.repo.get_by_id(template_id)
         if not template:
             raise HTTPException(status_code=404, detail="Template not found")
-        if current_user.role.value not in ("admin", "super_admin") and template.seller_id != current_user.id:
+        role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+        if str(role_val).lower() not in ("admin", "super_admin") and str(template.seller_id or "") != str(current_user.id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You can only update your own templates.",
@@ -240,18 +244,37 @@ class TemplateService:
             if str(role_val).lower() not in ("admin", "super_admin"):
                 creator_id = getattr(template, "creator_id", None)
                 seller_id = getattr(template, "seller_id", None)
-                if seller_id != current_user.id and creator_id != current_user.id:
+                user_id_str = str(current_user.id)
+                if str(seller_id or "") != user_id_str and str(creator_id or "") != user_id_str:
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail="You can only delete your own templates or studio projects.",
                     )
 
-        # Clean preview cache if exists
+        # 1. Clean preview cache if exists
         try:
             import tempfile, shutil
             preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
             if os.path.exists(preview_dir):
                 shutil.rmtree(preview_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+        # 2. Clean up associated stored ZIP / file assets in PostgreSQL
+        try:
+            from app.core.storage import storage
+            if template.download_assets and isinstance(template.download_assets, dict):
+                for asset_url in template.download_assets.values():
+                    if isinstance(asset_url, str):
+                        await storage.delete_file(self.db, asset_url)
+        except Exception:
+            pass
+
+        # 3. Clean up Qdrant vector index if available
+        try:
+            from app.services.search_service import SearchService
+            ss = SearchService(self.db)
+            await ss.delete_template_vector(str(template.id))
         except Exception:
             pass
 

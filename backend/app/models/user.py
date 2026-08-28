@@ -70,8 +70,9 @@ class User(UUIDMixin, TimestampMixin, Base):
     # AI Credits
     ai_credits: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
 
-    # Billing
+    # Billing & Stripe Connect
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(255))
+    stripe_connect_account_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     razorpay_customer_id: Mapped[Optional[str]] = mapped_column(String(255))
 
     # Payout details for Sellers

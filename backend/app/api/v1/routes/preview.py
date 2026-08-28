@@ -1341,16 +1341,20 @@ async def serve_live_preview(
         if not zip_url:
             raise HTTPException(status_code=400, detail="Template does not have source ZIP assets")
             
-        file_id_str = zip_url.split("/")[-1]
         is_external = False
         file_id = None
-        try:
-            file_id = uuid.UUID(file_id_str)
-        except ValueError:
+        uuid_match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
+        if uuid_match:
+            try:
+                file_id = uuid.UUID(uuid_match.group(1))
+            except ValueError:
+                is_external = True
+        else:
             is_external = True
             
         preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
         os.makedirs(preview_dir, exist_ok=True)
+        project_root = preview_dir
 
         import json
         import shutil
@@ -1393,14 +1397,19 @@ async def serve_live_preview(
             # 1. Detect package.json or check if source files exist
             package_json_path = detect_project_ui_package_json(preview_dir)
 
-            # If directory is empty or source files / package.json missing, extract fresh from ZIP
+            # If directory is missing, empty, or index.html is missing, extract fresh from ZIP safely
             need_extract = not os.path.exists(preview_dir) or not os.listdir(preview_dir)
             if not need_extract and not package_json_path:
-                has_html = any(f.endswith(".html") for r, d, files in os.walk(preview_dir) for f in files)
-                if not has_html:
-                    need_extract = True
+                if not os.path.exists(os.path.join(preview_dir, "index.html")):
+                    has_html = any(f.endswith(".html") for r, d, files in os.walk(preview_dir) for f in files)
+                    if not has_html:
+                        need_extract = True
 
             if need_extract:
+                if os.path.exists(preview_dir):
+                    shutil.rmtree(preview_dir, ignore_errors=True)
+                os.makedirs(preview_dir, exist_ok=True)
+
                 if is_external:
                     import httpx
                     try:
@@ -1419,40 +1428,26 @@ async def serve_live_preview(
                         raise HTTPException(status_code=404, detail="Source template archive file not found")
                     zip_data = stored_file.data
 
-                with zipfile.ZipFile(io.BytesIO(zip_data)) as zip_ref:
-                    for member in zip_ref.infolist():
-                        clean_path = os.path.normpath(member.filename).replace("..", "")
-                        if clean_path.startswith("/") or clean_path.startswith("\\"):
-                            clean_path = clean_path[1:]
-                        target_path = os.path.join(preview_dir, clean_path)
-                        if member.is_dir():
-                            os.makedirs(target_path, exist_ok=True)
-                        else:
-                            os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                            content_bytes = zip_ref.read(member.filename)
-                            # Self-heal previously generated files if they are truncated
-                            is_source = not any(d in target_path.replace("\\", "/").split("/") for d in ["dist", "node_modules", "build", "out", ".output"])
-                            if (target_path.endswith(".jsx") or target_path.endswith(".js") or target_path.endswith(".tsx") or target_path.endswith(".ts")) and is_source:
-                                try:
-                                    from app.services.ai_service import repair_truncated_jsx
-                                    code_str = content_bytes.decode("utf-8", errors="ignore")
-                                    repaired_code = repair_truncated_jsx(code_str)
-                                    content_bytes = repaired_code.encode("utf-8")
-                                except Exception as e:
-                                    print(f"[On-the-fly Self Heal] Failed to repair {target_path}: {e}")
-                            elif target_path.endswith(".html"):
-                                try:
-                                    from app.services.ai_service import repair_truncated_html
-                                    code_str = content_bytes.decode("utf-8", errors="ignore")
-                                    repaired_code = repair_truncated_html(code_str)
-                                    content_bytes = repaired_code.encode("utf-8")
-                                except Exception as e:
-                                    print(f"[On-the-fly Self Heal] Failed to repair {target_path}: {e}")
-                            with open(target_path, "wb") as f:
-                                f.write(content_bytes)
+                # Use security_scanner.sanitize_extract_zip to safely extract clean website files
+                from app.services.security_scanner import security_scanner
+                security_scanner.sanitize_extract_zip(zip_data, Path(preview_dir))
 
                 # Re-detect package.json after extraction
                 package_json_path = detect_project_ui_package_json(preview_dir)
+
+            # Auto-flatten single wrapper subfolder (e.g., port/index.html -> index.html)
+            if not package_json_path and os.path.exists(preview_dir):
+                subitems = [os.path.join(preview_dir, i) for i in os.listdir(preview_dir) if not i.startswith(".")]
+                if len(subitems) == 1 and os.path.isdir(subitems[0]):
+                    inner_folder = subitems[0]
+                    for sub_item in os.listdir(inner_folder):
+                        src_p = os.path.join(inner_folder, sub_item)
+                        dst_p = os.path.join(preview_dir, sub_item)
+                        shutil.move(src_p, dst_p)
+                    try:
+                        os.rmdir(inner_folder)
+                    except Exception:
+                        pass
 
             build_folders = ["dist", "out", "build", ".output"]
             serve_root = preview_dir
@@ -1776,7 +1771,6 @@ async def serve_live_preview(
                 html_content = content.decode("utf-8", errors="ignore")
                 
                 # 1. Rewrite absolute references to relative on all HTML preview pages
-                import re
                 html_content = re.sub(r'src="/(?![/])', 'src="./', html_content)
                 html_content = re.sub(r'href="/(?![/])', 'href="./', html_content)
     
@@ -2043,6 +2037,7 @@ async def serve_live_preview(
         from app.services.security_scanner import security_scanner
         return Response(content=content, media_type=mime_type, headers=security_scanner.get_secure_preview_headers())
     except Exception as e:
+        logger.exception(f"🚨 Preview generation error for template {template_id}: {e}")
         return await serve_fallback(str(e))
 
 

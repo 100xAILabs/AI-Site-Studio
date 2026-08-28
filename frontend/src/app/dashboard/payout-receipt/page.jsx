@@ -4,6 +4,8 @@ import { useAuthStore } from "@/store/authStore";
 import { Printer, ArrowLeft, Loader2, CheckCircle, Clock, AlertTriangle } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api/v1";
+
 export default function PayoutReceiptPage() {
   const { withdrawalId } = useParams();
   const navigate = useNavigate();
@@ -16,7 +18,7 @@ export default function PayoutReceiptPage() {
     async function fetchPayoutReceipt() {
       try {
         if (!token) return;
-        const res = await fetch(`http://localhost:8000/api/v1/payouts/withdrawals/${withdrawalId}/receipt`, {
+        const res = await fetch(`${API_BASE}/payouts/withdrawals/${withdrawalId}/receipt`, {
           headers: {
             "Authorization": `Bearer ${token}`
           }

@@ -18,14 +18,14 @@ import {
   Terminal, Sliders, Cpu, Smartphone, Tablet, Laptop,
   Monitor, HelpCircle, UserCheck, ChevronDown, ChevronUp,
   Play, Flame, Award, Activity, Sparkles, Clock, Plus,
-  ExternalLink,
+  ExternalLink, Calendar, ShieldCheck, Info, Edit3, Upload,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import TemplateCard from "@/components/marketplace/TemplateCard";
 import { useTemplate, useTemplates, useToggleFavorite, useToggleWishlist, useTemplateReviews, useCreateReview, useFollowStatus, useToggleFollow } from "@/hooks/useTemplates";
 import { cn, formatPrice, formatNumber } from "@/lib/utils";
 import { useCartStore } from "@/store";
-import { API_URL } from "@/lib/api";
+import { API_URL, api } from "@/lib/api";
 import "./Page.css";
 
 export default function TemplateDetailsPage({ slug: propSlug }) {
@@ -78,6 +78,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
   const [newReview, setNewReview] = useState({ rating: 5, title: "", body: "" });
   const [likedReviews, setLikedReviews] = useState({});
   const [reviewError, setReviewError] = useState("");
+
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
 
   // Seller Profile Card States
@@ -92,6 +93,101 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
 
   // Declare template query hook first to avoid TDZ ReferenceError in render hooks
   const { data: template, isLoading, error } = useTemplate(slug, token);
+
+  // Seller Edit Modal States
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editForm, setEditForm] = useState({
+    title: "",
+    short_description: "",
+    description: "",
+    price: 0,
+    price_currency: "USD",
+    license_type: "Single Site Commercial & Personal License",
+    tags: "",
+  });
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  useEffect(() => {
+    if (template) {
+      setEditForm({
+        title: template.title || "",
+        short_description: template.short_description || "",
+        description: template.description || "",
+        price: template.price || 0,
+        price_currency: template.price_currency || "USD",
+        license_type: template.license_type || "Single Site Commercial & Personal License",
+        tags: Array.isArray(template.tags) ? template.tags.join(", ") : (template.tags || ""),
+      });
+    }
+  }, [template]);
+
+  const handleSaveTemplateEdit = async (e) => {
+    e.preventDefault();
+    if (!template?.id) return;
+    const tokenVal = await getToken();
+    if (!tokenVal) {
+      alert("Session expired. Please sign in again.");
+      return;
+    }
+    setIsSavingEdit(true);
+    try {
+      const payload = {
+        title: editForm.title,
+        short_description: editForm.short_description,
+        description: editForm.description,
+        price: Number(editForm.price),
+        price_currency: editForm.price_currency,
+        license_type: editForm.license_type,
+        tags: editForm.tags ? editForm.tags.split(",").map(t => t.trim()).filter(Boolean) : [],
+      };
+      await api.patch(`/templates/${template.id}`, payload, tokenVal);
+      alert("Template updated successfully!");
+      setIsEditModalOpen(false);
+      window.location.reload();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to update template: " + (err.message || "Unknown error"));
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  // Seller Re-upload ZIP state
+  const [reuploadZipFile, setReuploadZipFile] = useState(null);
+  const [isUploadingZip, setIsUploadingZip] = useState(false);
+
+  const handleReuploadZip = async () => {
+    if (!reuploadZipFile || !template?.id) return;
+    const tokenVal = await getToken();
+    if (!tokenVal) {
+      alert("Session expired. Please sign in again.");
+      return;
+    }
+    setIsUploadingZip(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", reuploadZipFile);
+      const res = await fetch(`${API_URL}/templates/${template.id}/reupload`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${tokenVal}`,
+        },
+        body: formData,
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to re-upload template ZIP archive.");
+      }
+      alert("New template website ZIP package uploaded successfully! Live preview and download assets updated.");
+      setReuploadZipFile(null);
+      window.location.reload();
+    } catch (err) {
+      console.error(err);
+      alert("Error re-uploading website package: " + err.message);
+    } finally {
+      setIsUploadingZip(false);
+    }
+  };
 
   // Load customizations state from shared link query params on mount
   useEffect(() => {
@@ -124,9 +220,10 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
     }
   }, [template, searchParams]);
   const previewSrc = (() => {
-    let base = template?.preview_url && !template.preview_url.includes("example.com")
-      ? template.preview_url
-      : `${API_URL}/preview/live/${template?.id}`;
+    let base = template?.id ? `${API_URL}/preview/live/${template.id}` : "";
+    if (template?.preview_url && !template.preview_url.includes("example.com") && !template.preview_url.includes("/preview/watermarked")) {
+      base = template.preview_url;
+    }
 
     if (isGenerated) {
       const q = new URLSearchParams();
@@ -1405,11 +1502,11 @@ npm run build`;
                 <div>
                   <div className="details-price-row flex items-baseline justify-between mb-1">
                     <span className="details-price-value text-3xl font-extrabold text-foreground">
-                      {formatPrice(template.price)}
+                      {formatPrice(template.price, template.price_currency || "USD")}
                     </span>
                     {template.original_price && (
                       <span className="details-price-original text-sm line-through text-muted-foreground">
-                        {formatPrice(template.original_price)}
+                        {formatPrice(template.original_price, template.price_currency || "USD")}
                       </span>
                     )}
                   </div>
@@ -1418,7 +1515,14 @@ npm run build`;
 
                 {/* Action Buttons */}
                 <div className="details-action-stack space-y-2">
-                  {isSeller ? (
+                  {(user?.id === template?.seller_id || user?.role === "admin" || user?.role === "super_admin") ? (
+                    <button
+                      onClick={() => setIsEditModalOpen(true)}
+                      className="w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md transition-all text-sm cursor-pointer"
+                    >
+                      <Edit3 className="w-4 h-4" /> Edit Template Details
+                    </button>
+                  ) : isSeller ? (
                     <button disabled className="w-full py-3 bg-muted text-muted-foreground text-xs font-bold rounded-xl cursor-not-allowed">
                       Sellers cannot purchase templates
                     </button>
@@ -1480,6 +1584,54 @@ npm run build`;
                   </div>
                 </div>
 
+              </div>
+
+              {/* 18b. Template Specifications & License Info Box */}
+              <div className="details-specs-card card-container p-5 rounded-2xl border border-border/60 bg-card shadow-sm space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-border/50">
+                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <Info className="w-3.5 h-3.5 text-primary" /> Template Information
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                    Verified Release
+                  </span>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  {/* Published Time */}
+                  <div className="flex items-center justify-between py-1 border-b border-border/30">
+                    <span className="text-muted-foreground flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-blue-500" /> Published Date
+                    </span>
+                    <span className="font-semibold text-foreground">
+                      {template.created_at
+                        ? new Date(template.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+                        : "Recently Published"}
+                    </span>
+                  </div>
+
+                  {/* Updated Time */}
+                  <div className="flex items-center justify-between py-1 border-b border-border/30">
+                    <span className="text-muted-foreground flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-amber-500" /> Last Updated
+                    </span>
+                    <span className="font-semibold text-foreground">
+                      {template.updated_at
+                        ? new Date(template.updated_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+                        : (template.created_at ? new Date(template.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "Up to Date")}
+                    </span>
+                  </div>
+
+                  {/* License Box */}
+                  <div className="flex items-start justify-between py-1">
+                    <span className="text-muted-foreground flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> License Type
+                    </span>
+                    <span className="font-bold text-foreground text-right max-w-[180px] leading-tight text-emerald-500">
+                      {template.license_type || "Single Site Commercial & Personal License"}
+                    </span>
+                  </div>
+                </div>
               </div>
 
               {/* 19. Seller Information Card */}
@@ -1750,6 +1902,178 @@ npm run build`;
                   Copy & Close
                 </button>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Seller Edit Template Modal */}
+        {isEditModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+            onClick={() => setIsEditModalOpen(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-card border border-border/80 rounded-2xl shadow-2xl p-6 space-y-5"
+            >
+              <div className="flex items-center justify-between pb-4 border-b border-border/50">
+                <div className="flex items-center gap-2">
+                  <Edit3 className="w-5 h-5 text-amber-500" />
+                  <h2 className="text-lg font-bold text-foreground">Edit Template Details</h2>
+                </div>
+                <button
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="p-1 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveTemplateEdit} className="space-y-4 text-xs">
+                <div>
+                  <label className="block font-bold text-foreground mb-1">Template Title</label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.title}
+                    onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                    className="w-full px-3 py-2 bg-muted/30 border border-border/60 rounded-xl text-foreground font-semibold focus:outline-none focus:border-primary"
+                    placeholder="e.g. Port Portfolio Template"
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block font-bold text-foreground mb-1">Pricing Currency</label>
+                    <select
+                      value={editForm.price_currency}
+                      onChange={(e) => setEditForm({ ...editForm, price_currency: e.target.value })}
+                      className="w-full px-3 py-2 bg-muted/30 border border-border/60 rounded-xl text-foreground font-bold focus:outline-none focus:border-primary"
+                    >
+                      <option value="USD">USD ($)</option>
+                      <option value="INR">INR (₹)</option>
+                      <option value="EUR">EUR (€)</option>
+                      <option value="GBP">GBP (£)</option>
+                      <option value="CAD">CAD (CA$)</option>
+                      <option value="AUD">AUD (A$)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-foreground mb-1">Fixed Price</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      required
+                      value={editForm.price}
+                      onChange={(e) => setEditForm({ ...editForm, price: e.target.value })}
+                      className="w-full px-3 py-2 bg-muted/30 border border-border/60 rounded-xl text-foreground font-bold focus:outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-foreground mb-1">License Type</label>
+                    <select
+                      value={editForm.license_type}
+                      onChange={(e) => setEditForm({ ...editForm, license_type: e.target.value })}
+                      className="w-full px-3 py-2 bg-muted/30 border border-border/60 rounded-xl text-foreground font-semibold focus:outline-none focus:border-primary"
+                    >
+                      <option value="Single Site Commercial & Personal License">Single Site Commercial & Personal License</option>
+                      <option value="Extended Commercial License">Extended Commercial License</option>
+                      <option value="Unlimited Multi-Site License">Unlimited Multi-Site License</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-foreground mb-1">Short Description</label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.short_description}
+                    onChange={(e) => setEditForm({ ...editForm, short_description: e.target.value })}
+                    className="w-full px-3 py-2 bg-muted/30 border border-border/60 rounded-xl text-foreground focus:outline-none focus:border-primary"
+                    placeholder="Brief 1-sentence summary"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-foreground mb-1">Full Overview / Description</label>
+                  <textarea
+                    rows={4}
+                    value={editForm.description}
+                    onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                    className="w-full px-3 py-2 bg-muted/30 border border-border/60 rounded-xl text-foreground focus:outline-none focus:border-primary font-mono text-xs"
+                    placeholder="Detailed template breakdown..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-foreground mb-1">Tags (Comma-separated)</label>
+                  <input
+                    type="text"
+                    value={editForm.tags}
+                    onChange={(e) => setEditForm({ ...editForm, tags: e.target.value })}
+                    className="w-full px-3 py-2 bg-muted/30 border border-border/60 rounded-xl text-foreground focus:outline-none focus:border-primary"
+                    placeholder="HTML, CSS, React, Responsive, Portfolio"
+                  />
+                </div>
+
+                {/* Re-upload ZIP File Box */}
+                <div className="p-4 rounded-xl border border-dashed border-primary/40 bg-primary/[0.03] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-foreground flex items-center gap-1.5">
+                      <Upload className="w-4 h-4 text-primary" /> Re-upload Website Package (.zip)
+                    </span>
+                    <span className="text-[10px] text-muted-foreground font-semibold">Updates live preview & download files</span>
+                  </div>
+                  
+                  <input
+                    type="file"
+                    accept=".zip"
+                    onChange={(e) => setReuploadZipFile(e.target.files[0] || null)}
+                    className="w-full text-xs text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-primary file:text-primary-foreground hover:file:opacity-90 cursor-pointer"
+                  />
+
+                  {reuploadZipFile && (
+                    <div className="flex items-center justify-between pt-2 border-t border-primary/20">
+                      <span className="text-[11px] font-semibold text-emerald-500 truncate max-w-[250px]">
+                        Selected: {reuploadZipFile.name} ({(reuploadZipFile.size / (1024 * 1024)).toFixed(2)} MB)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleReuploadZip}
+                        disabled={isUploadingZip}
+                        className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow transition-all flex items-center gap-1"
+                      >
+                        {isUploadingZip ? "Uploading & Processing..." : "Upload & Update Live Demo"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-border/50">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditModalOpen(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold bg-muted/50 hover:bg-muted text-muted-foreground border border-border/40 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingEdit}
+                    className="px-5 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-md transition-all flex items-center gap-1.5"
+                  >
+                    {isSavingEdit ? "Saving Changes..." : "Save Changes"}
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </motion.div>
         )}

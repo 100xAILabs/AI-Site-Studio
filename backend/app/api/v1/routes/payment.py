@@ -8,6 +8,7 @@ import uuid
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -25,20 +26,90 @@ from app.schemas.payment import (
 router = APIRouter()
 
 
-async def get_usd_to_inr_rate() -> float:
-    """Fetch the real-time USD to INR exchange rate from open.er-api.com with fallback."""
+_cached_rates = {}
+_cached_time = 0.0
+
+
+async def get_all_exchange_rates() -> dict:
+    """Fetch real-time global exchange rates for all currencies from open.er-api.com."""
+    import time
     import httpx
+    global _cached_rates, _cached_time
+    now = time.time()
+    if _cached_rates and (now - _cached_time < 300):
+        return _cached_rates
+
+    fallback_rates = {
+        "USD": 1.0,
+        "INR": 95.48,
+        "EUR": 0.92,
+        "GBP": 0.78,
+        "CAD": 1.36,
+        "AUD": 1.52,
+        "JPY": 154.20,
+        "SGD": 1.34,
+        "AED": 3.67,
+        "BRL": 5.65,
+    }
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get("https://open.er-api.com/v6/latest/USD")
             if response.status_code == 200:
                 data = response.json()
-                rate = data.get("rates", {}).get("INR")
-                if rate:
-                    return float(rate)
+                rates = data.get("rates", {})
+                if rates:
+                    _cached_rates = rates
+                    _cached_time = now
+                    return rates
     except Exception as e:
-        print(f"Error fetching USD to INR rate, using fallback: {e}")
-    return 83.50  # Stable fallback exchange rate
+        print(f"Error fetching live global exchange rates: {e}")
+
+    _cached_rates = fallback_rates
+    _cached_time = now
+    return fallback_rates
+
+
+async def get_usd_to_inr_rate() -> float:
+    """Fetch the real-time USD to INR exchange rate from open.er-api.com with fallback."""
+    rates = await get_all_exchange_rates()
+    return float(rates.get("INR", 95.48))
+
+
+class ExchangeRateResponse(BaseModel):
+    rate: float
+    currency: str = "INR"
+
+
+class AllRatesResponse(BaseModel):
+    base: str = "USD"
+    rates: dict
+    symbols: dict
+
+
+@router.get("/exchange-rate", response_model=ExchangeRateResponse)
+async def get_exchange_rate():
+    """Fetch live USD to INR exchange rate."""
+    rate = await get_usd_to_inr_rate()
+    return ExchangeRateResponse(rate=rate, currency="INR")
+
+
+@router.get("/exchange-rates", response_model=AllRatesResponse)
+async def get_exchange_rates(base: str = "USD"):
+    """Fetch live real-time exchange rates for all global currencies."""
+    rates = await get_all_exchange_rates()
+    symbols = {
+        "USD": "$",
+        "INR": "₹",
+        "EUR": "€",
+        "GBP": "£",
+        "CAD": "CA$",
+        "AUD": "A$",
+        "JPY": "¥",
+        "SGD": "S$",
+        "AED": "AED ",
+        "BRL": "R$",
+    }
+    return AllRatesResponse(base=base.upper(), rates=rates, symbols=symbols)
 
 
 
@@ -356,6 +427,35 @@ async def verify_payment(
             payment.gateway_payment_id = data.gateway_payment_id or payment.gateway_payment_id or f"upi_pay_{uuid.uuid4().hex[:12]}"
             
         order.status = OrderStatus.COMPLETED
+
+        # Create License records & dispatch license email task
+        try:
+            from app.models.license import License, LicenseType
+            from app.models.order import OrderItem
+            from app.tasks.email_tasks import send_license_delivery
+            import random, string
+
+            items_res = await db.execute(select(OrderItem).where(OrderItem.order_id == order.id))
+            items = items_res.scalars().all()
+            for item in items:
+                license_key = f"LIC-{''.join(random.choices(string.ascii_uppercase + string.digits, k=12))}"
+                lic = License(
+                    user_id=current_user.id,
+                    template_id=item.template_id,
+                    order_id=order.id,
+                    license_key=license_key,
+                    license_type=LicenseType.REGULAR if item.license_type != "extended" else LicenseType.EXTENDED,
+                    is_active=True,
+                )
+                db.add(lic)
+                # Dispatch background license email task
+                try:
+                    send_license_delivery.delay(current_user.email, license_key, f"Template {item.template_id}")
+                except Exception:
+                    pass
+        except Exception as lic_err:
+            print(f"Notice: License creation warning: {lic_err}")
+
         await db.flush()
         await db.commit()
         return PaymentVerifyResponse(

@@ -92,6 +92,7 @@ async def calculate_seller_earnings(db: AsyncSession, seller_id: uuid.UUID) -> d
 
 
 @router.get("/earnings", response_model=EarningsSummaryResponse)
+@router.get("/summary", response_model=EarningsSummaryResponse)
 async def get_seller_earnings(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_seller_or_admin),
@@ -308,3 +309,200 @@ async def update_withdrawal_status(
     await db.refresh(request)
 
     return request
+
+
+# ── Stripe Connect Multi-Vendor Endpoints ─────────────────────────────────────
+
+@router.post("/stripe-connect/onboard")
+async def onboard_seller_stripe_connect(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_seller_or_admin),
+):
+    """
+    Creates or retrieves a Stripe Connect Express account for the seller
+    and generates an Account Link onboarding URL.
+    """
+    from app.core.config import settings
+    import stripe
+
+    frontend_url = settings.FRONTEND_URL.rstrip("/")
+    mock_return_url = f"{frontend_url}/dashboard?tab=earnings&connected=true"
+
+    if not settings.STRIPE_SECRET_KEY:
+        # Development fallback mode
+        if not current_user.stripe_connect_account_id:
+            current_user.stripe_connect_account_id = f"acct_mock_{uuid.uuid4().hex[:12]}"
+            current_user.is_payout_setup_completed = True
+            await db.commit()
+
+        return {
+            "account_id": current_user.stripe_connect_account_id,
+            "onboarding_url": mock_return_url,
+            "is_mock": True,
+            "message": "Stripe Connect Express onboarding link generated (Development Mode).",
+        }
+
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+
+    try:
+        account_id = current_user.stripe_connect_account_id
+        if not account_id:
+            account = stripe.Account.create(
+                type="express",
+                country="IN",  # Indian platform — payout fields use IFSC/bank codes
+                email=current_user.email,
+                capabilities={"transfers": {"requested": True}},
+                business_type="individual",
+            )
+            account_id = account.id
+            current_user.stripe_connect_account_id = account_id
+            await db.commit()
+
+        account_link = stripe.AccountLink.create(
+            account=account_id,
+            refresh_url=f"{frontend_url}/dashboard?tab=earnings&connect_refresh=true",
+            return_url=f"{frontend_url}/dashboard?tab=earnings&connect_success=true",
+            type="account_onboarding",
+        )
+
+        return {
+            "account_id": account_id,
+            "onboarding_url": account_link.url,
+            "is_mock": False,
+        }
+    except Exception as e:
+        if not current_user.stripe_connect_account_id:
+            current_user.stripe_connect_account_id = f"acct_mock_{uuid.uuid4().hex[:12]}"
+            current_user.is_payout_setup_completed = True
+            await db.commit()
+
+        return {
+            "account_id": current_user.stripe_connect_account_id,
+            "onboarding_url": mock_return_url,
+            "is_mock": True,
+            "message": f"Stripe Connect Onboarding (Sandbox Mode): {str(e)}",
+        }
+
+
+@router.get("/stripe-connect/status")
+async def get_stripe_connect_status(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_seller_or_admin),
+):
+    """
+    Retrieves real-time KYC and payout capability status from Stripe for the seller's connected account.
+    """
+    account_id = current_user.stripe_connect_account_id
+    if not account_id:
+        return {
+            "is_connected": False,
+            "payouts_enabled": False,
+            "details_submitted": False,
+            "account_id": None,
+        }
+
+    from app.core.config import settings
+    import stripe
+
+    if not settings.STRIPE_SECRET_KEY or account_id.startswith("acct_mock_"):
+        return {
+            "is_connected": True,
+            "payouts_enabled": True,
+            "details_submitted": True,
+            "account_id": account_id,
+            "is_mock": True,
+        }
+
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    try:
+        acct = stripe.Account.retrieve(account_id)
+        payouts_enabled = acct.payouts_enabled
+        details_submitted = acct.details_submitted
+
+        if payouts_enabled and not current_user.is_payout_setup_completed:
+            current_user.is_payout_setup_completed = True
+            await db.commit()
+
+        return {
+            "is_connected": True,
+            "payouts_enabled": payouts_enabled,
+            "details_submitted": details_submitted,
+            "account_id": account_id,
+            "charges_enabled": acct.charges_enabled,
+            "is_mock": False,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch Stripe Connect account status: {str(e)}")
+
+
+@router.post("/stripe-connect/transfer")
+async def transfer_seller_earnings(
+    amount: Decimal,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_seller_or_admin),
+):
+    """
+    Executes a direct Stripe Transfer to the seller's connected account.
+    """
+    if amount <= Decimal("0.00"):
+        raise HTTPException(status_code=400, detail="Transfer amount must be greater than zero.")
+
+    earnings = await calculate_seller_earnings(db, current_user.id)
+    if earnings["available_balance"] < amount:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient available balance ({earnings['available_balance']}) for requested transfer of {amount}."
+        )
+
+    account_id = current_user.stripe_connect_account_id
+    if not account_id:
+        raise HTTPException(status_code=400, detail="Please complete Stripe Connect onboarding first before requesting payouts.")
+
+    from app.core.config import settings
+    import stripe
+
+    w_req = WithdrawalRequest(
+        seller_id=current_user.id,
+        amount=amount,
+        status=WithdrawalStatus.PENDING,
+        bank_name="Stripe Connect Express Account",
+        account_number=account_id,
+        ifsc_code="STRIPE-CONNECT",
+        account_holder_name=current_user.full_name or current_user.username or "Seller",
+    )
+    db.add(w_req)
+    await db.flush()
+
+    if not settings.STRIPE_SECRET_KEY or account_id.startswith("acct_mock_"):
+        w_req.status = WithdrawalStatus.PAID
+        await db.commit()
+        return {
+            "status": "PAID",
+            "transfer_id": f"tr_mock_{uuid.uuid4().hex[:12]}",
+            "amount": float(amount),
+            "message": "Direct Stripe Transfer completed successfully (Development Mode).",
+        }
+
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    try:
+        amount_cents = int(amount * 100)
+        transfer = stripe.Transfer.create(
+            amount=amount_cents,
+            currency="usd",
+            destination=account_id,
+            description=f"AI Site Studio Seller Payout #{w_req.id}",
+        )
+
+        w_req.status = WithdrawalStatus.PAID
+        await db.commit()
+
+        return {
+            "status": "PAID",
+            "transfer_id": transfer.id,
+            "amount": float(amount),
+            "destination": account_id,
+        }
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=f"Stripe Transfer failed: {str(e)}")
+

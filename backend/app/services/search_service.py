@@ -383,3 +383,13 @@ Example format:
         )
         return point_id
 
+    async def delete_template_vector(self, template_id: str) -> None:
+        """Remove a template vector from Qdrant by template ID."""
+        try:
+            await self.qdrant.delete(
+                collection_name=settings.QDRANT_COLLECTION,
+                points_selector=[template_id],
+            )
+        except Exception:
+            pass
+

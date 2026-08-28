@@ -32,6 +32,8 @@ import ForgotPasswordPage from './app/forgot-password/page.jsx'
 import ReceiptPage from './app/dashboard/receipt/page.jsx'
 import PayoutReceiptPage from './app/dashboard/payout-receipt/page.jsx'
 
+import SupportButton from './components/support/SupportButton.jsx';
+
 /** Handles the post-OAuth soft redirect without a full page reload */
 function OAuthRedirectHandler() {
   const navigate = useNavigate();
@@ -103,6 +105,7 @@ function App() {
           <Route path="/dashboard/payout-receipt/:withdrawalId" element={<ProtectedRoute><PayoutReceiptPage /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPanel /></ProtectedRoute>} />
         </Routes>
+        <SupportButton />
         <Toaster richColors position="top-center" theme="dark" />
       </div>
     </BrowserRouter>

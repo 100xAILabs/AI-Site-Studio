@@ -224,3 +224,105 @@ async def list_all_deployments(
         "live_url": d.live_url,
         "created_at": d.created_at.isoformat(),
     } for d in deployments]
+
+
+# ── System Health & Analytics Endpoints ───────────────────────────────────────
+
+@router.get("/health-overview")
+async def get_health_overview(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """
+    [Admin] Real-time infrastructure health monitor:
+    - PostgreSQL connection status
+    - Redis connection ping
+    - Qdrant vector DB status
+    - Disk space & static file storage usage
+    """
+    import os
+    from pathlib import Path
+    from app.services.search_service import SearchService
+    search_service = SearchService(db)
+
+    # 1. DB Health
+    db_ok = True
+    try:
+        await db.execute(select(1))
+    except Exception:
+        db_ok = False
+
+    # 2. Redis Health
+    redis_ok = True
+    try:
+        from app.core.redis import get_redis_client
+        _redis = await get_redis_client()
+        await _redis.ping()
+    except Exception:
+        redis_ok = False
+
+    # 3. Vector DB Health
+    qdrant_ok = (search_service.qdrant is not None)
+
+    # 4. Storage Usage
+    static_path = Path(__file__).resolve().parents[4] / "static"
+    total_mb = 0.0
+    if static_path.exists():
+        for root, dirs, files in os.walk(static_path):
+            for f in files:
+                try:
+                    total_mb += os.path.getsize(os.path.join(root, f)) / (1024 * 1024)
+                except Exception:
+                    pass
+
+    return {
+        "status": "HEALTHY" if (db_ok and redis_ok) else "DEGRADED",
+        "components": {
+            "postgresql": "ONLINE" if db_ok else "OFFLINE",
+            "redis": "ONLINE" if redis_ok else "OFFLINE",
+            "qdrant_vector_db": "ONLINE" if qdrant_ok else "STANDBY",
+            "storage_used_mb": round(total_mb, 2),
+        }
+    }
+
+
+@router.get("/analytics")
+async def get_platform_analytics(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """
+    [Admin] Platform performance and operational metrics dashboard.
+    """
+    from app.models.user import User as UserModel, UserRole
+    from app.models.template import Template as TemplateModel
+    from app.models.deployment import Deployment as DeploymentModel
+    from app.models.order import Order as OrderModel, OrderStatus
+
+    sellers_count = (await db.execute(
+        select(func.count(UserModel.id)).where(UserModel.role == UserRole.SELLER)
+    )).scalar_one()
+
+    buyers_count = (await db.execute(
+        select(func.count(UserModel.id)).where(UserModel.role == UserRole.BUYER)
+    )).scalar_one()
+
+    total_templates = (await db.execute(select(func.count(TemplateModel.id)))).scalar_one()
+    total_deployments = (await db.execute(select(func.count(DeploymentModel.id)))).scalar_one()
+    active_deployments = (await db.execute(
+        select(func.count(DeploymentModel.id)).where(DeploymentModel.status == "live")
+    )).scalar_one()
+
+    gross_sales = (await db.execute(
+        select(func.sum(OrderModel.total)).where(OrderModel.status == OrderStatus.COMPLETED)
+    )).scalar_one() or 0.0
+
+    return {
+        "sellers_count": sellers_count,
+        "buyers_count": buyers_count,
+        "total_templates": total_templates,
+        "total_deployments": total_deployments,
+        "active_live_deployments": active_deployments,
+        "gross_sales_usd": float(gross_sales),
+        "platform_fee_revenue_usd": round(float(gross_sales) * 0.20, 2),
+    }

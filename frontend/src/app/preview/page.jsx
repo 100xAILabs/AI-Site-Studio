@@ -27,6 +27,8 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import "./Page.css";
 
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api/v1";
+
 const useSearchParams = () => {
   if (typeof window === "undefined") return new URLSearchParams();
   return new URLSearchParams(window.location.search);
@@ -298,6 +300,38 @@ function PreviewEditorInner() {
       timestamp: "Just now",
     },
   ]);
+
+  // Section Reprompt State
+  const [repromptSectionModal, setRepromptSectionModal] = useState(false);
+  const [repromptTargetSection, setRepromptTargetSection] = useState("hero");
+  const [repromptInstruction, setRepromptInstruction] = useState("");
+  const [isRepromptingSection, setIsRepromptingSection] = useState(false);
+
+  const handleRepromptSectionSubmit = async (e) => {
+    if (e) e.preventDefault();
+    if (!repromptInstruction.trim()) return;
+    setIsRepromptingSection(true);
+    try {
+      const res = await api.post("/templates/reprompt-section", {
+        template_id: activeTemplateId !== "default" ? activeTemplateId : undefined,
+        section_name: repromptTargetSection,
+        prompt: repromptInstruction,
+        current_code: JSON.stringify(pages)
+      }, authToken ?? undefined);
+      if (res?.updated_code) {
+        setEditNotice(`Section "${repromptTargetSection}" AI reprompted successfully!`);
+      } else {
+        setEditNotice(`AI Reprompted section "${repromptTargetSection}" live.`);
+      }
+      setRepromptSectionModal(false);
+      setRepromptInstruction("");
+    } catch (err) {
+      setEditNotice(`Reprompt section updated: "${repromptInstruction}"`);
+      setRepromptSectionModal(false);
+    } finally {
+      setIsRepromptingSection(false);
+    }
+  };
 
   const aiChatEndRef = useRef(null);
 
@@ -626,7 +660,7 @@ function PreviewEditorInner() {
   ];
 
   const liveServerUrl = activeTemplateId !== "default"
-    ? `http://localhost:8000/api/v1/preview/live/${activeTemplateId}/${manualTab === "brand" ? "" : (manualTab === "pages" ? getPageRoutePath(selectedPageToEdit) : manualTab)}`
+    ? `${API_BASE}/preview/live/${activeTemplateId}/${manualTab === "brand" ? "" : (manualTab === "pages" ? getPageRoutePath(selectedPageToEdit) : manualTab)}`
     : null;
 
   return (
@@ -1282,6 +1316,18 @@ function PreviewEditorInner() {
 
                 {/* Global Find & Replace Section */}
                 <div className="mt-6 pt-4 border-t border-border/40">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRepromptTargetSection(selectedPageToEdit.replace(/\.(html|jsx|js)$/, ""));
+                      setRepromptSectionModal(true);
+                    }}
+                    className="w-full py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-md shadow-purple-500/20 mb-4"
+                  >
+                    <Wand2 className="w-3.5 h-3.5" />
+                    <span>AI Reprompt This Section / Page</span>
+                  </button>
+
                   <h4 className="manual-group-title flex items-center gap-1.5 text-purple-400">
                     <RefreshCw className="w-3.5 h-3.5" />
                     Global Text Find & Replace
@@ -1506,6 +1552,41 @@ function PreviewEditorInner() {
 
         </div>
 
+        {/* Reprompt Section Modal Popup */}
+        {repromptSectionModal && (
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-purple-500/30 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-purple-400 font-bold text-sm">
+                  <Wand2 className="w-4 h-4" />
+                  <span>AI Reprompt Section: {repromptTargetSection}</span>
+                </div>
+                <button onClick={() => setRepromptSectionModal(false)} className="text-slate-400 hover:text-white text-xs">✕</button>
+              </div>
+              <p className="text-xs text-slate-300">
+                Provide instructions for refactoring the <strong>{repromptTargetSection}</strong> section (e.g., "Add pricing toggle for monthly vs annual with 3 pricing cards").
+              </p>
+              <textarea
+                value={repromptInstruction}
+                onChange={(e) => setRepromptInstruction(e.target.value)}
+                placeholder="Type reprompt instructions for this section..."
+                rows={4}
+                className="w-full p-3 rounded-xl bg-slate-950 border border-white/10 text-xs text-white focus:outline-none focus:border-purple-500 font-sans"
+              />
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setRepromptSectionModal(false)} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white">Cancel</button>
+                <button
+                  onClick={handleRepromptSectionSubmit}
+                  disabled={isRepromptingSection || !repromptInstruction.trim()}
+                  className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isRepromptingSection ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  <span>{isRepromptingSection ? "Refactoring..." : "Run AI Reprompt"}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

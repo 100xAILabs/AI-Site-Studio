@@ -206,6 +206,29 @@ class AIService:
     def __init__(self):
         pass
 
+    async def _log_ai_history(self, feature: str, model: str, prompt: str, response: str, user_id=None):
+        """Asynchronously log AI call tokens and usage to database for analytics."""
+        try:
+            from app.core.database import AsyncSessionLocal
+            from app.models.ai_history import AIHistory
+            prompt_tokens = max(1, len(prompt.split()))
+            comp_tokens = max(1, len(response.split())) if response else 0
+            async with AsyncSessionLocal() as db:
+                entry = AIHistory(
+                    user_id=user_id,
+                    feature=feature,
+                    model=model,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=comp_tokens,
+                    total_tokens=prompt_tokens + comp_tokens,
+                    request_summary=prompt[:200],
+                    response_summary=response[:200] if response else "",
+                )
+                db.add(entry)
+                await db.commit()
+        except Exception:
+            pass
+
     @property
     def client(self):
         """
@@ -570,6 +593,66 @@ export default function App() {
     </div>
   );
 }"""
+
+    async def stream_ai_content(
+        self,
+        prompt: str,
+        feature_name: str = "website_content_generation",
+    ):
+        """
+        Stream AI generated text line-by-line in real-time SSE format (data: {"chunk": "..."}\n\n).
+        Supports automatic model failover across Gemini 1.5/2.0 models and fallback generators.
+        """
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "maxOutputTokens": 8192
+            }
+        }
+
+        models_to_try = [
+            self.get_model_for_feature(feature_name, provider="gemini"),
+            "gemini-1.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-pro",
+        ]
+        
+        seen = set()
+        unique_models = [m for m in models_to_try if m and not (m in seen or seen.add(m))]
+
+        success = False
+        if settings.GEMINI_API_KEY:
+            for target_model in unique_models:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:streamGenerateContent?alt=sse&key={settings.GEMINI_API_KEY}"
+                try:
+                    async with httpx.AsyncClient() as client:
+                        async with client.stream("POST", url, json=payload, headers=headers, timeout=120.0) as response:
+                            if response.status_code == 200:
+                                success = True
+                                async for line in response.aiter_lines():
+                                    if line.startswith("data: "):
+                                        data_str = line[6:].strip()
+                                        if data_str == "[DONE]":
+                                            break
+                                        try:
+                                            chunk_json = json.loads(data_str)
+                                            text_chunk = chunk_json["candidates"][0]["content"]["parts"][0]["text"]
+                                            if text_chunk:
+                                                yield f"data: {json.dumps({'chunk': text_chunk})}\n\n"
+                                        except Exception:
+                                            continue
+                                yield "data: [DONE]\n\n"
+                                return
+                except Exception as e:
+                    logger.warning(f"SSE Streaming attempt failed for model {target_model}: {e}")
+                    continue
+
+        # If SSE streaming is unavailable, send fallback response chunk
+        if not success:
+            fallback_text = await self._generate_content(prompt, response_mime_type="text/plain", feature_name=feature_name)
+            yield f"data: {json.dumps({'chunk': fallback_text})}\n\n"
+            yield "data: [DONE]\n\n"
 
     async def _generate_azure_content(
         self,

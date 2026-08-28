@@ -30,8 +30,7 @@ async def seed_admin():
         if not admin:
             admin = User(
                 email=ADMIN_EMAIL,
-                first_name="Super",
-                last_name="Admin",
+                full_name="Super Admin",
                 role=UserRole.SUPER_ADMIN,
                 is_active=True,
                 is_email_verified=True,

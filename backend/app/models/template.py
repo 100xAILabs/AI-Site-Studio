@@ -83,6 +83,7 @@ class Template(UUIDMixin, TimestampMixin, Base):
 
     # ── Pricing ───────────────────────────────────────────────────────────────
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    price_currency: Mapped[Optional[str]] = mapped_column(String(10), default="USD", nullable=True)
     original_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2))
     is_free: Mapped[bool] = mapped_column(Boolean, default=False)
     is_on_sale: Mapped[bool] = mapped_column(Boolean, default=False)

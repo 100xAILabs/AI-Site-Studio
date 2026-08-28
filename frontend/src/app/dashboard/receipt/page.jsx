@@ -4,6 +4,8 @@ import { useAuthStore } from "@/store/authStore";
 import { Printer, ArrowLeft, Loader2, FileText, CheckCircle } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api/v1";
+
 export default function ReceiptPage() {
   const { orderId } = useParams();
   const navigate = useNavigate();
@@ -16,7 +18,7 @@ export default function ReceiptPage() {
     async function fetchOrderReceipt() {
       try {
         if (!token) return;
-        const res = await fetch(`http://localhost:8000/api/v1/orders/${orderId}`, {
+        const res = await fetch(`${API_BASE}/orders/${orderId}`, {
           headers: {
             "Authorization": `Bearer ${token}`
           }

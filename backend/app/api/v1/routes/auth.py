@@ -23,7 +23,6 @@ class VerifyOTPRequest(BaseModel):
     email: str
     otp: str
 
-background_tasks = set()
 
 def is_company_email(email: str) -> bool:
     if "@" not in email:
@@ -51,9 +50,6 @@ def is_strong_password(password: str) -> bool:
 
 import random
 import datetime
-
-# In-memory store: email -> {"code": str, "expires_at": datetime.datetime}
-otp_store = {}
 
 import asyncio
 import smtplib
@@ -108,6 +104,8 @@ async def send_otp_email(to_email: str, otp: str):
 import hashlib
 from app.core.redis import get_redis
 
+_active_background_tasks = set()
+
 async def generate_otp(email: str, purpose: str) -> str:
     email_key = email.lower().strip()
     redis_client = await get_redis()
@@ -136,8 +134,8 @@ async def generate_otp(email: str, purpose: str) -> str:
     
     # Store strong reference to background task to prevent garbage collection
     task = asyncio.create_task(send_otp_email(email, otp))
-    background_tasks.add(task)
-    task.add_done_callback(background_tasks.discard)
+    _active_background_tasks.add(task)
+    task.add_done_callback(_active_background_tasks.discard)
     
     return otp
 

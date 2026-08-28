@@ -3,14 +3,14 @@ Follows routes.
 """
 
 import uuid
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_current_user_optional
 from app.models.user import User, UserRole
 from app.models.follow import Follow
 from app.schemas.user import UserPublicResponse
@@ -22,9 +22,12 @@ router = APIRouter()
 async def get_follow_status(
     seller_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Check if the current user is following a seller."""
+    if not current_user:
+        return {"is_following": False}
+
     result = await db.execute(
         select(Follow).where(
             Follow.follower_id == current_user.id,

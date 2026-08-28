@@ -66,25 +66,12 @@ class ProjectAnalyzer:
             }
 
         try:
-            # 1. Save zip file
-            zip_path = temp_dir / original_filename
-            with open(zip_path, "wb") as f:
-                f.write(file_content)
-
-            # 2. Extract zip file — skip bloated/non-template directories
+            # 1. Extract zip file safely — auto-purges any unsafe binary files while preserving website template assets
             extract_dir = temp_dir / "extracted"
             extract_dir.mkdir(exist_ok=True)
-            _SKIP_DIRS = {
-                "node_modules", ".git", ".venv", "venv", "__pycache__",
-                ".next", ".nuxt", ".output", "dist", "build", ".cache",
-                "vendor", ".tox", ".eggs", "*.egg-info",
-            }
-            with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                for member in zip_ref.infolist():
-                    member_parts = Path(member.filename).parts
-                    if any(p in _SKIP_DIRS for p in member_parts):
-                        continue
-                    zip_ref.extract(member, extract_dir)
+            purged_files = security_scanner.sanitize_extract_zip(file_content, extract_dir)
+            if purged_files:
+                logger.info(f"🛡️ Auto-sanitized {len(purged_files)} unsafe binary file(s) from template: {purged_files}")
 
             # 3. Locate root folder (sometimes ZIP extracts into a subfolder or contains package.json recursively)
             root_path = extract_dir

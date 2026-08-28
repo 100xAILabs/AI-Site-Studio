@@ -165,3 +165,24 @@ async def text_to_speech(request: TTSRequest):
         print("Error in /text-to-speech endpoint:")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class StreamAIRequest(BaseModel):
+    prompt: str
+    feature_name: Optional[str] = "website_content_generation"
+
+
+@router.post("/stream")
+async def stream_ai_generation(request: StreamAIRequest):
+    """
+    Stream AI generated content token-by-token using Server-Sent Events (SSE).
+    """
+    if not request.prompt or len(request.prompt.strip()) < 3:
+        raise HTTPException(status_code=400, detail="Prompt must be at least 3 characters long.")
+
+    from fastapi.responses import StreamingResponse
+    stream = ai_service.stream_ai_content(
+        prompt=request.prompt,
+        feature_name=request.feature_name or "website_content_generation"
+    )
+    return StreamingResponse(stream, media_type="text/event-stream")

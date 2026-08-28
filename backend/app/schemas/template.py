@@ -18,6 +18,7 @@ class TemplateBase(BaseModel):
     short_description: str = Field(..., max_length=500)
     description: str
     price: Decimal = Field(..., ge=0)
+    price_currency: Optional[str] = "USD"
     original_price: Optional[Decimal] = None
     is_free: bool = False
     is_on_sale: bool = False
@@ -59,6 +60,7 @@ class TemplateUpdate(BaseModel):
     short_description: Optional[str] = Field(None, max_length=500)
     description: Optional[str] = None
     price: Optional[Decimal] = Field(None, ge=0)
+    price_currency: Optional[str] = None
     original_price: Optional[Decimal] = None
     is_free: Optional[bool] = None
     is_on_sale: Optional[bool] = None
@@ -97,6 +99,7 @@ class TemplateResponse(BaseModel):
     short_description: str
     description: str
     price: Decimal
+    price_currency: Optional[str] = "USD"
     original_price: Optional[Decimal] = None
     is_free: bool
     is_on_sale: bool

@@ -61,31 +61,45 @@ AsyncSessionLocal = async_sessionmaker(
 async def _ensure_db_service_running() -> None:
     """Helper to auto-start Docker services if PostgreSQL is not yet accepting connections."""
     import asyncio
+    import os
     import subprocess
+    import sys
     from pathlib import Path
     from sqlalchemy import text
 
-    max_attempts = 4
+    max_attempts = 10
     for attempt in range(1, max_attempts + 1):
         try:
             async with engine.begin() as conn:
                 await conn.execute(text("SELECT 1"))
             return  # Connection successful
-        except Exception as err:
-            print(f"⚠️ [Attempt {attempt}/{max_attempts}] Waiting for PostgreSQL connection...")
+        except Exception:
+            print(f"[Attempt {attempt}/{max_attempts}] Waiting for PostgreSQL connection...")
             if attempt == 1:
-                print("🚀 Auto-starting Docker services (postgres, redis, qdrant)...")
+                # 1. Attempt launching Docker Desktop on Windows if active process is not detected
+                if sys.platform == "win32":
+                    try:
+                        user_docker = os.path.expandvars(r"%LOCALAPPDATA%\Programs\DockerDesktop\Docker Desktop.exe")
+                        prog_docker = r"C:\Program Files\Docker\Docker\Docker Desktop.exe"
+                        docker_exe = user_docker if os.path.exists(user_docker) else (prog_docker if os.path.exists(prog_docker) else None)
+                        if docker_exe:
+                            print(f"[Auto-start] Launching Docker Desktop ({docker_exe})...")
+                            subprocess.Popen([docker_exe], creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
+                    except Exception as err:
+                        print(f"Notice: Could not auto-launch Docker Desktop executable: {err}")
+
+                print("[Auto-start] Starting Docker services (postgres, redis)...")
                 project_root = Path(__file__).resolve().parents[2]
                 for cmd in [
-                    ["docker-compose", "up", "-d", "postgres", "redis", "qdrant"],
-                    ["docker", "compose", "up", "-d", "postgres", "redis", "qdrant"],
+                    ["docker", "compose", "up", "-d", "postgres", "redis"],
+                    ["docker-compose", "up", "-d", "postgres", "redis"],
                 ]:
                     try:
                         subprocess.run(cmd, cwd=project_root, capture_output=True, timeout=15)
                         break
                     except Exception:
                         continue
-            await asyncio.sleep(2.5)
+            await asyncio.sleep(2.0)
 
 
 async def init_db() -> None:
@@ -100,7 +114,7 @@ async def init_db() -> None:
     await _ensure_db_service_running()
 
     async with engine.connect() as conn:
-        await conn.execution_options(isolation_level="AUTOCOMMIT")
+        conn = await conn.execution_options(isolation_level="AUTOCOMMIT")
         try:
             await conn.execute(text("ALTER TYPE paymentgateway ADD VALUE IF NOT EXISTS 'upi';"))
         except Exception:
