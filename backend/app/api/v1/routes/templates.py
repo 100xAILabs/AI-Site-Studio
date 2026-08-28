@@ -210,6 +210,39 @@ async def get_template(
     return await service.get_template(slug, current_user)
 
 
+@router.patch("/{template_id}", response_model=TemplateResponse)
+async def update_template(
+    template_id: uuid.UUID,
+    data: TemplateUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update template details by ID (price, description, title, framework, etc.)."""
+    repo = TemplateRepository(db)
+    template = await repo.get_by_id(template_id)
+    if not template:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Template not found"
+        )
+
+    user_role = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    if template.seller_id != current_user.id and user_role.lower() not in ("admin", "super_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to update this template"
+        )
+
+    update_dict = data.model_dump(exclude_unset=True)
+    if "price" in update_dict and update_dict["price"] is not None:
+        update_dict["price"] = Decimal(str(update_dict["price"]))
+        update_dict["is_free"] = update_dict["price"] == 0
+
+    updated = await repo.update(template, update_dict)
+    await db.commit()
+    return updated
+
+
 @router.post("/analyze-zip")
 async def analyze_project_zip(
     file: UploadFile = File(...),

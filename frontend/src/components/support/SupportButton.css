@@ -387,3 +387,16 @@
   background: #15a86c;
   box-shadow: 0 8px 24px rgba(25,195,125,.4);
 }
+
+@media print {
+  .support-button,
+  .support-chat-popup,
+  .support-logo-img,
+  [class*="support-"],
+  [class*="feedback"],
+  [class*="floating"] {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+  }
+}

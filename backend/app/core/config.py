@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production-must-be-at-least-32-characters"
     OLD_SECRET_KEYS: str = ""  # Comma-separated list of older keys for token rotation
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200  # 30 days (prevents premature session logout)
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     @model_validator(mode="after")

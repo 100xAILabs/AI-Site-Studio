@@ -10,6 +10,7 @@ import { useState, useEffect, useRef } from "react";
 import JSZip from "jszip";
 import { useAppAuth, useAppUser, useSignOut } from "@/lib/auth";
 import { useAuthStore } from "@/store/authStore";
+import { useCurrencyStore } from "@/store/currencyStore";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -57,16 +58,22 @@ import {
   Check,
   ShoppingCart,
   Wand2,
+  X,
   Terminal,
   RefreshCw,
   Video,
   History,
   Pause,
   Play,
+  LayoutGrid,
+  List,
+  Search,
+  Pencil,
+  UploadCloud,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { api } from "@/lib/api";
-import { cn, formatPrice } from "@/lib/utils";
+import { cn, formatPrice, convertToUSD } from "@/lib/utils";
 import Image from "@/components/Image";
 import Link from "@/components/Link";
 import { useCartStore } from "@/store";
@@ -118,10 +125,106 @@ function Dashboard() {
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
+  const [userCountry, setUserCountry] = useState("");
+  const [userCity, setUserCity] = useState("");
+  const [userCurrencyPref, setUserCurrencyPref] = useState("USD");
+  const [detectingLocation, setDetectingLocation] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [templatesSubTab, setTemplatesSubTab] = useState("purchased");
   const [studioProjectsSubTab, setStudioProjectsSubTab] = useState("created"); // "created" | "purchased"
+
+  // Template Redesign & Edit state
+  const [uploadedTemplatesView, setUploadedTemplatesView] = useState("grid"); // "grid" | "table"
+  const [uploadedTemplatesSearch, setUploadedTemplatesSearch] = useState("");
+  const [editTemplateModalOpen, setEditTemplateModalOpen] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editPrice, setEditPrice] = useState("");
+  const [editCurrency, setEditCurrency] = useState("USD");
+  const [editFramework, setEditFramework] = useState("");
+  const [editCategory, setEditCategory] = useState("");
+  const [editDemoUrl, setEditDemoUrl] = useState("");
+  const [editError, setEditError] = useState("");
+  const [reuploadFile, setReuploadFile] = useState(null);
+  const { rates } = useCurrencyStore();
+
+  const updateTemplateMutation = useMutation({
+    mutationFn: async ({ templateId, data }) => {
+      const res = await api.patch(`/templates/${templateId}`, data, authToken);
+      return res;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries(["seller-templates"]);
+      qc.invalidateQueries(["templates"]);
+      setEditTemplateModalOpen(false);
+      setEditingTemplate(null);
+      setEditError("");
+    },
+    onError: (err) => {
+      setEditError(err.message || "Failed to update template");
+    }
+  });
+
+  const reuploadZipMutation = useMutation({
+    mutationFn: async ({ templateId, file }) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      const activeJwt = authToken || useAuthStore.getState()?.token;
+      const res = await fetch(`${API_BASE}/templates/${templateId}/reupload`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${activeJwt}`,
+        },
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Failed to re-upload ZIP package");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries(["seller-templates"]);
+      qc.invalidateQueries(["templates"]);
+      setReuploadFile(null);
+    },
+  });
+
+  const handleOpenEditTemplateModal = (item) => {
+    setEditingTemplate(item);
+    setEditTitle(item.title || "");
+    setEditDescription(item.description || "");
+    
+    const pref = (user?.currency || (user?.country === "India" ? "INR" : "USD")).toUpperCase();
+    setEditCurrency(pref);
+    
+    if (pref === "INR") {
+      const inrRate = rates?.INR || 87.0;
+      setEditPrice(Math.round((item.price || 0) * inrRate));
+    } else {
+      setEditPrice(item.price || 0);
+    }
+    
+    setEditFramework(item.framework || "React");
+    setEditCategory(typeof item.category === "object" ? (item.category?.name || item.category?.slug || "General") : (item.category || "General"));
+    setEditDemoUrl(item.preview_url || "");
+    setEditError("");
+    setEditTemplateModalOpen(true);
+  };
+
+  const handleEditCurrencyChange = (newCurr) => {
+    const currentNum = parseFloat(editPrice) || 0;
+    const inrRate = rates?.INR || 87.0;
+    
+    if (editCurrency === "USD" && newCurr === "INR") {
+      setEditPrice(Math.round(currentNum * inrRate));
+    } else if (editCurrency === "INR" && newCurr === "USD") {
+      setEditPrice(Math.round((currentNum / inrRate) * 100) / 100);
+    }
+    setEditCurrency(newCurr);
+  };
 
   // Review Modal state
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
@@ -195,8 +298,8 @@ function Dashboard() {
     if (item.orderId && item.orderId !== "undefined") {
       return `/dashboard/receipt/${item.orderId}`;
     }
-    const found = orders.find(o => 
-      o.status === "completed" && 
+    const found = orders.find(o =>
+      o.status === "completed" &&
       (o.items?.some(i => i.id === item.id || i.template_id === item.template_id) || false)
     );
     return `/dashboard/receipt/${found ? found.id : "undefined"}`;
@@ -209,6 +312,9 @@ function Dashboard() {
       setUsername(user.username || "");
       setBio(user.bio || "");
       setAvatarUrl(user.avatar_url || "");
+      setUserCountry(user.country || "");
+      setUserCity(user.city || "");
+      setUserCurrencyPref(user.currency || "USD");
       const tabParam = searchParams.get("tab");
       if (tabParam) {
         setActiveTab(tabParam);
@@ -446,7 +552,7 @@ function Dashboard() {
 
   // Calculated stats for seller
   const sellerTemplatesList = Array.isArray(templateResponse) ? templateResponse : [];
-  
+
   // 1. Downloaded & Purchased Templates (from completed orders)
   const purchasedTemplatesList = orders
     .filter(o => o.status === "completed")
@@ -672,16 +778,19 @@ function Dashboard() {
           full_name: fullName,
           username: username,
           bio: bio,
-          avatar_url: avatarUrl
+          avatar_url: avatarUrl,
+          country: userCountry,
+          city: userCity,
+          currency: userCurrencyPref,
         })
       });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.detail || "Failed to update profile details");
       }
-      // Refresh profile data
+      // Refresh profile data and active viewing currency
       await useAuthStore.getState().fetchProfile();
-      alert("Profile updated successfully!");
+      useCurrencyStore.getState().setUserCurrency(userCurrencyPref);
     } catch (err) {
       console.error(err);
       alert(err.message);
@@ -784,6 +893,12 @@ function Dashboard() {
       setHasInitializedUploadType(true);
     }
   }, [user, hasInitializedUploadType]);
+
+  useEffect(() => {
+    if (user?.currency) {
+      setPriceCurrency(user.currency);
+    }
+  }, [user?.currency]);
   const [gitUrl, setGitUrl] = useState("");
   const [storedZipUrl, setStoredZipUrl] = useState("");
   const [githubUsername, setGithubUsername] = useState("");
@@ -825,7 +940,7 @@ function Dashboard() {
     },
     onError: (err) => {
       console.error(err);
-      alert(err.detail || "Failed to submit withdrawal request.");
+      alert(err.message || err.detail || "Failed to submit withdrawal request. Please check your bank details.");
     }
   });
 
@@ -1294,16 +1409,19 @@ function Dashboard() {
         finalTagsList.push(selectedCategoryObj.slug);
       }
 
+      const usdPrice = convertToUSD(price, priceCurrency, rates);
+      const usdOriginalPrice = salePrice ? convertToUSD(salePrice, priceCurrency, rates) : null;
+
       const payload = {
         title,
         slug: slug || title.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
         short_description: shortDesc || "Template short description",
         description: desc || "Template full description",
-        price: Number(price),
-        price_currency: priceCurrency || "USD",
-        original_price: salePrice ? Number(salePrice) : null,
-        is_free: Number(price) === 0,
-        is_on_sale: !!salePrice,
+        price: Number(usdPrice),
+        price_currency: "USD",
+        original_price: usdOriginalPrice,
+        is_free: Number(usdPrice) === 0,
+        is_on_sale: !!usdOriginalPrice,
         thumbnail_url: finalThumbnailUrl,
         preview_url: demoUrl || null,
         video_url: finalVideoUrl,
@@ -1431,6 +1549,706 @@ function Dashboard() {
 
   // Calculate Buyer total spent from completed orders
   const totalSpent = orders.filter(o => o.status === "completed").reduce((sum, o) => sum + o.total, 0);
+
+  // ═══════════════════════════════════════════════════════════════════
+  // REDESIGNED UNIFIED "MY TEMPLATES" EXPERIENCE
+  // ═══════════════════════════════════════════════════════════════════
+  const renderMyTemplatesSection = () => {
+    const completedOrders = orders.filter(o => o.status === "completed");
+    const purchasedItems = completedOrders.flatMap(o => (o.items || []).map(i => ({ ...i, orderId: o.id })));
+    const uploadedItems = Array.isArray(templateResponse) ? templateResponse : [];
+
+    // Filter items based on search query
+    const query = (uploadedTemplatesSearch || "").toLowerCase().trim();
+    const filteredPurchased = purchasedItems.filter(item =>
+      !query ||
+      item.title?.toLowerCase().includes(query) ||
+      item.framework?.toLowerCase().includes(query) ||
+      item.license_type?.toLowerCase().includes(query) ||
+      item.short_description?.toLowerCase().includes(query)
+    );
+
+    const filteredUploaded = uploadedItems.filter(item => {
+      const catName = typeof item.category === "object" ? (item.category?.name || item.category?.slug || "") : (item.category || "");
+      return (
+        !query ||
+        item.title?.toLowerCase().includes(query) ||
+        item.framework?.toLowerCase().includes(query) ||
+        catName.toLowerCase().includes(query) ||
+        item.description?.toLowerCase().includes(query)
+      );
+    });
+
+    return (
+      <div className="db-templates-container">
+        {/* ── Main Header Card ── */}
+        <div className="db-templates-header">
+          {/* Top Row: Title + Description + Top Action CTA */}
+          <div className="db-templates-header-top">
+            <div className="db-templates-header-title-box">
+              <div className="db-templates-header-icon">
+                <Folder className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-lg sm:text-xl font-black text-foreground tracking-tight m-0">
+                    My Templates
+                  </h2>
+                  <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                    {templatesSubTab === "purchased" ? `${purchasedItems.length} Purchased` : `${uploadedItems.length} Uploaded`}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {templatesSubTab === "purchased"
+                    ? "Manage your purchased templates, redesign with AI Studio, and launch live websites."
+                    : "Manage your creator catalog, track downloads, and update listings."}
+                </p>
+              </div>
+            </div>
+
+            {/* Top CTA button */}
+            <div>
+              {templatesSubTab === "uploaded" ? (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("seller-upload")}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white text-xs font-extrabold shadow-md shadow-primary/20 hover:opacity-95 transition-all cursor-pointer border-0"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Upload Template</span>
+                </button>
+              ) : (
+                <Link
+                  href="/marketplace"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white text-xs font-extrabold shadow-md shadow-primary/20 hover:opacity-95 transition-all text-decoration-none"
+                >
+                  <ShoppingBag className="w-4 h-4" />
+                  <span>Explore Marketplace</span>
+                </Link>
+              )}
+            </div>
+          </div>
+
+          {/* Bottom Row: Subtabs Switcher + Search + View Mode */}
+          <div className="db-templates-header-bottom">
+            {/* Segmented SubTab Pill Switcher */}
+            <div className="db-templates-subtabs">
+              <button
+                type="button"
+                onClick={() => setTemplatesSubTab("purchased")}
+                className={cn("db-templates-subtab-btn", templatesSubTab === "purchased" && "active")}
+              >
+                <ShoppingCart className="w-3.5 h-3.5 text-primary" />
+                <span>Purchased</span>
+                <span className={cn(
+                  "px-1.5 py-0.2 rounded-full text-[10px] font-black",
+                  templatesSubTab === "purchased" ? "bg-primary text-white" : "bg-muted text-muted-foreground"
+                )}>
+                  {purchasedItems.length}
+                </span>
+              </button>
+
+              {(isSeller || isAdmin || uploadedItems.length > 0) && (
+                <button
+                  type="button"
+                  onClick={() => setTemplatesSubTab("uploaded")}
+                  className={cn("db-templates-subtab-btn", templatesSubTab === "uploaded" && "active")}
+                >
+                  <UploadCloud className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>Uploaded</span>
+                  <span className={cn(
+                    "px-1.5 py-0.2 rounded-full text-[10px] font-black",
+                    templatesSubTab === "uploaded" ? "bg-indigo-600 text-white" : "bg-muted text-muted-foreground"
+                  )}>
+                    {uploadedItems.length}
+                  </span>
+                </button>
+              )}
+            </div>
+
+            {/* Search + View Toggle */}
+            <div className="flex items-center gap-2.5">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Search templates..."
+                  value={uploadedTemplatesSearch}
+                  onChange={(e) => setUploadedTemplatesSearch(e.target.value)}
+                  className="db-search-input"
+                />
+                {uploadedTemplatesSearch && (
+                  <button
+                    onClick={() => setUploadedTemplatesSearch("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5 rounded border-0 bg-transparent cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Grid / Table Toggle */}
+              <div className="flex p-0.5 bg-muted/60 border border-border/60 rounded-xl shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setUploadedTemplatesView("grid")}
+                  className={cn(
+                    "p-1.5 rounded-lg text-xs transition-all border-0 cursor-pointer",
+                    uploadedTemplatesView === "grid" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground bg-transparent"
+                  )}
+                  title="Grid View"
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUploadedTemplatesView("table")}
+                  className={cn(
+                    "p-1.5 rounded-lg text-xs transition-all border-0 cursor-pointer",
+                    uploadedTemplatesView === "table" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground bg-transparent"
+                  )}
+                  title="Table View"
+                >
+                  <List className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Content Area ── */}
+        {templatesLoading ? (
+          <div className="py-20 text-center rounded-2xl border border-border/40 bg-card/30">
+            <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+            <p className="text-xs text-muted-foreground mt-3 font-semibold">Loading templates...</p>
+          </div>
+        ) : templatesSubTab === "purchased" ? (
+          /* ══════════════════════════════════════════════
+             PURCHASED TEMPLATES VIEW
+             ══════════════════════════════════════════════ */
+          purchasedItems.length === 0 ? (
+            <div className="text-center py-16 px-6 border-2 border-dashed border-border/50 rounded-2xl bg-card/30 flex flex-col items-center justify-center">
+              <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary mb-4 shadow-sm">
+                <ShoppingBag className="w-7 h-7" />
+              </div>
+              <h4 className="text-base font-black text-foreground">No Purchased Templates Yet</h4>
+              <p className="text-xs text-muted-foreground max-w-md mt-1.5 leading-relaxed">
+                Explore our diverse marketplace with modern, production-ready website templates and customize them live with AI.
+              </p>
+              <Link
+                href="/marketplace"
+                className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white text-xs font-bold shadow-lg shadow-primary/25 hover:opacity-95 transition-all text-decoration-none"
+              >
+                <Sparkles className="w-4 h-4" /> Browse Marketplace Templates
+              </Link>
+            </div>
+          ) : filteredPurchased.length === 0 ? (
+            <div className="text-center py-12 px-4 rounded-2xl border border-border/40 bg-card/30">
+              <p className="text-xs text-muted-foreground font-semibold">No purchased templates match &ldquo;{uploadedTemplatesSearch}&rdquo;</p>
+              <button
+                onClick={() => setUploadedTemplatesSearch("")}
+                className="mt-3 text-xs text-primary underline font-bold bg-transparent border-0 cursor-pointer"
+              >
+                Clear Search Filter
+              </button>
+            </div>
+          ) : uploadedTemplatesView === "grid" ? (
+            /* Grid View for Purchased */
+            <div className="db-templates-grid">
+              {filteredPurchased.map((item) => (
+                <div key={item.id} className="db-template-card group">
+                  {/* Thumbnail Header */}
+                  <div className="db-template-thumb">
+                    {item.thumbnail_url ? (
+                      <img
+                        src={item.thumbnail_url}
+                        alt={item.title || "Template"}
+                        className="db-template-img"
+                        onError={(e) => {
+                          e.target.style.display = "none";
+                          if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = "flex";
+                        }}
+                      />
+                    ) : null}
+                    <div
+                      className="w-full h-full absolute inset-0 flex items-center justify-center"
+                      style={{
+                        display: item.thumbnail_url ? "none" : "flex",
+                        background: "linear-gradient(135deg, hsla(var(--primary)/0.15) 0%, hsla(var(--secondary)/0.15) 100%)",
+                      }}
+                    >
+                      <span style={{ fontSize: "2rem" }}>🎨</span>
+                    </div>
+
+                    {/* Top-Left Floating Badges */}
+                    <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                      <span className="px-2 py-0.5 bg-emerald-500 text-white text-[9px] font-black uppercase tracking-wider rounded-full shadow-sm">
+                        Purchased
+                      </span>
+                      <span className="px-1.5 py-0.5 bg-black/60 backdrop-blur-md text-white text-[9px] font-bold uppercase tracking-wider rounded-full border border-white/10">
+                        {item.license_type || "Standard"}
+                      </span>
+                    </div>
+
+                    {/* Top-Right Framework Badge */}
+                    <div className="absolute top-2.5 right-2.5">
+                      <span className="px-2 py-0.5 bg-black/60 backdrop-blur-md text-white text-[9px] font-mono font-bold uppercase rounded-md border border-white/10">
+                        {item.framework || "HTML"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Card Content Body */}
+                  <div className="db-template-body">
+                    {/* Title & Description with comfortable spacing */}
+                    <div className="db-template-header-text">
+                      <h4 className="db-template-title" title={item.title}>
+                        {item.title || "Template Package"}
+                      </h4>
+                      <p className="db-template-desc">
+                        {item.short_description || "Modern & responsive purchased template."}
+                      </p>
+                    </div>
+
+                    {/* Pricing & Metadata Strip */}
+                    <div className="db-template-meta-row">
+                      <div>
+                        <span className="text-[11px] text-muted-foreground">Price Paid: </span>
+                        <span className="font-extrabold text-foreground">{formatPrice(item.price || 0)}</span>
+                      </div>
+                      <span className="text-[10px] font-medium text-muted-foreground">
+                        {item.seller_name ? `by ${item.seller_name}` : "Verified License"}
+                      </span>
+                    </div>
+
+                    {/* Action Buttons Hub with Generous Gap */}
+                    <div className="db-template-actions-box">
+                      {/* Primary AI Studio Action */}
+                      <Link
+                        href={`/preview?templateId=${item.template_id || item.id}`}
+                        className="db-btn-ai-studio"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-white" />
+                        <span style={{ color: "#ffffff" }}>Redesign in AI Studio</span>
+                      </Link>
+
+                      {/* Action Grid (2x2) with comfortable spacing */}
+                      <div className="db-template-btn-grid">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeployTemplateId(item.template_id || item.id);
+                            setDeployProjectName(item.title || "My Website");
+                            setIsDeployModalOpen(true);
+                          }}
+                          className="db-btn-publish"
+                          title="Publish / Launch to Domain"
+                        >
+                          <Zap className="w-3 h-3 text-white" />
+                          <span style={{ color: "#ffffff" }}>Publish</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => triggerDownload.mutate({ templateId: item.template_id || item.id, format: "zip" })}
+                          className="db-btn-secondary"
+                          title="Download Source Code ZIP"
+                        >
+                          <Download className="w-3.5 h-3.5 text-primary" />
+                          <span>Source</span>
+                        </button>
+
+                        <a
+                          href={item.preview_url || `http://localhost:8000/api/v1/preview/live/${item.template_id || item.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="db-btn-secondary"
+                          title="Live Demo Preview"
+                        >
+                          <Globe className="w-3.5 h-3.5 text-indigo-500" />
+                          <span>Demo</span>
+                        </a>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReviewTemplateId(item.template_id || item.id);
+                            setReviewTemplateTitle(item.title || "Template Package");
+                            setReviewRating(5);
+                            setReviewTitle("");
+                            setReviewBody("");
+                            setReviewModalOpen(true);
+                          }}
+                          className="db-btn-review"
+                          title="Rate & Review Template"
+                        >
+                          <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+                          <span>Review</span>
+                        </button>
+                      </div>
+
+                      {/* Official Receipt Footer Link */}
+                      <div className="text-center">
+                        <a
+                          href={getReceiptUrl(item)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="db-template-receipt-link"
+                        >
+                          <FileText className="w-3 h-3 text-muted-foreground" />
+                          <span>View Official Invoice Receipt</span>
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            /* Table View for Purchased */
+            <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-border/40 bg-muted/40 font-bold uppercase text-muted-foreground text-[10px] tracking-wider">
+                    <th className="p-4">Template</th>
+                    <th className="p-4">Framework</th>
+                    <th className="p-4">Price</th>
+                    <th className="p-4">License</th>
+                    <th className="p-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/30">
+                  {filteredPurchased.map((item) => (
+                    <tr key={item.id} className="hover:bg-muted/20 transition-colors">
+                      <td className="p-4">
+                        <div className="flex items-center gap-3">
+                          <img
+                            src={item.thumbnail_url}
+                            alt=""
+                            className="w-10 h-10 rounded-lg object-cover bg-muted shrink-0"
+                            onError={(e) => { e.target.style.display = "none"; }}
+                          />
+                          <div>
+                            <div className="font-bold text-foreground text-xs">{item.title}</div>
+                            <div className="text-[11px] text-muted-foreground line-clamp-1">{item.short_description || "Purchased Template"}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <span className="px-2 py-0.5 bg-muted text-foreground border border-border/50 rounded-md font-mono font-bold uppercase text-[10px]">
+                          {item.framework || "HTML"}
+                        </span>
+                      </td>
+                      <td className="p-4 font-bold text-foreground">{formatPrice(item.price || 0)}</td>
+                      <td className="p-4">
+                        <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-bold rounded-full uppercase">
+                          {item.license_type || "Standard"}
+                        </span>
+                      </td>
+                      <td className="p-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Link
+                            href={`/preview?templateId=${item.template_id || item.id}`}
+                            className="px-2.5 py-1.5 bg-primary text-white text-[11px] font-bold rounded-lg flex items-center gap-1 text-decoration-none shadow-sm"
+                          >
+                            <Sparkles className="w-3 h-3" /> Redesign
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => triggerDownload.mutate({ templateId: item.template_id || item.id, format: "zip" })}
+                            className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg border border-border/40 bg-muted/40 cursor-pointer"
+                            title="Download Source"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </button>
+                          <a
+                            href={getReceiptUrl(item)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg border border-border/40 bg-muted/40"
+                            title="Invoice Receipt"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                          </a>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : (
+          /* ══════════════════════════════════════════════
+             UPLOADED TEMPLATES VIEW
+             ══════════════════════════════════════════════ */
+          uploadedItems.length === 0 ? (
+            <div className="text-center py-16 px-6 border-2 border-dashed border-border/50 rounded-2xl bg-card/30 flex flex-col items-center justify-center">
+              <div className="w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-500 mb-4 shadow-sm">
+                <UploadCloud className="w-7 h-7" />
+              </div>
+              <h4 className="text-base font-black text-foreground">No Uploaded Templates Yet</h4>
+              <p className="text-xs text-muted-foreground max-w-md mt-1.5 leading-relaxed">
+                Start selling your templates on Site Studio marketplace to earn revenue and reach creators worldwide.
+              </p>
+              <button
+                onClick={() => setActiveTab("seller-upload")}
+                className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white text-xs font-bold shadow-lg shadow-primary/25 hover:opacity-95 transition-all cursor-pointer border-0"
+              >
+                <Plus className="w-4 h-4" /> Upload Your First Template
+              </button>
+            </div>
+          ) : filteredUploaded.length === 0 ? (
+            <div className="text-center py-12 px-4 rounded-2xl border border-border/40 bg-card/30">
+              <p className="text-xs text-muted-foreground font-semibold">No uploaded templates match &ldquo;{uploadedTemplatesSearch}&rdquo;</p>
+              <button
+                onClick={() => setUploadedTemplatesSearch("")}
+                className="mt-3 text-xs text-primary underline font-bold bg-transparent border-0 cursor-pointer"
+              >
+                Clear Search Filter
+              </button>
+            </div>
+          ) : uploadedTemplatesView === "grid" ? (
+            /* Grid View for Uploaded */
+            <div className="db-templates-grid">
+              {filteredUploaded.map((item) => (
+                <div key={item.id} className="db-template-card group">
+                  {/* Thumbnail Header */}
+                  <div className="db-template-thumb">
+                    {item.thumbnail_url ? (
+                      <img
+                        src={item.thumbnail_url}
+                        alt={item.title || "Template"}
+                        className="db-template-img"
+                        onError={(e) => {
+                          e.target.style.display = "none";
+                          if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = "flex";
+                        }}
+                      />
+                    ) : null}
+                    <div
+                      className="w-full h-full absolute inset-0 flex items-center justify-center"
+                      style={{
+                        display: item.thumbnail_url ? "none" : "flex",
+                        background: "linear-gradient(135deg, hsla(var(--primary)/0.15) 0%, hsla(var(--secondary)/0.15) 100%)",
+                      }}
+                    >
+                      <span style={{ fontSize: "2rem" }}>🎨</span>
+                    </div>
+
+                    {/* Top-Left Floating Badges */}
+                    <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                      <span className="px-2 py-0.5 bg-emerald-500 text-white text-[9px] font-black uppercase tracking-wider rounded-full shadow-sm">
+                        Published
+                      </span>
+                      {(typeof item.category === "object" ? item.category?.name : item.category) && (
+                        <span className="px-1.5 py-0.5 bg-black/60 backdrop-blur-md text-white text-[9px] font-bold uppercase tracking-wider rounded-full border border-white/10">
+                          {typeof item.category === "object" ? item.category.name : item.category}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Top-Right Framework Badge */}
+                    <div className="absolute top-2.5 right-2.5">
+                      <span className="px-2 py-0.5 bg-black/60 backdrop-blur-md text-white text-[9px] font-mono font-bold uppercase rounded-md border border-white/10">
+                        {item.framework || "HTML"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Card Content Body */}
+                  <div className="db-template-body">
+                    {/* Title & Description with comfortable spacing */}
+                    <div className="db-template-header-text">
+                      <h4 className="db-template-title" title={item.title}>
+                        {item.title || "Untitled Template"}
+                      </h4>
+                      <p className="db-template-desc">
+                        {item.description || "Modern & fully responsive website template."}
+                      </p>
+                    </div>
+
+                    {/* 2 Stats Pill Boxes (Downloads & Views) */}
+                    <div className="grid grid-cols-2 gap-2.5 my-1">
+                      <div className="flex flex-col items-center justify-center py-2.5 rounded-xl bg-muted/40 border border-border/40">
+                        <span className="text-sm font-black text-foreground leading-none">
+                          {item.downloads_count || 0}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground font-semibold mt-1 flex items-center gap-1">
+                          <Download className="w-3 h-3 text-primary" /> Downloads
+                        </span>
+                      </div>
+                      <div className="flex flex-col items-center justify-center py-2.5 rounded-xl bg-muted/40 border border-border/40">
+                        <span className="text-sm font-black text-foreground leading-none">
+                          {item.views_count || 0}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground font-semibold mt-1 flex items-center gap-1">
+                          <Eye className="w-3 h-3 text-indigo-500" /> Views
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Pricing & Metadata Strip */}
+                    <div className="space-y-2 py-2.5 border-t border-b border-border/30 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground font-medium">Price:</span>
+                        <span className="font-extrabold text-foreground">{formatPrice(item.price || 0)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground font-medium">Template ID:</span>
+                        <span className="font-mono text-muted-foreground font-bold">#{String(item.id || "").slice(0, 6).toUpperCase()}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground font-medium">Status:</span>
+                        <span className="flex items-center gap-1.5 font-bold text-emerald-600 dark:text-emerald-400">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Published
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons Hub with Comfortable Spacing */}
+                    <div className="db-template-actions-box">
+                      {/* Primary Live Studio Action */}
+                      <Link
+                        href={`/preview?templateId=${item.id}`}
+                        className="db-btn-ai-studio"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-white" />
+                        <span style={{ color: "#ffffff" }}>Redesign in AI Studio</span>
+                      </Link>
+
+                      {/* Action Grid (Stats, Edit, Demo, Delete) */}
+                      <div className="db-template-btn-grid-4">
+                        <button
+                          type="button"
+                          onClick={() => alert(`Analytics for ${item.title}: ${item.downloads_count || 0} downloads, ${item.views_count || 0} views.`)}
+                          className="db-btn-secondary"
+                          title="View Analytics"
+                        >
+                          <BarChart3 className="w-3.5 h-3.5 text-primary" />
+                          <span>Stats</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditTemplateModal(item)}
+                          className="db-btn-secondary"
+                          title="Edit Template Details"
+                        >
+                          <Pencil className="w-3.5 h-3.5 text-indigo-500" />
+                          <span>Edit</span>
+                        </button>
+
+                        <a
+                          href={item.preview_url || `http://localhost:8000/api/v1/preview/live/${item.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="db-btn-secondary"
+                          title="Live Demo Preview"
+                        >
+                          <Globe className="w-3.5 h-3.5 text-blue-500" />
+                          <span>Demo</span>
+                        </a>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm(`Are you sure you want to delete "${item.title}"?`)) {
+                              deleteMutation.mutate(item.id);
+                            }
+                          }}
+                          className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/20 flex items-center justify-center transition-all cursor-pointer min-h-[34px]"
+                          title="Delete Template"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            /* Table View for Uploaded */
+            <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-border/40 bg-muted/40 font-bold uppercase text-muted-foreground text-[10px] tracking-wider">
+                    <th className="p-4">Template</th>
+                    <th className="p-4">Framework</th>
+                    <th className="p-4">Price</th>
+                    <th className="p-4">Status</th>
+                    <th className="p-4">Downloads</th>
+                    <th className="p-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/30">
+                  {filteredUploaded.map((item) => (
+                    <tr key={item.id} className="hover:bg-muted/20 transition-colors">
+                      <td className="p-4">
+                        <div className="flex items-center gap-3">
+                          <img
+                            src={item.thumbnail_url}
+                            alt=""
+                            className="w-10 h-10 rounded-lg object-cover bg-muted shrink-0"
+                            onError={(e) => { e.target.style.display = "none"; }}
+                          />
+                          <div>
+                            <div className="font-bold text-foreground text-xs">{item.title}</div>
+                            <div className="text-[11px] text-muted-foreground line-clamp-1">{item.description || "Uploaded Template"}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <span className="px-2 py-0.5 bg-muted text-foreground border border-border/50 rounded-md font-mono font-bold uppercase text-[10px]">
+                          {item.framework || "HTML"}
+                        </span>
+                      </td>
+                      <td className="p-4 font-bold text-foreground">{formatPrice(item.price || 0)}</td>
+                      <td className="p-4">
+                        <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-bold rounded-full uppercase">
+                          Published
+                        </span>
+                      </td>
+                      <td className="p-4 font-mono font-bold text-foreground">{item.downloads_count || 0}</td>
+                      <td className="p-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Link
+                            href={`/preview?templateId=${item.id}`}
+                            className="px-2.5 py-1.5 bg-primary text-white text-[11px] font-bold rounded-lg flex items-center gap-1 text-decoration-none shadow-sm"
+                          >
+                            <Sparkles className="w-3 h-3" /> Redesign
+                          </Link>
+                          <button
+                            onClick={() => handleOpenEditTemplateModal(item)}
+                            className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg border border-border/40 bg-muted/40 cursor-pointer"
+                            title="Edit Details"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm(`Are you sure you want to delete "${item.title}"?`)) {
+                                deleteMutation.mutate(item.id);
+                              }
+                            }}
+                            className="p-1.5 text-red-500 hover:bg-red-500/10 rounded-lg border border-red-500/20 bg-transparent cursor-pointer"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        )}
+      </div>
+    );
+  };
 
   return (
     <>
@@ -1706,215 +2524,7 @@ function Dashboard() {
               )}
 
               {/* === BUYER TEMPLATES (UNIFIED MY TEMPLATES) === */}
-              {activeTab === "buyer-templates" && (
-                <div className="glass-premium p-8 space-y-6">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/20 pb-4">
-                    <div>
-                      <h3 className="font-bold text-lg">My Templates</h3>
-                      <p className="text-sm text-muted-foreground">Manage, view, and customize your templates.</p>
-                    </div>
-                    {/* Segmented Control */}
-                    {(isSeller || isAdmin) && (
-                      <div className="flex gap-1.5 p-1 bg-muted/40 border border-border/20 rounded-xl self-start">
-                        <button
-                          type="button"
-                          onClick={() => setTemplatesSubTab("purchased")}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${templatesSubTab === "purchased"
-                            ? "bg-primary text-white shadow-lg shadow-primary/20"
-                            : "text-muted-foreground hover:text-white"
-                            }`}
-                        >
-                          Purchased
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setTemplatesSubTab("uploaded")}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${templatesSubTab === "uploaded"
-                            ? "bg-primary text-white shadow-lg shadow-primary/20"
-                            : "text-muted-foreground hover:text-white"
-                            }`}
-                        >
-                          Uploaded
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {templatesSubTab === "purchased" ? (
-                    <>
-                      {orders.filter(o => o.status === "completed").flatMap(o => o.items).length === 0 ? (
-                        <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-card/5">
-                          <Folder className="w-8 h-8 text-primary mx-auto mb-3 opacity-60" />
-                          <p className="text-sm font-semibold text-foreground">No purchased templates</p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Browse the marketplace and purchase templates to see them here.
-                          </p>
-                          <Link
-                            href="/marketplace"
-                            className="mt-4 btn-primary"
-                          >
-                            Explore Marketplace
-                          </Link>
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          {orders.filter(o => o.status === "completed").flatMap(o => o.items.map(i => ({ ...i, orderId: o.id }))).map((item) => (
-                            <div key={item.id} className="p-4 rounded-2xl border border-border/50 bg-card/40 hover:bg-card/70 hover:border-primary/30 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
-                              <div className="flex items-center gap-4 min-w-0">
-                                <div className="relative w-14 h-14 rounded-xl overflow-hidden border border-border/60 bg-muted/20 shrink-0 flex items-center justify-center">
-                                  {item.thumbnail_url ? (
-                                    <img
-                                      src={item.thumbnail_url}
-                                      alt={item.title || "Template"}
-                                      className="w-full h-full object-cover"
-                                      onError={(e) => {
-                                        e.target.onerror = null;
-                                        e.target.style.display = "none";
-                                        if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = "flex";
-                                      }}
-                                    />
-                                  ) : null}
-                                  <div className="w-full h-full flex items-center justify-center text-primary/60 bg-primary/5" style={{ display: item.thumbnail_url ? "none" : "flex" }}>
-                                    <Folder className="w-6 h-6 text-primary" />
-                                  </div>
-                                </div>
-                                <div className="min-w-0 space-y-1">
-                                  <div className="font-bold text-base text-foreground truncate">
-                                    {item.title || "Template Package"}
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-[10px] text-primary bg-primary/10 border border-primary/25 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
-                                      {item.license_type || "Standard"} License
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="flex flex-wrap items-center gap-2.5 md:self-center">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setReviewTemplateId(item.template_id);
-                                    setReviewTemplateTitle(item.title || "Template Package");
-                                    setReviewRating(5);
-                                    setReviewTitle("");
-                                    setReviewBody("");
-                                    setReviewModalOpen(true);
-                                  }}
-                                  className="text-xs text-muted-foreground hover:text-amber-500 transition-colors flex items-center gap-1.5 font-semibold px-2.5 py-1.5 rounded-lg border border-border/40 bg-muted/10 hover:bg-amber-500/10 hover:border-amber-500/30 cursor-pointer"
-                                >
-                                  <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" /> Leave Review
-                                </button>
-
-                                <div className="h-4 w-px bg-border/40 hidden sm:block mx-1" />
-
-                                <div className="flex flex-wrap gap-2">
-                                  <button
-                                    onClick={() => {
-                                      setDeployTemplateId(item.template_id);
-                                      setDeployProjectName(item.title || "My Website");
-                                      setIsDeployModalOpen(true);
-                                    }}
-                                    className="px-3.5 py-1.5 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                                  >
-                                    <Zap className="w-3.5 h-3.5" /> Publish Site
-                                  </button>
-                                  <button
-                                    onClick={() => triggerDownload.mutate({ templateId: item.template_id, format: "zip" })}
-                                    className="px-3.5 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                                  >
-                                    <Download className="w-3.5 h-3.5" /> Source
-                                  </button>
-                                  <a
-                                    href={item.preview_url || `http://localhost:8000/api/v1/preview/live/${item.template_id}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="px-3.5 py-1.5 bg-primary text-primary-foreground hover:opacity-90 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-opacity text-center text-decoration-none shadow-sm"
-                                  >
-                                    <Globe className="w-3.5 h-3.5" /> Demo
-                                  </a>
-                                  <a
-                                    href={getReceiptUrl(item)}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="px-3.5 py-1.5 bg-muted/30 text-foreground hover:bg-muted/60 border border-border/50 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors text-center text-decoration-none"
-                                  >
-                                    <FileText className="w-3.5 h-3.5" /> Receipt
-                                  </a>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm">
-                          <thead>
-                            <tr className="border-y border-border/50 bg-muted/30 text-xs font-semibold uppercase text-muted-foreground">
-                              <th className="p-4">Thumbnail</th>
-                              <th className="p-4">Title</th>
-                              <th className="p-4">Category</th>
-                              <th className="p-4">Price</th>
-                              <th className="p-4">Status</th>
-                              <th className="p-4">Downloads</th>
-                              <th className="p-4 text-right">Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-border/50">
-                            {templatesLoading ? (
-                              <tr>
-                                <td colSpan={7} className="p-8 text-center text-muted-foreground">
-                                  <Loader2 className="w-5 h-5 animate-spin mx-auto text-primary" />
-                                </td>
-                              </tr>
-                            ) : !templateResponse || templateResponse.length === 0 ? (
-                              <tr>
-                                <td colSpan={7} className="p-8 text-center text-muted-foreground">
-                                  No templates uploaded yet. <button onClick={() => setActiveTab("seller-upload")} className="text-primary underline ml-1">Upload your first template →</button>
-                                </td>
-                              </tr>
-                            ) : (
-                              (Array.isArray(templateResponse) ? templateResponse : []).map((item) => (
-                                <tr key={item.id} className="hover:bg-muted/10">
-                                  <td className="p-4">
-                                    <img src={item.thumbnail_url} alt="" className="w-8 h-8 rounded-lg object-cover bg-muted" />
-                                  </td>
-                                  <td className="p-4 font-semibold text-foreground">{item.title}</td>
-                                  <td className="p-4 font-mono text-xs uppercase">{item.framework}</td>
-                                  <td className="p-4">{formatPrice(item.price)}</td>
-                                  <td className="p-4">
-                                    <span className="px-2 py-0.5 bg-green-500/10 text-green-500 text-[10px] rounded-full font-semibold">Published</span>
-                                  </td>
-                                  <td className="p-4 font-mono text-xs">{item.downloads_count}</td>
-                                  <td className="p-4 text-right">
-                                    <div className="flex items-center justify-end gap-1.5">
-                                      <button onClick={() => alert("Analytics view for " + item.title)} className="p-1.5 text-muted-foreground hover:text-primary transition-colors" title="Analytics"><BarChart3 className="w-4 h-4" /></button>
-                                      <button
-                                        onClick={() => {
-                                          if (confirm("Are you sure you want to delete this template?")) {
-                                            deleteMutation.mutate(item.id);
-                                          }
-                                        }}
-                                        className="p-1.5 text-muted-foreground hover:text-red-400 transition-colors"
-                                        title="Delete Template"
-                                      >
-                                        <Trash2 className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+              {activeTab === "buyer-templates" && renderMyTemplatesSection()}
 
               {/* === STUDIO PROJECTS === */}
               {activeTab === "studio-projects" && (() => {
@@ -1926,152 +2536,162 @@ function Dashboard() {
                 const purchasedStudioProjects = allUserTemplates.filter(item => purchasedTemplateIds.has(item.id));
 
                 return (
-                  <div className="glass-premium p-8 space-y-6">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/20 pb-4">
+                  <div className="glass-premium p-6 sm:p-8 space-y-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-border/30 pb-5">
                       <div>
-                        <h3 className="font-bold text-lg text-foreground">Studio Projects Workspace</h3>
-                        <p className="text-sm text-muted-foreground">Manage your custom created drafts and unlocked purchased projects.</p>
+                        <h3 className="font-extrabold text-xl text-slate-900 dark:text-foreground flex items-center gap-2">
+                          <Cpu className="w-5 h-5 text-primary" /> Studio Projects Workspace
+                        </h3>
+                        <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-0.5">
+                          Manage your custom created drafts and unlocked purchased projects.
+                        </p>
                       </div>
 
-                      {/* Segmented Sub-Tab Switcher */}
-                      <div className="flex gap-1.5 p-1 bg-muted/40 border border-border/20 rounded-xl self-start">
+                      {/* High-Contrast Segmented Sub-Tab Switcher */}
+                      <div className="subtab-container self-start">
                         <button
                           type="button"
                           onClick={() => setStudioProjectsSubTab("created")}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                            studioProjectsSubTab === "created"
-                              ? "bg-primary text-white shadow-lg shadow-primary/20"
-                              : "text-muted-foreground hover:text-white"
-                          }`}
+                          className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 flex items-center gap-2 cursor-pointer ${studioProjectsSubTab === "created"
+                            ? "subtab-btn-active-primary"
+                            : "subtab-btn-inactive"
+                            }`}
                         >
-                          Draft Projects ({createdStudioProjects.length})
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>Draft Projects</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${studioProjectsSubTab === "created" ? "subtab-pill-active" : "subtab-pill-inactive"
+                            }`}>
+                            {createdStudioProjects.length}
+                          </span>
                         </button>
                         <button
                           type="button"
                           onClick={() => setStudioProjectsSubTab("purchased")}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                            studioProjectsSubTab === "purchased"
-                              ? "bg-primary text-white shadow-lg shadow-primary/20"
-                              : "text-muted-foreground hover:text-white"
-                          }`}
+                          className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 flex items-center gap-2 cursor-pointer ${studioProjectsSubTab === "purchased"
+                            ? "subtab-btn-active-blue"
+                            : "subtab-btn-inactive"
+                            }`}
                         >
-                          Purchased Projects ({purchasedStudioProjects.length})
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Purchased Projects</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${studioProjectsSubTab === "purchased" ? "subtab-pill-active" : "subtab-pill-inactive"
+                            }`}>
+                            {purchasedStudioProjects.length}
+                          </span>
                         </button>
                       </div>
                     </div>
 
                     {templatesLoading ? (
                       <div className="text-center py-12">
-                        <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
-                        <p className="text-xs text-muted-foreground mt-2">Loading your studio projects...</p>
+                        <Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-600" />
+                        <p className="text-xs text-slate-600 dark:text-slate-400 mt-2 font-medium">Loading your studio projects...</p>
                       </div>
                     ) : studioProjectsSubTab === "created" ? (
                       /* Draft / Unpurchased Studio Projects */
                       createdStudioProjects.length === 0 ? (
                         <div className="grid md:grid-cols-2 gap-6">
-                          <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-muted/5 flex flex-col justify-center items-center">
-                            <Cpu className="w-8 h-8 text-primary mx-auto mb-3 opacity-60" />
-                            <p className="text-sm font-semibold text-foreground">No Draft Studio Projects</p>
-                            <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+                          <div className="text-center p-6 py-10 border-2 border-dashed border-indigo-200 dark:border-indigo-900 rounded-2xl bg-white dark:bg-slate-900 flex flex-col justify-center items-center shadow-sm">
+                            <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center mb-3">
+                              <Cpu className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
+                            </div>
+                            <p className="text-base font-extrabold text-slate-900 dark:text-white">No Draft Studio Projects</p>
+                            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 max-w-sm mx-auto leading-relaxed font-medium">
                               You don't have any unpurchased draft projects. Generate a custom prototype to customize and preview.
                             </p>
                             <Link
                               to="/marketplace/generate"
-                              className="mt-4 px-4 py-2 bg-primary text-white text-xs font-bold rounded-lg hover:bg-primary/90 transition-colors"
+                              className="mt-4 btn-primary-gradient"
                               style={{ textDecoration: 'none' }}
                             >
-                              Launch Studio Creator
+                              <Sparkles className="w-4 h-4" /> Launch Studio Creator
                             </Link>
                           </div>
 
-                          <div className="glass p-6 rounded-xl border border-primary/30 bg-primary/5 flex flex-col justify-between">
-                            <div>
-                              <h4 className="font-bold text-lg text-foreground mb-2">Create New Project</h4>
-                              <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
-                                Enter your exact business specifications, brand colors, and contact info in Studio Creator. Our pipeline generates the complete multi-page prototype for you.
+                          <div className="p-6 rounded-2xl border-2 border-indigo-200 dark:border-indigo-900 bg-white dark:bg-slate-900 flex flex-col justify-between shadow-sm">
+                            <div className="space-y-2">
+                              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 rounded-full text-indigo-700 dark:text-indigo-300 text-[10px] font-extrabold uppercase tracking-wider">
+                                <Wand2 className="w-3 h-3" /> AI Studio Creator
+                              </div>
+                              <h4 className="font-extrabold text-lg text-slate-900 dark:text-white">Create New Project</h4>
+                              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
+                                Enter your exact business specifications, brand colors, and contact info in Studio Creator. Our AI pipeline generates the complete multi-page prototype for you.
                               </p>
                             </div>
                             <Link
                               to="/marketplace/generate"
-                              className="px-4 py-2 bg-primary text-white text-sm font-semibold rounded-lg text-center hover:bg-primary/90 transition-colors"
+                              className="mt-4 w-full btn-primary-gradient"
                               style={{ textDecoration: 'none' }}
                             >
-                              Create Project with Studio
+                              <Sparkles className="w-4 h-4" /> Create Project with Studio
                             </Link>
                           </div>
                         </div>
                       ) : (
-                        <div className="grid sm:grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-8 justify-items-start">
                           {createdStudioProjects.map((item) => (
-                            <div key={item.id} className="glass p-5 rounded-2xl border border-border/40 flex flex-col justify-between hover:border-primary/45 transition-all bg-card/10 shadow-sm">
-                              <div>
-                                <div className="relative w-full rounded-xl overflow-hidden border border-border/40 mb-4 bg-muted/20 flex-shrink-0" style={{ height: '180px' }}>
-                                  {item.thumbnail_url ? (
-                                    <img src={item.thumbnail_url} alt="" className="object-cover w-full h-full absolute inset-0" />
-                                  ) : (
-                                    <div className="w-full h-full flex items-center justify-center bg-primary/5 text-primary">
-                                      <Folder className="w-8 h-8 opacity-60" />
-                                    </div>
-                                  )}
-                                  <div className="absolute top-2 left-2 flex gap-1.5">
-                                    <span className="px-2 py-0.5 bg-background/90 backdrop-blur text-[10px] rounded-full text-amber-500 font-bold border border-amber-500/20 uppercase tracking-wider">
-                                      Draft Project
-                                    </span>
-                                  </div>
-                                  <span className="absolute top-2 right-2 px-2 py-0.5 bg-background/90 backdrop-blur text-[10px] rounded-full text-primary font-semibold border border-primary/20 uppercase">
-                                    {item.framework || "HTML"}
-                                  </span>
-                                </div>
-                                <h4 className="font-bold text-sm text-foreground mb-1.5" style={{ height: '40px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: '1.4' }} title={item.title}>
-                                  {item.title}
-                                </h4>
-                                <p className="text-[11px] text-muted-foreground mb-4" style={{ height: '32px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: '1.4' }}>
-                                  {item.short_description || "Custom generated studio workspace prototype."}
-                                </p>
+                            <div key={item.id} className="w-full max-w-[340px] group relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-indigo-500 transition-all duration-300 flex flex-col justify-between overflow-hidden shadow-md hover:shadow-xl p-5 space-y-4">
+                              {/* Header Badges */}
+                              <div className="flex items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+                                <span className="px-2.5 py-1 bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 font-extrabold text-[10px] uppercase rounded-md border border-indigo-300 dark:border-indigo-800">
+                                  Draft Project
+                                </span>
+                                <span className="px-2.5 py-1 bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 font-extrabold text-[10px] uppercase rounded-md border border-blue-300 dark:border-blue-800">
+                                  {item.framework || "HTML"}
+                                </span>
                               </div>
 
-                              <div className="space-y-2.5 pt-2 border-t border-border/40">
-                                {/* Buy / Add to Cart Action */}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    addToCart({
-                                      templateId: item.id,
-                                      title: item.title,
-                                      price: item.price || 49,
-                                      thumbnail: item.thumbnail_url,
-                                      licenseType: "regular",
-                                    });
-                                  }}
-                                  className={cn(
-                                    "w-full py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm",
-                                    isInCart(item.id)
-                                      ? "bg-emerald-500/20 text-emerald-500 border border-emerald-500/40"
-                                      : "bg-primary text-primary-foreground hover:opacity-90 shadow-primary/20"
-                                  )}
-                                >
-                                  <ShoppingCart className="w-3.5 h-3.5" />
-                                  <span>{isInCart(item.id) ? "In Cart (Proceed to Checkout)" : `Buy & Unlock Source ($${item.price || 49})`}</span>
-                                </button>
+                              <div className="space-y-3 flex-1 flex flex-col justify-between">
+                                <div className="space-y-1.5">
+                                  <h4 className="font-extrabold text-base text-slate-900 dark:text-white line-clamp-1" title={item.title}>
+                                    {item.title}
+                                  </h4>
+                                  <p className="text-xs text-slate-600 dark:text-slate-300 font-medium line-clamp-2 leading-relaxed">
+                                    {item.short_description || "Custom generated prototype."}
+                                  </p>
+                                </div>
 
-                                {/* Live Editor & Live Demo */}
-                                <div className="flex gap-2">
-                                  <Link
-                                    to={`/preview?template=${item.slug || item.id}`}
-                                    className="btn-secondary flex-1 text-center py-2"
-                                    style={{ textDecoration: "none" }}
+                                <div className="space-y-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                                  {/* Buy / Add to Cart Action */}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      addToCart({
+                                        templateId: item.id,
+                                        title: item.title,
+                                        price: item.price || 49,
+                                        thumbnail: item.thumbnail_url,
+                                        licenseType: "regular",
+                                      });
+                                    }}
+                                    className={cn(
+                                      "w-full py-2.5 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md border-0",
+                                      isInCart(item.id)
+                                        ? "bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-2 border-blue-300 dark:border-blue-700"
+                                        : "bg-indigo-600 hover:bg-indigo-700 text-white"
+                                    )}
                                   >
-                                    <Wand2 className="w-3.5 h-3.5" /> Live Editor
-                                  </Link>
-                                  <a
-                                    href={`http://localhost:8000/api/v1/preview/live/${item.id}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="btn-secondary flex-1 text-center py-2"
-                                    style={{ textDecoration: "none" }}
-                                  >
-                                    <ExternalLink className="w-3.5 h-3.5" /> Live Demo
-                                  </a>
+                                    <ShoppingCart className="w-4 h-4" />
+                                    <span>{isInCart(item.id) ? "In Cart" : `Buy ($${item.price || 49})`}</span>
+                                  </button>
+
+                                  {/* Live Editor & Live Demo */}
+                                  <div className="flex gap-2">
+                                    <Link
+                                      to={`/preview?template=${item.slug || item.id}`}
+                                      className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all text-decoration-none"
+                                    >
+                                      <Wand2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Editor
+                                    </Link>
+                                    <a
+                                      href={`http://localhost:8000/api/v1/preview/live/${item.id}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all text-decoration-none text-center"
+                                    >
+                                      <ExternalLink className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Demo
+                                    </a>
+                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -2081,72 +2701,73 @@ function Dashboard() {
                     ) : (
                       /* Purchased Studio Projects */
                       purchasedStudioProjects.length === 0 ? (
-                        <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-card/5">
-                          <Folder className="w-8 h-8 text-primary mx-auto mb-3 opacity-60" />
-                          <p className="text-sm font-semibold text-foreground">No Purchased Studio Projects</p>
-                          <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+                        <div className="text-center py-12 text-slate-600 dark:text-slate-400 border-2 border-dashed border-slate-300 dark:border-slate-800 rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-sm">
+                          <Folder className="w-8 h-8 text-blue-600 mx-auto mb-3 opacity-80" />
+                          <p className="text-sm font-extrabold text-slate-900 dark:text-white">No Purchased Studio Projects</p>
+                          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 max-w-md mx-auto font-medium">
                             When you purchase a custom studio project from your drafts or marketplace, its full source code and direct download links will appear here.
                           </p>
                         </div>
                       ) : (
-                        <div className="grid sm:grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 justify-items-start">
                           {purchasedStudioProjects.map((item) => (
-                            <div key={item.id} className="glass p-5 rounded-2xl border border-emerald-500/30 flex flex-col justify-between hover:border-emerald-500/50 transition-all bg-emerald-500/5 shadow-sm">
-                              <div>
-                                <div className="relative w-full rounded-xl overflow-hidden border border-border/40 mb-4 bg-muted/20 flex-shrink-0" style={{ height: '180px' }}>
-                                  {item.thumbnail_url ? (
-                                    <img src={item.thumbnail_url} alt="" className="object-cover w-full h-full absolute inset-0" />
-                                  ) : (
-                                    <div className="w-full h-full flex items-center justify-center bg-primary/5 text-primary">
-                                      <Folder className="w-8 h-8 opacity-60" />
-                                    </div>
-                                  )}
-                                  <div className="absolute top-2 left-2 flex gap-1.5">
-                                    <span className="px-2 py-0.5 bg-background/90 backdrop-blur text-[10px] rounded-full text-emerald-500 font-bold border border-emerald-500/30 uppercase tracking-wider flex items-center gap-1">
-                                      <CheckCircle2 className="w-3 h-3" /> Purchased & Unlocked
-                                    </span>
+                            <div key={item.id} className="w-full max-w-[280px] group relative rounded-xl border-2 border-blue-200 dark:border-blue-900 bg-white dark:bg-slate-900 hover:border-blue-400 transition-all duration-300 flex flex-col justify-between overflow-hidden shadow-sm hover:shadow-md">
+                              {/* ID Card Compact Thumbnail */}
+                              <div className="relative h-[140px] w-full overflow-hidden bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-800 shrink-0">
+                                {item.thumbnail_url ? (
+                                  <img src={item.thumbnail_url} alt={item.title || ""} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400">
+                                    <Folder className="w-6 h-6 opacity-60" />
                                   </div>
-                                  <span className="absolute top-2 right-2 px-2 py-0.5 bg-background/90 backdrop-blur text-[10px] rounded-full text-primary font-semibold border border-primary/20 uppercase">
-                                    {item.framework || "HTML"}
+                                )}
+                                <div className="absolute top-2 left-2 flex gap-1">
+                                  <span className="px-2 py-0.5 bg-blue-600 text-white border border-blue-500 rounded-full text-[9px] font-extrabold uppercase flex items-center gap-0.5 shadow-sm">
+                                    <CheckCircle2 className="w-2.5 h-2.5" /> Purchased
                                   </span>
                                 </div>
-                                <h4 className="font-bold text-sm text-foreground mb-1.5" style={{ height: '40px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: '1.4' }} title={item.title}>
-                                  {item.title}
-                                </h4>
-                                <p className="text-[11px] text-muted-foreground mb-4" style={{ height: '32px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: '1.4' }}>
-                                  {item.short_description || "Custom generated studio workspace prototype."}
-                                </p>
+                                <span className="absolute top-2 right-2 px-2 py-0.5 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-full text-[9px] font-extrabold uppercase shadow-sm">
+                                  {item.framework || "HTML"}
+                                </span>
                               </div>
 
-                              <div className="space-y-2.5 pt-2 border-t border-border/40">
-                                {/* Download Source ZIP */}
-                                <button
-                                  type="button"
-                                  onClick={() => triggerDownload.mutate({ templateId: item.id, format: "zip" })}
-                                  className="w-full py-2.5 px-3 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/30 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                                >
-                                  <Download className="w-3.5 h-3.5" />
-                                  <span>Download Source ZIP</span>
-                                </button>
+                              <div className="p-3 flex-1 flex flex-col justify-between space-y-2">
+                                <div>
+                                  <h4 className="font-extrabold text-xs text-slate-900 dark:text-white line-clamp-1" title={item.title}>
+                                    {item.title}
+                                  </h4>
+                                  <p className="text-[10px] text-slate-600 dark:text-slate-400 font-medium line-clamp-1 mt-0.5">
+                                    {item.short_description || "Custom generated prototype."}
+                                  </p>
+                                </div>
 
-                                {/* Live Editor & Live Demo */}
-                                <div className="flex gap-2">
-                                  <Link
-                                    to={`/preview?template=${item.slug || item.id}`}
-                                    className="btn-primary flex-1 text-center py-2"
-                                    style={{ textDecoration: "none" }}
+                                <div className="space-y-1.5 pt-1.5 border-t border-slate-200 dark:border-slate-800">
+                                  {/* Download Source ZIP */}
+                                  <button
+                                    type="button"
+                                    onClick={() => triggerDownload.mutate({ templateId: item.id, format: "zip" })}
+                                    className="w-full py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white border border-blue-500 rounded-lg text-[11px] font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm"
                                   >
-                                    <Wand2 className="w-3.5 h-3.5" /> Live Editor
-                                  </Link>
-                                  <a
-                                    href={`http://localhost:8000/api/v1/preview/live/${item.id}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="btn-secondary flex-1 text-center py-2"
-                                    style={{ textDecoration: "none" }}
-                                  >
-                                    <ExternalLink className="w-3.5 h-3.5" /> Live Demo
-                                  </a>
+                                    <Download className="w-3 h-3" />
+                                    <span>Download ZIP</span>
+                                  </button>
+                                  {/* Live Editor & Live Demo */}
+                                  <div className="flex gap-1.5">
+                                    <Link
+                                      to={`/preview?template=${item.slug || item.id}`}
+                                      className="flex-1 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-bold rounded-lg text-[11px] flex items-center justify-center gap-1 transition-all text-decoration-none"
+                                    >
+                                      <Wand2 className="w-3 h-3 text-indigo-600" /> Editor
+                                    </Link>
+                                    <a
+                                      href={`http://localhost:8000/api/v1/preview/live/${item.id}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="flex-1 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-bold rounded-lg text-[11px] flex items-center justify-center gap-1 transition-all text-decoration-none"
+                                    >
+                                      <ExternalLink className="w-3 h-3 text-indigo-600" /> Demo
+                                    </a>
+                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -2380,85 +3001,90 @@ function Dashboard() {
                         const isSuspended = deploy.status === "suspended" || deploy.is_suspended;
 
                         return (
-                          <div key={deploy.id} className="deploy-card glass border border-border/40 rounded-xl p-5 flex flex-col justify-between space-y-4 bg-card/10 hover:border-primary/40 transition-all">
-                            <div className="space-y-2.5">
+                          <div key={deploy.id} className="deploy-card bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 flex flex-col justify-between space-y-4 shadow-sm hover:shadow-md hover:border-indigo-400 transition-all">
+                            <div className="space-y-3">
                               <div className="flex justify-between items-start">
                                 <div>
-                                  <h4 className="font-bold text-foreground text-base truncate max-w-[180px]" title={deploy.project_name}>
+                                  <h4 className="font-extrabold text-slate-900 dark:text-white text-base truncate max-w-[180px]" title={deploy.project_name}>
                                     {deploy.project_name}
                                   </h4>
-                                  <div className="text-[11px] font-mono text-primary flex items-center gap-1.5 mt-0.5">
-                                    <span>{deploy.site_id || `SITE-${deploy.id.slice(0, 6).toUpperCase()}`}</span>
-                                    <span className="text-muted-foreground">•</span>
-                                    <span className="bg-primary/10 text-primary px-1.5 py-0.2 rounded font-semibold">{deploy.current_version || "v1.0"}</span>
+                                  <div className="text-[11px] font-mono flex items-center gap-2 mt-1">
+                                    <span className="bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30 px-2 py-0.5 rounded-md font-extrabold">
+                                      {deploy.site_id || `SITE-${deploy.id.slice(0, 6).toUpperCase()}`}
+                                    </span>
+                                    <span className="text-slate-400">•</span>
+                                    <span className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded-md font-extrabold">{deploy.current_version || "v1.0"}</span>
                                   </div>
                                 </div>
-                                <span className={`status-badge ${deploy.status}`}>
+                                <span className={`status-badge ${deploy.status} font-extrabold px-2.5 py-1 rounded-full text-xs flex items-center gap-1.5`}>
                                   {isBuilding && <Loader2 className="w-3 h-3 animate-spin" />}
-                                  {isLive && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
-                                  {isSuspended && <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />}
-                                  {deploy.status === "failed" && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
+                                  {isLive && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />}
+                                  {isSuspended && <span className="w-2 h-2 rounded-full bg-amber-500" />}
+                                  {deploy.status === "failed" && <span className="w-2 h-2 rounded-full bg-red-500" />}
                                   {isBuilding ? "Building" : isLive ? "● LIVE" : isSuspended ? "Suspended" : "Failed"}
                                 </span>
                               </div>
 
-                              <div className="text-xs space-y-1.5 text-slate-300">
+                              <div className="text-xs space-y-1.5 pt-1 text-slate-700 dark:text-slate-300">
                                 <div className="flex items-center gap-1.5">
-                                  <span className="text-muted-foreground">Domain:</span>
-                                  <span className="text-foreground truncate font-mono max-w-[200px]" title={deploy.subdomain}>
+                                  <span className="text-slate-500 dark:text-slate-400 font-semibold">Domain:</span>
+                                  <span className="text-slate-900 dark:text-white font-mono font-extrabold truncate max-w-[200px]" title={deploy.subdomain}>
                                     {deploy.subdomain}
                                   </span>
                                 </div>
                                 {deploy.custom_domain && (
                                   <div className="flex items-center gap-1.5">
-                                    <span className="text-muted-foreground">Custom:</span>
-                                    <span className="text-primary truncate font-mono max-w-[200px]" title={deploy.custom_domain}>
+                                    <span className="text-slate-500 dark:text-slate-400 font-semibold">Custom:</span>
+                                    <span className="text-indigo-600 dark:text-indigo-400 font-mono font-extrabold truncate max-w-[200px]" title={deploy.custom_domain}>
                                       {deploy.custom_domain}
                                     </span>
                                   </div>
                                 )}
                                 <div className="flex items-center gap-1.5">
-                                  <span className="text-muted-foreground">Updated:</span>
-                                  <span>{new Date(deploy.updated_at || deploy.created_at).toLocaleDateString()} {new Date(deploy.updated_at || deploy.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                  <span className="text-slate-500 dark:text-slate-400 font-semibold">Updated:</span>
+                                  <span className="font-semibold">{new Date(deploy.updated_at || deploy.created_at).toLocaleDateString()} {new Date(deploy.updated_at || deploy.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                 </div>
                               </div>
                             </div>
 
-                            <div className="pt-2 border-t border-border/20 flex flex-col gap-2">
+                            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex flex-col gap-2.5">
                               <div className="flex gap-2">
                                 {isLive && (
                                   <a
                                     href={deploy.live_url || (deploy.site_id ? `http://localhost:8000/sites/${deploy.site_id}/` : "#")}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="flex-1 py-1.5 bg-primary text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 hover:bg-primary/90 transition-colors text-center text-decoration-none"
+                                    className="flex-1 btn-deploy-visit"
                                   >
                                     <ExternalLink className="w-3.5 h-3.5" /> Visit Site
                                   </a>
                                 )}
                                 <button
+                                  type="button"
                                   onClick={() => {
                                     setSelectedDeployment(deploy);
                                     setActiveConsoleLogs(deploy.logs || "");
                                     setActiveConsoleStatus(deploy.status);
                                     setIsConsoleOpen(true);
                                   }}
-                                  className="flex-1 py-1.5 bg-muted border border-border/40 hover:bg-muted/80 text-foreground rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
+                                  className="flex-1 btn-deploy-action"
                                 >
-                                  <Terminal className="w-3.5 h-3.5" /> {isBuilding ? "View Build" : "Logs"}
+                                  <Terminal className="w-3.5 h-3.5 text-indigo-600" /> {isBuilding ? "View Build" : "Logs"}
                                 </button>
                               </div>
 
                               <div className="flex gap-2">
                                 <button
+                                  type="button"
                                   onClick={() => openVersionHistory(deploy)}
-                                  className="flex-1 py-1.5 bg-background border border-border/40 hover:bg-muted/30 text-slate-300 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
+                                  className="flex-1 btn-deploy-action"
                                   title="Version History & Rollback"
                                 >
-                                  <History className="w-3.5 h-3.5 text-primary" /> Rollback
+                                  <History className="w-3.5 h-3.5 text-indigo-600" /> Rollback
                                 </button>
                                 {!isBuilding && (
                                   <button
+                                    type="button"
                                     onClick={async () => {
                                       if (confirm(`Trigger a new redeployment for "${deploy.project_name}"?`)) {
                                         try {
@@ -2473,13 +3099,14 @@ function Dashboard() {
                                         }
                                       }
                                     }}
-                                    className="flex-1 py-1.5 bg-background border border-border/40 hover:bg-muted/30 text-slate-300 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
+                                    className="flex-1 btn-deploy-action"
                                     title="Redeploy Latest Code"
                                   >
-                                    <RefreshCw className="w-3.5 h-3.5" /> Redeploy
+                                    <RefreshCw className="w-3.5 h-3.5 text-indigo-600" /> Redeploy
                                   </button>
                                 )}
                                 <button
+                                  type="button"
                                   onClick={async () => {
                                     if (confirm(`Are you sure you want to permanently remove deployment "${deploy.project_name}"?`)) {
                                       try {
@@ -2490,7 +3117,7 @@ function Dashboard() {
                                       }
                                     }
                                   }}
-                                  className="py-1.5 px-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs font-semibold flex items-center justify-center transition-colors border border-red-500/10"
+                                  className="btn-deploy-delete"
                                   title="Delete Deployment"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
@@ -2757,210 +3384,7 @@ function Dashboard() {
               )}
 
               {/* === SELLER MY TEMPLATES === */}
-              {/* === SELLER MY TEMPLATES (UNIFIED MY TEMPLATES) === */}
-              {activeTab === "seller-templates" && (
-                <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/20 pb-4">
-                    <div>
-                      <h3 className="font-bold text-lg">My Templates</h3>
-                      <p className="text-sm text-muted-foreground">Manage, view, and customize your templates.</p>
-                    </div>
-                    {/* Segmented Control */}
-                    <div className="flex gap-1.5 p-1 bg-muted/40 border border-border/20 rounded-xl self-start">
-                      <button
-                        type="button"
-                        onClick={() => setTemplatesSubTab("purchased")}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${templatesSubTab === "purchased"
-                          ? "bg-primary text-white shadow-lg shadow-primary/20"
-                          : "text-muted-foreground hover:text-white"
-                          }`}
-                      >
-                        Purchased ({orders.filter(o => o.status === "completed").flatMap(o => o.items).length})
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setTemplatesSubTab("uploaded")}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${templatesSubTab === "uploaded"
-                          ? "bg-primary text-white shadow-lg shadow-primary/20"
-                          : "text-muted-foreground hover:text-white"
-                          }`}
-                      >
-                        Uploaded ({templateResponse?.length || 0})
-                      </button>
-                    </div>
-                  </div>
-
-                  {templatesSubTab === "purchased" ? (
-                    <>
-                      {orders.filter(o => o.status === "completed").flatMap(o => o.items).length === 0 ? (
-                        <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-card/5">
-                          <Folder className="w-8 h-8 text-primary mx-auto mb-3 opacity-60" />
-                          <p className="text-sm font-semibold text-white">No purchased templates</p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Browse the marketplace and purchase templates to see them here.
-                          </p>
-                          <Link
-                            href="/marketplace"
-                            className="mt-4 inline-block px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/95 transition-colors text-decoration-none"
-                          >
-                            Explore Marketplace
-                          </Link>
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          {orders.filter(o => o.status === "completed").flatMap(o => o.items.map(i => ({ ...i, orderId: o.id }))).map((item) => (
-                            <div key={item.id} className="p-4 rounded-2xl border border-border/50 bg-card/40 hover:bg-card/70 hover:border-primary/30 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
-                              <div className="flex items-center gap-4 min-w-0">
-                                <div className="relative w-14 h-14 rounded-xl overflow-hidden border border-border/60 bg-muted/20 shrink-0 flex items-center justify-center">
-                                  {item.thumbnail_url ? (
-                                    <img
-                                      src={item.thumbnail_url}
-                                      alt={item.title || "Template"}
-                                      className="w-full h-full object-cover"
-                                      onError={(e) => {
-                                        e.target.onerror = null;
-                                        e.target.style.display = "none";
-                                        if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = "flex";
-                                      }}
-                                    />
-                                  ) : null}
-                                  <div className="w-full h-full flex items-center justify-center text-primary/60 bg-primary/5" style={{ display: item.thumbnail_url ? "none" : "flex" }}>
-                                    <Folder className="w-6 h-6 text-primary" />
-                                  </div>
-                                </div>
-                                <div className="min-w-0 space-y-1">
-                                  <div className="font-bold text-base text-foreground truncate">
-                                    {item.title || "Template Package"}
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-[10px] text-primary bg-primary/10 border border-primary/25 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
-                                      {item.license_type || "Standard"} License
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="flex flex-wrap items-center gap-2.5 md:self-center">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setReviewTemplateId(item.template_id);
-                                    setReviewTemplateTitle(item.title || "Template Package");
-                                    setReviewRating(5);
-                                    setReviewTitle("");
-                                    setReviewBody("");
-                                    setReviewModalOpen(true);
-                                  }}
-                                  className="text-xs text-muted-foreground hover:text-amber-500 transition-colors flex items-center gap-1.5 font-semibold px-2.5 py-1.5 rounded-lg border border-border/40 bg-muted/10 hover:bg-amber-500/10 hover:border-amber-500/30 cursor-pointer"
-                                >
-                                  <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" /> Leave Review
-                                </button>
-
-                                <div className="h-4 w-px bg-border/40 hidden sm:block mx-1" />
-
-                                <div className="flex flex-wrap gap-2">
-                                  <button
-                                    onClick={() => triggerDownload.mutate({ templateId: item.template_id, format: "zip" })}
-                                    className="px-3.5 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                                  >
-                                    <Download className="w-3.5 h-3.5" /> Source
-                                  </button>
-                                  <a
-                                    href={item.preview_url || `http://localhost:8000/api/v1/preview/live/${item.template_id}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="px-3.5 py-1.5 bg-primary text-primary-foreground hover:opacity-90 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-opacity text-center text-decoration-none shadow-sm"
-                                  >
-                                    <Globe className="w-3.5 h-3.5" /> Demo
-                                  </a>
-                                  <a
-                                    href={getReceiptUrl(item)}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="px-3.5 py-1.5 bg-muted/30 text-foreground hover:bg-muted/60 border border-border/50 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors text-center text-decoration-none"
-                                  >
-                                    <FileText className="w-3.5 h-3.5" /> Receipt
-                                  </a>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm">
-                          <thead>
-                            <tr className="border-y border-border/50 bg-muted/30 text-xs font-semibold uppercase text-muted-foreground">
-                              <th className="p-4">Thumbnail</th>
-                              <th className="p-4">Title</th>
-                              <th className="p-4">Category</th>
-                              <th className="p-4">Price</th>
-                              <th className="p-4">Status</th>
-                              <th className="p-4">Downloads</th>
-                              <th className="p-4 text-right">Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-border/50">
-                            {templatesLoading ? (
-                              <tr>
-                                <td colSpan={7} className="p-8 text-center text-muted-foreground">
-                                  <Loader2 className="w-5 h-5 animate-spin mx-auto text-primary" />
-                                </td>
-                              </tr>
-                            ) : !templateResponse || templateResponse.length === 0 ? (
-                              <tr>
-                                <td colSpan={7} className="p-8 text-center text-muted-foreground">
-                                  No templates uploaded yet. <button onClick={() => setActiveTab("seller-upload")} className="text-primary underline ml-1">Upload your first template →</button>
-                                </td>
-                              </tr>
-                            ) : (
-                              (Array.isArray(templateResponse) ? templateResponse : []).map((item) => (
-                                <tr key={item.id} className="hover:bg-muted/10">
-                                  <td className="p-4">
-                                    <img src={item.thumbnail_url} alt="" className="w-8 h-8 rounded-lg object-cover bg-muted" />
-                                  </td>
-                                  <td className="p-4 font-semibold text-foreground">{item.title}</td>
-                                  <td className="p-4 font-mono text-xs uppercase">{item.framework}</td>
-                                  <td className="p-4">{formatPrice(item.price)}</td>
-                                  <td className="p-4">
-                                    <span className="px-2 py-0.5 bg-green-500/10 text-green-500 text-[10px] rounded-full font-semibold">Published</span>
-                                  </td>
-                                  <td className="p-4 font-mono text-xs">{item.downloads_count}</td>
-                                  <td className="p-4 text-right">
-                                    <div className="flex items-center justify-end gap-1.5">
-                                      <button
-                                        onClick={() => alert("Analytics view for " + item.title)}
-                                        className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-all border-none bg-transparent cursor-pointer flex items-center justify-center"
-                                        title="Analytics"
-                                      >
-                                        <BarChart3 className="w-4 h-4" />
-                                      </button>
-                                      <button
-                                        onClick={() => {
-                                          if (confirm("Are you sure you want to delete this template?")) {
-                                            deleteMutation.mutate(item.id);
-                                          }
-                                        }}
-                                        className="p-2 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all border-none bg-transparent cursor-pointer flex items-center justify-center"
-                                        title="Delete Template"
-                                      >
-                                        <Trash2 className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+              {activeTab === "seller-templates" && renderMyTemplatesSection()}
 
               {/* === SELLER UPLOAD TEMPLATE === */}
               {activeTab === "seller-upload" && (
@@ -2970,854 +3394,881 @@ function Dashboard() {
                     <p className="text-sm text-muted-foreground">Submit your ZIP template or Git repo to register on the platform catalog.</p>
                   </div>
 
-                    <>
-                      {/* Multi-step Header */}
-                      <div className="flex items-center gap-2 border-b border-border/50 pb-4 overflow-x-auto scrollbar-none">
-                    {[
-                      { step: 1, label: "Upload Source" },
-                      { step: 2, label: "Code & Architecture Audit" },
-                      { step: 3, label: "Review & Publish" },
-                    ].map((st) => (
-                      <div key={st.step} className="flex items-center gap-2 shrink-0">
-                        <span className={cn(
-                          "w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold",
-                          wizardStep === st.step ? "bg-primary text-white" : "bg-muted text-muted-foreground"
-                        )}>{st.step}</span>
-                        <span className={cn("text-xs font-medium", wizardStep === st.step ? "text-primary" : "text-muted-foreground")}>{st.label}</span>
-                        {st.step < 3 && <ChevronRight className="w-3.5 h-3.5 text-slate-600" />}
-                      </div>
-                    ))}
-                  </div>
-
-                  <form onSubmit={handleUpload} className="space-y-6">
-                    {/* STEP 1: UPLOAD PROJECT */}
-                    {wizardStep === 1 && (
-                      <div className="space-y-4 animate-in fade-in duration-200">
-                        {/* Tab Switcher */}
-                        <div className="flex items-center gap-2 bg-muted/20 p-1 rounded-xl border border-border/45 max-w-xs">
-                          <button
-                            type="button"
-                            onClick={() => { setUploadType("zip"); setStoredZipUrl(""); }}
-                            className={cn(
-                              "flex-1 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all",
-                              uploadType === "zip" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                            )}
-                          >
-                            ZIP File
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => { setUploadType("git"); setZipFile(null); }}
-                            className={cn(
-                              "flex-1 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all",
-                              uploadType === "git" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                            )}
-                          >
-                            Git Repository
-                          </button>
+                  <>
+                    {/* Multi-step Header */}
+                    <div className="flex items-center gap-2 border-b border-border/50 pb-4 overflow-x-auto scrollbar-none">
+                      {[
+                        { step: 1, label: "Upload Source" },
+                        { step: 2, label: "Code & Architecture Audit" },
+                        { step: 3, label: "Review & Publish" },
+                      ].map((st) => (
+                        <div key={st.step} className="flex items-center gap-2 shrink-0">
+                          <span className={cn(
+                            "w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold",
+                            wizardStep === st.step ? "bg-primary text-white" : "bg-muted text-muted-foreground"
+                          )}>{st.step}</span>
+                          <span className={cn("text-xs font-medium", wizardStep === st.step ? "text-primary" : "text-muted-foreground")}>{st.label}</span>
+                          {st.step < 3 && <ChevronRight className="w-3.5 h-3.5 text-slate-600" />}
                         </div>
+                      ))}
+                    </div>
 
-                        {uploadType === "zip" ? (
-                          <div
-                            className="db-upload-dropzone"
-                            onDragOver={(e) => e.preventDefault()}
-                            onDrop={(e) => {
-                              e.preventDefault();
-                              const file = e.dataTransfer.files[0];
-                              if (file && file.name.endsWith(".zip")) {
-                                handleZipAnalysis(file);
-                              } else {
-                                alert("Please upload a valid ZIP archive.");
-                              }
-                            }}
-                          >
-                            <div className="db-upload-dropzone-inner">
-                              <FileUp className="w-12 h-12 text-primary animate-pulse mb-4 mx-auto" />
-                              <h4 className="font-bold text-base text-foreground mb-1">Upload Website Template</h4>
-                              <p className="text-xs text-muted-foreground mb-4">Drag & Drop ZIP File or click to browse</p>
-                              <input
-                                type="file"
-                                accept=".zip"
-                                id="zip-uploader"
-                                className="hidden"
-                                onChange={(e) => {
-                                  const file = e.target.files[0];
-                                  if (file) handleZipAnalysis(file);
-                                }}
-                              />
-                              <label htmlFor="zip-uploader" className="px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/95 transition-all cursor-pointer inline-block">
-                                Browse Files
-                              </label>
+                    <form onSubmit={handleUpload} className="space-y-6">
+                      {/* STEP 1: UPLOAD PROJECT */}
+                      {wizardStep === 1 && (
+                        <div className="space-y-4 animate-in fade-in duration-200">
+                          {/* Tab Switcher */}
+                          <div className="flex items-center gap-2 bg-muted/20 p-1 rounded-xl border border-border/45 max-w-xs">
+                            <button
+                              type="button"
+                              onClick={() => { setUploadType("zip"); setStoredZipUrl(""); }}
+                              className={cn(
+                                "flex-1 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all",
+                                uploadType === "zip" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                              )}
+                            >
+                              ZIP File
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setUploadType("git"); setZipFile(null); }}
+                              className={cn(
+                                "flex-1 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all",
+                                uploadType === "git" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                              )}
+                            >
+                              Git Repository
+                            </button>
+                          </div>
+
+                          {uploadType === "zip" ? (
+                            <div
+                              className="db-upload-dropzone"
+                              onDragOver={(e) => e.preventDefault()}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                const file = e.dataTransfer.files[0];
+                                if (file && file.name.endsWith(".zip")) {
+                                  handleZipAnalysis(file);
+                                } else {
+                                  alert("Please upload a valid ZIP archive.");
+                                }
+                              }}
+                            >
+                              <div className="db-upload-dropzone-inner">
+                                <FileUp className="w-12 h-12 text-primary animate-pulse mb-4 mx-auto" />
+                                <h4 className="font-bold text-base text-foreground mb-1">Upload Website Template</h4>
+                                <p className="text-xs text-muted-foreground mb-4">Drag & Drop ZIP File or click to browse</p>
+                                <input
+                                  type="file"
+                                  accept=".zip"
+                                  id="zip-uploader"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const file = e.target.files[0];
+                                    if (file) handleZipAnalysis(file);
+                                  }}
+                                />
+                                <label htmlFor="zip-uploader" className="px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/95 transition-all cursor-pointer inline-block">
+                                  Browse Files
+                                </label>
+                              </div>
+
+                              <div className="db-upload-tech-grid">
+                                <div className="db-upload-tech-title">Supported Frameworks & Layouts</div>
+                                <div className="db-upload-tech-badges">
+                                  {["HTML", "CSS", "JavaScript", "React", "Next.js", "Vue", "Angular", "Astro"].map(tech => (
+                                    <span key={tech} className="tech-chip">✓ {tech}</span>
+                                  ))}
+                                </div>
+                              </div>
                             </div>
+                          ) : (
+                            /* ── GIT REPOSITORY TAB ─────────────────────────── */
+                            <div className="space-y-5">
 
-                            <div className="db-upload-tech-grid">
-                              <div className="db-upload-tech-title">Supported Frameworks & Layouts</div>
-                              <div className="db-upload-tech-badges">
-                                {["HTML", "CSS", "JavaScript", "React", "Next.js", "Vue", "Angular", "Astro"].map(tech => (
-                                  <span key={tech} className="tech-chip">✓ {tech}</span>
+                              {/* STATE A: GitHub NOT connected — one-click OAuth */}
+                              {!user?.has_github_token && (
+                                <div className="db-upload-dropzone p-10 flex flex-col items-center gap-6">
+                                  <div className="relative">
+                                    <div className="w-20 h-20 rounded-3xl bg-[#24292e] flex items-center justify-center shadow-2xl shadow-black/30">
+                                      <svg className="w-11 h-11 text-white" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
+                                      </svg>
+                                    </div>
+                                    {/* animated ring */}
+                                    <div className="absolute -inset-1 rounded-3xl border-2 border-primary/20 animate-pulse" />
+                                  </div>
+
+                                  <div className="text-center space-y-2 max-w-xs">
+                                    <h4 className="font-bold text-lg text-foreground">Connect GitHub</h4>
+                                    <p className="text-xs text-muted-foreground leading-relaxed">
+                                      Authorise Site Studio on GitHub and we'll automatically load all your repositories. No keys, no copy-pasting.
+                                    </p>
+                                  </div>
+
+                                  <div className="flex flex-col items-center gap-3 w-full max-w-xs">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        // Pass current JWT so the backend links GitHub to this account, not creates a new user
+                                        const API_BASE = "http://localhost:8000/api/v1";
+                                        window.location.href = `${API_BASE}/auth/github/login?token=${authToken}&redirect=/dashboard?tab=seller-upload`;
+                                      }}
+                                      className="w-full py-3 bg-[#24292e] hover:bg-[#1a1e23] text-white text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-2.5 shadow-lg shadow-black/20 hover:shadow-black/30 hover:-translate-y-0.5"
+                                    >
+                                      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
+                                      </svg>
+                                      Continue with GitHub
+                                    </button>
+
+                                    <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                                      <span className="flex items-center gap-1"><ShieldCheck className="w-3 h-3 text-green-500" /> Secure OAuth 2.0</span>
+                                      <span>·</span>
+                                      <span className="flex items-center gap-1"><Key className="w-3 h-3 text-primary" /> No passwords stored</span>
+                                      <span>·</span>
+                                      <span className="flex items-center gap-1"><CheckCircle className="w-3 h-3 text-blue-400" /> One-time setup</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+
+                              {/* STATE B: GitHub connected — repo browser */}
+                              {user?.has_github_token && (
+                                <div className="space-y-4">
+                                  {/* Header row */}
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-7 h-7 rounded-lg bg-[#24292e] flex items-center justify-center">
+                                        <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" /></svg>
+                                      </div>
+                                      <div>
+                                        <p className="text-sm font-bold text-foreground">Your Repositories</p>
+                                        <p className="text-[10px] text-muted-foreground">{fetchedRepos.length} repos found · Click any to import</p>
+                                      </div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => { setFetchedRepos([]); fetchGithubRepos(); }}
+                                      disabled={fetchingRepos}
+                                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-primary transition-all"
+                                    >
+                                      <Loader2 className={cn("w-3 h-3", fetchingRepos && "animate-spin")} />
+                                      Refresh
+                                    </button>
+                                  </div>
+
+                                  {/* STATE B-loading: skeletons */}
+                                  {fetchingRepos && (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                      {[1, 2, 3, 4].map(i => (
+                                        <div key={i} className="p-4 rounded-xl border border-border/50 bg-muted/10 space-y-2 animate-pulse">
+                                          <div className="h-3.5 bg-muted/40 rounded w-2/3" />
+                                          <div className="h-2.5 bg-muted/30 rounded w-full" />
+                                          <div className="h-2.5 bg-muted/20 rounded w-1/2" />
+                                          <div className="flex gap-2 pt-1">
+                                            <div className="h-5 w-14 bg-muted/30 rounded-full" />
+                                            <div className="h-5 w-10 bg-muted/20 rounded-full" />
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  {/* STATE B-loaded: repo cards */}
+                                  {!fetchingRepos && fetchedRepos.length > 0 && (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border">
+                                      {fetchedRepos.map((repo) => (
+                                        <div
+                                          key={repo.id || repo.clone_url}
+                                          className={cn(
+                                            "group p-4 rounded-xl border bg-card/50 hover:border-primary hover:bg-primary/5 transition-all cursor-pointer space-y-2",
+                                            gitUrl === repo.clone_url ? "border-primary bg-primary/5" : "border-border/50"
+                                          )}
+                                          onClick={() => { setGitUrl(repo.clone_url); handleGitAnalysis(repo.clone_url); }}
+                                        >
+                                          {/* Repo header */}
+                                          <div className="flex items-start justify-between gap-2">
+                                            <div className="flex items-center gap-1.5 min-w-0">
+                                              <Folder className="w-3.5 h-3.5 text-primary shrink-0" />
+                                              <span className="text-sm font-bold text-foreground truncate">{repo.name}</span>
+                                            </div>
+                                            <span className={cn(
+                                              "text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full shrink-0",
+                                              repo.private ? "bg-amber-500/10 text-amber-500" : "bg-green-500/10 text-green-500"
+                                            )}>
+                                              {repo.private ? "Private" : "Public"}
+                                            </span>
+                                          </div>
+
+                                          {/* Description */}
+                                          <p className="text-[10px] text-muted-foreground line-clamp-2 leading-relaxed">
+                                            {repo.description || "No description provided"}
+                                          </p>
+
+                                          {/* Meta chips */}
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            {repo.language && (
+                                              <span className="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />
+                                                {repo.language}
+                                              </span>
+                                            )}
+                                            {repo.stargazers_count > 0 && (
+                                              <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-muted-foreground">
+                                                <Star className="w-2.5 h-2.5 fill-yellow-400 text-yellow-400" />
+                                                {repo.stargazers_count}
+                                              </span>
+                                            )}
+                                            {repo.updated_at && (
+                                              <span className="text-[9px] text-muted-foreground/60 ml-auto">
+                                                {new Date(repo.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          {/* Import button */}
+                                          <button
+                                            type="button"
+                                            onClick={(e) => { e.stopPropagation(); setGitUrl(repo.clone_url); handleGitAnalysis(repo.clone_url); }}
+                                            className="w-full mt-1 py-1.5 bg-primary text-white text-[10px] font-bold rounded-lg hover:bg-primary/90 transition-all flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100"
+                                          >
+                                            <Zap className="w-3 h-3" /> Import & Analyze
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  {/* Empty state */}
+                                  {!fetchingRepos && fetchedRepos.length === 0 && (
+                                    <div className="text-center py-8 text-muted-foreground text-xs">
+                                      No repositories found. Click Refresh or check your token permissions.
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Manual URL fallback — always visible */}
+                              <div className="space-y-2">
+                                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                                  {user?.has_github_token ? "Or paste a public / GitLab / Bitbucket URL:" : "Or paste any public Git URL:"}
+                                </p>
+                                <div className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    placeholder="https://github.com/username/repository-name.git"
+                                    value={gitUrl}
+                                    onChange={(e) => setGitUrl(e.target.value)}
+                                    className="flex-1 px-4 py-2.5 rounded-xl border border-border bg-background/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary text-foreground"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleGitAnalysis()}
+                                    disabled={!gitUrl}
+                                    className="px-4 py-2.5 bg-primary text-white text-xs font-bold rounded-xl hover:bg-primary/95 transition-all flex items-center gap-1.5 disabled:opacity-40 shrink-0"
+                                  >
+                                    <Zap className="w-3.5 h-3.5" /> Analyze
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex flex-col space-y-2 p-4 bg-muted/10 border border-border/50 rounded-xl">
+                            <span className="text-xs text-muted-foreground font-semibold uppercase">Supported uploads:</span>
+                            <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+                              <span>• ZIP Archive</span>
+                              <span>• GitHub Repository</span>
+                              <span>• Git URL</span>
+                              <span>• Local Folder</span>
+                            </div>
+                            <span className="text-[10px] text-muted-foreground/60 mt-1">Maximum upload size: 2 GB</span>
+                          </div>
+
+                        </div>
+                      )}
+
+                      {/* STEP 2: PROJECT AUDIT LOADING / RESULTS */}
+                      {wizardStep === 2 && (
+                        <div className="space-y-6 animate-in fade-in duration-200">
+                          {analysisLoading ? (
+                            <div className="db-analysis-loading-shell">
+                              <div className="db-scanner-icon-container">
+                                <Sparkles className="w-12 h-12 text-yellow-500 animate-spin" />
+                              </div>
+                              <h4 className="font-bold text-base text-foreground text-center">⚡ Analyzing project architecture...</h4>
+
+                              <div className="db-scanner-progress-bar-container">
+                                <div className="db-scanner-progress-bar-ascii">
+                                  {"█".repeat(Math.round(analysisProgress / 5.5)) + "░".repeat(18 - Math.round(analysisProgress / 5.5))}
+                                </div>
+                                <div className="db-scanner-progress-percentage">{analysisProgress}%</div>
+                              </div>
+
+                              <div className="db-scanner-logs-container">
+                                {analysisLogs.map((log, i) => (
+                                  <div key={i} className="db-scanner-log-line">
+                                    <span className="text-green-500 mr-2">✓</span> {log}
+                                  </div>
                                 ))}
                               </div>
                             </div>
-                          </div>
-                        ) : (
-                          /* ── GIT REPOSITORY TAB ─────────────────────────── */
-                          <div className="space-y-5">
+                          ) : analysisResult ? (
+                            <div className="db-studio-report-card">
+                              <div className="db-studio-report-header">
+                                <div className="flex items-center gap-2">
+                                  <Sparkles className="w-5 h-5 text-yellow-500" />
+                                  <h3 className="font-bold text-base text-foreground">Code & Architecture Audit</h3>
+                                </div>
+                                <span className="db-studio-badge">Studio-verified</span>
+                              </div>
 
-                            {/* STATE A: GitHub NOT connected — one-click OAuth */}
-                            {!user?.has_github_token && (
-                              <div className="db-upload-dropzone p-10 flex flex-col items-center gap-6">
-                                <div className="relative">
-                                  <div className="w-20 h-20 rounded-3xl bg-[#24292e] flex items-center justify-center shadow-2xl shadow-black/30">
-                                    <svg className="w-11 h-11 text-white" viewBox="0 0 24 24" fill="currentColor">
-                                      <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
-                                    </svg>
+                              <div className="db-studio-report-grid">
+                                {/* Left Column */}
+                                <div className="space-y-5">
+                                  <div className="db-report-block">
+                                    <h4 className="db-report-block-title">Tech Stack Detection</h4>
+                                    <div className="db-tech-cards-grid">
+                                      {[
+                                        { label: "Framework", val: analysisResult.framework_detected, version: analysisResult.version },
+                                        { label: "Language", val: analysisResult.language },
+                                        { label: "CSS", val: analysisResult.css_system },
+                                        { label: "UI Library", val: analysisResult.ui_library },
+                                        { label: "Animations", val: analysisResult.animation_library },
+                                      ].map(tech => (
+                                        <div key={tech.label} className="db-tech-report-card">
+                                          <span className="text-[10px] text-muted-foreground font-semibold uppercase">{tech.label}</span>
+                                          <span className="text-sm font-bold text-foreground mt-0.5">{tech.val} {tech.version ? `v${tech.version}` : ""}</span>
+                                        </div>
+                                      ))}
+                                    </div>
                                   </div>
-                                  {/* animated ring */}
-                                  <div className="absolute -inset-1 rounded-3xl border-2 border-primary/20 animate-pulse" />
+
+                                  <div className="db-report-block">
+                                    <h4 className="db-report-block-title">Pages Included ({analysisResult.pages.length})</h4>
+                                    <div className="db-report-checkbox-list">
+                                      {analysisResult.pages.map((p, i) => (
+                                        <div key={i} className="db-report-checkbox-item">
+                                          <Check className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                                          <span>{p}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  <div className="db-report-block">
+                                    <h4 className="db-report-block-title">Components Scanned ({analysisResult.components.length})</h4>
+                                    <div className="db-report-checkbox-list">
+                                      {analysisResult.components.map((c, i) => (
+                                        <div key={i} className="db-report-checkbox-item">
+                                          <CheckCircle className="w-3.5 h-3.5 text-primary shrink-0" />
+                                          <span>{c}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  <div className="db-report-block">
+                                    <h4 className="db-report-block-title">Assets Analysis</h4>
+                                    <div className="db-assets-report-grid">
+                                      {[
+                                        { label: "Images", count: analysisResult.assets_count.images },
+                                        { label: "SVGs", count: analysisResult.assets_count.svg },
+                                        { label: "Icons", count: analysisResult.assets_count.icons },
+                                        { label: "Videos", count: analysisResult.assets_count.videos },
+                                        { label: "Fonts", count: analysisResult.assets_count.fonts },
+                                      ].map(asset => (
+                                        <div key={asset.label} className="db-asset-report-item">
+                                          <span className="text-xs text-muted-foreground">{asset.label}</span>
+                                          <span className="font-mono text-xs font-bold">{asset.count}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
                                 </div>
 
-                                <div className="text-center space-y-2 max-w-xs">
-                                  <h4 className="font-bold text-lg text-foreground">Connect GitHub</h4>
-                                  <p className="text-xs text-muted-foreground leading-relaxed">
-                                    Authorise Site Studio on GitHub and we'll automatically load all your repositories. No keys, no copy-pasting.
-                                  </p>
-                                </div>
+                                {/* Right Column */}
+                                <div className="space-y-5">
+                                  <div className="db-report-block db-studio-score-block">
+                                    <div className="flex justify-between items-center">
+                                      <div>
+                                        <h4 className="db-report-block-title">Overall Quality Rating</h4>
+                                        <div className="flex items-center gap-1 mt-1">
+                                          {[1, 2, 3, 4, 5].map(s => (
+                                            <Star key={s} className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />
+                                          ))}
+                                          <span className="text-xs text-muted-foreground font-semibold ml-2">({analysisResult.ai_score} / 100)</span>
+                                        </div>
+                                      </div>
+                                      <div className="db-score-circle-big">{analysisResult.ai_score}</div>
+                                    </div>
 
-                                <div className="flex flex-col items-center gap-3 w-full max-w-xs">
+                                    <div className="db-lighthouse-grid mt-4 pt-4 border-t border-border/40">
+                                      {[
+                                        { name: "Performance", score: analysisResult.performance_scores.performance },
+                                        { name: "Accessibility", score: analysisResult.performance_scores.accessibility },
+                                        { name: "SEO", score: analysisResult.performance_scores.seo },
+                                        { name: "Best Practices", score: analysisResult.performance_scores.best_practices },
+                                      ].map(lh => (
+                                        <div key={lh.name} className="flex flex-col items-center">
+                                          <div className="db-score-circle-sm">{lh.score}</div>
+                                          <span className="text-[10px] text-muted-foreground font-bold mt-1">{lh.name}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  <div className="db-report-block">
+                                    <h4 className="db-report-block-title">Category Detection</h4>
+                                    <div className="space-y-2 mt-2">
+                                      {Object.entries(analysisResult.categories).map(([cat, confidence]) => (
+                                        <div key={cat} className="space-y-1">
+                                          <div className="flex justify-between text-xs font-semibold">
+                                            <span>{cat}</span>
+                                            <span className="text-muted-foreground">{confidence}%</span>
+                                          </div>
+                                          <div className="w-full bg-muted/40 h-2 rounded-full overflow-hidden border border-border/10">
+                                            <div className="bg-primary h-full rounded-full" style={{ width: `${confidence}%` }} />
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-4">
+                                    <div className="db-report-block">
+                                      <h4 className="db-report-block-title">Brand Colors</h4>
+                                      <div className="db-palette-row">
+                                        {analysisResult.color_palette.map((color, i) => (
+                                          <div
+                                            key={i}
+                                            className="db-palette-chip"
+                                            style={{ backgroundColor: color }}
+                                            title={color}
+                                          />
+                                        ))}
+                                      </div>
+                                    </div>
+                                    <div className="db-report-block">
+                                      <h4 className="db-report-block-title">Typography</h4>
+                                      <div className="db-typography-row">
+                                        {analysisResult.typography.map((font, i) => (
+                                          <span key={i} className="font-chip">{font}</span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-4">
+                                    <div className="db-report-block">
+                                      <h4 className="db-report-block-title">SEO Compliance</h4>
+                                      <div className="db-checks-list">
+                                        {[
+                                          { label: "Meta Title", check: analysisResult.seo_analysis.meta_title },
+                                          { label: "Meta Desc", check: analysisResult.seo_analysis.meta_description },
+                                          { label: "OG Tags", check: analysisResult.seo_analysis.og_tags },
+                                          { label: "robots.txt", check: analysisResult.seo_analysis.robots_txt },
+                                          { label: "sitemap.xml", check: analysisResult.seo_analysis.sitemap_xml },
+                                        ].map(item => (
+                                          <div key={item.label} className="db-check-item">
+                                            <span className={item.check ? "text-green-500 font-bold" : "text-muted-foreground/30 font-bold"}>
+                                              {item.check ? "✓" : "✗"}
+                                            </span>
+                                            <span className="text-xs text-muted-foreground ml-1.5">{item.label}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                    <div className="db-report-block">
+                                      <h4 className="db-report-block-title">Accessibility</h4>
+                                      <div className="db-checks-list">
+                                        {[
+                                          { label: "ARIA Labels", check: analysisResult.accessibility.aria_labels },
+                                          { label: "Alt Tags", check: analysisResult.accessibility.alt_tags },
+                                          { label: "Keyboard Nav", check: analysisResult.accessibility.keyboard_navigation },
+                                          { label: "Color Contrast", check: analysisResult.accessibility.contrast_safe },
+                                        ].map(item => (
+                                          <div key={item.label} className="db-check-item">
+                                            <span className={item.check ? "text-green-500 font-bold" : "text-muted-foreground/30 font-bold"}>
+                                              {item.check ? "✓" : "✗"}
+                                            </span>
+                                            <span className="text-xs text-muted-foreground ml-1.5">{item.label}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="db-report-block">
+                                    <h4 className="db-report-block-title text-yellow-500">Architecture & Code Recommendations</h4>
+                                    <ul className="db-suggestions-list">
+                                      {analysisResult.ai_suggestions.map((sug, i) => (
+                                        <li key={i} className="text-xs text-muted-foreground">{sug}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex justify-between items-center pt-4 border-t border-border/40">
+                                <button
+                                  type="button"
+                                  onClick={() => setWizardStep(1)}
+                                  className="px-4 py-2 border border-border hover:border-slate-500 rounded-xl text-xs font-semibold transition-all"
+                                >
+                                  Back to Source Selection
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setWizardStep(3)}
+                                  className="px-5 py-2.5 bg-primary text-white rounded-xl text-xs font-semibold hover:bg-primary/95 transition-all"
+                                >
+                                  Continue to Review
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-center py-8 text-muted-foreground">Analysis error. Please try uploading again.</div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* STEP 3: REVIEW & PUBLISH */}
+                      {wizardStep === 3 && (
+                        <div className="space-y-6 animate-in fade-in duration-200">
+                          {isIncompleteAnalysis ? (
+                            <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-start gap-3">
+                              <Info className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                              <div className="space-y-1">
+                                <p className="text-xs font-bold text-amber-400">
+                                  ⚠️ Incomplete Auto-Detection - Action Required
+                                </p>
+                                <p className="text-[11px] text-slate-300 leading-relaxed">
+                                  Our code audit could not fully determine all metadata (e.g. category mapping, title, framework, or descriptions) from your upload. Please review all fields below and manually answer these questions to ensure buyers can search and find your template accurately.
+                                </p>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl flex items-center gap-3">
+                              <Sparkles className="w-5 h-5 text-primary shrink-0" />
+                              <p className="text-xs text-muted-foreground leading-relaxed">
+                                <strong>Instant Auto-Fill Active:</strong> We have analyzed your project and pre-filled standard catalog details. Please review these parameters and click <strong>Publish Template</strong>.
+                              </p>
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
+                                Template Title * {isIncompleteAnalysis && !title && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - input manually)</span>}
+                              </label>
+                              <input
+                                type="text"
+                                required
+                                value={title}
+                                onChange={(e) => setTitle(e.target.value)}
+                                placeholder="My Awesome SaaS Landing Page"
+                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Slug</label>
+                              <input
+                                type="text"
+                                value={slug}
+                                onChange={(e) => setSlug(e.target.value)}
+                                placeholder="my-awesome-saas-landing"
+                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div>
+                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
+                                Category * {isIncompleteAnalysis && !categoryId && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - select manually)</span>}
+                              </label>
+                              <select
+                                required
+                                value={categoryId}
+                                onChange={(e) => setCategoryId(e.target.value)}
+                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
+                              >
+                                <option value="" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Select Category</option>
+                                {categories.map((c) => (
+                                  <option key={c.id} value={c.id} style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>{c.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
+                                Framework * {isIncompleteAnalysis && !framework && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - select manually)</span>}
+                              </label>
+                              <select
+                                required
+                                value={framework}
+                                onChange={(e) => setFramework(e.target.value)}
+                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
+                              >
+                                <option value="nextjs" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Next.js</option>
+                                <option value="react" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>React</option>
+                                <option value="vue" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Vue</option>
+                                <option value="html" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>HTML</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">License Type</label>
+                              <select
+                                value={licenseType}
+                                onChange={(e) => setLicenseType(e.target.value)}
+                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
+                              >
+                                <option value="standard" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Standard License</option>
+                                <option value="commercial" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Commercial License</option>
+                                <option value="extended" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Extended License</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Sub-Category / Industry Focus */}
+                          <div className="space-y-1.5 p-3.5 bg-muted/10 border border-border/40 rounded-xl">
+                            <div className="flex items-center justify-between">
+                              <label className="block text-xs font-semibold text-foreground uppercase">
+                                Sub-Category / Specialization
+                              </label>
+                              {subCategory && (
+                                <span className="text-[10px] text-primary font-semibold">Selected: {subCategory}</span>
+                              )}
+                            </div>
+                            <input
+                              type="text"
+                              value={subCategory}
+                              onChange={(e) => setSubCategory(e.target.value)}
+                              placeholder="e.g. Small Business, Accounting, Corporate, Dashboard, Cafe, Clinic"
+                              className="w-full px-4 py-2 rounded-lg glass border border-border/50 text-xs focus:outline-none focus:border-primary bg-card/50"
+                            />
+                            {categoryId && categories.find(c => c.id === categoryId) && (
+                              <div className="flex flex-wrap gap-1.5 pt-1.5">
+                                {(DASHBOARD_SUB_CATEGORIES[categories.find(c => c.id === categoryId)?.slug] || ["General", "Custom"]).map(sub => (
                                   <button
+                                    key={sub}
                                     type="button"
                                     onClick={() => {
-                                      // Pass current JWT so the backend links GitHub to this account, not creates a new user
-                                      const API_BASE = "http://localhost:8000/api/v1";
-                                      window.location.href = `${API_BASE}/auth/github/login?token=${authToken}&redirect=/dashboard?tab=seller-upload`;
+                                      setSubCategory(sub);
+                                      if (!tags.toLowerCase().includes(sub.toLowerCase())) {
+                                        setTags(prev => prev ? `${prev}, ${sub.toLowerCase()}` : sub.toLowerCase());
+                                      }
                                     }}
-                                    className="w-full py-3 bg-[#24292e] hover:bg-[#1a1e23] text-white text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-2.5 shadow-lg shadow-black/20 hover:shadow-black/30 hover:-translate-y-0.5"
+                                    className={cn(
+                                      "text-[10px] px-2 py-0.5 rounded-full border transition-all cursor-pointer",
+                                      subCategory.toLowerCase() === sub.toLowerCase()
+                                        ? "bg-primary/20 text-primary border-primary font-semibold"
+                                        : "bg-muted/20 text-muted-foreground border-border/40 hover:bg-primary/10 hover:text-foreground"
+                                    )}
                                   >
-                                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                                      <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
-                                    </svg>
-                                    Continue with GitHub
+                                    {sub}
                                   </button>
-
-                                  <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-                                    <span className="flex items-center gap-1"><ShieldCheck className="w-3 h-3 text-green-500" /> Secure OAuth 2.0</span>
-                                    <span>·</span>
-                                    <span className="flex items-center gap-1"><Key className="w-3 h-3 text-primary" /> No passwords stored</span>
-                                    <span>·</span>
-                                    <span className="flex items-center gap-1"><CheckCircle className="w-3 h-3 text-blue-400" /> One-time setup</span>
-                                  </div>
-                                </div>
+                                ))}
                               </div>
                             )}
-
-
-                            {/* STATE B: GitHub connected — repo browser */}
-                            {user?.has_github_token && (
-                              <div className="space-y-4">
-                                {/* Header row */}
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-2">
-                                    <div className="w-7 h-7 rounded-lg bg-[#24292e] flex items-center justify-center">
-                                      <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" /></svg>
-                                    </div>
-                                    <div>
-                                      <p className="text-sm font-bold text-foreground">Your Repositories</p>
-                                      <p className="text-[10px] text-muted-foreground">{fetchedRepos.length} repos found · Click any to import</p>
-                                    </div>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => { setFetchedRepos([]); fetchGithubRepos(); }}
-                                    disabled={fetchingRepos}
-                                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:text-foreground hover:border-primary transition-all"
-                                  >
-                                    <Loader2 className={cn("w-3 h-3", fetchingRepos && "animate-spin")} />
-                                    Refresh
-                                  </button>
-                                </div>
-
-                                {/* STATE B-loading: skeletons */}
-                                {fetchingRepos && (
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    {[1, 2, 3, 4].map(i => (
-                                      <div key={i} className="p-4 rounded-xl border border-border/50 bg-muted/10 space-y-2 animate-pulse">
-                                        <div className="h-3.5 bg-muted/40 rounded w-2/3" />
-                                        <div className="h-2.5 bg-muted/30 rounded w-full" />
-                                        <div className="h-2.5 bg-muted/20 rounded w-1/2" />
-                                        <div className="flex gap-2 pt-1">
-                                          <div className="h-5 w-14 bg-muted/30 rounded-full" />
-                                          <div className="h-5 w-10 bg-muted/20 rounded-full" />
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-
-                                {/* STATE B-loaded: repo cards */}
-                                {!fetchingRepos && fetchedRepos.length > 0 && (
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border">
-                                    {fetchedRepos.map((repo) => (
-                                      <div
-                                        key={repo.id || repo.clone_url}
-                                        className={cn(
-                                          "group p-4 rounded-xl border bg-card/50 hover:border-primary hover:bg-primary/5 transition-all cursor-pointer space-y-2",
-                                          gitUrl === repo.clone_url ? "border-primary bg-primary/5" : "border-border/50"
-                                        )}
-                                        onClick={() => { setGitUrl(repo.clone_url); handleGitAnalysis(repo.clone_url); }}
-                                      >
-                                        {/* Repo header */}
-                                        <div className="flex items-start justify-between gap-2">
-                                          <div className="flex items-center gap-1.5 min-w-0">
-                                            <Folder className="w-3.5 h-3.5 text-primary shrink-0" />
-                                            <span className="text-sm font-bold text-foreground truncate">{repo.name}</span>
-                                          </div>
-                                          <span className={cn(
-                                            "text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full shrink-0",
-                                            repo.private ? "bg-amber-500/10 text-amber-500" : "bg-green-500/10 text-green-500"
-                                          )}>
-                                            {repo.private ? "Private" : "Public"}
-                                          </span>
-                                        </div>
-
-                                        {/* Description */}
-                                        <p className="text-[10px] text-muted-foreground line-clamp-2 leading-relaxed">
-                                          {repo.description || "No description provided"}
-                                        </p>
-
-                                        {/* Meta chips */}
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                          {repo.language && (
-                                            <span className="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">
-                                              <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />
-                                              {repo.language}
-                                            </span>
-                                          )}
-                                          {repo.stargazers_count > 0 && (
-                                            <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-muted-foreground">
-                                              <Star className="w-2.5 h-2.5 fill-yellow-400 text-yellow-400" />
-                                              {repo.stargazers_count}
-                                            </span>
-                                          )}
-                                          {repo.updated_at && (
-                                            <span className="text-[9px] text-muted-foreground/60 ml-auto">
-                                              {new Date(repo.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                                            </span>
-                                          )}
-                                        </div>
-
-                                        {/* Import button */}
-                                        <button
-                                          type="button"
-                                          onClick={(e) => { e.stopPropagation(); setGitUrl(repo.clone_url); handleGitAnalysis(repo.clone_url); }}
-                                          className="w-full mt-1 py-1.5 bg-primary text-white text-[10px] font-bold rounded-lg hover:bg-primary/90 transition-all flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100"
-                                        >
-                                          <Zap className="w-3 h-3" /> Import & Analyze
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-
-                                {/* Empty state */}
-                                {!fetchingRepos && fetchedRepos.length === 0 && (
-                                  <div className="text-center py-8 text-muted-foreground text-xs">
-                                    No repositories found. Click Refresh or check your token permissions.
-                                  </div>
-                                )}
-                              </div>
-                            )}
-
-                            {/* Manual URL fallback — always visible */}
-                            <div className="space-y-2">
-                              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                                {user?.has_github_token ? "Or paste a public / GitLab / Bitbucket URL:" : "Or paste any public Git URL:"}
-                              </p>
-                              <div className="flex gap-2">
-                                <input
-                                  type="text"
-                                  placeholder="https://github.com/username/repository-name.git"
-                                  value={gitUrl}
-                                  onChange={(e) => setGitUrl(e.target.value)}
-                                  className="flex-1 px-4 py-2.5 rounded-xl border border-border bg-background/50 text-sm focus:outline-none focus:ring-2 focus:ring-primary text-foreground"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => handleGitAnalysis()}
-                                  disabled={!gitUrl}
-                                  className="px-4 py-2.5 bg-primary text-white text-xs font-bold rounded-xl hover:bg-primary/95 transition-all flex items-center gap-1.5 disabled:opacity-40 shrink-0"
-                                >
-                                  <Zap className="w-3.5 h-3.5" /> Analyze
-                                </button>
-                              </div>
-                            </div>
                           </div>
-                        )}
 
-                        <div className="flex flex-col space-y-2 p-4 bg-muted/10 border border-border/50 rounded-xl">
-                          <span className="text-xs text-muted-foreground font-semibold uppercase">Supported uploads:</span>
-                          <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-                            <span>• ZIP Archive</span>
-                            <span>• GitHub Repository</span>
-                            <span>• Git URL</span>
-                            <span>• Local Folder</span>
-                          </div>
-                          <span className="text-[10px] text-muted-foreground/60 mt-1">Maximum upload size: 2 GB</span>
-                        </div>
-
-                      </div>
-                    )}
-
-                    {/* STEP 2: PROJECT AUDIT LOADING / RESULTS */}
-                    {wizardStep === 2 && (
-                      <div className="space-y-6 animate-in fade-in duration-200">
-                        {analysisLoading ? (
-                          <div className="db-analysis-loading-shell">
-                            <div className="db-scanner-icon-container">
-                              <Sparkles className="w-12 h-12 text-yellow-500 animate-spin" />
-                            </div>
-                            <h4 className="font-bold text-base text-foreground text-center">⚡ Analyzing project architecture...</h4>
-
-                            <div className="db-scanner-progress-bar-container">
-                              <div className="db-scanner-progress-bar-ascii">
-                                {"█".repeat(Math.round(analysisProgress / 5.5)) + "░".repeat(18 - Math.round(analysisProgress / 5.5))}
-                              </div>
-                              <div className="db-scanner-progress-percentage">{analysisProgress}%</div>
-                            </div>
-
-                            <div className="db-scanner-logs-container">
-                              {analysisLogs.map((log, i) => (
-                                <div key={i} className="db-scanner-log-line">
-                                  <span className="text-green-500 mr-2">✓</span> {log}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ) : analysisResult ? (
-                          <div className="db-studio-report-card">
-                            <div className="db-studio-report-header">
-                              <div className="flex items-center gap-2">
-                                <Sparkles className="w-5 h-5 text-yellow-500" />
-                                <h3 className="font-bold text-base text-foreground">Code & Architecture Audit</h3>
-                              </div>
-                              <span className="db-studio-badge">Studio-verified</span>
-                            </div>
-
-                            <div className="db-studio-report-grid">
-                              {/* Left Column */}
-                              <div className="space-y-5">
-                                <div className="db-report-block">
-                                  <h4 className="db-report-block-title">Tech Stack Detection</h4>
-                                  <div className="db-tech-cards-grid">
-                                    {[
-                                      { label: "Framework", val: analysisResult.framework_detected, version: analysisResult.version },
-                                      { label: "Language", val: analysisResult.language },
-                                      { label: "CSS", val: analysisResult.css_system },
-                                      { label: "UI Library", val: analysisResult.ui_library },
-                                      { label: "Animations", val: analysisResult.animation_library },
-                                    ].map(tech => (
-                                      <div key={tech.label} className="db-tech-report-card">
-                                        <span className="text-[10px] text-muted-foreground font-semibold uppercase">{tech.label}</span>
-                                        <span className="text-sm font-bold text-foreground mt-0.5">{tech.val} {tech.version ? `v${tech.version}` : ""}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-
-                                <div className="db-report-block">
-                                  <h4 className="db-report-block-title">Pages Included ({analysisResult.pages.length})</h4>
-                                  <div className="db-report-checkbox-list">
-                                    {analysisResult.pages.map((p, i) => (
-                                      <div key={i} className="db-report-checkbox-item">
-                                        <Check className="w-3.5 h-3.5 text-green-500 shrink-0" />
-                                        <span>{p}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-
-                                <div className="db-report-block">
-                                  <h4 className="db-report-block-title">Components Scanned ({analysisResult.components.length})</h4>
-                                  <div className="db-report-checkbox-list">
-                                    {analysisResult.components.map((c, i) => (
-                                      <div key={i} className="db-report-checkbox-item">
-                                        <CheckCircle className="w-3.5 h-3.5 text-primary shrink-0" />
-                                        <span>{c}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-
-                                <div className="db-report-block">
-                                  <h4 className="db-report-block-title">Assets Analysis</h4>
-                                  <div className="db-assets-report-grid">
-                                    {[
-                                      { label: "Images", count: analysisResult.assets_count.images },
-                                      { label: "SVGs", count: analysisResult.assets_count.svg },
-                                      { label: "Icons", count: analysisResult.assets_count.icons },
-                                      { label: "Videos", count: analysisResult.assets_count.videos },
-                                      { label: "Fonts", count: analysisResult.assets_count.fonts },
-                                    ].map(asset => (
-                                      <div key={asset.label} className="db-asset-report-item">
-                                        <span className="text-xs text-muted-foreground">{asset.label}</span>
-                                        <span className="font-mono text-xs font-bold">{asset.count}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Right Column */}
-                              <div className="space-y-5">
-                                <div className="db-report-block db-studio-score-block">
-                                  <div className="flex justify-between items-center">
-                                    <div>
-                                      <h4 className="db-report-block-title">Overall Quality Rating</h4>
-                                      <div className="flex items-center gap-1 mt-1">
-                                        {[1, 2, 3, 4, 5].map(s => (
-                                          <Star key={s} className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />
-                                        ))}
-                                        <span className="text-xs text-muted-foreground font-semibold ml-2">({analysisResult.ai_score} / 100)</span>
-                                      </div>
-                                    </div>
-                                    <div className="db-score-circle-big">{analysisResult.ai_score}</div>
-                                  </div>
-
-                                  <div className="db-lighthouse-grid mt-4 pt-4 border-t border-border/40">
-                                    {[
-                                      { name: "Performance", score: analysisResult.performance_scores.performance },
-                                      { name: "Accessibility", score: analysisResult.performance_scores.accessibility },
-                                      { name: "SEO", score: analysisResult.performance_scores.seo },
-                                      { name: "Best Practices", score: analysisResult.performance_scores.best_practices },
-                                    ].map(lh => (
-                                      <div key={lh.name} className="flex flex-col items-center">
-                                        <div className="db-score-circle-sm">{lh.score}</div>
-                                        <span className="text-[10px] text-muted-foreground font-bold mt-1">{lh.name}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-
-                                <div className="db-report-block">
-                                  <h4 className="db-report-block-title">Category Detection</h4>
-                                  <div className="space-y-2 mt-2">
-                                    {Object.entries(analysisResult.categories).map(([cat, confidence]) => (
-                                      <div key={cat} className="space-y-1">
-                                        <div className="flex justify-between text-xs font-semibold">
-                                          <span>{cat}</span>
-                                          <span className="text-muted-foreground">{confidence}%</span>
-                                        </div>
-                                        <div className="w-full bg-muted/40 h-2 rounded-full overflow-hidden border border-border/10">
-                                          <div className="bg-primary h-full rounded-full" style={{ width: `${confidence}%` }} />
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div className="db-report-block">
-                                    <h4 className="db-report-block-title">Brand Colors</h4>
-                                    <div className="db-palette-row">
-                                      {analysisResult.color_palette.map((color, i) => (
-                                        <div
-                                          key={i}
-                                          className="db-palette-chip"
-                                          style={{ backgroundColor: color }}
-                                          title={color}
-                                        />
-                                      ))}
-                                    </div>
-                                  </div>
-                                  <div className="db-report-block">
-                                    <h4 className="db-report-block-title">Typography</h4>
-                                    <div className="db-typography-row">
-                                      {analysisResult.typography.map((font, i) => (
-                                        <span key={i} className="font-chip">{font}</span>
-                                      ))}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div className="db-report-block">
-                                    <h4 className="db-report-block-title">SEO Compliance</h4>
-                                    <div className="db-checks-list">
-                                      {[
-                                        { label: "Meta Title", check: analysisResult.seo_analysis.meta_title },
-                                        { label: "Meta Desc", check: analysisResult.seo_analysis.meta_description },
-                                        { label: "OG Tags", check: analysisResult.seo_analysis.og_tags },
-                                        { label: "robots.txt", check: analysisResult.seo_analysis.robots_txt },
-                                        { label: "sitemap.xml", check: analysisResult.seo_analysis.sitemap_xml },
-                                      ].map(item => (
-                                        <div key={item.label} className="db-check-item">
-                                          <span className={item.check ? "text-green-500 font-bold" : "text-muted-foreground/30 font-bold"}>
-                                            {item.check ? "✓" : "✗"}
-                                          </span>
-                                          <span className="text-xs text-muted-foreground ml-1.5">{item.label}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                  <div className="db-report-block">
-                                    <h4 className="db-report-block-title">Accessibility</h4>
-                                    <div className="db-checks-list">
-                                      {[
-                                        { label: "ARIA Labels", check: analysisResult.accessibility.aria_labels },
-                                        { label: "Alt Tags", check: analysisResult.accessibility.alt_tags },
-                                        { label: "Keyboard Nav", check: analysisResult.accessibility.keyboard_navigation },
-                                        { label: "Color Contrast", check: analysisResult.accessibility.contrast_safe },
-                                      ].map(item => (
-                                        <div key={item.label} className="db-check-item">
-                                          <span className={item.check ? "text-green-500 font-bold" : "text-muted-foreground/30 font-bold"}>
-                                            {item.check ? "✓" : "✗"}
-                                          </span>
-                                          <span className="text-xs text-muted-foreground ml-1.5">{item.label}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div className="db-report-block">
-                                  <h4 className="db-report-block-title text-yellow-500">Architecture & Code Recommendations</h4>
-                                  <ul className="db-suggestions-list">
-                                    {analysisResult.ai_suggestions.map((sug, i) => (
-                                      <li key={i} className="text-xs text-muted-foreground">{sug}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="flex justify-between items-center pt-4 border-t border-border/40">
-                              <button
-                                type="button"
-                                onClick={() => setWizardStep(1)}
-                                className="px-4 py-2 border border-border hover:border-slate-500 rounded-xl text-xs font-semibold transition-all"
-                              >
-                                Back to Source Selection
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setWizardStep(3)}
-                                className="px-5 py-2.5 bg-primary text-white rounded-xl text-xs font-semibold hover:bg-primary/95 transition-all"
-                              >
-                                Continue to Review
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="text-center py-8 text-muted-foreground">Analysis error. Please try uploading again.</div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* STEP 3: REVIEW & PUBLISH */}
-                    {wizardStep === 3 && (
-                      <div className="space-y-6 animate-in fade-in duration-200">
-                        {isIncompleteAnalysis ? (
-                          <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-start gap-3">
-                            <Info className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                            <div className="space-y-1">
-                              <p className="text-xs font-bold text-amber-400">
-                                ⚠️ Incomplete Auto-Detection - Action Required
-                              </p>
-                              <p className="text-[11px] text-slate-300 leading-relaxed">
-                                Our code audit could not fully determine all metadata (e.g. category mapping, title, framework, or descriptions) from your upload. Please review all fields below and manually answer these questions to ensure buyers can search and find your template accurately.
-                              </p>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl flex items-center gap-3">
-                            <Sparkles className="w-5 h-5 text-primary shrink-0" />
-                            <p className="text-xs text-muted-foreground leading-relaxed">
-                              <strong>Instant Auto-Fill Active:</strong> We have analyzed your project and pre-filled standard catalog details. Please review these parameters and click <strong>Publish Template</strong>.
-                            </p>
-                          </div>
-                        )}
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
-                              Template Title * {isIncompleteAnalysis && !title && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - input manually)</span>}
-                            </label>
-                            <input
-                              type="text"
-                              required
-                              value={title}
-                              onChange={(e) => setTitle(e.target.value)}
-                              placeholder="My Awesome SaaS Landing Page"
-                              className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Slug</label>
-                            <input
-                              type="text"
-                              value={slug}
-                              onChange={(e) => setSlug(e.target.value)}
-                              placeholder="my-awesome-saas-landing"
-                              className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                          <div>
-                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
-                              Category * {isIncompleteAnalysis && !categoryId && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - select manually)</span>}
-                            </label>
-                            <select
-                              required
-                              value={categoryId}
-                              onChange={(e) => setCategoryId(e.target.value)}
-                              className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
-                            >
-                              <option value="" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Select Category</option>
-                              {categories.map((c) => (
-                                <option key={c.id} value={c.id} style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>{c.name}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
-                              Framework * {isIncompleteAnalysis && !framework && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - select manually)</span>}
-                            </label>
-                            <select
-                              required
-                              value={framework}
-                              onChange={(e) => setFramework(e.target.value)}
-                              className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
-                            >
-                              <option value="nextjs" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Next.js</option>
-                              <option value="react" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>React</option>
-                              <option value="vue" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Vue</option>
-                              <option value="html" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>HTML</option>
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">License Type</label>
-                            <select
-                              value={licenseType}
-                              onChange={(e) => setLicenseType(e.target.value)}
-                              className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
-                            >
-                              <option value="standard" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Standard License</option>
-                              <option value="commercial" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Commercial License</option>
-                              <option value="extended" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Extended License</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* Sub-Category / Industry Focus */}
-                        <div className="space-y-1.5 p-3.5 bg-muted/10 border border-border/40 rounded-xl">
-                          <div className="flex items-center justify-between">
-                            <label className="block text-xs font-semibold text-foreground uppercase">
-                              Sub-Category / Specialization
-                            </label>
-                            {subCategory && (
-                              <span className="text-[10px] text-primary font-semibold">Selected: {subCategory}</span>
-                            )}
-                          </div>
-                          <input
-                            type="text"
-                            value={subCategory}
-                            onChange={(e) => setSubCategory(e.target.value)}
-                            placeholder="e.g. Small Business, Accounting, Corporate, Dashboard, Cafe, Clinic"
-                            className="w-full px-4 py-2 rounded-lg glass border border-border/50 text-xs focus:outline-none focus:border-primary bg-card/50"
-                          />
-                          {categoryId && categories.find(c => c.id === categoryId) && (
-                            <div className="flex flex-wrap gap-1.5 pt-1.5">
-                              {(DASHBOARD_SUB_CATEGORIES[categories.find(c => c.id === categoryId)?.slug] || ["General", "Custom"]).map(sub => (
-                                <button
-                                  key={sub}
-                                  type="button"
-                                  onClick={() => {
-                                    setSubCategory(sub);
-                                    if (!tags.toLowerCase().includes(sub.toLowerCase())) {
-                                      setTags(prev => prev ? `${prev}, ${sub.toLowerCase()}` : sub.toLowerCase());
-                                    }
-                                  }}
-                                  className={cn(
-                                    "text-[10px] px-2 py-0.5 rounded-full border transition-all cursor-pointer",
-                                    subCategory.toLowerCase() === sub.toLowerCase()
-                                      ? "bg-primary/20 text-primary border-primary font-semibold"
-                                      : "bg-muted/20 text-muted-foreground border-border/40 hover:bg-primary/10 hover:text-foreground"
-                                  )}
-                                >
-                                  {sub}
-                                </button>
-                              ))}
+                          {user?.country && (
+                            <div className="flex items-center gap-2 mb-3 px-3.5 py-2 rounded-xl bg-primary/10 border border-primary/20 text-xs font-medium text-primary">
+                              <Globe className="w-4 h-4 shrink-0 text-primary" />
+                              <span>
+                                Seller Location: <strong>{user.city && user.city !== "Unknown" ? `${user.city}, ` : ""}{user.country}</strong> — Pricing currency auto-selected to <strong>{priceCurrency}</strong> based on location
+                              </span>
                             </div>
                           )}
-                        </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                          <div>
-                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Pricing Currency *</label>
-                            <select
-                              value={priceCurrency}
-                              onChange={(e) => setPriceCurrency(e.target.value)}
-                              className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm font-bold focus:outline-none focus:border-primary bg-card/50"
-                            >
-                              <option value="USD" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>USD ($)</option>
-                              <option value="INR" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>INR (₹)</option>
-                              <option value="EUR" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>EUR (€)</option>
-                              <option value="GBP" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>GBP (£)</option>
-                              <option value="CAD" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>CAD (CA$)</option>
-                              <option value="AUD" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>AUD (A$)</option>
-                            </select>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div>
+                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Pricing Currency *</label>
+                              <select
+                                value={priceCurrency}
+                                onChange={(e) => setPriceCurrency(e.target.value)}
+                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm font-bold focus:outline-none focus:border-primary bg-card/50"
+                              >
+                                <option value="USD" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>USD ($)</option>
+                                <option value="INR" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>INR (₹)</option>
+                                <option value="EUR" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>EUR (€)</option>
+                                <option value="GBP" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>GBP (£)</option>
+                                <option value="CAD" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>CAD (CA$)</option>
+                                <option value="AUD" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>AUD (A$)</option>
+                                <option value="JPY" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>JPY (¥)</option>
+                                <option value="AED" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>AED (AED)</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Regular Price *</label>
+                              <input
+                                type="number"
+                                required
+                                min="0"
+                                value={price}
+                                onChange={(e) => setPrice(e.target.value)}
+                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm font-bold focus:outline-none focus:border-primary bg-card/50"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Original Price (Sale Reference)</label>
+                              <input
+                                type="number"
+                                min="0"
+                                value={salePrice}
+                                onChange={(e) => setSalePrice(e.target.value)}
+                                placeholder="Optional sale price"
+                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
+                              />
+                            </div>
                           </div>
-                          <div>
-                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Regular Price *</label>
-                            <input
-                              type="number"
-                              required
-                              min="0"
-                              value={price}
-                              onChange={(e) => setPrice(e.target.value)}
-                              className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm font-bold focus:outline-none focus:border-primary bg-card/50"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Original Price (Sale Reference)</label>
-                            <input
-                              type="number"
-                              min="0"
-                              value={salePrice}
-                              onChange={(e) => setSalePrice(e.target.value)}
-                              placeholder="Optional sale price"
-                              className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
-                            />
-                          </div>
-                        </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Thumbnail Cover Photo *</label>
+                          {/* Auto USD Conversion Indicator for Sellers */}
+                          {price && Number(price) > 0 && (
+                            <div className="p-3 bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/80 rounded-xl flex items-center justify-between gap-3 text-xs">
+                              <div className="flex items-center gap-2">
+                                <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                <span className="text-slate-800 dark:text-slate-200 font-medium">
+                                  Marketplace Listing Price: <strong className="text-indigo-600 dark:text-indigo-400 font-bold">${convertToUSD(price, priceCurrency, rates)} USD</strong>
+                                  {priceCurrency !== "USD" && ` (Auto-converted from ${priceCurrency} ${price})`}
+                                </span>
+                              </div>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 uppercase">
+                                USD Catalog
+                              </span>
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Thumbnail Cover Photo *</label>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                required={!thumbnailFile}
+                                onChange={(e) => setThumbnailFile(e.target.files[0])}
+                                className="w-full text-xs text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Live Demo URL</label>
+                              <input
+                                type="url"
+                                value={demoUrl}
+                                onChange={(e) => setDemoUrl(e.target.value)}
+                                placeholder="https://demotemplate.aisitestudio.com"
+                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Video Upload */}
+                          <div className="p-4 border border-primary/20 bg-primary/5 rounded-xl space-y-2">
+                            <label className="block text-xs font-semibold text-primary uppercase mb-1 flex items-center gap-1.5">
+                              <Video className="w-4 h-4" />
+                              Video Walkthrough Preview
+                            </label>
+                            <p className="text-[10px] text-muted-foreground">Upload a walkthrough video of your template. Buyers will see this on the product page.</p>
                             <input
                               type="file"
-                              accept="image/*"
-                              required={!thumbnailFile}
-                              onChange={(e) => setThumbnailFile(e.target.files[0])}
+                              accept="video/*"
+                              onChange={(e) => setVideoFile(e.target.files[0])}
                               className="w-full text-xs text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
                             />
+                            {videoFile && (
+                              <p className="text-[10px] text-green-500 font-semibold">✓ {videoFile.name} selected</p>
+                            )}
                           </div>
+
                           <div>
-                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Live Demo URL</label>
-                            <input
-                              type="url"
-                              value={demoUrl}
-                              onChange={(e) => setDemoUrl(e.target.value)}
-                              placeholder="https://demotemplate.aisitestudio.com"
-                              className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Video Upload */}
-                        <div className="p-4 border border-primary/20 bg-primary/5 rounded-xl space-y-2">
-                          <label className="block text-xs font-semibold text-primary uppercase mb-1 flex items-center gap-1.5">
-                            <Video className="w-4 h-4" />
-                            Video Walkthrough Preview
-                          </label>
-                          <p className="text-[10px] text-muted-foreground">Upload a walkthrough video of your template. Buyers will see this on the product page.</p>
-                          <input
-                            type="file"
-                            accept="video/*"
-                            onChange={(e) => setVideoFile(e.target.files[0])}
-                            className="w-full text-xs text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
-                          />
-                          {videoFile && (
-                            <p className="text-[10px] text-green-500 font-semibold">✓ {videoFile.name} selected</p>
-                          )}
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
-                            Short Description * {isIncompleteAnalysis && !shortDesc && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - fill in manually)</span>}
-                          </label>
-                          <input
-                            type="text"
-                            value={shortDesc}
-                            onChange={(e) => setShortDesc(e.target.value)}
-                            placeholder="A beautiful responsive landing page built with TailwindCSS."
-                            className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
-                            Description * {isIncompleteAnalysis && !desc && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - fill in manually)</span>}
-                          </label>
-                          <textarea
-                            rows={4}
-                            value={desc}
-                            onChange={(e) => setDesc(e.target.value)}
-                            placeholder="Describe full product features and customizability..."
-                            className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50 h-28"
-                          />
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Tags (Comma-separated)</label>
+                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
+                              Short Description * {isIncompleteAnalysis && !shortDesc && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - fill in manually)</span>}
+                            </label>
                             <input
                               type="text"
-                              value={tags}
-                              onChange={(e) => setTags(e.target.value)}
-                              placeholder="saas, dashboard, admin, tailwind"
+                              value={shortDesc}
+                              onChange={(e) => setShortDesc(e.target.value)}
+                              placeholder="A beautiful responsive landing page built with TailwindCSS."
                               className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
                             />
                           </div>
+
                           <div>
-                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">SEO Keywords (Comma-separated)</label>
-                            <input
-                              type="text"
-                              value={keywords}
-                              onChange={(e) => setKeywords(e.target.value)}
-                              placeholder="agency website, landing page, custom nextjs"
-                              className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
+                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
+                              Description * {isIncompleteAnalysis && !desc && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - fill in manually)</span>}
+                            </label>
+                            <textarea
+                              rows={4}
+                              value={desc}
+                              onChange={(e) => setDesc(e.target.value)}
+                              placeholder="Describe full product features and customizability..."
+                              className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50 h-28"
                             />
                           </div>
-                        </div>
 
-                        <div className="flex items-center gap-3 pt-2">
-                          <input
-                            type="checkbox"
-                            id="premium"
-                            checked={premium}
-                            onChange={(e) => setPremium(e.target.checked)}
-                            className="w-4 h-4 accent-primary"
-                          />
-                          <label htmlFor="premium" className="text-xs font-semibold text-foreground uppercase select-none">Premium Template</label>
-                        </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Tags (Comma-separated)</label>
+                              <input
+                                type="text"
+                                value={tags}
+                                onChange={(e) => setTags(e.target.value)}
+                                placeholder="saas, dashboard, admin, tailwind"
+                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">SEO Keywords (Comma-separated)</label>
+                              <input
+                                type="text"
+                                value={keywords}
+                                onChange={(e) => setKeywords(e.target.value)}
+                                placeholder="agency website, landing page, custom nextjs"
+                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
+                              />
+                            </div>
+                          </div>
 
-                        {/* Review step publish button */}
-                        <div className="flex justify-between items-center pt-4 border-t border-border/50">
-                          <button
-                            type="button"
-                            onClick={() => setWizardStep(2)}
-                            className="px-4 py-2 border border-border hover:border-slate-500 rounded-xl text-xs font-semibold transition-all"
-                          >
-                            Back to Audit Report
-                          </button>
-                          <button
-                            type="submit"
-                            disabled={uploading}
-                            className="px-5 py-2.5 bg-primary text-white rounded-xl text-xs font-semibold hover:bg-primary/95 transition-all flex items-center gap-1"
-                          >
-                            {uploading ? (
-                              <>
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Publishing...
-                              </>
-                            ) : "Publish Template"}
-                          </button>
+                          <div className="flex items-center gap-3 pt-2">
+                            <input
+                              type="checkbox"
+                              id="premium"
+                              checked={premium}
+                              onChange={(e) => setPremium(e.target.checked)}
+                              className="w-4 h-4 accent-primary"
+                            />
+                            <label htmlFor="premium" className="text-xs font-semibold text-foreground uppercase select-none">Premium Template</label>
+                          </div>
+
+                          {/* Review step publish button */}
+                          <div className="flex justify-between items-center pt-4 border-t border-border/50">
+                            <button
+                              type="button"
+                              onClick={() => setWizardStep(2)}
+                              className="px-4 py-2 border border-border hover:border-slate-500 rounded-xl text-xs font-semibold transition-all"
+                            >
+                              Back to Audit Report
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={uploading}
+                              className="px-5 py-2.5 bg-primary text-white rounded-xl text-xs font-semibold hover:bg-primary/95 transition-all flex items-center gap-1"
+                            >
+                              {uploading ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Publishing...
+                                </>
+                              ) : "Publish Template"}
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </form>
-                    </>
+                      )}
+                    </form>
+                  </>
                 </div>
               )}
 
@@ -3874,23 +4325,23 @@ function Dashboard() {
                     <h4 className="font-bold text-sm text-foreground">Recent Transactions</h4>
                     <table className="w-full text-left text-xs">
                       <thead>
-                        <tr className="border-b border-border/50 text-muted-foreground font-bold">
-                          <th className="pb-2">Date</th>
-                          <th className="pb-2">Template</th>
-                          <th className="pb-2">Buyer</th>
-                          <th className="pb-2">Amount</th>
-                          <th className="pb-2">Net Income</th>
+                        <tr className="border-b border-border/50 text-foreground font-bold">
+                          <th className="pb-2.5 text-foreground font-bold">Date</th>
+                          <th className="pb-2.5 text-foreground font-bold">Template</th>
+                          <th className="pb-2.5 text-foreground font-bold">Buyer</th>
+                          <th className="pb-2.5 text-foreground font-bold">Amount</th>
+                          <th className="pb-2.5 text-foreground font-bold">Net Income</th>
                         </tr>
                       </thead>
                       <tbody>
                         {earningsSummary.sales && earningsSummary.sales.length > 0 ? (
                           earningsSummary.sales.map((sale, idx) => (
-                            <tr key={idx} className="border-b border-border/40 hover:bg-muted/5 text-muted-foreground">
-                              <td className="py-2.5">{new Date(sale.date).toLocaleDateString()}</td>
-                              <td className="py-2.5 font-semibold text-white">{sale.template_title}</td>
-                              <td className="py-2.5">{sale.purchaser_email}</td>
-                              <td className="py-2.5 font-mono">{formatPrice(sale.price)}</td>
-                              <td className="py-2.5 font-mono text-green-500">{formatPrice(sale.price)}</td>
+                            <tr key={idx} className="border-b border-border/40 hover:bg-muted/10 text-foreground/80">
+                              <td className="py-2.5 text-foreground/80">{new Date(sale.date).toLocaleDateString()}</td>
+                              <td className="py-2.5 font-bold text-foreground">{sale.template_title}</td>
+                              <td className="py-2.5 text-foreground/80">{sale.purchaser_email}</td>
+                              <td className="py-2.5 font-mono text-foreground">{formatPrice(sale.price)}</td>
+                              <td className="py-2.5 font-mono text-emerald-600 dark:text-emerald-400 font-bold">{formatPrice(sale.price)}</td>
                             </tr>
                           ))
                         ) : (
@@ -3910,42 +4361,42 @@ function Dashboard() {
               {activeTab === "seller-orders" && (
                 <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
                   <div>
-                    <h3 className="font-bold text-lg">Sales Orders Ledger</h3>
+                    <h3 className="font-bold text-lg text-foreground">Sales Orders Ledger</h3>
                     <p className="text-sm text-muted-foreground">Log of purchases made on your products.</p>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
                       <thead>
-                        <tr className="border-b border-border/50 text-muted-foreground font-bold">
-                          <th className="pb-2">Order Number</th>
-                          <th className="pb-2">Template Title</th>
-                          <th className="pb-2">Buyer</th>
-                          <th className="pb-2">License Type</th>
-                          <th className="pb-2">Date</th>
-                          <th className="pb-2">Amount</th>
-                          <th className="pb-2 text-right">Action</th>
+                        <tr className="border-b border-border/50 text-foreground font-bold">
+                          <th className="pb-2.5 text-foreground font-bold">Order Number</th>
+                          <th className="pb-2.5 text-foreground font-bold">Template Title</th>
+                          <th className="pb-2.5 text-foreground font-bold">Buyer</th>
+                          <th className="pb-2.5 text-foreground font-bold">License Type</th>
+                          <th className="pb-2.5 text-foreground font-bold">Date</th>
+                          <th className="pb-2.5 text-foreground font-bold">Amount</th>
+                          <th className="pb-2.5 text-right text-foreground font-bold">Action</th>
                         </tr>
                       </thead>
                       <tbody>
                         {earningsSummary.sales && earningsSummary.sales.length > 0 ? (
                           earningsSummary.sales.map((sale, idx) => (
-                            <tr key={idx} className="border-b border-border/40 hover:bg-muted/5 text-muted-foreground">
-                              <td className="py-2.5 font-mono font-semibold text-white">#{sale.order_number}</td>
-                              <td className="py-2.5 font-semibold text-white">{sale.template_title}</td>
-                              <td className="py-2.5">{sale.purchaser_email}</td>
+                            <tr key={idx} className="border-b border-border/40 hover:bg-muted/10 text-foreground">
+                              <td className="py-2.5 font-mono font-bold text-foreground">#{sale.order_number}</td>
+                              <td className="py-2.5 font-bold text-foreground">{sale.template_title}</td>
+                              <td className="py-2.5 text-foreground/80 font-medium">{sale.purchaser_email}</td>
                               <td className="py-2.5">
-                                <span className="bg-primary/5 text-primary border border-primary/10 px-1.5 py-0.5 rounded font-bold uppercase text-[9px]">
-                                  {sale.license_type}
+                                <span className="inline-block bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 px-2 py-0.5 rounded font-extrabold uppercase text-[9px] tracking-wider">
+                                  {sale.license_type || "REGULAR"}
                                 </span>
                               </td>
-                              <td className="py-2.5">{new Date(sale.date).toLocaleDateString()}</td>
-                              <td className="py-2.5 font-mono text-green-500 font-bold">{formatPrice(sale.price)}</td>
+                              <td className="py-2.5 text-foreground/80 font-medium">{new Date(sale.date).toLocaleDateString()}</td>
+                              <td className="py-2.5 font-mono text-emerald-600 dark:text-emerald-400 font-bold">{formatPrice(sale.price)}</td>
                               <td className="py-2.5 text-right">
                                 <a
                                   href={`/dashboard/receipt/${sale.order_id || sale.orderId || "undefined"}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="text-[10px] bg-primary/10 text-primary border border-primary/20 px-2 py-1 rounded hover:bg-primary/20 transition-all text-decoration-none"
+                                  className="inline-flex items-center text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/80 px-2.5 py-1 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-all text-decoration-none shadow-sm"
                                 >
                                   Receipt
                                 </a>
@@ -3967,31 +4418,31 @@ function Dashboard() {
 
               {/* === SELLER REVIEWS === */}
               {activeTab === "seller-reviews" && (
-                <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
-                  <div>
-                    <h3 className="font-bold text-lg">Client Template Reviews</h3>
+                <div className="glass border border-border/40 rounded-2xl p-8 space-y-8">
+                  <div className="space-y-1.5">
+                    <h3 className="font-bold text-xl text-foreground">Client Template Reviews</h3>
                     <p className="text-sm text-muted-foreground">Monitor product feedback and reviews received on your templates.</p>
                   </div>
 
                   {sellerReviewsLoading ? (
-                    <div className="text-center py-8">
-                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" />
+                    <div className="text-center py-10">
+                      <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
                     </div>
                   ) : sellerReviewsList.length === 0 ? (
-                    <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-card/5">
-                      <Star className="w-8 h-8 text-primary mx-auto mb-3 opacity-60 animate-pulse" />
-                      <p className="text-sm font-semibold text-white">No customer reviews yet</p>
-                      <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    <div className="text-center py-14 text-muted-foreground border border-dashed border-border/40 rounded-2xl bg-card/5 space-y-3">
+                      <Star className="w-10 h-10 text-primary mx-auto opacity-60 animate-pulse" />
+                      <p className="text-base font-semibold text-foreground">No customer reviews yet</p>
+                      <p className="text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">
                         When buyers purchase and review your uploaded templates, their comments and ratings will automatically appear here.
                       </p>
                     </div>
                   ) : (
-                    <div className="space-y-4">
+                    <div className="space-y-6">
                       {sellerReviewsList.map((review) => (
-                        <div key={review.id} className="p-5 border border-border/45 rounded-xl space-y-3 bg-muted/5 hover:bg-muted/10 transition-all duration-200">
+                        <div key={review.id} className="p-6 border border-border/60 rounded-2xl space-y-5 bg-card/40 hover:bg-card/70 transition-all duration-200 shadow-sm">
                           <div className="flex justify-between items-start gap-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-9 h-9 rounded-full bg-slate-700 overflow-hidden flex items-center justify-center border border-border/40 shrink-0">
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden flex items-center justify-center border border-border/60 shrink-0 shadow-sm">
                                 {review.user?.avatar_url ? (
                                   <img
                                     src={review.user.avatar_url}
@@ -3999,30 +4450,33 @@ function Dashboard() {
                                     className="w-full h-full object-cover"
                                   />
                                 ) : (
-                                  <span className="font-bold text-xs text-slate-300">
+                                  <span className="font-extrabold text-sm text-foreground">
                                     {review.user?.fullName?.[0] ?? review.user?.username?.[0] ?? "U"}
                                   </span>
                                 )}
                               </div>
-                              <div>
-                                <div className="font-bold text-xs text-white">
+                              <div className="space-y-1.5">
+                                <div className="font-extrabold text-base text-foreground tracking-tight">
                                   {review.user?.fullName || review.user?.username || "Anonymous Client"}
                                 </div>
-                                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                                  <div className="flex">
+                                <div className="flex items-center gap-3 flex-wrap">
+                                  <div className="flex items-center gap-1">
                                     {[1, 2, 3, 4, 5].map((s) => (
                                       <Star
                                         key={s}
-                                        className={`w-3.5 h-3.5 ${s <= review.rating ? "fill-yellow-400 text-yellow-400" : "text-slate-600"
+                                        className={`w-4 h-4 ${s <= review.rating ? "fill-yellow-400 text-yellow-400" : "text-slate-300 dark:text-slate-600"
                                           }`}
                                       />
                                     ))}
                                   </div>
-                                  <span className="text-[10px] text-muted-foreground">
-                                    on <strong className="text-slate-300">{review.template?.title || "Template"}</strong> &bull; {new Date(review.created_at).toLocaleDateString()}
+                                  <span className="text-xs text-foreground/80 font-medium flex items-center gap-1.5">
+                                    <span>on</span>
+                                    <strong className="text-foreground font-bold">{review.template?.title || "Template"}</strong>
+                                    <span>&bull;</span>
+                                    <span>{new Date(review.created_at).toLocaleDateString(undefined, { dateStyle: "medium" })}</span>
                                   </span>
                                   {review.is_verified_purchase && (
-                                    <span className="text-[9px] bg-green-500/10 text-green-500 border border-green-500/20 px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider scale-90">
+                                    <span className="text-[10px] bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/80 px-2.5 py-0.5 rounded-md font-extrabold uppercase tracking-wider ml-1">
                                       Verified Purchase
                                     </span>
                                   )}
@@ -4031,9 +4485,9 @@ function Dashboard() {
                             </div>
                           </div>
 
-                          <div className="pt-2 border-t border-border/10 space-y-1">
-                            <h5 className="font-bold text-xs text-slate-200">{review.title}</h5>
-                            <p className="text-xs text-muted-foreground leading-relaxed">{review.body}</p>
+                          <div className="pt-4 border-t border-border/40 space-y-2">
+                            <h5 className="font-bold text-base text-foreground tracking-tight">{review.title}</h5>
+                            <p className="text-sm text-foreground/90 font-normal leading-relaxed pt-0.5">{review.body}</p>
                           </div>
                         </div>
                       ))}
@@ -4073,26 +4527,30 @@ function Dashboard() {
               {/* === SELLER FOLLOWERS === */}
               {activeTab === "seller-followers" && (
                 <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
-                  <div>
-                    <h3 className="font-bold text-lg">Sellers Followers</h3>
+                  <div className="space-y-1">
+                    <h3 className="font-bold text-xl text-foreground">Sellers Followers</h3>
                     <p className="text-sm text-muted-foreground">Track profiles and users who follow your updates.</p>
                   </div>
                   {followersLoading ? (
-                    <div className="text-center py-8">
-                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" />
+                    <div className="text-center py-10">
+                      <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
                     </div>
                   ) : !followers || followers.length === 0 ? (
-                    <div className="p-8 text-center text-muted-foreground text-sm border border-border/40 rounded-xl">
-                      No followers yet.
+                    <div className="p-12 text-center text-muted-foreground border border-dashed border-border/40 rounded-2xl bg-card/5 space-y-2">
+                      <UserCheck className="w-10 h-10 text-primary mx-auto opacity-60" />
+                      <p className="font-bold text-foreground text-base">No followers yet</p>
+                      <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                        When clients and other creators follow your profile from template pages, they will appear here.
+                      </p>
                     </div>
                   ) : (
                     <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4">
                       {followers.map((follower) => (
-                        <div key={follower.id} className="p-4 rounded-xl border border-border/40 bg-card/10 flex items-center gap-3">
-                          <img src={follower.avatar_url || "https://picsum.photos/seed/avatar/100/100"} alt="" className="w-10 h-10 rounded-full object-cover bg-muted" />
-                          <div>
-                            <div className="font-bold text-sm text-white">{follower.full_name || follower.username}</div>
-                            <span className="text-[10px] text-muted-foreground">@{follower.username || "user"}</span>
+                        <div key={follower.id} className="p-4 rounded-xl border border-border/60 bg-card/40 flex items-center gap-3.5 shadow-sm hover:bg-card/70 transition-all">
+                          <img src={follower.avatar_url || "https://picsum.photos/seed/avatar/100/100"} alt="" className="w-11 h-11 rounded-full object-cover bg-muted border border-border/50 shadow-sm" />
+                          <div className="space-y-0.5">
+                            <div className="font-bold text-sm text-foreground">{follower.full_name || follower.username || "Community Member"}</div>
+                            <span className="text-xs text-muted-foreground">@{follower.username || "user"}</span>
                           </div>
                         </div>
                       ))}
@@ -4274,9 +4732,9 @@ function Dashboard() {
                         />
                       </div>
 
-                      <button 
-                        type="submit" 
-                        disabled={savingPayout} 
+                      <button
+                        type="submit"
+                        disabled={savingPayout}
                         className="w-full sm:w-auto px-4 py-2.5 bg-primary text-white rounded-lg text-xs font-semibold hover:bg-primary/95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
                       >
                         {savingPayout ? (
@@ -4320,13 +4778,30 @@ function Dashboard() {
                             return;
                           }
                           if (amt > earningsSummary.available_balance) {
-                            alert("Insufficient balance.");
+                            alert(`Insufficient balance. You only have ${formatPrice(earningsSummary.available_balance)} available.`);
                             return;
                           }
-                          createWithdrawal.mutate({ amount: amt });
+
+                          const bName = (payoutBankName || user?.payout_bank_name || "").trim();
+                          const aNum = (payoutAccountNumber || user?.payout_account_number || "").trim();
+                          const iCode = (payoutIfscCode || user?.payout_ifsc_code || "").trim();
+                          const hName = (payoutAccountHolderName || user?.payout_account_holder_name || "").trim();
+
+                          if (!bName || !aNum || !iCode || !hName) {
+                            alert("Please fill in your Bank Name, Account Number, IFSC/Routing Code, and Account Holder Name on the left before requesting a payout.");
+                            return;
+                          }
+
+                          createWithdrawal.mutate({
+                            amount: amt,
+                            bank_name: bName,
+                            account_number: aNum,
+                            ifsc_code: iCode,
+                            account_holder_name: hName,
+                          });
                         }}
                         disabled={createWithdrawal.isPending || earningsSummary.available_balance <= 0}
-                        className="py-2.5 bg-primary text-white font-bold text-xs rounded-xl hover:bg-primary/95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="py-2.5 bg-primary text-white font-bold text-xs rounded-xl hover:bg-primary/95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                       >
                         {createWithdrawal.isPending && (
                           <Loader2 className="w-3 h-3 animate-spin" />
@@ -4340,30 +4815,30 @@ function Dashboard() {
                     <h4 className="font-bold text-sm text-foreground mb-3">Withdrawal Requests History</h4>
                     <table className="w-full text-left text-xs">
                       <thead>
-                        <tr className="border-b border-border/50 text-muted-foreground font-bold">
-                          <th className="pb-2">Request ID</th>
-                          <th className="pb-2">Date</th>
-                          <th className="pb-2">Amount</th>
-                          <th className="pb-2">Method</th>
-                          <th className="pb-2">Status</th>
-                          <th className="pb-2 text-right">Action</th>
+                        <tr className="border-b border-border/50 text-foreground font-bold">
+                          <th className="pb-2.5 text-foreground font-bold">Request ID</th>
+                          <th className="pb-2.5 text-foreground font-bold">Date</th>
+                          <th className="pb-2.5 text-foreground font-bold">Amount</th>
+                          <th className="pb-2.5 text-foreground font-bold">Method</th>
+                          <th className="pb-2.5 text-foreground font-bold">Status</th>
+                          <th className="pb-2.5 text-right text-foreground font-bold">Action</th>
                         </tr>
                       </thead>
                       <tbody>
                         {withdrawalRequests && withdrawalRequests.length > 0 ? (
                           withdrawalRequests.map((h, idx) => (
-                            <tr key={idx} className="border-b border-border/40 hover:bg-muted/5 text-muted-foreground">
-                              <td className="py-2.5 font-mono text-foreground">{h.id.slice(0, 8).toUpperCase()}</td>
-                              <td className="py-2.5">{new Date(h.created_at).toLocaleDateString()}</td>
-                              <td className="py-2.5 font-mono font-bold text-white">{formatPrice(h.amount)}</td>
-                              <td className="py-2.5 font-semibold">{h.bank_name || "Bank Direct"}</td>
-                              <td className="py-2.5 font-semibold text-primary capitalize">{h.status}</td>
+                            <tr key={idx} className="border-b border-border/40 hover:bg-muted/10 text-foreground">
+                              <td className="py-2.5 font-mono font-bold text-foreground">{h.id.slice(0, 8).toUpperCase()}</td>
+                              <td className="py-2.5 text-foreground/80 font-medium">{new Date(h.created_at).toLocaleDateString()}</td>
+                              <td className="py-2.5 font-mono font-bold text-foreground">{formatPrice(h.amount)}</td>
+                              <td className="py-2.5 font-semibold text-foreground/90">{h.bank_name || "Bank Direct"}</td>
+                              <td className="py-2.5 font-bold text-primary capitalize">{h.status}</td>
                               <td className="py-2.5 text-right">
                                 <a
                                   href={`/dashboard/payout-receipt/${h.id}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="text-[10px] bg-primary/10 text-primary border border-primary/20 px-2 py-1 rounded hover:bg-primary/20 transition-all text-decoration-none"
+                                  className="inline-flex items-center text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/80 px-2.5 py-1 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-all text-decoration-none shadow-sm"
                                 >
                                   View Receipt
                                 </a>
@@ -4799,24 +5274,24 @@ function Dashboard() {
                   </div>
                   <div className="db-settings-form-panel">
                     <form onSubmit={handleUpdateProfile} className="db-settings-form">
-                      {/* Avatar Upload Container */}
-                      <div className="flex flex-col items-center sm:flex-row gap-4 p-4 rounded-xl border border-border/40 bg-card/20 mb-3">
-                        <div className="relative w-16 h-16 rounded-full overflow-hidden border border-border/40 bg-slate-900 flex items-center justify-center shrink-0">
+                      {/* Avatar Upload */}
+                      <div className="flex flex-col sm:flex-row items-center gap-5 p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 mb-2">
+                        <div className="relative w-16 h-16 rounded-full overflow-hidden bg-indigo-50 dark:bg-indigo-950 border-2 border-indigo-200 dark:border-indigo-800 flex items-center justify-center shrink-0 shadow-sm">
                           {avatarUrl ? (
-                            <img src={avatarUrl} alt="Avatar Preview" className="w-full h-full object-cover" />
+                            <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
                           ) : (
-                            <span className="text-xl font-bold text-slate-400">
+                            <span className="text-xl font-extrabold text-indigo-600 dark:text-indigo-400">
                               {fullName?.[0] || username?.[0] || "?"}
                             </span>
                           )}
                           {uploadingAvatar && (
                             <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                              <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                              <Loader2 className="w-4 h-4 animate-spin text-white" />
                             </div>
                           )}
                         </div>
                         <div className="space-y-2 text-center sm:text-left">
-                          <label className="text-xs font-semibold text-slate-200 block">Profile Picture</label>
+                          <label className="text-xs font-extrabold text-slate-800 dark:text-slate-200 block uppercase tracking-wider">Profile Picture</label>
                           <input
                             type="file"
                             accept="image/*"
@@ -4828,7 +5303,7 @@ function Dashboard() {
                           <div className="flex gap-2 justify-center sm:justify-start">
                             <label
                               htmlFor="avatar-upload-input"
-                              className="cursor-pointer px-3 py-1 bg-primary/20 border border-primary/30 text-primary text-xs font-semibold rounded-lg hover:bg-primary/30 transition-all"
+                              className="cursor-pointer px-4 py-1.5 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs font-extrabold rounded-xl transition-all shadow-sm"
                             >
                               Upload Image
                             </label>
@@ -4836,61 +5311,145 @@ function Dashboard() {
                               <button
                                 type="button"
                                 onClick={() => setAvatarUrl("")}
-                                className="px-3 py-1 bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-semibold rounded-lg hover:bg-red-500/20 transition-all"
+                                className="px-4 py-1.5 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 border border-red-200 dark:border-red-800/50 text-red-600 dark:text-red-400 text-xs font-extrabold rounded-xl transition-all shadow-sm cursor-pointer"
                               >
                                 Remove
                               </button>
                             )}
                           </div>
-                          <span className="text-[10px] text-muted-foreground block">
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium block">
                             Support JPG, PNG or WEBP. Max 2MB.
                           </span>
                         </div>
                       </div>
 
-                      <div className="db-form-group">
-                        <label className="db-form-label">Email Address (Read Only)</label>
+                      <div className="db-form-group space-y-1">
+                        <label className="db-form-label text-slate-700 dark:text-slate-300 font-extrabold text-xs tracking-wider uppercase">Email Address (Read Only)</label>
                         <input
                           type="email"
                           value={user?.email ?? ""}
                           readOnly
-                          className="db-form-input db-input-readonly"
+                          className="db-form-input bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold border-2 border-slate-200 dark:border-slate-700 cursor-not-allowed"
                         />
                       </div>
-                      <div className="db-form-group">
-                        <label className="db-form-label">Full Name</label>
+                      <div className="db-form-group space-y-1">
+                        <label className="db-form-label text-slate-700 dark:text-slate-300 font-extrabold text-xs tracking-wider uppercase">Full Name</label>
                         <input
                           type="text"
                           value={fullName}
                           onChange={(e) => setFullName(e.target.value)}
-                          className="db-form-input"
+                          className="db-form-input bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-bold rounded-xl focus:border-indigo-600 shadow-sm"
                           placeholder="Navin Bharath"
                         />
                       </div>
-                      <div className="db-form-group">
-                        <label className="db-form-label">Username</label>
+                      <div className="db-form-group space-y-1">
+                        <label className="db-form-label text-slate-700 dark:text-slate-300 font-extrabold text-xs tracking-wider uppercase">Username</label>
                         <input
                           type="text"
                           value={username}
                           onChange={(e) => setUsername(e.target.value)}
-                          className="db-form-input"
+                          className="db-form-input bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-bold rounded-xl focus:border-indigo-600 shadow-sm"
                           placeholder="navin"
                         />
                       </div>
-                      <div className="db-form-group">
-                        <label className="db-form-label">Bio</label>
+                      <div className="db-form-group space-y-1">
+                        <label className="db-form-label text-slate-700 dark:text-slate-300 font-extrabold text-xs tracking-wider uppercase">Bio</label>
                         <textarea
                           value={bio}
                           onChange={(e) => setBio(e.target.value)}
-                          className="db-form-input db-form-textarea"
+                          className="db-form-input db-form-textarea bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-semibold rounded-xl focus:border-indigo-600 shadow-sm"
                           placeholder="Tell us about yourself..."
                         />
                       </div>
+
+                      {/* Location & Viewing Currency Preferences */}
+                      <div className="p-5 rounded-2xl border-2 border-indigo-100 dark:border-indigo-950 bg-indigo-50/40 dark:bg-indigo-950/20 space-y-4 mb-6 mt-4 shadow-sm">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-indigo-100 dark:border-indigo-900/40 pb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-2xl bg-indigo-100 dark:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-700 flex items-center justify-center shrink-0 shadow-sm text-indigo-600 dark:text-indigo-300">
+                              <Globe className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">Location & Preferred Currency</h4>
+                              <p className="text-xs text-slate-600 dark:text-slate-400 font-medium">Auto-converts marketplace pricing and sets up template upload currency.</p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                setDetectingLocation(true);
+                                const updated = await useAuthStore.getState().detectLocation();
+                                if (updated) {
+                                  setUserCountry(updated.country || "");
+                                  setUserCity(updated.city || "");
+                                  setUserCurrencyPref(updated.currency || "USD");
+                                  useCurrencyStore.getState().setUserCurrency(updated.currency || "USD");
+                                }
+                              } catch (err) {
+                                console.warn("Location auto-detection notice:", err);
+                              } finally {
+                                setDetectingLocation(false);
+                              }
+                            }}
+                            disabled={detectingLocation}
+                            className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md shadow-indigo-600/30 border border-indigo-500 shrink-0"
+                          >
+                            {detectingLocation ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+                            Auto-Detect Location
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+                          <div className="space-y-1">
+                            <label className="db-form-label text-slate-700 dark:text-slate-300 font-extrabold text-xs uppercase tracking-wider">Country</label>
+                            <input
+                              type="text"
+                              value={userCountry}
+                              onChange={(e) => setUserCountry(e.target.value)}
+                              className="db-form-input text-xs font-bold bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-xl"
+                              placeholder="e.g. India, United States"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="db-form-label text-slate-700 dark:text-slate-300 font-extrabold text-xs uppercase tracking-wider">City</label>
+                            <input
+                              type="text"
+                              value={userCity}
+                              onChange={(e) => setUserCity(e.target.value)}
+                              className="db-form-input text-xs font-bold bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-xl"
+                              placeholder="e.g. Coimbatore, New York"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="db-form-label text-slate-700 dark:text-slate-300 font-extrabold text-xs uppercase tracking-wider">Viewing & Upload Currency</label>
+                            <select
+                              value={userCurrencyPref}
+                              onChange={(e) => {
+                                setUserCurrencyPref(e.target.value);
+                                useCurrencyStore.getState().setUserCurrency(e.target.value);
+                              }}
+                              className="db-form-input text-xs font-extrabold bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-xl cursor-pointer"
+                            >
+                              <option value="USD" style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>USD ($)</option>
+                              <option value="INR" style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>INR (₹)</option>
+                              <option value="EUR" style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>EUR (€)</option>
+                              <option value="GBP" style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>GBP (£)</option>
+                              <option value="CAD" style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>CAD (CA$)</option>
+                              <option value="AUD" style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>AUD (A$)</option>
+                              <option value="JPY" style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>JPY (¥)</option>
+                              <option value="AED" style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>AED (AED)</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
                       <button
                         type="submit"
                         disabled={savingProfile}
-                        className="db-save-btn"
+                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl transition-all shadow-md shadow-indigo-600/25 border border-indigo-500 cursor-pointer inline-flex items-center justify-center gap-1.5"
                       >
+                        {savingProfile && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                         {savingProfile ? "Saving..." : "Save Changes"}
                       </button>
                     </form>
@@ -4900,21 +5459,29 @@ function Dashboard() {
 
               {/* === DEPLOY PROJECT WIZARD MODAL === */}
               {isDeployModalOpen && (
-                <div className="modal-backdrop bg-slate-950/80 backdrop-blur-md">
-                  <div className="modal-content max-w-lg w-full bg-[#0B0F19] border border-indigo-500/40 p-6 rounded-2xl space-y-4 shadow-2xl shadow-indigo-950/80 text-white">
-                    <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-lg text-white">Deploy & Publish Website</h3>
-                        <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-semibold border border-emerald-500/30 uppercase tracking-wider flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                          AI Studio Cloud
-                        </span>
+                <div className="modal-backdrop-solid">
+                  <div className="modal-content-opaque space-y-6 text-slate-900">
+                    <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-500" />
+                    <div className="flex justify-between items-center border-b border-slate-200 pb-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center shadow-sm">
+                          <Zap className="w-5 h-5 text-indigo-600" />
+                        </div>
+                        <div>
+                          <h3 className="font-extrabold text-xl text-slate-900">Deploy & Publish Website</h3>
+                          <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2.5 py-0.5 rounded-full font-extrabold border border-emerald-200 uppercase tracking-wider inline-flex items-center gap-1.5 mt-0.5">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                            AI Studio Cloud Platform
+                          </span>
+                        </div>
                       </div>
                       <button
+                        type="button"
                         onClick={() => setIsDeployModalOpen(false)}
-                        className="text-slate-400 hover:text-white transition-colors bg-transparent border-none text-xl cursor-pointer"
+                        className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 transition-all flex items-center justify-center border border-slate-300 cursor-pointer shadow-sm"
+                        title="Close Modal"
                       >
-                        ×
+                        <X className="w-4 h-4" />
                       </button>
                     </div>
 
@@ -4932,7 +5499,7 @@ function Dashboard() {
                             output_dir: deployOutputDir,
                           };
                           const res = await api.post("/deployments/", payload, authToken ?? undefined);
-                          
+
                           // If custom domain entered, link it immediately
                           if (customDomainInput.trim()) {
                             try {
@@ -4951,7 +5518,7 @@ function Dashboard() {
                           setDeployBranch("main");
                           setDeployBuildCommand("npm run build");
                           setDeployOutputDir("dist");
-                          
+
                           // Open live build console for the new deployment
                           setSelectedDeployment(res);
                           setActiveConsoleLogs(res.logs || "");
@@ -4962,10 +5529,10 @@ function Dashboard() {
                           alert("Deployment failed: " + err.message);
                         }
                       }}
-                      className="space-y-4"
+                      className="space-y-5"
                     >
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-semibold text-indigo-300 block uppercase tracking-wider">Select Template / Project *</label>
+                      <div className="space-y-2">
+                        <label className="modal-label-solid">Select Template / Project *</label>
                         <select
                           value={deployTemplateId}
                           onChange={(e) => {
@@ -4978,14 +5545,14 @@ function Dashboard() {
                               if (matched) setDeployProjectName(matched.title);
                             }
                           }}
-                          className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-indigo-500 cursor-pointer"
+                          className="modal-select-solid"
                           required
                         >
                           {/* AI Studio & Custom Draft Projects */}
                           {studioList.length > 0 && (
-                            <optgroup label="✨ AI Studio & Custom Projects" style={{ backgroundColor: "#0f172a", color: "#a855f7" }}>
+                            <optgroup label="✨ AI Studio & Custom Projects" style={{ backgroundColor: "#ffffff", color: "#6b21a8" }}>
                               {studioList.map(t => (
-                                <option key={t.id} value={t.id} style={{ backgroundColor: "#0f172a", color: "#ffffff" }}>
+                                <option key={t.id} value={t.id} style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>
                                   {t.title} ({t.framework || "HTML"}) — [AI Studio Project]
                                 </option>
                               ))}
@@ -4994,9 +5561,9 @@ function Dashboard() {
 
                           {/* Seller Uploaded Marketplace Templates */}
                           {uploadedList.length > 0 && (
-                            <optgroup label="📦 My Uploaded Marketplace Templates" style={{ backgroundColor: "#0f172a", color: "#38bdf8" }}>
+                            <optgroup label="📦 My Uploaded Marketplace Templates" style={{ backgroundColor: "#ffffff", color: "#0284c7" }}>
                               {uploadedList.map(t => (
-                                <option key={t.id} value={t.id} style={{ backgroundColor: "#0f172a", color: "#ffffff" }}>
+                                <option key={t.id} value={t.id} style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>
                                   {t.title} ({t.framework || "HTML"}) — [Uploaded Template]
                                 </option>
                               ))}
@@ -5005,9 +5572,9 @@ function Dashboard() {
 
                           {/* Downloaded & Purchased Templates */}
                           {downloadedList.length > 0 && (
-                            <optgroup label="📥 Downloaded & Purchased Templates" style={{ backgroundColor: "#0f172a", color: "#34d399" }}>
+                            <optgroup label="📥 Downloaded & Purchased Templates" style={{ backgroundColor: "#ffffff", color: "#059669" }}>
                               {downloadedList.map(t => (
-                                <option key={t.id} value={t.id} style={{ backgroundColor: "#0f172a", color: "#ffffff" }}>
+                                <option key={t.id} value={t.id} style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>
                                   {t.title} ({t.framework || "HTML"}) — [Downloaded Template]
                                 </option>
                               ))}
@@ -5015,74 +5582,69 @@ function Dashboard() {
                           )}
 
                           {availableTemplatesForDeployment.length === 0 && (
-                            <option value="" disabled style={{ backgroundColor: "#0f172a", color: "#94a3b8" }}>
+                            <option value="" disabled style={{ backgroundColor: "#ffffff", color: "#64748b" }}>
                               -- No templates or projects found --
                             </option>
                           )}
                         </select>
                         {availableTemplatesForDeployment.length === 0 && (
-                          <div className="p-3 bg-amber-500/10 border border-amber-500/25 rounded-xl flex items-center justify-between text-xs text-amber-300">
+                          <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between text-xs text-amber-800">
                             <span>You have not downloaded any templates yet.</span>
-                            <Link href="/marketplace" className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 font-bold rounded-lg text-[11px] text-decoration-none">
+                            <Link href="/marketplace" className="px-3 py-1.5 bg-amber-500 text-slate-950 font-bold rounded-xl text-[11px] text-decoration-none shadow-sm">
                               Browse Marketplace
                             </Link>
                           </div>
                         )}
                       </div>
 
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-semibold text-indigo-300 block uppercase tracking-wider">Project Display Name *</label>
+                      <div className="space-y-2">
+                        <label className="modal-label-solid">Project Display Name *</label>
                         <input
                           type="text"
                           value={deployProjectName}
                           onChange={(e) => setDeployProjectName(e.target.value)}
                           placeholder="My Portfolio Site"
-                          className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-indigo-500"
+                          className="modal-input-solid"
                           required
                         />
                       </div>
 
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-semibold text-indigo-300 block uppercase tracking-wider">Custom Domain Name (Optional)</label>
+                      <div className="space-y-2">
+                        <label className="modal-label-solid">Custom Domain Name (Optional)</label>
                         <input
                           type="text"
                           value={customDomainInput}
                           onChange={(e) => setCustomDomainInput(e.target.value)}
                           placeholder="e.g. www.mybrand.com"
-                          className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-indigo-500 placeholder-slate-500"
+                          className="modal-input-solid"
                         />
-                        <span className="text-[11px] text-slate-400 block">Leave blank to use free *.aisitestudio.com subdomain.</span>
+                        <span className="text-xs text-slate-600 block leading-relaxed font-medium">Leave blank to use free *.aisitestudio.com subdomain.</span>
                       </div>
 
-                      <div className="p-4 bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/30 rounded-xl space-y-2">
-                        <div className="flex items-center gap-2 text-xs font-bold text-white uppercase tracking-wider">
-                          <Globe className="w-4 h-4 text-indigo-400" /> AI Site Studio Cloud Platform
+                      <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                        <div className="flex items-center gap-2 text-xs font-bold text-slate-900 uppercase tracking-wider">
+                          <Globe className="w-4 h-4 text-indigo-600" /> AI Site Studio Cloud Platform
                         </div>
-                        <p className="text-xs text-slate-300 leading-relaxed">
+                        <p className="text-xs text-slate-600 leading-relaxed">
                           High-speed Edge Infrastructure with automated SSL certificates, global CDN caching, and domain routing.
                         </p>
                       </div>
 
-                      <div className="flex justify-end gap-2.5 pt-3 border-slate-800 border-t">
+                      <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
                         <button
                           type="button"
                           onClick={() => setIsDeployModalOpen(false)}
-                          className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition-colors cursor-pointer border-none"
+                          className="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-2xl transition-all cursor-pointer border border-slate-300 shadow-sm"
                         >
                           Cancel
                         </button>
                         <button
                           type="submit"
                           disabled={deploying}
-                          className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-bold rounded-xl transition-all disabled:opacity-50 flex items-center gap-1.5 shadow-lg shadow-indigo-500/25 border-none cursor-pointer"
+                          className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold rounded-2xl transition-all disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-indigo-600/30 border border-indigo-500 cursor-pointer"
                         >
-                          {deploying ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Deploying Live...
-                            </>
-                          ) : (
-                            "Deploy & Publish"
-                          )}
+                          {deploying && <Loader2 className="w-4 h-4 animate-spin" />}
+                          {deploying ? "Deploying Site..." : "Publish Website"}
                         </button>
                       </div>
                     </form>
@@ -5183,7 +5745,7 @@ function Dashboard() {
                         </div>
                         <div className="flex items-center gap-2.5 self-end sm:self-auto">
                           {isSuccess && (() => {
-                            const liveTargetUrl = selectedDeployment?.live_url 
+                            const liveTargetUrl = selectedDeployment?.live_url
                               || (selectedDeployment?.site_id ? `http://localhost:8000/sites/${selectedDeployment.site_id}/` : null)
                               || (selectedDeployment?.custom_domain ? `http://${selectedDeployment.custom_domain}` : null);
                             if (!liveTargetUrl) return null;
@@ -5304,6 +5866,204 @@ function Dashboard() {
                 </div>
               )}
 
+              {/* === EDIT & REDESIGN TEMPLATE MODAL === */}
+              {editTemplateModalOpen && editingTemplate && (
+                <div className="modal-backdrop">
+                  <div className="modal-content glass border border-border/40 p-6 rounded-2xl max-w-lg w-full space-y-5">
+                    <div className="flex justify-between items-center border-b border-border/20 pb-3">
+                      <div>
+                        <h3 className="font-bold text-lg text-white flex items-center gap-2">
+                          <Pencil className="w-5 h-5 text-primary" /> Redesign & Edit Template
+                        </h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">Template ID: {editingTemplate.id}</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setEditTemplateModalOpen(false);
+                          setEditingTemplate(null);
+                        }}
+                        className="text-muted-foreground hover:text-white transition-colors bg-transparent border-none text-xl cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </div>
+
+                    <div className="p-3 bg-gradient-to-r from-primary/10 to-indigo-500/10 border border-primary/20 rounded-xl flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                          <Sparkles className="w-4 h-4 text-primary" /> Visual AI Studio Canvas
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">Customize copywriting, colors, section layouts, and images live.</p>
+                      </div>
+                      <Link
+                        href={`/preview?templateId=${editingTemplate.id}`}
+                        className="px-3.5 py-1.5 bg-primary text-white hover:bg-primary/95 text-xs font-bold rounded-xl transition-all shadow-md shadow-primary/20 shrink-0 text-decoration-none"
+                      >
+                        Open AI Studio →
+                      </Link>
+                    </div>
+
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const finalUsdPrice = convertToUSD(editPrice, editCurrency, rates);
+                        updateTemplateMutation.mutate({
+                          templateId: editingTemplate.id,
+                          data: {
+                            title: editTitle.trim(),
+                            description: editDescription.trim(),
+                            price: finalUsdPrice,
+                            price_currency: "USD",
+                            framework: editFramework,
+                            category: editCategory,
+                            preview_url: editDemoUrl.trim() || undefined,
+                          },
+                        });
+                      }}
+                      className="space-y-4"
+                    >
+                      {editError && (
+                        <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 p-2.5 rounded-lg">
+                          {editError}
+                        </div>
+                      )}
+
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-semibold text-muted-foreground uppercase">Template Title</label>
+                        <input
+                          type="text"
+                          required
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          className="w-full px-3 py-2 text-sm bg-background border border-border/40 rounded-xl text-foreground focus:outline-none focus:border-primary/50"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between items-center">
+                            <label className="block text-xs font-semibold text-muted-foreground uppercase">Price ({editCurrency})</label>
+                            <select
+                              value={editCurrency}
+                              onChange={(e) => handleEditCurrencyChange(e.target.value)}
+                              className="text-[10px] font-bold bg-muted border border-border/40 rounded px-1.5 py-0.5"
+                            >
+                              <option value="INR">INR (₹)</option>
+                              <option value="USD">USD ($)</option>
+                              <option value="EUR">EUR (€)</option>
+                              <option value="GBP">GBP (£)</option>
+                              <option value="CAD">CAD (CA$)</option>
+                              <option value="AUD">AUD (A$)</option>
+                              <option value="JPY">JPY (¥)</option>
+                              <option value="AED">AED (AED)</option>
+                            </select>
+                          </div>
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            required
+                            value={editPrice}
+                            onChange={(e) => setEditPrice(e.target.value)}
+                            className="w-full px-3 py-2 text-sm bg-background border border-border/40 rounded-xl text-foreground focus:outline-none focus:border-primary/50 font-mono"
+                          />
+                          <div className="text-[10px] text-muted-foreground">
+                            {editCurrency === "INR" ? (
+                              <span>Marketplace Listing: <strong className="font-bold text-primary">${convertToUSD(editPrice, "INR", rates)} USD</strong> <span className="text-muted-foreground/80">(Auto-converted from ₹{Number(editPrice || 0).toLocaleString()} INR)</span></span>
+                            ) : (
+                              <span>Marketplace Listing: <strong className="font-bold text-primary">${convertToUSD(editPrice, editCurrency, rates)} USD</strong></span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="block text-xs font-semibold text-muted-foreground uppercase">Framework</label>
+                          <select
+                            value={editFramework}
+                            onChange={(e) => setEditFramework(e.target.value)}
+                            className="w-full px-3 py-2 text-sm bg-background border border-border/40 rounded-xl text-foreground focus:outline-none focus:border-primary/50"
+                          >
+                            <option value="React">React</option>
+                            <option value="NextJS">Next.js</option>
+                            <option value="HTML">HTML / CSS</option>
+                            <option value="Vue">Vue.js</option>
+                            <option value="Tailwind">Tailwind CSS</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-semibold text-muted-foreground uppercase">Description</label>
+                        <textarea
+                          rows={3}
+                          value={editDescription}
+                          onChange={(e) => setEditDescription(e.target.value)}
+                          className="w-full px-3 py-2 text-sm bg-background border border-border/40 rounded-xl text-foreground focus:outline-none focus:border-primary/50"
+                          placeholder="Brief description of this template features..."
+                        />
+                      </div>
+
+                      {/* Re-upload ZIP Section */}
+                      <div className="border-t border-border/20 pt-3 space-y-2">
+                        <label className="block text-xs font-semibold text-muted-foreground uppercase flex items-center justify-between">
+                          <span>Replace Source Code (.ZIP)</span>
+                          <span className="text-[10px] text-muted-foreground font-normal">Optional</span>
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="file"
+                            accept=".zip"
+                            onChange={(e) => {
+                              if (e.target.files && e.target.files[0]) {
+                                const file = e.target.files[0];
+                                reuploadZipMutation.mutate({ templateId: editingTemplate.id, file });
+                              }
+                            }}
+                            className="text-xs text-muted-foreground file:mr-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
+                          />
+                          {reuploadZipMutation.isPending && (
+                            <span className="text-xs text-primary font-semibold flex items-center gap-1">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Uploading ZIP...
+                            </span>
+                          )}
+                          {reuploadZipMutation.isSuccess && (
+                            <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Updated!
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end gap-2 border-t border-border/20 pt-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditTemplateModalOpen(false);
+                            setEditingTemplate(null);
+                          }}
+                          className="px-4 py-2 bg-muted/40 hover:bg-muted/70 text-foreground text-xs font-semibold rounded-xl transition-colors border-none cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={updateTemplateMutation.isPending}
+                          className="px-5 py-2 bg-primary hover:bg-primary/95 text-white text-xs font-bold rounded-xl transition-colors disabled:opacity-50 flex items-center gap-2 border-none cursor-pointer shadow-md shadow-primary/20"
+                        >
+                          {updateTemplateMutation.isPending ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" /> Saving Changes...
+                            </>
+                          ) : (
+                            "Save Changes"
+                          )}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+
               {/* === WRITE REVIEW MODAL === */}
               {reviewModalOpen && (
                 <div className="modal-backdrop">
@@ -5400,20 +6160,26 @@ function Dashboard() {
 
               {/* === LINK CUSTOM DOMAIN MODAL === */}
               {linkDomainModalOpen && (
-                <div className="modal-backdrop bg-slate-950/80 backdrop-blur-md">
-                  <div className="modal-content max-w-md w-full bg-[#0B0F19] border border-indigo-500/40 p-6 rounded-2xl space-y-4 shadow-2xl shadow-indigo-950/80 text-white">
-                    <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-                      <div>
-                        <h3 className="font-bold text-lg text-white flex items-center gap-2">
-                          <Globe className="w-5 h-5 text-indigo-400" /> Link Custom Domain
-                        </h3>
-                        <p className="text-xs text-slate-300 mt-0.5">Publish your website directly under your custom brand domain.</p>
+                <div className="modal-backdrop-solid">
+                  <div className="modal-content-opaque space-y-6 text-slate-900">
+                    <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-500" />
+                    <div className="flex justify-between items-center border-b border-slate-200 pb-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center shadow-sm">
+                          <Globe className="w-5 h-5 text-indigo-600" />
+                        </div>
+                        <div>
+                          <h3 className="font-extrabold text-xl text-slate-900">Link Custom Domain</h3>
+                          <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">Publish your website directly under your custom brand domain.</p>
+                        </div>
                       </div>
                       <button
+                        type="button"
                         onClick={() => setLinkDomainModalOpen(false)}
-                        className="text-slate-400 hover:text-white transition-colors bg-transparent border-none text-xl cursor-pointer"
+                        className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 transition-all flex items-center justify-center border border-slate-300 cursor-pointer shadow-sm"
+                        title="Close Modal"
                       >
-                        ×
+                        <X className="w-4 h-4" />
                       </button>
                     </div>
 
@@ -5432,13 +6198,13 @@ function Dashboard() {
                       setDeploying(true);
                       try {
                         let targetDeploymentId = linkDomainDeploymentId;
-                        
+
                         // Check if user selected a template to deploy on-the-fly
                         if (linkDomainDeploymentId.startsWith("NEW_DEPLOY:")) {
                           const selectedTplId = linkDomainDeploymentId.replace("NEW_DEPLOY:", "");
                           const matchedTpl = sellerTemplatesList.find(t => t.id === selectedTplId) || buyerTemplates.find(t => t.id === selectedTplId);
                           const projName = matchedTpl ? matchedTpl.title : "Custom Website";
-                          
+
                           const payload = {
                             project_name: projName,
                             provider: "local",
@@ -5453,7 +6219,7 @@ function Dashboard() {
 
                         // Map custom domain
                         await api.patch(`/deployments/${targetDeploymentId}/domain?custom_domain=${encodeURIComponent(customDomainInput.trim())}`, {}, authToken ?? undefined);
-                        
+
                         refetchDeployments();
                         alert("Website published and custom domain linked successfully!");
                         setLinkDomainModalOpen(false);
@@ -5464,30 +6230,30 @@ function Dashboard() {
                       } finally {
                         setDeploying(false);
                       }
-                    }} className="space-y-4">
+                    }} className="space-y-5">
                       {linkDomainError && (
-                        <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/25 p-3 rounded-xl">
+                        <div className="text-xs text-red-700 bg-red-50 border border-red-200 p-3.5 rounded-2xl font-semibold">
                           {linkDomainError}
                         </div>
                       )}
 
                       <div className="space-y-2">
-                        <label className="block text-xs font-semibold text-indigo-300 uppercase tracking-wider">
+                        <label className="modal-label-solid">
                           Select Website / Template *
                         </label>
                         <select
                           required
                           value={linkDomainDeploymentId}
                           onChange={(e) => setLinkDomainDeploymentId(e.target.value)}
-                          className="w-full px-4 py-3 rounded-xl border border-slate-700 bg-slate-900 text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm font-medium transition-all cursor-pointer"
+                          className="modal-select-solid"
                         >
-                          <option value="" style={{ backgroundColor: "#0f172a", color: "#ffffff" }}>-- Choose Project or Template --</option>
-                          
+                          <option value="" style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>-- Choose Project or Template --</option>
+
                           {/* Active deployments */}
                           {deploymentsData.length > 0 && (
-                            <optgroup label="Active Projects" style={{ backgroundColor: "#0f172a", color: "#6366f1" }}>
+                            <optgroup label="Active Projects" style={{ backgroundColor: "#ffffff", color: "#4338ca" }}>
                               {deploymentsData.map((d) => (
-                                <option key={d.id} value={d.id} style={{ backgroundColor: "#0f172a", color: "#ffffff" }}>
+                                <option key={d.id} value={d.id} style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>
                                   {d.project_name} (Active Site)
                                 </option>
                               ))}
@@ -5496,9 +6262,9 @@ function Dashboard() {
 
                           {/* AI Studio & Custom Draft Projects */}
                           {studioList.length > 0 && (
-                            <optgroup label="✨ Deploy from AI Studio & Custom Projects" style={{ backgroundColor: "#0f172a", color: "#a855f7" }}>
+                            <optgroup label="✨ Deploy from AI Studio & Custom Projects" style={{ backgroundColor: "#ffffff", color: "#6b21a8" }}>
                               {studioList.map((t) => (
-                                <option key={t.id} value={`NEW_DEPLOY:${t.id}`} style={{ backgroundColor: "#0f172a", color: "#ffffff" }}>
+                                <option key={t.id} value={`NEW_DEPLOY:${t.id}`} style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>
                                   {t.title} ({t.framework || "HTML"}) — [AI Studio Project]
                                 </option>
                               ))}
@@ -5507,9 +6273,9 @@ function Dashboard() {
 
                           {/* Seller Uploaded Templates */}
                           {uploadedList.length > 0 && (
-                            <optgroup label="📦 Deploy from My Uploaded Marketplace Templates" style={{ backgroundColor: "#0f172a", color: "#38bdf8" }}>
+                            <optgroup label="📦 Deploy from My Uploaded Marketplace Templates" style={{ backgroundColor: "#ffffff", color: "#0284c7" }}>
                               {uploadedList.map((t) => (
-                                <option key={t.id} value={`NEW_DEPLOY:${t.id}`} style={{ backgroundColor: "#0f172a", color: "#ffffff" }}>
+                                <option key={t.id} value={`NEW_DEPLOY:${t.id}`} style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>
                                   {t.title} ({t.framework || "HTML"}) — [Uploaded Template]
                                 </option>
                               ))}
@@ -5518,9 +6284,9 @@ function Dashboard() {
 
                           {/* Downloaded & Purchased Templates */}
                           {downloadedList.length > 0 && (
-                            <optgroup label="📥 Deploy from Downloaded & Purchased Templates" style={{ backgroundColor: "#0f172a", color: "#34d399" }}>
+                            <optgroup label="📥 Deploy from Downloaded & Purchased Templates" style={{ backgroundColor: "#ffffff", color: "#059669" }}>
                               {downloadedList.map((t) => (
-                                <option key={t.id} value={`NEW_DEPLOY:${t.id}`} style={{ backgroundColor: "#0f172a", color: "#ffffff" }}>
+                                <option key={t.id} value={`NEW_DEPLOY:${t.id}`} style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>
                                   {t.title} ({t.framework || "HTML"}) — [Downloaded Template]
                                 </option>
                               ))}
@@ -5530,7 +6296,7 @@ function Dashboard() {
                       </div>
 
                       <div className="space-y-2">
-                        <label className="block text-xs font-semibold text-indigo-300 uppercase tracking-wider">
+                        <label className="modal-label-solid">
                           Custom Domain Name *
                         </label>
                         <input
@@ -5539,27 +6305,27 @@ function Dashboard() {
                           value={customDomainInput}
                           onChange={(e) => setCustomDomainInput(e.target.value)}
                           placeholder="e.g. www.mybrand.com or app.mybrand.com"
-                          className="w-full px-4 py-3 rounded-xl border border-slate-700 bg-slate-900 text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm font-medium transition-all"
+                          className="modal-input-solid"
                         />
-                        <span className="text-[11px] text-slate-400 block mt-1">
+                        <span className="text-xs text-slate-600 block mt-1.5 leading-relaxed font-medium">
                           Input the full domain name (including www or custom subdomains). Point your A/CNAME record to our server.
                         </span>
                       </div>
 
-                      <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-800">
+                      <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
                         <button
                           type="button"
                           onClick={() => setLinkDomainModalOpen(false)}
-                          className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition-colors cursor-pointer border-none"
+                          className="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-2xl transition-all cursor-pointer border border-slate-300 shadow-sm"
                         >
                           Cancel
                         </button>
                         <button
                           type="submit"
                           disabled={deploying}
-                          className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-bold rounded-xl transition-all disabled:opacity-50 flex items-center gap-1.5 shadow-lg shadow-indigo-500/25 border-none cursor-pointer"
+                          className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold rounded-2xl transition-all disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-indigo-600/30 border border-indigo-500 cursor-pointer"
                         >
-                          {deploying && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                          {deploying && <Loader2 className="w-4 h-4 animate-spin" />}
                           {deploying ? "Publishing & Linking..." : "Publish & Connect Domain"}
                         </button>
                       </div>

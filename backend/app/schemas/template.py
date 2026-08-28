@@ -46,12 +46,38 @@ class TemplateBase(BaseModel):
     included_pages: Optional[List[str]] = None
     seo_keywords: Optional[List[str]] = None
 
+    @field_validator("license_type", mode="before")
+    @classmethod
+    def parse_license_type(cls, v):
+        if v is None:
+            return TemplateLicense.REGULAR
+        if isinstance(v, TemplateLicense):
+            return v
+        s = str(v).lower()
+        if "extended" in s or "unlimited" in s:
+            return TemplateLicense.EXTENDED
+        return TemplateLicense.REGULAR
+
 
 class TemplateCreate(TemplateBase):
     slug: str
     status: TemplateStatus = TemplateStatus.DRAFT
     download_assets: Optional[Dict[str, str]] = None
     changelog: Optional[Dict[str, Any]] = None
+    included_pages: Optional[List[str]] = None
+    seo_keywords: Optional[List[str]] = None
+
+    @field_validator("license_type", mode="before")
+    @classmethod
+    def parse_license_type(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, TemplateLicense):
+            return v
+        s = str(v).lower()
+        if "extended" in s or "unlimited" in s:
+            return TemplateLicense.EXTENDED
+        return TemplateLicense.REGULAR
 
 
 class TemplateUpdate(BaseModel):
@@ -90,6 +116,18 @@ class TemplateUpdate(BaseModel):
     changelog: Optional[Dict[str, Any]] = None
     included_pages: Optional[List[str]] = None
     seo_keywords: Optional[List[str]] = None
+
+    @field_validator("license_type", mode="before")
+    @classmethod
+    def parse_license_type(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, TemplateLicense):
+            return v
+        s = str(v).lower()
+        if "extended" in s or "unlimited" in s:
+            return TemplateLicense.EXTENDED
+        return TemplateLicense.REGULAR
 
 
 class TemplateResponse(BaseModel):

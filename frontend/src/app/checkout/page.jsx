@@ -29,11 +29,14 @@ import {
   ExternalLink,
   Smartphone,
   Check,
+  Clock,
+  RotateCcw,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { useCartStore } from "@/store";
 import { api } from "@/lib/api";
-import { cn, formatPrice } from "@/lib/utils";
+import { cn, formatPrice, formatConvertedPrice } from "@/lib/utils";
+import { useCurrencyStore } from "@/store/currencyStore";
 import Image from "@/components/Image";
 import "./Page.css";
 import Link from "@/components/Link";
@@ -42,6 +45,7 @@ function Checkout() {
   const qc = useQueryClient();
   const { getToken } = useAppAuth();
   const { user } = useAppUser();
+  const { userCurrency, rates } = useCurrencyStore();
   const router = useRouter();
   const { items, removeItem, clearCart, total } = useCartStore();
   const [paymentGateway, setPaymentGateway] = useState("upi"); // "upi" | "razorpay" | "stripe"
@@ -51,6 +55,40 @@ function Checkout() {
   const [initiatedOrder, setInitiatedOrder] = useState(null);
   const [initiatedPayment, setInitiatedPayment] = useState(null);
   const [vpaCopied, setVpaCopied] = useState(false);
+
+  // 5-minute QR Code timer & auto-refresh state
+  const [qrTimerSeconds, setQrTimerSeconds] = useState(300); // 5 mins = 300s
+  const [qrNonce, setQrNonce] = useState(Date.now());
+  const [qrRefreshedNotice, setQrRefreshedNotice] = useState(false);
+
+  useEffect(() => {
+    if (paymentStep !== "paying" || paymentGateway !== "upi") {
+      setQrTimerSeconds(300);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setQrTimerSeconds((prev) => {
+        if (prev <= 1) {
+          // Auto-refresh QR code after 5 minutes
+          setQrNonce(Date.now());
+          setQrRefreshedNotice(true);
+          setTimeout(() => setQrRefreshedNotice(false), 4000);
+          return 300; // Reset 5-minute timer
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [paymentStep, paymentGateway]);
+
+  const handleManualRefreshQr = () => {
+    setQrTimerSeconds(300);
+    setQrNonce(Date.now());
+    setQrRefreshedNotice(true);
+    setTimeout(() => setQrRefreshedNotice(false), 4000);
+  };
 
   // Simulated Card Info
   const [cardNumber, setCardNumber] = useState("4242 4242 4242 4242");
@@ -311,7 +349,10 @@ function Checkout() {
 
   const inrAmountVal = initiatedPayment?.amount ? (initiatedPayment.amount / 100) : (total() * liveRate);
   const inrAmountString = `₹${inrAmountVal.toFixed(2)}`;
-  const defaultUpiUri = initiatedPayment?.upi_uri || `upi://pay?pa=aisitestudio@upi&pn=AI%20Site%20Studio&am=${inrAmountVal.toFixed(2)}&cu=INR&tn=Order%20${initiatedOrder?.id?.slice(0, 8) || "ASS"}`;
+  const minutesLeft = Math.floor(qrTimerSeconds / 60);
+  const secondsLeft = qrTimerSeconds % 60;
+  const timerFormatted = `${String(minutesLeft).padStart(2, '0')}:${String(secondsLeft).padStart(2, '0')}`;
+  const defaultUpiUri = initiatedPayment?.upi_uri || `upi://pay?pa=aisitestudio@upi&pn=AI%20Site%20Studio&am=${inrAmountVal.toFixed(2)}&cu=INR&tn=Order%20${initiatedOrder?.id?.slice(0, 8) || "ASS"}&nonce=${qrNonce}`;
 
   return (
     <>
@@ -348,9 +389,25 @@ function Checkout() {
                       <h3 className="font-bold text-lg flex items-center gap-2">
                         <QrCode className="w-5 h-5 text-emerald-500" /> Pay via UPI QR Code / Apps
                       </h3>
-                      <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-500 font-bold uppercase border border-emerald-500/20 flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> Live UPI QR
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={cn(
+                          "text-xs px-3 py-1 rounded-full font-bold flex items-center gap-1.5 border transition-all",
+                          qrTimerSeconds > 60
+                            ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/30"
+                            : "bg-amber-500/10 text-amber-500 border-amber-500/30 animate-pulse"
+                        )}>
+                          <Clock className="w-3.5 h-3.5" />
+                          QR Valid: {timerFormatted}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleManualRefreshQr}
+                          className="p-1.5 rounded-lg text-muted-foreground hover:text-emerald-400 bg-muted/20 hover:bg-emerald-500/10 border border-border/40 hover:border-emerald-500/30 transition-all"
+                          title="Refresh QR Code (Generate new 5-min session)"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="p-3 bg-muted/20 border border-border/50 rounded-xl text-xs w-full flex items-center justify-between">
@@ -361,6 +418,7 @@ function Checkout() {
                     {/* QR Code Render Box */}
                     <div className="p-6 bg-white rounded-2xl border-2 border-emerald-500/30 shadow-xl flex flex-col items-center gap-3">
                       <QRCodeSVG
+                        key={qrNonce}
                         value={defaultUpiUri}
                         size={220}
                         level="H"
@@ -369,6 +427,11 @@ function Checkout() {
                       <div className="flex items-center gap-1.5 text-xs text-slate-700 font-semibold bg-slate-100 px-3 py-1 rounded-full">
                         <Smartphone className="w-3.5 h-3.5 text-emerald-600" /> Scan with any UPI App
                       </div>
+                      {qrRefreshedNotice && (
+                        <div className="text-xs text-emerald-600 font-semibold bg-emerald-50 border border-emerald-300 px-3 py-1 rounded-full animate-bounce">
+                          ✨ QR Code refreshed for another 5 minutes!
+                        </div>
+                      )}
                     </div>
 
                     {/* VPA Copy Bar */}
@@ -568,7 +631,9 @@ function Checkout() {
                             </div>
                           </div>
                           <div className="checkout-item-right">
-                            <span className="checkout-item-price">{formatPrice(item.price)}</span>
+                            <span className="checkout-item-price">
+                              {formatConvertedPrice(item.price, item.price_currency || "USD", userCurrency, rates)}
+                            </span>
                             <button onClick={() => removeItem(item.templateId)} className="checkout-item-delete">
                               <Trash2 className="checkout-trash-icon" />
                             </button>
@@ -581,37 +646,40 @@ function Checkout() {
 
                 {items.length > 0 && (
                   <div className="checkout-card" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-                    <h3 className="font-bold text-sm">Select Payment Gateway</h3>
-                    <div className="grid grid-cols-3 gap-3">
+                    <h3 className="font-bold text-sm text-foreground">Select Payment Gateway</h3>
+                    <div className="checkout-gateway-grid">
                       <button
+                        type="button"
                         onClick={() => setPaymentGateway("upi")}
                         className={cn(
-                          "p-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1.5 transition-all bg-card/40 hover:bg-card/75",
-                          paymentGateway === "upi" ? "border-emerald-500 text-emerald-500 bg-emerald-500/10" : "border-border/50 text-muted-foreground"
+                          "checkout-gateway-btn",
+                          paymentGateway === "upi" && "active-upi"
                         )}
                       >
-                        <QrCode className="w-5 h-5 text-emerald-500" />
-                        UPI QR & Apps
+                        <QrCode className="checkout-gateway-icon text-emerald-600" />
+                        <span className="checkout-gateway-title">UPI QR & Apps</span>
                       </button>
                       <button
+                        type="button"
                         onClick={() => setPaymentGateway("razorpay")}
                         className={cn(
-                          "p-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1.5 transition-all bg-card/40 hover:bg-card/75",
-                          paymentGateway === "razorpay" ? "border-primary text-primary bg-primary/5" : "border-border/50 text-muted-foreground"
+                          "checkout-gateway-btn",
+                          paymentGateway === "razorpay" && "active"
                         )}
                       >
-                        <CreditCard className="w-5 h-5" />
-                        Razorpay India
+                        <CreditCard className="checkout-gateway-icon text-indigo-600" />
+                        <span className="checkout-gateway-title">Razorpay India</span>
                       </button>
                       <button
+                        type="button"
                         onClick={() => setPaymentGateway("stripe")}
                         className={cn(
-                          "p-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1.5 transition-all bg-card/40 hover:bg-card/75",
-                          paymentGateway === "stripe" ? "border-primary text-primary bg-primary/5" : "border-border/50 text-muted-foreground"
+                          "checkout-gateway-btn",
+                          paymentGateway === "stripe" && "active"
                         )}
                       >
-                        <CreditCard className="w-5 h-5" />
-                        Stripe Payment
+                        <CreditCard className="checkout-gateway-icon text-blue-600" />
+                        <span className="checkout-gateway-title">Stripe Payment</span>
                       </button>
                     </div>
                   </div>
@@ -625,15 +693,15 @@ function Checkout() {
                   <div className="summary-items-list">
                     <div className="summary-item-row">
                       <span>Subtotal</span>
-                      <span>{formatPrice(total())}</span>
+                      <span>{formatConvertedPrice(total(), "USD", userCurrency, rates)}</span>
                     </div>
                     <div className="summary-item-row">
                       <span>Taxes</span>
-                      <span>$0.00</span>
+                      <span>{formatConvertedPrice(0, "USD", userCurrency, rates)}</span>
                     </div>
                     <div className="summary-total-row">
                       <span>Total Amount</span>
-                      <span>{formatPrice(total())}</span>
+                      <span>{formatConvertedPrice(total(), "USD", userCurrency, rates)}</span>
                     </div>
                   </div>
 

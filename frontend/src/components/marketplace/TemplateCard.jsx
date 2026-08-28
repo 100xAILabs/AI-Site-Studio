@@ -19,8 +19,9 @@ import {
   Moon,
   Check,
 } from "lucide-react";
-import { cn, formatPrice, formatNumber, discountPercent } from "@/lib/utils";
+import { cn, formatPrice, formatConvertedPrice, formatNumber, discountPercent } from "@/lib/utils";
 import { useCartStore } from "@/store";
+import { useCurrencyStore } from "@/store/currencyStore";
 import { useAppUser } from "@/lib/auth";
 import "./TemplateCard.css";
 
@@ -52,6 +53,7 @@ export default function TemplateCard({
   const { isSignedIn, user } = useAppUser();
   const addToCart = useCartStore((s) => s.addItem);
   const isInCart = useCartStore((s) => s.isInCart(template.id));
+  const { userCurrency, rates } = useCurrencyStore();
 
   const isSeller = isSignedIn && (user?.role === "seller" || user?.role === "SELLER");
 
@@ -248,11 +250,11 @@ export default function TemplateCard({
             <div className="card-price-row">
               <div className="price-val-container">
                 <span className="price-val">
-                  {template.is_free ? "Free" : formatPrice(template.price)}
+                  {template.is_free ? "Free" : formatPrice(template.price, "USD")}
                 </span>
                 {template.original_price && template.original_price > template.price && (
                   <span className="original-price-val">
-                    {formatPrice(template.original_price)}
+                    {formatPrice(template.original_price, "USD")}
                   </span>
                 )}
               </div>

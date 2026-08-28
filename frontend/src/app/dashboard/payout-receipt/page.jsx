@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
-import { Printer, ArrowLeft, Loader2, CheckCircle, Clock, AlertTriangle } from "lucide-react";
+import { Printer, ArrowLeft, Loader2, CheckCircle2, Clock, AlertTriangle, Building2, UserCheck, Landmark } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api/v1";
@@ -10,21 +10,53 @@ export default function PayoutReceiptPage() {
   const { withdrawalId } = useParams();
   const navigate = useNavigate();
   const token = useAuthStore((s) => s.token);
+  const isLoaded = useAuthStore((s) => s.isLoaded);
   const [receipt, setReceipt] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     async function fetchPayoutReceipt() {
+      if (!withdrawalId || withdrawalId === "undefined") {
+        setError("Invalid or missing Withdrawal ID.");
+        setLoading(false);
+        return;
+      }
+
       try {
-        if (!token) return;
+        let authToken = token;
+        if (!authToken) {
+          try {
+            const sess = sessionStorage.getItem("aisitestudio_auth");
+            if (sess) {
+              const parsed = JSON.parse(sess);
+              authToken = parsed?.state?.token;
+            }
+            if (!authToken) {
+              const loc = localStorage.getItem("aisitestudio_auth");
+              if (loc) {
+                const parsed = JSON.parse(loc);
+                authToken = parsed?.state?.token;
+              }
+            }
+          } catch (e) {}
+        }
+
+        if (!authToken) {
+          if (!isLoaded) return;
+          setError("You must be signed in to view this receipt.");
+          setLoading(false);
+          return;
+        }
+
         const res = await fetch(`${API_BASE}/payouts/withdrawals/${withdrawalId}/receipt`, {
           headers: {
-            "Authorization": `Bearer ${token}`
-          }
+            Authorization: `Bearer ${authToken}`,
+          },
         });
         if (!res.ok) {
-          throw new Error("Failed to fetch payout receipt details.");
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || "Failed to fetch payout receipt details.");
         }
         const data = await res.json();
         setReceipt(data);
@@ -36,10 +68,8 @@ export default function PayoutReceiptPage() {
       }
     }
 
-    if (withdrawalId) {
-      fetchPayoutReceipt();
-    }
-  }, [withdrawalId, token]);
+    fetchPayoutReceipt();
+  }, [withdrawalId, token, isLoaded]);
 
   const handlePrint = () => {
     window.print();
@@ -49,7 +79,7 @@ export default function PayoutReceiptPage() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white">
         <Loader2 className="w-8 h-8 animate-spin text-primary mb-2" />
-        <p className="text-xs text-muted-foreground">Loading receipt details...</p>
+        <p className="text-xs text-slate-400 font-medium">Loading payout receipt...</p>
       </div>
     );
   }
@@ -57,8 +87,11 @@ export default function PayoutReceiptPage() {
   if (error || !receipt) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white space-y-4">
-        <p className="text-sm text-red-500 font-semibold">Error: {error || "Receipt not found"}</p>
-        <button onClick={() => navigate("/dashboard")} className="px-4 py-2 bg-primary rounded-xl text-xs font-semibold text-white">
+        <p className="text-sm text-red-400 font-semibold">Error: {error || "Receipt not found"}</p>
+        <button
+          onClick={() => navigate("/dashboard")}
+          className="px-5 py-2.5 bg-primary rounded-xl text-xs font-bold text-white hover:bg-primary/95 transition-all"
+        >
           Back to Dashboard
         </button>
       </div>
@@ -69,151 +102,194 @@ export default function PayoutReceiptPage() {
     switch (status) {
       case "paid":
         return (
-          <span className="text-[10px] bg-green-500/10 text-green-400 border border-green-500/20 px-2 py-0.5 rounded-full font-bold uppercase flex items-center gap-1">
-            <CheckCircle className="w-3 h-3" /> PAID / COMPLETED
-          </span>
+          <div className="border border-emerald-600 bg-emerald-50 text-emerald-800 px-2.5 py-1 rounded font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 shadow-sm">
+            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> PAID
+          </div>
         );
       case "approved":
         return (
-          <span className="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full font-bold uppercase flex items-center gap-1">
-            <CheckCircle className="w-3 h-3" /> APPROVED
-          </span>
+          <div className="border border-blue-600 bg-blue-50 text-blue-800 px-2.5 py-1 rounded font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 shadow-sm">
+            <CheckCircle2 className="w-3 h-3 text-blue-600" /> APPROVED
+          </div>
         );
       case "pending":
         return (
-          <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full font-bold uppercase flex items-center gap-1">
-            <Clock className="w-3 h-3" /> PENDING REVIEW
-          </span>
+          <div className="border border-amber-600 bg-amber-50 text-amber-800 px-2.5 py-1 rounded font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 shadow-sm">
+            <Clock className="w-3 h-3 text-amber-600" /> PENDING
+          </div>
         );
       default:
         return (
-          <span className="text-[10px] bg-red-500/10 text-red-400 border border-red-500/20 px-2 py-0.5 rounded-full font-bold uppercase flex items-center gap-1">
-            <AlertTriangle className="w-3 h-3" /> {status.toUpperCase()}
-          </span>
+          <div className="border border-red-600 bg-red-50 text-red-800 px-2.5 py-1 rounded font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 shadow-sm">
+            <AlertTriangle className="w-3 h-3 text-red-600" /> {status.toUpperCase()}
+          </div>
         );
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 py-10 px-4 sm:px-6 lg:px-8 print:bg-white print:text-slate-900 print:py-0 print:px-0">
-      <div className="max-w-3xl mx-auto space-y-6">
-        {/* Back and Print Actions */}
-        <div className="flex justify-between items-center print:hidden">
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-white transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" /> Back to Dashboard
-          </button>
-          <button
-            onClick={handlePrint}
-            className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white rounded-xl text-xs font-bold hover:bg-primary/95 transition-all shadow-lg"
-          >
-            <Printer className="w-4 h-4" /> Print / Save PDF
-          </button>
-        </div>
+    <div className="min-h-screen bg-slate-950 py-8 px-4 sm:px-6 flex flex-col items-center justify-center print:bg-white print:py-0 print:px-0">
+      <style>{`
+        @media print {
+          @page {
+            size: A4 portrait;
+            margin: 10mm;
+          }
+          body, html {
+            background: white !important;
+            color: black !important;
+          }
+          header, footer, nav, button, .print\\:hidden, [class*="fixed"], [class*="floating"], [class*="bubble"] {
+            display: none !important;
+          }
+          .receipt-card-container {
+            max-width: 100% !important;
+            width: 100% !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            background: white !important;
+          }
+        }
+      `}</style>
 
-        {/* Invoice Container */}
-        <div className="bg-slate-900/40 border border-white/5 rounded-2xl p-8 space-y-8 shadow-xl backdrop-blur-md print:bg-white print:border-none print:shadow-none print:p-0">
-          {/* Header */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-white/10 pb-6 print:border-slate-200">
-            <div>
-              <div className="flex items-center gap-2.5">
-                <span className="font-extrabold text-lg text-primary uppercase tracking-wider print:text-primary">
-                  Site Studio
-                </span>
-                {getStatusBadge(receipt.status)}
+      {/* Top Floating Controls */}
+      <div className="w-full max-w-xl flex justify-between items-center mb-4 print:hidden">
+        <button
+          onClick={() => navigate("/dashboard")}
+          className="flex items-center gap-1.5 text-xs font-bold text-slate-300 hover:text-white transition-colors bg-slate-900 border border-slate-800 px-3.5 py-2 rounded-xl cursor-pointer shadow-md"
+        >
+          <ArrowLeft className="w-3.5 h-3.5 text-primary" /> Back to Dashboard
+        </button>
+        <button
+          onClick={handlePrint}
+          className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-primary to-indigo-600 text-white rounded-xl text-xs font-bold hover:opacity-95 transition-all shadow-lg shadow-primary/20 cursor-pointer border-none"
+        >
+          <Printer className="w-3.5 h-3.5" /> Print / PDF
+        </button>
+      </div>
+
+      {/* Compact Receipt Card */}
+      <div className="receipt-card-container w-full max-w-xl bg-white text-slate-900 shadow-[0_20px_50px_rgba(0,0,0,0.6)] border border-slate-200 rounded-2xl p-6 sm:p-8 font-sans relative space-y-6 print:shadow-none print:border-none print:p-0 print:w-full print:max-w-none">
+        
+        {/* Header */}
+        <div className="flex justify-between items-start border-b border-slate-200 pb-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-black text-sm shadow-sm">
+                S
               </div>
-              <p className="text-xs text-muted-foreground mt-1 print:text-slate-500">Earnings Payout / Withdrawal Receipt</p>
+              <span className="font-black text-lg tracking-tight text-slate-900 uppercase">
+                SITE STUDIO
+              </span>
             </div>
-            <div className="mt-4 sm:mt-0 text-left sm:text-right text-xs text-muted-foreground space-y-1 print:text-slate-500">
-              <p className="font-bold text-white print:text-slate-900 text-sm">PAYOUT STATEMENT</p>
-              <p>Statement No: <span className="font-mono text-white print:text-slate-950 font-bold">{receipt.receipt_number}</span></p>
-              <p>Submitted: {new Date(receipt.date).toLocaleDateString(undefined, { dateStyle: "medium" })}</p>
-              {receipt.payout_date && (
-                <p>Processed: {new Date(receipt.payout_date).toLocaleDateString(undefined, { dateStyle: "medium" })}</p>
-              )}
-            </div>
+            <p className="text-[11px] text-slate-500 font-medium">
+              Seller Payout Disbursal Statement
+            </p>
           </div>
 
-          {/* Billing Info */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-xs border-b border-white/10 pb-6 print:border-slate-200 print:text-slate-600">
-            <div>
-              <p className="font-bold text-muted-foreground uppercase tracking-wider mb-2 print:text-slate-400">Payout From</p>
-              <p className="font-bold text-white print:text-slate-900">Site Studio LLC</p>
-              <p className="text-muted-foreground print:text-slate-500">Global Website Marketplace</p>
-              <p className="text-muted-foreground print:text-slate-500">finance@aisitestudio.com</p>
+          <div className="flex flex-col items-end space-y-1">
+            {getStatusBadge(receipt.status)}
+            <div className="text-[10px] text-slate-500 font-mono text-right">
+              Ref: <span className="text-slate-900 font-bold">{receipt.receipt_number}</span>
             </div>
-            <div>
-              <p className="font-bold text-muted-foreground uppercase tracking-wider mb-2 print:text-slate-400">Seller / Recipient Details</p>
-              <p className="font-bold text-white print:text-slate-900">{receipt.seller_name}</p>
-              <p className="text-muted-foreground print:text-slate-500">{receipt.seller_email}</p>
-              <p className="text-muted-foreground print:text-slate-500">Reference: <span className="font-mono">{receipt.receipt_number}</span></p>
+            <div className="text-[10px] text-slate-400 font-mono text-right">
+              {new Date(receipt.date).toLocaleDateString(undefined, { dateStyle: "medium" })}
             </div>
-          </div>
-
-          {/* Bank details */}
-          <div className="bg-muted/10 p-5 rounded-xl border border-white/5 space-y-3 print:bg-slate-50 print:border-slate-200">
-            <h4 className="font-bold text-xs text-muted-foreground uppercase tracking-wider print:text-slate-500">Destination Account</h4>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-              <div>
-                <p className="text-muted-foreground print:text-slate-500">Bank Name</p>
-                <p className="font-bold text-white print:text-slate-900 mt-0.5">{receipt.bank_name}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground print:text-slate-500">Account Number</p>
-                <p className="font-bold text-white print:text-slate-900 mt-0.5">{receipt.account_number}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground print:text-slate-500">IFSC/Swift Code</p>
-                <p className="font-bold text-white print:text-slate-900 mt-0.5">{receipt.ifsc_code}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground print:text-slate-500">Account Holder</p>
-                <p className="font-bold text-white print:text-slate-900 mt-0.5">{receipt.account_holder_name}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Statement details */}
-          <div className="space-y-3">
-            <h4 className="font-bold text-xs text-muted-foreground uppercase tracking-wider print:text-slate-400">Statement breakdown</h4>
-            <div className="border border-white/5 rounded-xl overflow-hidden print:border-slate-200">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="bg-white/5 border-b border-white/10 text-muted-foreground font-bold print:bg-slate-100 print:border-slate-200 print:text-slate-500">
-                    <th className="p-3">Description</th>
-                    <th className="p-3 text-right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="text-slate-300 print:text-slate-800 border-b border-white/5 print:border-slate-100">
-                    <td className="p-3 font-medium">
-                      Earnings Withdrawal Claim Request
-                    </td>
-                    <td className="p-3 text-right font-mono font-bold">
-                      {formatPrice(receipt.amount)}
-                    </td>
-                  </tr>
-                  <tr className="bg-white/[0.02] print:bg-slate-50">
-                    <td className="p-3 font-extrabold text-white print:text-slate-950">
-                      Total Payout Amount
-                    </td>
-                    <td className="p-3 text-right font-mono font-extrabold text-primary print:text-primary">
-                      {formatPrice(receipt.amount)}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Note Footer */}
-          <div className="border-t border-white/5 pt-6 text-[10px] text-muted-foreground text-center space-y-1 print:border-slate-200 print:text-slate-400">
-            <p>Withdrawals are processed within 3-5 business days depending on your banking institution.</p>
-            <p>If you have any questions regarding this statement, please contact payout-support@aisitestudio.com.</p>
           </div>
         </div>
+
+        {/* Details: Entity & Seller */}
+        <div className="grid grid-cols-2 gap-4 text-xs">
+          <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl space-y-0.5">
+            <span className="text-[9px] uppercase font-black text-indigo-700 tracking-wider flex items-center gap-1">
+              <Building2 className="w-3 h-3 text-indigo-600" /> DISBURSER
+            </span>
+            <p className="font-bold text-slate-900 text-xs">Site Studio LLC</p>
+            <p className="text-slate-500 text-[10px]">finance@aisitestudio.com</p>
+          </div>
+
+          <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl space-y-0.5">
+            <span className="text-[9px] uppercase font-black text-emerald-700 tracking-wider flex items-center gap-1">
+              <UserCheck className="w-3 h-3 text-emerald-600" /> RECIPIENT
+            </span>
+            <p className="font-bold text-slate-900 text-xs truncate">{receipt.seller_name}</p>
+            <p className="text-slate-500 text-[10px] truncate">{receipt.seller_email}</p>
+          </div>
+        </div>
+
+        {/* Destination Account */}
+        <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl space-y-1.5 text-xs">
+          <span className="text-[9px] uppercase font-black text-slate-700 tracking-wider flex items-center gap-1">
+            <Landmark className="w-3 h-3 text-emerald-600" /> DESTINATION BANK ACCOUNT
+          </span>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px]">
+            <div>
+              <p className="text-slate-400 font-semibold uppercase">Bank</p>
+              <p className="font-bold text-slate-900 truncate">{receipt.bank_name}</p>
+            </div>
+            <div>
+              <p className="text-slate-400 font-semibold uppercase">Account No</p>
+              <p className="font-mono font-bold text-slate-900 truncate">{receipt.account_number}</p>
+            </div>
+            <div>
+              <p className="text-slate-400 font-semibold uppercase">IFSC Code</p>
+              <p className="font-mono font-bold text-slate-900 truncate">{receipt.ifsc_code}</p>
+            </div>
+            <div>
+              <p className="text-slate-400 font-semibold uppercase">Holder</p>
+              <p className="font-bold text-slate-900 truncate">{receipt.account_holder_name}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Table */}
+        <div className="space-y-2">
+          <h3 className="font-extrabold text-[11px] text-slate-800 uppercase tracking-wider">
+            Statement Item
+          </h3>
+          <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
+                  <th className="p-2.5">Line Item</th>
+                  <th className="p-2.5 text-right">Net Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                <tr className="text-slate-900">
+                  <td className="p-2.5">
+                    <div className="font-bold text-xs text-slate-900">
+                      Creator Marketplace Net Earnings Payout
+                    </div>
+                    <p className="text-[10px] text-slate-400">
+                      Withdrawal for accumulated sales
+                    </p>
+                  </td>
+                  <td className="p-2.5 text-right font-mono font-bold text-xs text-slate-900">
+                    {formatPrice(receipt.amount)}
+                  </td>
+                </tr>
+                <tr className="bg-slate-50 font-black">
+                  <td className="p-2.5 text-slate-900 text-xs">
+                    Total Disbursed
+                  </td>
+                  <td className="p-2.5 text-right font-mono text-xs text-emerald-700">
+                    {formatPrice(receipt.amount)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="pt-4 border-t border-slate-200 text-center text-slate-400 text-[10px] space-y-0.5">
+          <p className="font-semibold text-slate-600">Processed within 3-5 business days.</p>
+          <p>Questions? Contact payout-support@aisitestudio.com</p>
+        </div>
+
       </div>
     </div>
   );

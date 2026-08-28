@@ -8,7 +8,7 @@ from app.api.v1.routes import (
     auth, templates, categories, search,
     orders, payment, reviews, favorites,
     wishlist, dashboard, admin, preview, ai, files, follows, deployments,
-    payouts,
+    payouts, ws,
 )
 
 api_router = APIRouter()
@@ -30,3 +30,4 @@ api_router.include_router(files.router,      prefix="/files",      tags=["Files"
 api_router.include_router(follows.router,    prefix="/follows",    tags=["Follows"])
 api_router.include_router(deployments.router, prefix="/deployments", tags=["Deployments"])
 api_router.include_router(payouts.router,     prefix="/payouts",     tags=["Payouts"])
+api_router.include_router(ws.router,          prefix="/ws",          tags=["WebSocket"])

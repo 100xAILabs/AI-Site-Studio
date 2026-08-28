@@ -95,6 +95,7 @@ class UserRepository:
             if role and role.lower() == "seller":
                 user.role = UserRole.SELLER
             user.email = email
+            user.is_email_verified = True
             if full_name:
                 user.full_name = full_name
             if avatar_url:
@@ -110,7 +111,8 @@ class UserRepository:
                 "username": unique_username,
                 "full_name": full_name,
                 "avatar_url": avatar_url,
-                "role": UserRole.SELLER if role.lower() == "seller" else UserRole.BUYER
+                "role": UserRole.SELLER if role.lower() == "seller" else UserRole.BUYER,
+                "is_email_verified": True
             }
             if provider == "google":
                 kwargs["google_id"] = provider_id

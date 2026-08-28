@@ -17,7 +17,26 @@ export class ApiError extends Error {
 }
 
 async function request(path, options = {}) {
-  const { token, ...fetchOptions } = options;
+  let { token, ...fetchOptions } = options;
+
+  // Auto-resolve token from Zustand auth store or persisted storage if not explicitly supplied
+  if (!token) {
+    try {
+      token = useAuthStore.getState()?.token;
+      if (!token) {
+        const sess = sessionStorage.getItem("aisitestudio_auth");
+        if (sess) {
+          token = JSON.parse(sess)?.state?.token;
+        }
+        if (!token) {
+          const loc = localStorage.getItem("aisitestudio_auth");
+          if (loc) {
+            token = JSON.parse(loc)?.state?.token;
+          }
+        }
+      }
+    } catch (e) {}
+  }
 
   const headers = {
     "Content-Type": "application/json",
@@ -46,9 +65,6 @@ async function request(path, options = {}) {
   }
 
   if (!res.ok) {
-    if (res.status === 401) {
-      useAuthStore.getState().signOut();
-    }
     const data = await res.json().catch(() => ({}));
     throw new ApiError(res.status, data.detail ?? res.statusText, data);
   }

@@ -9,6 +9,60 @@ import { persist } from "zustand/middleware";
 const SESSION_KEY = "aisitestudio_auth";
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api/v1";
 
+// Tab-isolated dual storage adapter to support simultaneous multi-account login per tab & browser
+const tabIsolatedStorage = {
+  getItem: (name) => {
+    try {
+      const sessionVal = sessionStorage.getItem(name);
+      if (sessionVal) return JSON.parse(sessionVal);
+      const localVal = localStorage.getItem(name);
+      if (localVal) return JSON.parse(localVal);
+    } catch (e) {}
+    return null;
+  },
+  setItem: (name, value) => {
+    try {
+      const str = JSON.stringify(value);
+      sessionStorage.setItem(name, str);
+      localStorage.setItem(name, str);
+    } catch (e) {}
+  },
+  removeItem: (name) => {
+    try {
+      sessionStorage.removeItem(name);
+      localStorage.removeItem(name);
+    } catch (e) {}
+  },
+};
+
+let activeWs = null;
+
+function initWebSocketSession(token) {
+  if (!token) {
+    if (activeWs) {
+      try { activeWs.close(); } catch (e) {}
+      activeWs = null;
+    }
+    return;
+  }
+  try {
+    const wsUrl = API_BASE.replace(/^http/, "ws") + "/ws/session?token=" + encodeURIComponent(token);
+    if (activeWs) {
+      try { activeWs.close(); } catch (e) {}
+    }
+    activeWs = new WebSocket(wsUrl);
+    activeWs.onopen = () => {
+      setInterval(() => {
+        if (activeWs && activeWs.readyState === WebSocket.OPEN) {
+          activeWs.send("ping");
+        }
+      }, 30000);
+    };
+  } catch (e) {
+    console.warn("WebSocket session initialization notice:", e);
+  }
+}
+
 export const useAuthStore = create(
   persist(
     (set, get) => ({
@@ -52,7 +106,10 @@ export const useAuthStore = create(
         }
       },
 
-      setToken: (token) => set({ token, isSignedIn: !!token }),
+      setToken: (token) => {
+        set({ token, isSignedIn: !!token });
+        initWebSocketSession(token);
+      },
 
       clearPendingRedirect: () => set({ pendingRedirect: null }),
 
@@ -84,6 +141,33 @@ export const useAuthStore = create(
         } catch (err) {
           // Do NOT sign out on network errors or server restarts! Keep existing user session in localStorage.
           console.warn("fetchProfile network error (server restarting or offline):", err);
+        }
+      },
+
+      detectLocation: async () => {
+        const { token } = get();
+        if (!token) return;
+        try {
+          const res = await fetch(`${API_BASE}/auth/detect-location`, {
+            method: "POST",
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          if (res.ok) {
+            const dbUser = await res.json();
+            const mappedUser = {
+              ...dbUser,
+              firstName: dbUser.full_name ? dbUser.full_name.split(" ")[0] : "User",
+              fullName: dbUser.full_name || "User",
+              imageUrl: dbUser.avatar_url || "https://picsum.photos/seed/default/100/100",
+              primaryEmailAddress: { emailAddress: dbUser.email }
+            };
+            set({ user: mappedUser });
+            return mappedUser;
+          }
+        } catch (err) {
+          console.warn("detectLocation error:", err);
         }
       },
 
@@ -290,8 +374,10 @@ export const useAuthStore = create(
 
       signOut: () => {
         try {
+          sessionStorage.removeItem("aisitestudio_auth");
           localStorage.removeItem("aisitestudio_auth");
         } catch (e) {}
+        initWebSocketSession(null);
         set({
           user: null,
           token: null,
@@ -305,6 +391,7 @@ export const useAuthStore = create(
     }),
     {
       name: SESSION_KEY,
+      storage: tabIsolatedStorage,
       partialize: (state) => ({
         token: state.token,
         user: state.user,

@@ -78,12 +78,12 @@
 input,
 select,
 textarea {
-  color: hsl(var(--foreground)) !important;
+  color: inherit;
 }
 
 input::placeholder,
 textarea::placeholder {
-  color: hsl(var(--muted-foreground) / 0.7) !important;
+  color: hsl(var(--muted-foreground) / 0.7);
 }
 
 html,

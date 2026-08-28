@@ -222,13 +222,35 @@
   font-size: 0.9375rem;
   color: hsl(var(--foreground));
   transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.contact-select {
+  width: 100%;
+  padding: 0.875rem 1.125rem;
+  border-radius: 0.875rem;
+  background-color: hsl(var(--card));
+  border: 1px solid hsl(var(--border) / 0.6);
+  outline: none;
+  font-size: 0.9375rem;
+  color: hsl(var(--foreground));
+  transition: all 0.2s ease;
+  cursor: pointer;
+  appearance: auto;
+}
+
+.contact-select option {
+  background-color: #0f172a;
+  color: #f8fafc;
+  padding: 0.5rem;
 }
 
 .contact-input::placeholder {
   color: hsl(var(--muted-foreground) / 0.7);
 }
 
-.contact-input:focus {
+.contact-input:focus,
+.contact-select:focus {
   border-color: hsla(var(--primary) / 0.4);
   box-shadow: 0 0 0 3px hsla(var(--primary) / 0.08);
   background-color: hsl(var(--background) / 0.6);
@@ -236,6 +258,72 @@
 
 .contact-textarea {
   resize: none;
+}
+
+.contact-user-badge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-radius: 0.875rem;
+  background: hsla(var(--primary) / 0.06);
+  border: 1px solid hsla(var(--primary) / 0.2);
+  gap: 0.75rem;
+}
+
+.contact-user-badge-left {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.contact-user-badge-avatar {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid hsla(var(--primary) / 0.3);
+}
+
+.contact-user-badge-name {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+  line-height: 1.2;
+}
+
+.contact-user-badge-email {
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.contact-card-link {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.contact-card-link:hover .contact-card-desc {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+}
+
+.contact-success-banner {
+  padding: 1.5rem;
+  border-radius: 1rem;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  color: #10b981;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
 }
 
 .contact-submit-btn {
@@ -258,3 +346,4 @@
   opacity: 0.95;
   transform: translateY(-1px);
 }
+

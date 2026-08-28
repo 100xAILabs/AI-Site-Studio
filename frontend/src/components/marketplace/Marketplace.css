@@ -72,6 +72,10 @@
   border: 1px solid hsla(var(--border) / 0.5);
   background-color: hsl(var(--card));
   transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
 }
 
 .template-card:hover {
@@ -82,8 +86,10 @@
 .card-thumbnail-container {
   position: relative;
   aspect-ratio: 16/10;
+  width: 100%;
   overflow: hidden;
   background-color: hsl(var(--muted));
+  flex-shrink: 0;
 }
 
 .card-thumbnail-img {

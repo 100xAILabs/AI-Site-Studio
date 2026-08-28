@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { Send, Mic, MicOff, Volume2, X, Sparkles, Loader2, AlertCircle } from "lucide-react";
 import { api } from "../../lib/api";
 import "./SupportButton.css";
@@ -29,6 +30,11 @@ function getAssistantVoice() {
 }
 
 export default function SupportButton() {
+  const location = useLocation();
+  if (location.pathname.includes("/receipt")) {
+    return null;
+  }
+
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);

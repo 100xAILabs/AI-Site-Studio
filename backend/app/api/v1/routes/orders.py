@@ -10,7 +10,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
@@ -42,8 +42,11 @@ async def create_order(
     for item_data in data.items:
         template = await template_repo.get_by_id(item_data.template_id)
         if not template:
-            raise HTTPException(status_code=404, detail=f"Template {item_data.template_id} not found")
-        subtotal += Decimal(str(template.price))
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Template {item_data.template_id} not found",
+            )
+        subtotal += template.price
         order_items.append((template, item_data.license_type))
 
     order = Order(
@@ -55,6 +58,7 @@ async def create_order(
         tax=Decimal("0"),
         total=subtotal,
         coupon_code=data.coupon_code,
+        notes=data.notes,
     )
     db.add(order)
     await db.flush()
@@ -98,22 +102,43 @@ async def list_orders(
 
 @router.get("/{order_id}", response_model=OrderResponse)
 async def get_order(
-    order_id: uuid.UUID,
+    order_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get a specific order."""
-    result = await db.execute(
+    """Get a specific order by UUID or order_number."""
+    order_uuid = None
+    try:
+        order_uuid = uuid.UUID(str(order_id))
+    except (ValueError, TypeError):
+        pass
+
+    query = (
         select(Order)
         .options(
             selectinload(Order.items).selectinload(OrderItem.template),
             selectinload(Order.user)
         )
-        .where(Order.id == order_id)
     )
+    if order_uuid:
+        query = query.where(or_(Order.id == order_uuid, Order.order_number == str(order_id)))
+    else:
+        query = query.where(Order.order_number == str(order_id))
+
+    result = await db.execute(query)
     order = result.scalar_one_or_none()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    if order.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Access denied")
+
+    user_role = getattr(current_user.role, "value", str(current_user.role)).lower()
+    is_admin = user_role in ("admin", "super_admin")
+    is_buyer = str(order.user_id) == str(current_user.id)
+    is_seller_of_item = any(
+        item.template and str(item.template.seller_id) == str(current_user.id)
+        for item in (order.items or [])
+    )
+
+    if not (is_buyer or is_admin or is_seller_of_item):
+        raise HTTPException(status_code=403, detail="Access denied to this order receipt")
+
     return OrderResponse.model_validate(order)

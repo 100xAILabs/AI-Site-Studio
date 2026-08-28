@@ -60,6 +60,13 @@ class User(UUIDMixin, TimestampMixin, Base):
     avatar_url: Mapped[Optional[str]] = mapped_column(String(500))
     bio: Mapped[Optional[str]] = mapped_column(Text)
 
+    # Location & Currency Auto-detection
+    country: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    country_code: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    city: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    currency: Mapped[Optional[str]] = mapped_column(String(10), default="USD", nullable=True)
+    detected_ip: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
+
     # Auth
     role: Mapped[UserRole] = mapped_column(
         SAEnum(UserRole), default=UserRole.USER, nullable=False

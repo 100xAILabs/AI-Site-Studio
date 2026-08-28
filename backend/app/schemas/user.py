@@ -30,6 +30,10 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     avatar_url: Optional[str] = None
     bio: Optional[str] = None
+    country: Optional[str] = None
+    country_code: Optional[str] = None
+    city: Optional[str] = None
+    currency: Optional[str] = None
 
 
 class UserAdminUpdate(UserUpdate):
@@ -62,6 +66,11 @@ class UserResponse(UserBase):
     payout_ifsc_code: Optional[str] = None
     payout_account_holder_name: Optional[str] = None
     is_payout_setup_completed: bool = False
+    country: Optional[str] = None
+    country_code: Optional[str] = None
+    city: Optional[str] = None
+    currency: Optional[str] = None
+    detected_ip: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

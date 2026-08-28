@@ -144,6 +144,23 @@ async def init_db() -> None:
             except Exception:
                 pass  # Column already exists, safe to ignore
 
+        # Self-healing migration: Ensure users table has location and currency columns
+        user_columns_to_add = [
+            ("country", "VARCHAR(100)"),
+            ("country_code", "VARCHAR(10)"),
+            ("city", "VARCHAR(100)"),
+            ("currency", "VARCHAR(10) DEFAULT 'USD'"),
+            ("detected_ip", "VARCHAR(45)"),
+        ]
+        for col_name, col_type in user_columns_to_add:
+            try:
+                if conn.dialect.name == "sqlite":
+                    await conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"))
+                else:
+                    await conn.execute(text(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
+            except Exception:
+                pass  # Column already exists, safe to ignore
+
     print("Database connected and tables verified")
 
     async with AsyncSessionLocal() as db:

@@ -19,12 +19,14 @@ import {
   Monitor, HelpCircle, UserCheck, ChevronDown, ChevronUp,
   Play, Flame, Award, Activity, Sparkles, Clock, Plus,
   ExternalLink, Calendar, ShieldCheck, Info, Edit3, Upload,
+  DollarSign, Tag, Layers, Loader2, CheckCircle2,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import TemplateCard from "@/components/marketplace/TemplateCard";
 import { useTemplate, useTemplates, useToggleFavorite, useToggleWishlist, useTemplateReviews, useCreateReview, useFollowStatus, useToggleFollow } from "@/hooks/useTemplates";
-import { cn, formatPrice, formatNumber } from "@/lib/utils";
+import { cn, formatPrice, formatConvertedPrice, formatNumber, convertToUSD } from "@/lib/utils";
 import { useCartStore } from "@/store";
+import { useCurrencyStore } from "@/store/currencyStore";
 import { API_URL, api } from "@/lib/api";
 import "./Page.css";
 
@@ -35,6 +37,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
 
   const { getToken, isSignedIn } = useAppAuth();
   const { user } = useAppUser();
+  const { userCurrency, rates } = useCurrencyStore();
   const [activeImage, setActiveImage] = useState(0);
   const [copied, setCopied] = useState(false);
   // Single-tier flat rate license package
@@ -94,8 +97,25 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
   // Declare template query hook first to avoid TDZ ReferenceError in render hooks
   const { data: template, isLoading, error } = useTemplate(slug, token);
 
+  // Helper functions for license enum mapping
+  const mapLicenseToBackend = (val) => {
+    if (!val) return "regular";
+    const s = String(val).toLowerCase();
+    if (s.includes("extended") || s.includes("unlimited")) return "extended";
+    return "regular";
+  };
+
+  const mapBackendToLicense = (val) => {
+    if (!val) return "Single Site Commercial & Personal License";
+    const s = String(val).toLowerCase();
+    if (s === "extended") return "Extended Commercial License";
+    if (s === "regular") return "Single Site Commercial & Personal License";
+    return val;
+  };
+
   // Seller Edit Modal States
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editModalTab, setEditModalTab] = useState("general"); // general, pricing, tags, archive
   const [editForm, setEditForm] = useState({
     title: "",
     short_description: "",
@@ -109,17 +129,42 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
 
   useEffect(() => {
     if (template) {
+      const userPrefCurr = (user?.currency || (user?.country === "India" ? "INR" : "USD")).toUpperCase();
+      const inrRate = rates?.INR || 87.0;
+      
+      const initialPrice = userPrefCurr === "INR" 
+        ? Math.round(Number(template.price || 0) * inrRate) 
+        : Number(template.price || 0);
+
       setEditForm({
         title: template.title || "",
         short_description: template.short_description || "",
         description: template.description || "",
-        price: template.price || 0,
-        price_currency: template.price_currency || "USD",
-        license_type: template.license_type || "Single Site Commercial & Personal License",
+        price: initialPrice,
+        price_currency: userPrefCurr,
+        license_type: mapBackendToLicense(template.license_type),
         tags: Array.isArray(template.tags) ? template.tags.join(", ") : (template.tags || ""),
       });
     }
-  }, [template]);
+  }, [template, user, rates]);
+
+  const handleEditCurrencySwitch = (newCurrency) => {
+    const currentVal = Number(editForm.price) || 0;
+    const inrRate = rates?.INR || 87.0;
+    let convertedPrice = currentVal;
+    
+    if (editForm.price_currency === "USD" && newCurrency === "INR") {
+      convertedPrice = Math.round(currentVal * inrRate);
+    } else if (editForm.price_currency === "INR" && newCurrency === "USD") {
+      convertedPrice = Math.round((currentVal / inrRate) * 100) / 100;
+    }
+    
+    setEditForm((prev) => ({
+      ...prev,
+      price: convertedPrice,
+      price_currency: newCurrency,
+    }));
+  };
 
   const handleSaveTemplateEdit = async (e) => {
     e.preventDefault();
@@ -131,13 +176,14 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
     }
     setIsSavingEdit(true);
     try {
+      const finalUsdPrice = convertToUSD(editForm.price, editForm.price_currency, rates);
       const payload = {
         title: editForm.title,
         short_description: editForm.short_description,
         description: editForm.description,
-        price: Number(editForm.price),
-        price_currency: editForm.price_currency,
-        license_type: editForm.license_type,
+        price: finalUsdPrice,
+        price_currency: "USD",
+        license_type: mapLicenseToBackend(editForm.license_type),
         tags: editForm.tags ? editForm.tags.split(",").map(t => t.trim()).filter(Boolean) : [],
       };
       await api.patch(`/templates/${template.id}`, payload, tokenVal);
@@ -1502,11 +1548,11 @@ npm run build`;
                 <div>
                   <div className="details-price-row flex items-baseline justify-between mb-1">
                     <span className="details-price-value text-3xl font-extrabold text-foreground">
-                      {formatPrice(template.price, template.price_currency || "USD")}
+                      {template.is_free ? "Free" : formatPrice(template.price, "USD")}
                     </span>
-                    {template.original_price && (
+                    {template.original_price && template.original_price > template.price && (
                       <span className="details-price-original text-sm line-through text-muted-foreground">
-                        {formatPrice(template.original_price, template.price_currency || "USD")}
+                        {formatPrice(template.original_price, "USD")}
                       </span>
                     )}
                   </div>
@@ -1517,8 +1563,11 @@ npm run build`;
                 <div className="details-action-stack space-y-2">
                   {(user?.id === template?.seller_id || user?.role === "admin" || user?.role === "super_admin") ? (
                     <button
-                      onClick={() => setIsEditModalOpen(true)}
-                      className="w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md transition-all text-sm cursor-pointer"
+                      onClick={() => {
+                        setEditModalTab("general");
+                        setIsEditModalOpen(true);
+                      }}
+                      className="w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-primary to-indigo-600 hover:opacity-95 text-white shadow-md shadow-primary/20 transition-all text-sm cursor-pointer border-0"
                     >
                       <Edit3 className="w-4 h-4" /> Edit Template Details
                     </button>
@@ -1906,172 +1955,380 @@ npm run build`;
           </motion.div>
         )}
 
-        {/* Seller Edit Template Modal */}
+        {/* ══════════════════════════════════════════════
+            REDESIGNED SELLER / ADMIN EDIT TEMPLATE MODAL
+           ══════════════════════════════════════════════ */}
         {isEditModalOpen && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/75 backdrop-blur-md"
             onClick={() => setIsEditModalOpen(false)}
           >
             <motion.div
-              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              initial={{ scale: 0.96, opacity: 0, y: 16 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              exit={{ scale: 0.96, opacity: 0, y: 16 }}
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-card border border-border/80 rounded-2xl shadow-2xl p-6 space-y-5"
+              className="edit-modal-card"
             >
-              <div className="flex items-center justify-between pb-4 border-b border-border/50">
-                <div className="flex items-center gap-2">
-                  <Edit3 className="w-5 h-5 text-amber-500" />
-                  <h2 className="text-lg font-bold text-foreground">Edit Template Details</h2>
+              {/* ── Modal Top Header ── */}
+              <div className="edit-modal-header">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 shrink-0">
+                    <Edit3 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="edit-modal-header-title">
+                      <span>Edit Template Details</span>
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-200">
+                        #{String(template?.id || "").slice(0, 8)}
+                      </span>
+                    </h2>
+                    <p className="edit-modal-header-sub">
+                      Update metadata, pricing, license tier, and live code bundle.
+                    </p>
+                  </div>
                 </div>
                 <button
+                  type="button"
                   onClick={() => setIsEditModalOpen(false)}
-                  className="p-1 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+                  className="p-2 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors border-0 bg-transparent cursor-pointer"
+                  title="Close"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <form onSubmit={handleSaveTemplateEdit} className="space-y-4 text-xs">
-                <div>
-                  <label className="block font-bold text-foreground mb-1">Template Title</label>
-                  <input
-                    type="text"
-                    required
-                    value={editForm.title}
-                    onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
-                    className="w-full px-3 py-2 bg-muted/30 border border-border/60 rounded-xl text-foreground font-semibold focus:outline-none focus:border-primary"
-                    placeholder="e.g. Port Portfolio Template"
-                  />
-                </div>
+              {/* ── Segmented Navigation Tabs ── */}
+              <div className="edit-modal-nav-tabs">
+                <button
+                  type="button"
+                  onClick={() => setEditModalTab("general")}
+                  className={cn("edit-modal-tab-btn", editModalTab === "general" && "active")}
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>General Info</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditModalTab("pricing")}
+                  className={cn("edit-modal-tab-btn", editModalTab === "pricing" && "active")}
+                >
+                  <DollarSign className="w-3.5 h-3.5" />
+                  <span>Pricing & License</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditModalTab("tags")}
+                  className={cn("edit-modal-tab-btn", editModalTab === "tags" && "active")}
+                >
+                  <Tag className="w-3.5 h-3.5" />
+                  <span>Tags & Tech</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditModalTab("archive")}
+                  className={cn("edit-modal-tab-btn", editModalTab === "archive" && "active")}
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Re-upload ZIP</span>
+                </button>
+              </div>
 
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="block font-bold text-foreground mb-1">Pricing Currency</label>
-                    <select
-                      value={editForm.price_currency}
-                      onChange={(e) => setEditForm({ ...editForm, price_currency: e.target.value })}
-                      className="w-full px-3 py-2 bg-muted/30 border border-border/60 rounded-xl text-foreground font-bold focus:outline-none focus:border-primary"
-                    >
-                      <option value="USD">USD ($)</option>
-                      <option value="INR">INR (₹)</option>
-                      <option value="EUR">EUR (€)</option>
-                      <option value="GBP">GBP (£)</option>
-                      <option value="CAD">CAD (CA$)</option>
-                      <option value="AUD">AUD (A$)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block font-bold text-foreground mb-1">Fixed Price</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      required
-                      value={editForm.price}
-                      onChange={(e) => setEditForm({ ...editForm, price: e.target.value })}
-                      className="w-full px-3 py-2 bg-muted/30 border border-border/60 rounded-xl text-foreground font-bold focus:outline-none focus:border-primary"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-foreground mb-1">License Type</label>
-                    <select
-                      value={editForm.license_type}
-                      onChange={(e) => setEditForm({ ...editForm, license_type: e.target.value })}
-                      className="w-full px-3 py-2 bg-muted/30 border border-border/60 rounded-xl text-foreground font-semibold focus:outline-none focus:border-primary"
-                    >
-                      <option value="Single Site Commercial & Personal License">Single Site Commercial & Personal License</option>
-                      <option value="Extended Commercial License">Extended Commercial License</option>
-                      <option value="Unlimited Multi-Site License">Unlimited Multi-Site License</option>
-                    </select>
-                  </div>
-                </div>
+              {/* ── Form Body ── */}
+              <form onSubmit={handleSaveTemplateEdit} className="flex flex-col flex-1 overflow-hidden m-0">
+                <div className="edit-modal-content">
+                  {/* TAB 1: GENERAL INFO */}
+                  {editModalTab === "general" && (
+                    <div className="space-y-4">
+                      <div className="edit-modal-input-group">
+                        <label className="edit-modal-label">
+                          <span>Template Title</span>
+                          <span className="edit-modal-label-hint">{editForm.title.length}/60</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          maxLength={60}
+                          value={editForm.title}
+                          onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                          className="edit-modal-input font-bold"
+                          placeholder="e.g. Port — Modern Creator Portfolio"
+                        />
+                      </div>
 
-                <div>
-                  <label className="block font-bold text-foreground mb-1">Short Description</label>
-                  <input
-                    type="text"
-                    required
-                    value={editForm.short_description}
-                    onChange={(e) => setEditForm({ ...editForm, short_description: e.target.value })}
-                    className="w-full px-3 py-2 bg-muted/30 border border-border/60 rounded-xl text-foreground focus:outline-none focus:border-primary"
-                    placeholder="Brief 1-sentence summary"
-                  />
-                </div>
+                      <div className="edit-modal-input-group">
+                        <label className="edit-modal-label">
+                          <span>Short Hook Description</span>
+                          <span className="edit-modal-label-hint">Brief 1-sentence summary</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={editForm.short_description}
+                          onChange={(e) => setEditForm({ ...editForm, short_description: e.target.value })}
+                          className="edit-modal-input"
+                          placeholder="Clean, responsive personal portfolio with dark mode and smooth animations."
+                        />
+                      </div>
 
-                <div>
-                  <label className="block font-bold text-foreground mb-1">Full Overview / Description</label>
-                  <textarea
-                    rows={4}
-                    value={editForm.description}
-                    onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
-                    className="w-full px-3 py-2 bg-muted/30 border border-border/60 rounded-xl text-foreground focus:outline-none focus:border-primary font-mono text-xs"
-                    placeholder="Detailed template breakdown..."
-                  />
-                </div>
+                      <div className="edit-modal-input-group">
+                        <label className="edit-modal-label">
+                          <span>Full Overview & Features Description</span>
+                          <span className="edit-modal-label-hint">Markdown supported</span>
+                        </label>
+                        <textarea
+                          rows={6}
+                          value={editForm.description}
+                          onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                          className="edit-modal-textarea font-mono text-xs"
+                          placeholder="Provide a detailed breakdown of layouts, components, dependencies, and setup steps..."
+                        />
+                      </div>
+                    </div>
+                  )}
 
-                <div>
-                  <label className="block font-bold text-foreground mb-1">Tags (Comma-separated)</label>
-                  <input
-                    type="text"
-                    value={editForm.tags}
-                    onChange={(e) => setEditForm({ ...editForm, tags: e.target.value })}
-                    className="w-full px-3 py-2 bg-muted/30 border border-border/60 rounded-xl text-foreground focus:outline-none focus:border-primary"
-                    placeholder="HTML, CSS, React, Responsive, Portfolio"
-                  />
-                </div>
+                  {/* TAB 2: PRICING & LICENSE */}
+                  {editModalTab === "pricing" && (
+                    <div className="space-y-5">
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        <div className="edit-modal-input-group">
+                          <label className="edit-modal-label">Pricing Currency</label>
+                          <select
+                            value={editForm.price_currency}
+                            onChange={(e) => handleEditCurrencySwitch(e.target.value)}
+                            className="edit-modal-select font-bold"
+                          >
+                            <option value="INR">INR (₹) — Indian Rupee</option>
+                            <option value="USD">USD ($) — US Dollar</option>
+                            <option value="EUR">EUR (€) — Euro</option>
+                            <option value="GBP">GBP (£) — British Pound</option>
+                            <option value="CAD">CAD (CA$) — Canadian Dollar</option>
+                            <option value="AUD">AUD (A$) — Australian Dollar</option>
+                          </select>
+                        </div>
 
-                {/* Re-upload ZIP File Box */}
-                <div className="p-4 rounded-xl border border-dashed border-primary/40 bg-primary/[0.03] space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-foreground flex items-center gap-1.5">
-                      <Upload className="w-4 h-4 text-primary" /> Re-upload Website Package (.zip)
-                    </span>
-                    <span className="text-[10px] text-muted-foreground font-semibold">Updates live preview & download files</span>
-                  </div>
-                  
-                  <input
-                    type="file"
-                    accept=".zip"
-                    onChange={(e) => setReuploadZipFile(e.target.files[0] || null)}
-                    className="w-full text-xs text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-primary file:text-primary-foreground hover:file:opacity-90 cursor-pointer"
-                  />
+                        <div className="edit-modal-input-group">
+                          <label className="edit-modal-label">Fixed Price Amount ({editForm.price_currency})</label>
+                          <div className="edit-modal-price-wrap">
+                            <span className="edit-modal-price-symbol">
+                              {editForm.price_currency === "INR" ? "₹" : editForm.price_currency === "EUR" ? "€" : editForm.price_currency === "GBP" ? "£" : "$"}
+                            </span>
+                            <input
+                              type="number"
+                              step="any"
+                              min="0"
+                              required
+                              value={editForm.price}
+                              onChange={(e) => setEditForm({ ...editForm, price: e.target.value })}
+                              className="edit-modal-price-input"
+                            />
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-1.5 font-medium">
+                            {editForm.price_currency === "INR" ? (
+                              <span>Marketplace Listing Price: <strong className="text-indigo-600 font-bold">${convertToUSD(editForm.price, "INR", rates)} USD</strong> <span className="text-slate-400">(Auto-converted from ₹{Number(editForm.price || 0).toLocaleString()} INR)</span></span>
+                            ) : (
+                              <span>Marketplace Listing Price: <strong className="text-indigo-600 font-bold">${editForm.price} USD</strong></span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
 
-                  {reuploadZipFile && (
-                    <div className="flex items-center justify-between pt-2 border-t border-primary/20">
-                      <span className="text-[11px] font-semibold text-emerald-500 truncate max-w-[250px]">
-                        Selected: {reuploadZipFile.name} ({(reuploadZipFile.size / (1024 * 1024)).toFixed(2)} MB)
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleReuploadZip}
-                        disabled={isUploadingZip}
-                        className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow transition-all flex items-center gap-1"
-                      >
-                        {isUploadingZip ? "Uploading & Processing..." : "Upload & Update Live Demo"}
-                      </button>
+                      {/* License selection visual cards */}
+                      <div className="edit-modal-input-group">
+                        <label className="edit-modal-label">License Type</label>
+                        <div className="edit-modal-license-grid">
+                          {[
+                            {
+                              id: "Single Site Commercial & Personal License",
+                              title: "Single Site",
+                              desc: "Use on 1 client or personal project with lifetime updates.",
+                            },
+                            {
+                              id: "Extended Commercial License",
+                              title: "Extended License",
+                              desc: "Use in paid SaaS products or applications with end-users.",
+                            },
+                            {
+                              id: "Unlimited Multi-Site License",
+                              title: "Unlimited Multi-Site",
+                              desc: "Unlimited deployments for agencies & multi-client developers.",
+                            },
+                          ].map((lic) => {
+                            const isSelected = editForm.license_type === lic.id;
+                            return (
+                              <div
+                                key={lic.id}
+                                onClick={() => setEditForm({ ...editForm, license_type: lic.id })}
+                                className={cn(
+                                  "edit-modal-license-card",
+                                  isSelected && "selected"
+                                )}
+                              >
+                                <div>
+                                  <div className="edit-modal-license-title">
+                                    <span>{lic.title}</span>
+                                    {isSelected && <Check className="w-4 h-4 text-indigo-600" />}
+                                  </div>
+                                  <p className="edit-modal-license-desc">{lic.desc}</p>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 3: TAGS & METADATA */}
+                  {editModalTab === "tags" && (
+                    <div className="space-y-4">
+                      <div className="edit-modal-input-group">
+                        <label className="edit-modal-label">
+                          <span>Search Tags (Comma-separated)</span>
+                          <span className="edit-modal-label-hint">Separated by commas</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={editForm.tags}
+                          onChange={(e) => setEditForm({ ...editForm, tags: e.target.value })}
+                          className="edit-modal-input"
+                          placeholder="HTML, CSS, React, TailwindCSS, Portfolio, Modern"
+                        />
+                      </div>
+
+                      {/* Live preview of tags */}
+                      <div>
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-2">Live Tag Chips</span>
+                        <div className="flex flex-wrap gap-1.5 min-h-[36px] p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                          {editForm.tags ? (
+                            editForm.tags.split(",").map(t => t.trim()).filter(Boolean).map((tag, idx) => (
+                              <span key={idx} className="edit-modal-tag-chip">
+                                #{tag}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-xs text-slate-400 italic">No tags added yet</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Quick Suggestions */}
+                      <div>
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-2">Quick Add Suggestions</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {["React", "Next.js", "TailwindCSS", "HTML5", "TypeScript", "SaaS", "Portfolio", "Landing Page", "Dark Mode", "Dashboard", "E-commerce"].map((sugg) => (
+                            <button
+                              key={sugg}
+                              type="button"
+                              onClick={() => {
+                                const current = editForm.tags ? editForm.tags.split(",").map(t => t.trim()).filter(Boolean) : [];
+                                if (!current.includes(sugg)) {
+                                  setEditForm({ ...editForm, tags: [...current, sugg].join(", ") });
+                                }
+                              }}
+                              className="edit-modal-sugg-btn"
+                            >
+                              + {sugg}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 4: RE-UPLOAD ARCHIVE */}
+                  {editModalTab === "archive" && (
+                    <div className="space-y-4">
+                      <div className="edit-modal-zip-box">
+                        <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 shadow-sm">
+                          <Upload className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h4 className="edit-modal-zip-title">Upload Updated ZIP Package</h4>
+                          <p className="edit-modal-zip-sub">
+                            Re-uploading the ZIP automatically updates the downloadable source archive and re-deploys the live interactive sandbox.
+                          </p>
+                        </div>
+
+                        <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold shadow-md shadow-indigo-600/20 hover:bg-indigo-700 transition-all">
+                          <Plus className="w-4 h-4" />
+                          <span>Choose .ZIP File</span>
+                          <input
+                            type="file"
+                            accept=".zip"
+                            onChange={(e) => setReuploadZipFile(e.target.files[0] || null)}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+
+                      {reuploadZipFile && (
+                        <div className="edit-modal-selected-zip">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-8 h-8 rounded-lg bg-emerald-100 border border-emerald-300 flex items-center justify-center text-emerald-600 shrink-0">
+                              <Check className="w-4 h-4" />
+                            </div>
+                            <div className="truncate">
+                              <div className="font-bold text-xs text-slate-900 truncate">{reuploadZipFile.name}</div>
+                              <div className="text-[10px] text-slate-500 font-mono">{(reuploadZipFile.size / (1024 * 1024)).toFixed(2)} MB</div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={handleReuploadZip}
+                            disabled={isUploadingZip}
+                            className="px-4 py-2 rounded-xl text-xs font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer border-0 shrink-0"
+                          >
+                            {isUploadingZip ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Uploading & Sandboxing...
+                              </>
+                            ) : (
+                              <>
+                                <Upload className="w-3.5 h-3.5" /> Upload & Rebuild Sandbox
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
 
-                <div className="flex items-center justify-end gap-3 pt-3 border-t border-border/50">
-                  <button
-                    type="button"
-                    onClick={() => setIsEditModalOpen(false)}
-                    className="px-4 py-2 rounded-xl text-xs font-semibold bg-muted/50 hover:bg-muted text-muted-foreground border border-border/40 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSavingEdit}
-                    className="px-5 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-md transition-all flex items-center gap-1.5"
-                  >
-                    {isSavingEdit ? "Saving Changes..." : "Save Changes"}
-                  </button>
+                {/* ── Modal Footer Action Bar ── */}
+                <div className="edit-modal-footer">
+                  <span className="text-xs text-slate-500 font-medium">
+                    Changes take effect across the entire marketplace immediately.
+                  </span>
+
+                  <div className="flex items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditModalOpen(false)}
+                      className="edit-modal-btn-cancel"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSavingEdit}
+                      className="edit-modal-btn-save"
+                    >
+                      {isSavingEdit ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-3.5 h-3.5" /> Save Changes
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </form>
             </motion.div>

@@ -328,6 +328,12 @@ async def auth_callback(provider: str, request: Request, db: AsyncSession = Depe
             await db.flush()
             await db.refresh(user)
 
+    from app.services.location_service import update_user_location
+    try:
+        await update_user_location(user, db, request=request)
+    except Exception as err:
+        print(f"Location update notice on OAuth callback: {err}")
+
     access_token = create_access_token(subject=str(user.id))
     
     redirect_path = request.session.pop('auth_redirect', None)
@@ -545,12 +551,19 @@ async def login_email(
     user_role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
     print(f"\n[USER LOGIN] Email: {user.email} | Active Role: {user_role_str}\n", flush=True)
 
+    from app.services.location_service import update_user_location
+    try:
+        await update_user_location(user, db, request=request)
+    except Exception as err:
+        print(f"Location update notice on login: {err}")
+
     access_token = create_access_token(subject=str(user.id))
     return {"access_token": access_token, "token_type": "bearer"}
 
 
 @router.post("/verify-otp")
 async def verify_otp(
+    request: Request,
     request_data: VerifyOTPRequest,
     db: AsyncSession = Depends(get_db)
 ):
@@ -597,6 +610,12 @@ async def verify_otp(
     # Delete OTP records on success
     await redis_client.delete(db_key)
     await redis_client.delete(attempts_key)
+
+    from app.services.location_service import update_user_location
+    try:
+        await update_user_location(user, db, request=request)
+    except Exception as err:
+        print(f"Location update notice on OTP verify: {err}")
     
     access_token = create_access_token(subject=str(user.id))
     return {
@@ -726,6 +745,7 @@ async def reset_password(
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> UserResponse:
@@ -738,7 +758,28 @@ async def get_me(
         await db.commit()
         await db.refresh(current_user)
         user_role_val = "seller"
-    print(f"\n[PROFILE FETCH] User: {current_user.email} | Role: {user_role_val.upper()}\n", flush=True)
+
+    # Auto-detect location & currency if missing
+    if not current_user.country or not current_user.currency or not current_user.country_code:
+        from app.services.location_service import update_user_location
+        try:
+            await update_user_location(current_user, db, request=request)
+        except Exception as err:
+            print(f"Location detection notice in /me: {err}")
+
+    print(f"\n[PROFILE FETCH] User: {current_user.email} | Role: {user_role_val.upper()} | Location: {current_user.country} ({current_user.currency})\n", flush=True)
+    return UserResponse.model_validate(current_user)
+
+
+@router.post("/detect-location", response_model=UserResponse)
+async def detect_and_update_location(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> UserResponse:
+    """Explicitly trigger location & currency detection based on client IP."""
+    from app.services.location_service import update_user_location
+    await update_user_location(current_user, db, request=request, force=True)
     return UserResponse.model_validate(current_user)
 
 
@@ -765,6 +806,14 @@ async def update_me(
         current_user.bio = data["bio"]
     if "avatar_url" in data:
         current_user.avatar_url = data["avatar_url"]
+    if "country" in data:
+        current_user.country = data["country"]
+    if "country_code" in data:
+        current_user.country_code = data["country_code"]
+    if "city" in data:
+        current_user.city = data["city"]
+    if "currency" in data:
+        current_user.currency = data["currency"]
         
     if "full_name" in data or "avatar_url" in data:
         from app.models.template import Template

@@ -1,0 +1,448 @@
+/* ==========================================================================
+   Receipt & Tax Invoice Document Styles (Dedicated Vanilla CSS)
+   ========================================================================== */
+
+.receipt-page-wrapper {
+  min-height: 100vh;
+  background-color: #c8ccd6;
+  background-image:
+    radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.08) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(16, 185, 129, 0.05) 0px, transparent 50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2.5rem 1rem;
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ── Top Floating Action Controls ── */
+.receipt-top-actions {
+  width: 100%;
+  max-width: 580px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.25rem;
+}
+
+.receipt-btn-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background-color: #1e293b;
+  color: #f1f5f9;
+  border: 1px solid #334155;
+  border-radius: 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+}
+
+.receipt-btn-back:hover {
+  background-color: #334155;
+  color: #ffffff;
+  border-color: #475569;
+  transform: translateY(-1px);
+}
+
+.receipt-btn-print {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1.125rem;
+  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.35);
+}
+
+.receipt-btn-print:hover {
+  opacity: 0.95;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.45);
+}
+
+/* ── Main Receipt Card Document ── */
+.receipt-card {
+  width: 100%;
+  max-width: 580px;
+  background-color: #ffffff;
+  color: #0f172a;
+  border-radius: 1.25rem;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  padding: 2rem;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  position: relative;
+}
+
+/* ── Header Section ── */
+.receipt-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 1.5px solid #f1f5f9;
+  padding-bottom: 1.25rem;
+}
+
+.receipt-brand-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.receipt-logo-row {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.receipt-logo-icon {
+  width: 2rem;
+  height: 2rem;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: #ffffff;
+  border-radius: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 1rem;
+  box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);
+}
+
+.receipt-brand-title {
+  font-size: 1.125rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+  text-transform: uppercase;
+}
+
+.receipt-brand-sub {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #64748b;
+  margin: 0;
+}
+
+.receipt-status-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.375rem;
+}
+
+.receipt-paid-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  background-color: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+  padding: 0.25rem 0.625rem;
+  border-radius: 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.receipt-meta-text {
+  font-size: 0.6875rem;
+  color: #64748b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  margin: 0;
+  text-align: right;
+}
+
+.receipt-meta-text strong {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+/* ── Party Information Grid (Seller & Customer) ── */
+.receipt-party-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 480px) {
+  .receipt-party-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.receipt-party-card {
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.875rem;
+  padding: 0.875rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.receipt-party-tag {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #4f46e5;
+  margin-bottom: 0.125rem;
+}
+
+.receipt-party-tag.customer {
+  color: #059669;
+}
+
+.receipt-party-name {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.receipt-party-detail {
+  font-size: 0.6875rem;
+  color: #64748b;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Items Table ── */
+.receipt-items-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.receipt-section-label {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #475569;
+  margin: 0;
+}
+
+.receipt-table-box {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.875rem;
+  overflow: hidden;
+}
+
+.receipt-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.receipt-table th {
+  background-color: #f8fafc;
+  color: #475569;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.625rem 0.875rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.receipt-table td {
+  padding: 0.875rem;
+  font-size: 0.8125rem;
+  color: #0f172a;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.receipt-table tr:last-child td {
+  border-bottom: none;
+}
+
+.receipt-item-title {
+  font-weight: 700;
+  color: #0f172a;
+  font-size: 0.8125rem;
+  margin: 0 0 0.125rem 0;
+}
+
+.receipt-item-sub {
+  font-size: 0.6875rem;
+  color: #64748b;
+  margin: 0;
+}
+
+.receipt-license-badge {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  background-color: #eef2ff;
+  color: #4338ca;
+  border: 1px solid #c7d2fe;
+  border-radius: 0.375rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.receipt-item-price {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  color: #0f172a;
+  text-align: right;
+}
+
+/* ── Financial Summary Box ── */
+.receipt-summary-wrapper {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.receipt-summary-card {
+  width: 240px;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.875rem;
+  padding: 0.875rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.receipt-summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.receipt-summary-row span:last-child {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.receipt-summary-row.discount span:last-child {
+  color: #059669;
+}
+
+.receipt-summary-divider {
+  height: 1px;
+  background-color: #e2e8f0;
+  margin: 0.125rem 0;
+}
+
+.receipt-summary-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.receipt-summary-total-val {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9375rem;
+  font-weight: 800;
+  color: #4f46e5;
+}
+
+/* ── Footer ── */
+.receipt-footer {
+  border-top: 1.5px solid #f1f5f9;
+  padding-top: 1rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.receipt-footer-thank {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #334155;
+  margin: 0;
+}
+
+.receipt-footer-sub {
+  font-size: 0.6875rem;
+  color: #94a3b8;
+  margin: 0;
+}
+
+/* ── Print Stylesheet ── */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  body,
+  html {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .receipt-page-wrapper {
+    background: #ffffff !important;
+    padding: 0 !important;
+    min-height: auto !important;
+  }
+
+  .receipt-top-actions,
+  .support-button,
+  .support-chat-popup,
+  .support-logo-img,
+  .app-bg-glow,
+  [class*="support"],
+  [class*="feedback"],
+  [class*="floating"],
+  [class*="chatbot"],
+  [class*="widget"],
+  [class*="ai-"],
+  [class*="assistant"],
+  [class*="toaster"],
+  [class*="sonner"],
+  header, footer, nav, button {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+  }
+
+  .receipt-card {
+    max-width: 100% !important;
+    width: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+  }
+}

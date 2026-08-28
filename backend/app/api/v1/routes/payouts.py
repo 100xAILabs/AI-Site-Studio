@@ -178,8 +178,19 @@ async def create_withdrawal_request(
     if not bank_name or not account_number or not ifsc_code or not account_holder_name:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Bank account details are incomplete. Please provide them or save them in your profile settings."
+            detail="Bank account details are incomplete. Please provide Bank Name, Account Number, IFSC/Swift Code, and Account Holder Name."
         )
+
+    # Sync provided bank details to user profile for future seamless payouts
+    if data.bank_name:
+        current_user.payout_bank_name = data.bank_name
+    if data.account_number:
+        current_user.payout_account_number = data.account_number
+    if data.ifsc_code:
+        current_user.payout_ifsc_code = data.ifsc_code
+    if data.account_holder_name:
+        current_user.payout_account_holder_name = data.account_holder_name
+    current_user.is_payout_setup_completed = True
 
     request = WithdrawalRequest(
         seller_id=current_user.id,

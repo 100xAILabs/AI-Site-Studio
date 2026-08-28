@@ -215,7 +215,10 @@ export function useToggleFollow(token) {
     onSuccess: (data, sellerId) => {
       qc.invalidateQueries({ queryKey: ["follow-status", sellerId] });
       qc.invalidateQueries({ queryKey: ["seller-followers"] });
+      qc.invalidateQueries({ queryKey: ["followers"] });
+      qc.invalidateQueries({ queryKey: ["following"] });
     },
   });
 }
+
 

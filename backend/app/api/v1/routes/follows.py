@@ -88,7 +88,8 @@ async def get_followers(
     current_user: User = Depends(get_current_user),
 ):
     """Get the list of profiles following the current seller."""
-    if current_user.role.value not in ("seller", "admin", "super_admin"):
+    role_str = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    if role_str.lower() not in ("seller", "admin", "super_admin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only creators and administrators can view followers lists"

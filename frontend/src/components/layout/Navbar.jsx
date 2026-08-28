@@ -19,9 +19,11 @@ import {
   X,
   Sparkles,
   Zap,
+  Globe,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCartStore } from "@/store";
+import { useCurrencyStore } from "@/store/currencyStore";
 import "./Navbar.css";
 
 
@@ -31,6 +33,7 @@ function NavbarComponent() {
   const signOut = useSignOut();
   const pathname = usePathname();
   const cartItems = useCartStore((s) => s.items);
+  const { userCurrency, setUserCurrency, fetchRates } = useCurrencyStore();
   const [scrolled, setScrolled] = useState(false);
 
   const isSeller = isSignedIn && (user?.role === "seller" || user?.role === "SELLER");
@@ -39,10 +42,17 @@ function NavbarComponent() {
 
   useEffect(() => {
     setMounted(true);
+    fetchRates();
     const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
+  }, [fetchRates]);
+
+  useEffect(() => {
+    if (user?.currency) {
+      setUserCurrency(user.currency);
+    }
+  }, [user?.currency, setUserCurrency]);
 
   return (
     <header
