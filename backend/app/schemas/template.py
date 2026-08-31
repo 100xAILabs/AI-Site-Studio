@@ -247,6 +247,7 @@ class TemplateFilterParams(BaseModel):
     sales: Optional[str] = None
     compatibility: Optional[str] = None
     language: Optional[str] = None
+    technology: Optional[str] = None
     date_added: Optional[str] = None
     sort: str = "newest"  # newest | best_sellers | best_rated | trending | lowest_price | highest_price | most_downloaded
     page: int = Field(1, ge=1)

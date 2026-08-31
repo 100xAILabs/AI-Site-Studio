@@ -20,6 +20,7 @@ class OrderItemCreate(BaseModel):
 class OrderCreate(BaseModel):
     items: List[OrderItemCreate]
     coupon_code: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class OrderItemResponse(BaseModel):

@@ -62,6 +62,11 @@ def event_loop():
 
 
 @pytest.fixture(autouse=True)
+def mock_smtp_email(monkeypatch):
+    """Ensure tests never attempt real SMTP delivery."""
+    monkeypatch.setattr("app.api.v1.routes.auth.send_smtp_email_sync", lambda *args, **kwargs: None)
+
+@pytest.fixture(autouse=True)
 async def setup_db():
     """Create and drop all database tables per test to ensure total isolation."""
     async with engine.begin() as conn:

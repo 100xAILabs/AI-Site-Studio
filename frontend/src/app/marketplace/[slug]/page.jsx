@@ -19,8 +19,9 @@ import {
   Monitor, HelpCircle, UserCheck, ChevronDown, ChevronUp,
   Play, Flame, Award, Activity, Sparkles, Clock, Plus,
   ExternalLink, Calendar, ShieldCheck, Info, Edit3, Upload,
-  DollarSign, Tag, Layers, Loader2, CheckCircle2,
+  DollarSign, Tag, Layers, Loader2, CheckCircle2, Trash2, Image as ImageIcon,
 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Navbar from "@/components/layout/Navbar";
 import TemplateCard from "@/components/marketplace/TemplateCard";
 import { useTemplate, useTemplates, useToggleFavorite, useToggleWishlist, useTemplateReviews, useCreateReview, useFollowStatus, useToggleFollow } from "@/hooks/useTemplates";
@@ -37,6 +38,12 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
 
   const { getToken, isSignedIn } = useAppAuth();
   const { user } = useAppUser();
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ["categories"],
+    queryFn: () => api.get("/categories"),
+    staleTime: 1000 * 60 * 5,
+  });
   const { userCurrency, rates } = useCurrencyStore();
   const [activeImage, setActiveImage] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -113,9 +120,13 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
     return val;
   };
 
+  const queryClient = useQueryClient();
+
   // Seller Edit Modal States
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [editModalTab, setEditModalTab] = useState("general"); // general, pricing, tags, archive
+  const [editModalTab, setEditModalTab] = useState("general"); // general, pricing, tags, gallery, archive
+  const [isUploadingGallery, setIsUploadingGallery] = useState(false);
+  const [galleryUrlInput, setGalleryUrlInput] = useState("");
   const [editForm, setEditForm] = useState({
     title: "",
     short_description: "",
@@ -124,6 +135,10 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
     price_currency: "USD",
     license_type: "Single Site Commercial & Personal License",
     tags: "",
+    category_id: "",
+    industry: "",
+    gallery_images: [],
+    thumbnail_url: "",
   });
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
@@ -144,6 +159,10 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
         price_currency: userPrefCurr,
         license_type: mapBackendToLicense(template.license_type),
         tags: Array.isArray(template.tags) ? template.tags.join(", ") : (template.tags || ""),
+        category_id: template.category_id || template.category?.id || "",
+        industry: template.industry || "",
+        gallery_images: Array.isArray(template.gallery_images) ? template.gallery_images : [],
+        thumbnail_url: template.thumbnail_url || "",
       });
     }
   }, [template, user, rates]);
@@ -166,6 +185,124 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
     }));
   };
 
+  // Direct Gallery Upload from Screenshots Gallery Section
+  const handleDirectGalleryUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length || !template?.id) return;
+    const tokenVal = await getToken();
+    if (!tokenVal) {
+      alert("Session expired. Please sign in again.");
+      return;
+    }
+    setIsUploadingGallery(true);
+    try {
+      const uploadedUrls = [];
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await fetch(`${API_URL}/files/upload`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${tokenVal}` },
+          body: formData,
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || `Failed to upload ${file.name}`);
+        }
+        const data = await res.json();
+        if (data.url) uploadedUrls.push(data.url);
+      }
+
+      if (uploadedUrls.length > 0) {
+        const currentGallery = template.gallery_images || [];
+        const newGallery = [...currentGallery, ...uploadedUrls];
+        await api.patch(`/templates/${template.id}`, { gallery_images: newGallery }, tokenVal);
+        queryClient.invalidateQueries({ queryKey: ["templates"] });
+        setEditForm((prev) => ({ ...prev, gallery_images: newGallery }));
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Failed to upload screenshot: " + err.message);
+    } finally {
+      setIsUploadingGallery(false);
+      if (e.target) e.target.value = "";
+    }
+  };
+
+  const handleRemoveGalleryImage = async (indexToRemove, e) => {
+    if (e) e.stopPropagation();
+    if (!confirm("Are you sure you want to remove this screenshot?")) return;
+    const tokenVal = await getToken();
+    if (!tokenVal || !template?.id) return;
+    try {
+      const currentGallery = [...(template.gallery_images || [])];
+      const newGallery = currentGallery.filter((_, idx) => idx !== indexToRemove);
+      await api.patch(`/templates/${template.id}`, { gallery_images: newGallery }, tokenVal);
+      queryClient.invalidateQueries({ queryKey: ["templates"] });
+      setEditForm((prev) => ({ ...prev, gallery_images: newGallery }));
+    } catch (err) {
+      console.error(err);
+      alert("Failed to remove image: " + err.message);
+    }
+  };
+
+  const handleModalAddGalleryImages = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const tokenVal = await getToken();
+    if (!tokenVal) {
+      alert("Session expired. Please sign in again.");
+      return;
+    }
+    setIsUploadingGallery(true);
+    try {
+      const uploadedUrls = [];
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await fetch(`${API_URL}/files/upload`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${tokenVal}` },
+          body: formData,
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || `Failed to upload ${file.name}`);
+        }
+        const data = await res.json();
+        if (data.url) uploadedUrls.push(data.url);
+      }
+      if (uploadedUrls.length > 0) {
+        setEditForm((prev) => ({
+          ...prev,
+          gallery_images: [...(prev.gallery_images || []), ...uploadedUrls],
+        }));
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Upload failed: " + err.message);
+    } finally {
+      setIsUploadingGallery(false);
+      if (e.target) e.target.value = "";
+    }
+  };
+
+  const handleModalAddGalleryUrl = () => {
+    if (!galleryUrlInput.trim()) return;
+    setEditForm((prev) => ({
+      ...prev,
+      gallery_images: [...(prev.gallery_images || []), galleryUrlInput.trim()],
+    }));
+    setGalleryUrlInput("");
+  };
+
+  const handleModalRemoveGalleryImage = (idxToRemove) => {
+    setEditForm((prev) => ({
+      ...prev,
+      gallery_images: (prev.gallery_images || []).filter((_, i) => i !== idxToRemove),
+    }));
+  };
+
   const handleSaveTemplateEdit = async (e) => {
     e.preventDefault();
     if (!template?.id) return;
@@ -177,6 +314,10 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
     setIsSavingEdit(true);
     try {
       const finalUsdPrice = convertToUSD(editForm.price, editForm.price_currency, rates);
+      const cleanTags = editForm.tags 
+        ? Array.from(new Set(editForm.tags.split(",").map(t => t.trim().replace(/^#/, "")).filter(Boolean)))
+        : [];
+
       const payload = {
         title: editForm.title,
         short_description: editForm.short_description,
@@ -184,9 +325,14 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
         price: finalUsdPrice,
         price_currency: "USD",
         license_type: mapLicenseToBackend(editForm.license_type),
-        tags: editForm.tags ? editForm.tags.split(",").map(t => t.trim()).filter(Boolean) : [],
+        category_id: editForm.category_id || undefined,
+        industry: editForm.industry || undefined,
+        tags: cleanTags,
+        gallery_images: editForm.gallery_images || [],
+        thumbnail_url: editForm.thumbnail_url || undefined,
       };
       await api.patch(`/templates/${template.id}`, payload, tokenVal);
+      queryClient.invalidateQueries({ queryKey: ["templates"] });
       alert("Template updated successfully!");
       setIsEditModalOpen(false);
       window.location.reload();
@@ -555,7 +701,8 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
     );
   }
 
-  const allImages = [template.thumbnail_url, ...(template.gallery_images ?? [])];
+  const isOwnerOrAdmin = Boolean(user && (user.id === template?.seller_id || user.role === "admin" || user.role === "super_admin"));
+  const allImages = [template.thumbnail_url, ...(template.gallery_images ?? [])].filter(Boolean);
 
   // Helper arrays for features and specifications mapping
   const featuresList = [
@@ -927,27 +1074,174 @@ npm run build`;
                   Built with professional developers in mind, this package delivers multiple variations for grid setups, flexible CTA items, responsive menus, and clean CSS code scopes that can easily be compiled or extended.
                 </p>
               </div>
+
+              {/* Clickable Tags & Topics */}
+              {(() => {
+                const rawTags = Array.isArray(template.tags)
+                  ? template.tags
+                  : (template.tags ? String(template.tags).split(",") : []);
+                const cleanUniqueTags = Array.from(
+                  new Set(rawTags.map((t) => t.trim().replace(/^#/, "")).filter(Boolean))
+                );
+                if (cleanUniqueTags.length === 0) return null;
+
+                return (
+                  <div className="pt-4 mt-5 border-t border-border/40">
+                    <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider block mb-2.5 flex items-center gap-1.5">
+                      <Tag className="w-3.5 h-3.5 text-primary" />
+                      Tags & Discoverability (Click to search)
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {cleanUniqueTags.map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => navigate(`/marketplace?q=${encodeURIComponent(tag)}`)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-primary/10 hover:bg-primary text-primary hover:text-white border border-primary/25 transition-all shadow-sm cursor-pointer"
+                          title={`Search for "${tag}" templates`}
+                        >
+                          <span>#{tag}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
 
 
             {/* 4. Screenshots Gallery */}
             <div className="details-gallery-block card-container">
-              <h3 className="section-title">Screenshots Gallery</h3>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                {allImages.map((img, i) => (
-                  <div key={i} className="screenshot-card group cursor-zoom-in" onClick={() => setLightboxImg(img)}>
-                    <div className="relative aspect-video rounded-lg overflow-hidden border border-border/30 bg-muted">
-                      <Image src={img} alt={`Screenshot ${i + 1}`} fill className="object-cover transition-all duration-300 group-hover:scale-105" />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                        <Eye className="w-5 h-5 text-white" />
-                      </div>
-                    </div>
-                    <span className="text-[11px] font-medium text-muted-foreground mt-1.5 block text-center capitalize">
-                      {["Home Dashboard", "Services Grid", "Portfolio Details", "Contact Panel"][i % 4] || `Screenshot ${i + 1}`}
+              <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                <div>
+                  <h3 className="section-title mb-0 flex items-center gap-2">
+                    Screenshots Gallery
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                      {allImages.length} {allImages.length === 1 ? "Image" : "Images"}
                     </span>
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    High-resolution interface previews and responsive section captures.
+                  </p>
+                </div>
+                {isOwnerOrAdmin && (
+                  <div className="flex items-center gap-2">
+                    <label
+                      className={cn(
+                        "inline-flex items-center gap-1.5 text-xs font-bold text-white bg-primary hover:bg-primary/95 px-3.5 py-2 rounded-xl shadow-sm transition-all cursor-pointer select-none",
+                        isUploadingGallery && "pointer-events-none opacity-70"
+                      )}
+                      title="Upload more screenshots"
+                    >
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={handleDirectGalleryUpload}
+                        disabled={isUploadingGallery}
+                      />
+                      {isUploadingGallery ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Uploading...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add Screenshots</span>
+                        </>
+                      )}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditModalTab("gallery");
+                        setIsEditModalOpen(true);
+                      }}
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 bg-muted/60 hover:bg-muted px-3 py-2 rounded-xl border border-border/50 transition-all cursor-pointer"
+                      title="Manage Screenshots"
+                    >
+                      <Sliders className="w-3.5 h-3.5" />
+                      <span>Manage</span>
+                    </button>
                   </div>
-                ))}
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                {allImages.map((img, i) => {
+                  const isRemovableGalleryItem = isOwnerOrAdmin && (
+                    template.gallery_images && template.gallery_images.includes(img)
+                  );
+                  const galleryIndex = template.gallery_images ? template.gallery_images.indexOf(img) : -1;
+
+                  return (
+                    <div key={i} className="screenshot-card group relative">
+                      <div
+                        className="relative aspect-video rounded-lg overflow-hidden border border-border/30 bg-muted cursor-zoom-in"
+                        onClick={() => setLightboxImg(img)}
+                      >
+                        <Image src={img} alt={`Screenshot ${i + 1}`} fill className="object-cover transition-all duration-300 group-hover:scale-105" />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                          <Eye className="w-5 h-5 text-white" />
+                        </div>
+                      </div>
+
+                      {/* Owner remove screenshot button on hover */}
+                      {isRemovableGalleryItem && galleryIndex >= 0 && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleRemoveGalleryImage(galleryIndex, e)}
+                          className="absolute top-1.5 right-1.5 p-1 rounded-md bg-red-600/90 hover:bg-red-700 text-white shadow opacity-0 group-hover:opacity-100 transition-opacity border-none cursor-pointer z-10"
+                          title="Delete this screenshot"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+
+                      <span className="text-[11px] font-medium text-muted-foreground mt-1.5 block text-center capitalize truncate px-1">
+                        {i === 0 && template.thumbnail_url === img
+                          ? "Cover Thumbnail"
+                          : ["Home Dashboard", "Services Grid", "Portfolio Details", "Contact Panel", "Pricing Table", "Blog Overview"][i % 6] || `Screenshot ${i + 1}`}
+                      </span>
+                    </div>
+                  );
+                })}
+
+                {/* Direct + icon tile in the screenshots gallery for seller / admin */}
+                {isOwnerOrAdmin && (
+                  <label
+                    className={cn(
+                      "screenshot-card group cursor-pointer border-2 border-dashed border-primary/40 hover:border-primary bg-primary/5 hover:bg-primary/10 rounded-lg aspect-video flex flex-col items-center justify-center gap-1.5 transition-all text-primary select-none",
+                      isUploadingGallery && "pointer-events-none opacity-60"
+                    )}
+                    title="Click to add screenshot images (multiple allowed)"
+                  >
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={handleDirectGalleryUpload}
+                      disabled={isUploadingGallery}
+                    />
+                    {isUploadingGallery ? (
+                      <>
+                        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                        <span className="text-[11px] font-bold">Uploading...</span>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-8 h-8 rounded-full bg-primary/15 group-hover:bg-primary/25 flex items-center justify-center group-hover:scale-110 transition-transform">
+                          <Plus className="w-5 h-5 text-primary" />
+                        </div>
+                        <span className="text-[11px] font-bold">Add Image</span>
+                      </>
+                    )}
+                  </label>
+                )}
               </div>
             </div>
 
@@ -1680,6 +1974,38 @@ npm run build`;
                       {template.license_type || "Single Site Commercial & Personal License"}
                     </span>
                   </div>
+
+                  {/* Sidebar Tags */}
+                  {(() => {
+                    const rawTags = Array.isArray(template.tags)
+                      ? template.tags
+                      : (template.tags ? String(template.tags).split(",") : []);
+                    const cleanUniqueTags = Array.from(
+                      new Set(rawTags.map((t) => t.trim().replace(/^#/, "")).filter(Boolean))
+                    );
+                    if (cleanUniqueTags.length === 0) return null;
+
+                    return (
+                      <div className="pt-2 border-t border-border/30">
+                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block mb-1.5 flex items-center gap-1">
+                          <Tag className="w-3 h-3 text-primary" /> Tags
+                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {cleanUniqueTags.map((tag) => (
+                            <button
+                              key={tag}
+                              type="button"
+                              onClick={() => navigate(`/marketplace?q=${encodeURIComponent(tag)}`)}
+                              className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-primary/10 hover:bg-primary text-primary hover:text-white border border-primary/20 transition-all cursor-pointer"
+                              title={`Filter marketplace by ${tag}`}
+                            >
+                              #{tag}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -2021,6 +2347,14 @@ npm run build`;
                 </button>
                 <button
                   type="button"
+                  onClick={() => setEditModalTab("gallery")}
+                  className={cn("edit-modal-tab-btn", editModalTab === "gallery" && "active")}
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Screenshots & Gallery ({(editForm.gallery_images || []).length})</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => setEditModalTab("tags")}
                   className={cn("edit-modal-tab-btn", editModalTab === "tags" && "active")}
                 >
@@ -2072,6 +2406,42 @@ npm run build`;
                           className="edit-modal-input"
                           placeholder="Clean, responsive personal portfolio with dark mode and smooth animations."
                         />
+                      </div>
+
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        <div className="edit-modal-input-group">
+                          <label className="edit-modal-label">
+                            <span>Marketplace Category *</span>
+                            <span className="edit-modal-label-hint">Defines category filter</span>
+                          </label>
+                          <select
+                            value={editForm.category_id}
+                            onChange={(e) => setEditForm({ ...editForm, category_id: e.target.value })}
+                            className="edit-modal-select font-bold"
+                            required
+                          >
+                            <option value="">Select Category...</option>
+                            {categories.map((cat) => (
+                              <option key={cat.id} value={cat.id}>
+                                {cat.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="edit-modal-input-group">
+                          <label className="edit-modal-label">
+                            <span>Industry / Sub-Category</span>
+                            <span className="edit-modal-label-hint">e.g. Creative, Agency</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={editForm.industry}
+                            onChange={(e) => setEditForm({ ...editForm, industry: e.target.value })}
+                            className="edit-modal-input"
+                            placeholder="e.g. Creative Portfolio, Personal Brand"
+                          />
+                        </div>
                       </div>
 
                       <div className="edit-modal-input-group">
@@ -2182,7 +2552,104 @@ npm run build`;
                     </div>
                   )}
 
-                  {/* TAB 3: TAGS & METADATA */}
+                  {/* TAB 3: SCREENSHOTS & GALLERY */}
+                  {editModalTab === "gallery" && (
+                    <div className="space-y-4">
+                      <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl flex items-start gap-3">
+                        <Sparkles className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                        <div className="text-xs text-slate-700 leading-relaxed">
+                          <strong>Showcase Screenshots Gallery:</strong> Upload multiple high-resolution captures of your pages, responsive layouts, panels, and components.
+                        </div>
+                      </div>
+
+                      {/* URL Add input */}
+                      <div className="flex gap-2">
+                        <input
+                          type="url"
+                          value={galleryUrlInput}
+                          onChange={(e) => setGalleryUrlInput(e.target.value)}
+                          placeholder="Or paste direct image URL (https://...)"
+                          className="edit-modal-input text-xs flex-1"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleModalAddGalleryUrl();
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleModalAddGalleryUrl}
+                          disabled={!galleryUrlInput.trim()}
+                          className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold transition-all disabled:opacity-40 cursor-pointer border-none shrink-0"
+                        >
+                          + Add URL
+                        </button>
+                      </div>
+
+                      {/* Screenshots Grid */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[340px] overflow-y-auto p-1">
+                        {/* Cover Photo */}
+                        {editForm.thumbnail_url && (
+                          <div className="relative aspect-video rounded-xl overflow-hidden border-2 border-indigo-500/60 bg-slate-100 group shadow-sm">
+                            <img src={editForm.thumbnail_url} alt="Cover Thumbnail" className="w-full h-full object-cover" />
+                            <span className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded bg-indigo-600 text-white text-[9px] font-bold tracking-wider uppercase shadow">
+                              Cover Photo
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Gallery Screenshots */}
+                        {(editForm.gallery_images || []).map((imgUrl, gIdx) => (
+                          <div key={gIdx} className="relative aspect-video rounded-xl overflow-hidden border border-slate-200 bg-slate-100 group shadow-sm">
+                            <img src={imgUrl} alt={`Screenshot ${gIdx + 1}`} className="w-full h-full object-cover" />
+                            <span className="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded bg-black/60 backdrop-blur-sm text-white text-[9px] font-mono font-bold">
+                              #{gIdx + 1}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleModalRemoveGalleryImage(gIdx)}
+                              className="absolute top-1.5 right-1.5 p-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white shadow opacity-90 group-hover:opacity-100 transition-all border-none cursor-pointer"
+                              title="Delete this screenshot"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+
+                        {/* + Add Screenshots Tile */}
+                        <label className={cn(
+                          "aspect-video rounded-xl border-2 border-dashed border-indigo-400 hover:border-indigo-600 bg-indigo-50/50 hover:bg-indigo-50 flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer group text-indigo-600 select-none",
+                          isUploadingGallery && "pointer-events-none opacity-60"
+                        )}>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            onChange={handleModalAddGalleryImages}
+                            className="hidden"
+                            disabled={isUploadingGallery}
+                          />
+                          {isUploadingGallery ? (
+                            <>
+                              <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+                              <span className="text-[10px] font-bold">Uploading...</span>
+                            </>
+                          ) : (
+                            <>
+                              <div className="w-8 h-8 rounded-full bg-indigo-100 group-hover:bg-indigo-200 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                <Plus className="w-4 h-4 text-indigo-600" />
+                              </div>
+                              <span className="text-[11px] font-bold">Add Screenshots</span>
+                              <span className="text-[9px] text-slate-500">(Multiple allowed)</span>
+                            </>
+                          )}
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 4: TAGS & METADATA */}
                   {editModalTab === "tags" && (
                     <div className="space-y-4">
                       <div className="edit-modal-input-group">
@@ -2201,13 +2668,27 @@ npm run build`;
 
                       {/* Live preview of tags */}
                       <div>
-                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-2">Live Tag Chips</span>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Live Tag Chips</span>
+                          <span className="text-[10px] text-slate-400">Click the × on any tag to remove</span>
+                        </div>
                         <div className="flex flex-wrap gap-1.5 min-h-[36px] p-2.5 rounded-xl bg-slate-50 border border-slate-200">
                           {editForm.tags ? (
-                            editForm.tags.split(",").map(t => t.trim()).filter(Boolean).map((tag, idx) => (
-                              <span key={idx} className="edit-modal-tag-chip">
-                                #{tag}
-                              </span>
+                            Array.from(new Set(editForm.tags.split(",").map(t => t.trim().replace(/^#/, "")).filter(Boolean))).map((tag, idx) => (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => {
+                                  const current = editForm.tags.split(",").map(t => t.trim().replace(/^#/, "")).filter(Boolean);
+                                  const updated = current.filter(t => t.toLowerCase() !== tag.toLowerCase());
+                                  setEditForm({ ...editForm, tags: updated.join(", ") });
+                                }}
+                                className="edit-modal-tag-chip flex items-center gap-1.5 hover:bg-red-50 hover:text-red-600 hover:border-red-300 transition-all cursor-pointer border group"
+                                title="Click to remove this tag"
+                              >
+                                <span>#{tag}</span>
+                                <X className="w-3 h-3 text-slate-400 group-hover:text-red-600" />
+                              </button>
                             ))
                           ) : (
                             <span className="text-xs text-slate-400 italic">No tags added yet</span>
@@ -2219,13 +2700,13 @@ npm run build`;
                       <div>
                         <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-2">Quick Add Suggestions</span>
                         <div className="flex flex-wrap gap-1.5">
-                          {["React", "Next.js", "TailwindCSS", "HTML5", "TypeScript", "SaaS", "Portfolio", "Landing Page", "Dark Mode", "Dashboard", "E-commerce"].map((sugg) => (
+                          {["React", "Next.js", "TailwindCSS", "HTML5", "TypeScript", "SaaS", "Portfolio", "Landing Page", "Dark Mode", "Dashboard", "E-Commerce", "Agency", "Restaurant", "Healthcare"].map((sugg) => (
                             <button
                               key={sugg}
                               type="button"
                               onClick={() => {
-                                const current = editForm.tags ? editForm.tags.split(",").map(t => t.trim()).filter(Boolean) : [];
-                                if (!current.includes(sugg)) {
+                                const current = editForm.tags ? editForm.tags.split(",").map(t => t.trim().replace(/^#/, "")).filter(Boolean) : [];
+                                if (!current.some(c => c.toLowerCase() === sugg.toLowerCase())) {
                                   setEditForm({ ...editForm, tags: [...current, sugg].join(", ") });
                                 }
                               }}

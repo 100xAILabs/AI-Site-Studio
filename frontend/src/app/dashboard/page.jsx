@@ -860,6 +860,21 @@ function Dashboard() {
   const [folderFiles, setFolderFiles] = useState(null);
   const [videoFile, setVideoFile] = useState(null);
   const [thumbnailFile, setThumbnailFile] = useState(null);
+  const [galleryFiles, setGalleryFiles] = useState([]);
+  const [galleryPreviews, setGalleryPreviews] = useState([]);
+
+  const handleAddDashboardGalleryFiles = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setGalleryFiles((prev) => [...prev, ...files]);
+    const newPreviews = files.map((f) => URL.createObjectURL(f));
+    setGalleryPreviews((prev) => [...prev, ...newPreviews]);
+  };
+
+  const handleRemoveDashboardGalleryFile = (idxToRemove) => {
+    setGalleryFiles((prev) => prev.filter((_, i) => i !== idxToRemove));
+    setGalleryPreviews((prev) => prev.filter((_, i) => i !== idxToRemove));
+  };
 
   // ── 9-step wizard extended state ──────────────────────────────────────────
   const [wizardCategory, setWizardCategory] = useState("");
@@ -1373,6 +1388,16 @@ function Dashboard() {
         finalThumbnailUrl = "https://picsum.photos/seed/placeholder/600/400";
       }
 
+      // 1b. Upload Gallery Screenshots if any
+      const finalGalleryUrls = [];
+      if (galleryFiles && galleryFiles.length > 0) {
+        for (let i = 0; i < galleryFiles.length; i++) {
+          const gFile = galleryFiles[i];
+          const gUrl = await uploadFileHelper(gFile, `gallery screenshot ${i + 1}`);
+          if (gUrl) finalGalleryUrls.push(gUrl);
+        }
+      }
+
       // 2. Prepare Zip File
       let finalZipFile = zipFile;
       if (!finalZipFile && folderFiles && folderFiles.length > 0) {
@@ -1399,15 +1424,21 @@ function Dashboard() {
       }
 
       // 5. Submit Template details as JSON to match TemplateCreate schema
-      let finalTagsList = tags ? tags.split(",").map(t => t.trim().toLowerCase()) : [];
-      if (subCategory && !finalTagsList.includes(subCategory.toLowerCase())) {
-        finalTagsList.push(subCategory.toLowerCase());
-        finalTagsList.push(subCategory.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+      let finalTagsList = tags ? tags.split(",").map(t => t.trim().toLowerCase().replace(/^#/, "")).filter(Boolean) : [];
+      if (subCategory) {
+        const subClean = subCategory.toLowerCase().trim().replace(/^#/, "");
+        if (!finalTagsList.includes(subClean)) {
+          finalTagsList.push(subClean);
+        }
       }
       const selectedCategoryObj = categories.find(c => c.id === categoryId);
-      if (selectedCategoryObj && !finalTagsList.includes(selectedCategoryObj.slug)) {
-        finalTagsList.push(selectedCategoryObj.slug);
+      if (selectedCategoryObj) {
+        const catSlug = selectedCategoryObj.slug.toLowerCase().trim();
+        if (!finalTagsList.includes(catSlug)) {
+          finalTagsList.push(catSlug);
+        }
       }
+      finalTagsList = Array.from(new Set(finalTagsList.filter(Boolean)));
 
       const usdPrice = convertToUSD(price, priceCurrency, rates);
       const usdOriginalPrice = salePrice ? convertToUSD(salePrice, priceCurrency, rates) : null;
@@ -1425,7 +1456,7 @@ function Dashboard() {
         thumbnail_url: finalThumbnailUrl,
         preview_url: demoUrl || null,
         video_url: finalVideoUrl,
-        gallery_images: [],
+        gallery_images: finalGalleryUrls,
         category_id: categoryId,
         tags: finalTagsList,
         industry: subCategory || industryFocus || (analysisResult && analysisResult.industry ? (Array.isArray(analysisResult.industry) ? analysisResult.industry.join(", ") : analysisResult.industry) : "Business"),
@@ -4163,6 +4194,57 @@ function Dashboard() {
                                 placeholder="https://demotemplate.aisitestudio.com"
                                 className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
                               />
+                            </div>
+                          </div>
+
+                          {/* Screenshots & Gallery Images Section with + Icon */}
+                          <div className="space-y-2 p-4 bg-muted/10 border border-border/40 rounded-xl">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <label className="block text-xs font-semibold text-foreground uppercase">
+                                  Screenshots & Gallery Images (Optional)
+                                </label>
+                                <p className="text-[10px] text-muted-foreground">
+                                  Add multiple showcase screenshots of your pages, components, and responsive views through the + icon.
+                                </p>
+                              </div>
+                              <span className="text-[10px] font-bold text-primary">
+                                {galleryFiles.length} image{galleryFiles.length !== 1 ? "s" : ""} selected
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3 pt-2">
+                              {galleryPreviews.map((previewUrl, idx) => (
+                                <div key={idx} className="relative aspect-video rounded-lg overflow-hidden border border-border bg-card group shadow-sm">
+                                  <img src={previewUrl} alt={`Gallery ${idx + 1}`} className="w-full h-full object-cover" />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveDashboardGalleryFile(idx)}
+                                    className="absolute top-1 right-1 p-1 rounded-full bg-red-600/90 hover:bg-red-700 text-white shadow opacity-90 group-hover:opacity-100 transition-all border-none cursor-pointer"
+                                    title="Remove image"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                  <span className="absolute bottom-1 left-1 bg-black/60 backdrop-blur-sm text-white text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">
+                                    #{idx + 1}
+                                  </span>
+                                </div>
+                              ))}
+
+                              {/* + Add Images Card */}
+                              <label className="aspect-video rounded-lg border-2 border-dashed border-primary/40 hover:border-primary bg-primary/5 hover:bg-primary/10 flex flex-col items-center justify-center gap-1 transition-all cursor-pointer group text-primary select-none">
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  multiple
+                                  onChange={handleAddDashboardGalleryFiles}
+                                  className="hidden"
+                                />
+                                <div className="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                  <Plus className="w-4 h-4 text-primary" />
+                                </div>
+                                <span className="text-[10px] font-bold">Add Images</span>
+                              </label>
                             </div>
                           </div>
 

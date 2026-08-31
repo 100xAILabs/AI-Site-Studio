@@ -859,15 +859,35 @@ class ProjectAnalyzer:
         if scan_results["has_dark_mode"]:
             tags.append("darkmode")
 
-        # Determine subcategory and category heuristically from detected features and pages
+        # Determine subcategory and category heuristically from detected features, pages, components, and filenames
         page_str = " ".join(scan_results.get("pages", [])).lower()
         comp_str = " ".join(scan_results.get("components", [])).lower()
         all_txt = f"{page_str} {comp_str}"
 
-        category = "Site Template"
-        sub_cat = "Landing Page"
+        category = "Business"
+        sub_cat = "Small Business"
 
-        if "accounting" in all_txt or "invoice" in all_txt or "tax" in all_txt:
+        if "portfolio" in all_txt or "resume" in all_txt or "cv" in all_txt or "designer" in all_txt or "developer" in all_txt or "showcase" in all_txt:
+            category = "Portfolio"
+            sub_cat = "Creative"
+            tags.extend(["portfolio", "resume", "designer", "showcase"])
+        elif "shop" in all_txt or "cart" in all_txt or "product" in all_txt or "store" in all_txt or "ecommerce" in all_txt:
+            category = "E-Commerce"
+            sub_cat = "Digital Store"
+            tags.extend(["ecommerce", "store", "shop"])
+        elif "restaurant" in all_txt or "menu" in all_txt or "food" in all_txt or "cafe" in all_txt or "bistro" in all_txt:
+            category = "Restaurant"
+            sub_cat = "Cafe"
+            tags.extend(["restaurant", "cafe", "food"])
+        elif "doctor" in all_txt or "clinic" in all_txt or "hospital" in all_txt or "health" in all_txt or "medical" in all_txt:
+            category = "Healthcare"
+            sub_cat = "Clinic"
+            tags.extend(["health", "medical", "clinic"])
+        elif "estate" in all_txt or "property" in all_txt or "house" in all_txt or "listing" in all_txt or "realtor" in all_txt:
+            category = "Real Estate"
+            sub_cat = "Property Listing"
+            tags.extend(["real-estate", "property", "realtor"])
+        elif "accounting" in all_txt or "invoice" in all_txt or "tax" in all_txt:
             category = "Business"
             sub_cat = "Accounting"
             tags.extend(["accounting", "finance", "invoice"])
@@ -876,21 +896,13 @@ class ProjectAnalyzer:
             sub_cat = "Finance"
             tags.extend(["finance", "fintech"])
         elif "dashboard" in all_txt or "admin" in all_txt or "analytics" in all_txt:
-            category = "UI Templates"
+            category = "Technology"
             sub_cat = "Dashboard"
-            tags.extend(["dashboard", "admin"])
-        elif "restaurant" in all_txt or "menu" in all_txt or "food" in all_txt or "cafe" in all_txt:
-            category = "Restaurant"
-            sub_cat = "Cafe"
-            tags.extend(["restaurant", "cafe", "food"])
-        elif "doctor" in all_txt or "clinic" in all_txt or "hospital" in all_txt or "health" in all_txt:
-            category = "Healthcare"
-            sub_cat = "Clinic"
-            tags.extend(["health", "medical", "clinic"])
-        elif "portfolio" in all_txt or "resume" in all_txt or "cv" in all_txt:
-            category = "Portfolio"
-            sub_cat = "Creative"
-            tags.extend(["portfolio", "resume"])
+            tags.extend(["dashboard", "admin", "tech"])
+        elif "agency" in all_txt or "studio" in all_txt or "creative" in all_txt:
+            category = "Agency"
+            sub_cat = "Creative Agency"
+            tags.extend(["agency", "studio"])
         else:
             category = "Business"
             sub_cat = "Small Business"
@@ -914,16 +926,24 @@ class ProjectAnalyzer:
         if not suggestions:
             suggestions.append("Optimize assets and code loading speeds.")
 
-        categories = {"Business": 95, "Agency": 85}
+        categories = {category: 98}
+        if category != "Business":
+            categories["Business"] = 60
+        if category != "Agency":
+            categories["Agency"] = 55
         if "Authentication" in scan_results["features_detected"]:
-            categories["SaaS"] = 90
+            categories["Technology"] = 90
+
+        # Unique tags
+        clean_tags = list(dict.fromkeys([t.lower().replace("#", "").strip() for t in tags if t.strip()]))
 
         return {
             "project_name": name,
             "ai_description": desc,
-            "ai_tags": tags,
+            "ai_tags": clean_tags,
             "categories": categories,
-            "industry": ["SaaS", "Agency", "Startup"],
+            "sub_category": sub_cat,
+            "industry": [category, sub_cat, "Software"],
             "ai_selling_points": [
                 f"Built using production-ready {frame}",
                 "Curated modern brand styling",

@@ -52,19 +52,41 @@ function Marketplace() {
       setFilters({
         category: params.category,
         sub_category: params.sub_category,
+        technology: params.technology,
         q: params.q,
         sort: params.sort ?? "newest",
         page: params.page ? Number(params.page) : 1,
         min_price: params.min_price ? Number(params.min_price) : undefined,
         max_price: params.max_price ? Number(params.max_price) : undefined,
+        is_on_sale: params.is_on_sale !== undefined ? (params.is_on_sale === "true" || params.is_on_sale === true) : undefined,
         sales: params.sales,
+        rating: params.rating ? Number(params.rating) : undefined,
         compatibility: params.compatibility,
         language: params.language,
         date_added: params.date_added,
         developer: params.developer,
       });
+      if (params.q) {
+        setSearchInput(params.q);
+      }
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep browser URL updated with active filters
+  useEffect(() => {
+    const urlParams = new URLSearchParams();
+    Object.entries(filters).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") {
+        if (k === "sort" && v === "newest") return;
+        if (k === "page" && v === 1) return;
+        if (k === "page_size") return;
+        urlParams.set(k, String(v));
+      }
+    });
+    const queryString = urlParams.toString();
+    const newUrl = queryString ? `${window.location.pathname}?${queryString}` : window.location.pathname;
+    window.history.replaceState({}, "", newUrl);
+  }, [filters]);
 
   // Fetch categories dynamically
   const { data: categories = [] } = useQuery({

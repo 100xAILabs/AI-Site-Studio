@@ -109,17 +109,23 @@ class TemplateRepository:
         if need_category_join:
             query = query.join(Category, Template.category_id == Category.id)
 
-        # ── Category Filter — strict: slug/name match via Category JOIN ─────────
+        # ── Category Filter — slug/name match via Category JOIN + tag / industry fallback ─────────
         if filters.category:
             cat_val = filters.category.strip().lower()
             cat_val_spaced = cat_val.replace("-", " ")
+            cat_val_slug = cat_val.replace(" ", "-")
             query = query.where(
                 or_(
                     Category.slug == cat_val,
-                    Category.slug == cat_val.replace(" ", "-"),
+                    Category.slug == cat_val_slug,
                     func.lower(Category.name) == cat_val,
                     func.lower(Category.name) == cat_val_spaced,
                     func.lower(Category.name).ilike(f"%{cat_val}%"),
+                    cast(Template.tags, String).ilike(f"%{cat_val}%"),
+                    cast(Template.tags, String).ilike(f"%{cat_val_spaced}%"),
+                    cast(Template.tags, String).ilike(f"%{cat_val_slug}%"),
+                    Template.industry.ilike(f"%{cat_val}%"),
+                    Template.industry.ilike(f"%{cat_val_spaced}%"),
                 )
             )
 
@@ -159,10 +165,24 @@ class TemplateRepository:
             query = query.where(Template.rating_avg >= filters.rating)
 
         # ── Boolean flags ─────────────────────────────────────────────────────
+        # ── Boolean flags ─────────────────────────────────────────────────────
         if filters.is_free is not None:
             query = query.where(Template.is_free == filters.is_free)
         if filters.is_on_sale is not None:
-            query = query.where(Template.is_on_sale == filters.is_on_sale)
+            if filters.is_on_sale:
+                query = query.where(
+                    or_(
+                        Template.is_on_sale.is_(True),
+                        and_(Template.original_price.isnot(None), Template.original_price > Template.price)
+                    )
+                )
+            else:
+                query = query.where(
+                    and_(
+                        or_(Template.is_on_sale.is_(False), Template.is_on_sale.is_(None)),
+                        or_(Template.original_price.is_(None), Template.original_price <= Template.price)
+                    )
+                )
 
         # ── Framework / Dark mode / AI-ready ──────────────────────────────────
         if filters.framework is not None:
@@ -171,6 +191,26 @@ class TemplateRepository:
             query = query.where(Template.has_dark_mode == filters.has_dark_mode)
         if filters.is_ai_ready is not None:
             query = query.where(Template.is_ai_ready == filters.is_ai_ready)
+
+        # ── Technology / Framework / UI Library ──────────────────────────────
+        if filters.technology:
+            tech_raw = filters.technology.strip().lower()
+            tech_spaced = tech_raw.replace("-", " ")
+            tech_slug = tech_raw.replace(" ", "-")
+
+            query = query.where(
+                or_(
+                    func.lower(cast(Template.framework, String)) == tech_raw,
+                    func.lower(cast(Template.framework, String)) == tech_slug,
+                    func.lower(cast(Template.framework, String)).ilike(f"%{tech_raw}%"),
+                    cast(Template.tags, String).ilike(f"%{tech_raw}%"),
+                    cast(Template.tags, String).ilike(f"%{tech_spaced}%"),
+                    cast(Template.tags, String).ilike(f"%{tech_slug}%"),
+                    Template.title.ilike(f"%{tech_raw}%"),
+                    Template.short_description.ilike(f"%{tech_raw}%"),
+                    Template.description.ilike(f"%{tech_raw}%"),
+                )
+            )
 
         # ── Industry ──────────────────────────────────────────────────────────
         if filters.industry:
@@ -195,7 +235,7 @@ class TemplateRepository:
             elif filters.sales == "high":
                 query = query.where(and_(Template.downloads_count > 50, Template.downloads_count <= 200))
             elif filters.sales == "top-seller":
-                query = query.where(or_(Template.downloads_count > 200, Template.is_bestseller == True))
+                query = query.where(or_(Template.downloads_count > 20, Template.is_bestseller.is_(True)))
 
         # ── Compatibility ─────────────────────────────────────────────────────
         if filters.compatibility:
@@ -213,12 +253,12 @@ class TemplateRepository:
 
         # ── Date added ────────────────────────────────────────────────────────
         if filters.date_added:
-            from datetime import datetime, timedelta
-            now = datetime.utcnow()
+            from datetime import datetime, timedelta, timezone
+            now = datetime.now(timezone.utc)
             if filters.date_added == "last-24h":
                 query = query.where(Template.created_at >= now - timedelta(days=1))
             elif filters.date_added == "last-week":
-                query = query.where(Template.created_at >= now - timedelta(weeks=1))
+                query = query.where(Template.created_at >= now - timedelta(days=7))
             elif filters.date_added == "last-month":
                 query = query.where(Template.created_at >= now - timedelta(days=30))
             elif filters.date_added == "last-year":
@@ -234,7 +274,7 @@ class TemplateRepository:
 
         # ── Keyword / Semantic Search ──────────────────────────────────────────
         if filters.q:
-            q_clean = filters.q.strip().lower()
+            q_clean = filters.q.strip().lstrip("#").strip().lower()
 
             synonym_dict = {
                 "food": ["restaurant", "bistro", "culinary", "menu", "dining", "cafe", "bakery", "food"],

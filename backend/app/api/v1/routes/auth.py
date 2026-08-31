@@ -53,9 +53,40 @@ import datetime
 
 import asyncio
 import smtplib
-from email.mime.text import MIMEText
+DUMMY_EMAIL_DOMAINS = {
+    "example.com", "example.org", "example.net", "test.com", "dummy.com",
+    "company.com", "sample.com", "invalid", "localhost", "mailinator.com"
+}
+
+def is_dummy_or_test_email(email: str) -> bool:
+    if not email or "@" not in email:
+        return True
+    domain = email.split("@")[-1].lower().strip()
+    return (
+        domain in DUMMY_EMAIL_DOMAINS
+        or domain.endswith(".example")
+        or domain.endswith(".test")
+        or domain.endswith(".invalid")
+        or domain.endswith(".local")
+    )
 
 def send_smtp_email_sync(to_email: str, subject: str, body: str):
+    # 1. Skip if test environment or email delivery explicitly disabled
+    is_test_env = (
+        getattr(settings, "ENVIRONMENT", "").lower() in ("test", "testing")
+        or os.getenv("ENVIRONMENT", "").lower() in ("test", "testing")
+        or not getattr(settings, "ENABLE_EMAIL_DELIVERY", True)
+    )
+    if is_test_env:
+        print(f"\n[TEST SIMULATION] Real SMTP skipped for {to_email} (Test/Disabled Mode). Subject: {subject}\n")
+        return
+
+    # 2. Skip placeholder / dummy domains to prevent delivery delay & bounce notices from mail providers
+    if is_dummy_or_test_email(to_email):
+        print(f"\n[SIMULATION] Email to placeholder domain ({to_email}) skipped to prevent delivery bounce. Subject: {subject}\n")
+        return
+
+    # 3. Check credentials
     if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
         print(f"\n[SIMULATION] SMTP credentials not configured. Email to {to_email} not sent. Content: {body}\n")
         return

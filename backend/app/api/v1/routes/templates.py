@@ -75,6 +75,7 @@ async def list_templates(
     sales: Optional[str] = Query(None, description="Sales count tier filter"),
     compatibility: Optional[str] = Query(None, description="Compatibility filter"),
     language: Optional[str] = Query(None, description="Programming language filter"),
+    technology: Optional[str] = Query(None, description="Technology/Framework/Library filter"),
     date_added: Optional[str] = Query(None, description="Date added range filter"),
     # Sorting & Pagination
     sort: str = Query("newest", description="Sort field"),
@@ -95,7 +96,7 @@ async def list_templates(
         has_dark_mode=has_dark_mode, is_ai_ready=is_ai_ready, is_featured=is_featured,
         framework=framework, industry=industry, color_scheme=color_scheme,
         license_type=license_type, sales=sales, compatibility=compatibility, language=language,
-        date_added=date_added,
+        technology=technology, date_added=date_added,
         sort=sort, page=page, page_size=page_size, semantic=semantic,
         developer=developer,
     )
