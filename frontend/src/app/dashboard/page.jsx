@@ -144,6 +144,7 @@ function Dashboard() {
   const [editPrice, setEditPrice] = useState("");
   const [editCurrency, setEditCurrency] = useState("USD");
   const [editFramework, setEditFramework] = useState("");
+  const [editVersion, setEditVersion] = useState("1.0.0");
   const [editCategory, setEditCategory] = useState("");
   const [editDemoUrl, setEditDemoUrl] = useState("");
   const [editError, setEditError] = useState("");
@@ -181,13 +182,19 @@ function Dashboard() {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || "Failed to re-upload ZIP package");
+        throw new Error(err.detail || "Failed to re-upload template package");
       }
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       qc.invalidateQueries(["seller-templates"]);
       qc.invalidateQueries(["templates"]);
+      qc.invalidateQueries(["my-templates"]);
+      if (data) {
+        if (data.framework) setEditFramework(data.framework);
+        if (data.version) setEditVersion(data.version);
+        setEditingTemplate(prev => prev ? { ...prev, ...data } : data);
+      }
       setReuploadFile(null);
     },
   });
@@ -207,7 +214,8 @@ function Dashboard() {
       setEditPrice(item.price || 0);
     }
     
-    setEditFramework(item.framework || "React");
+    setEditFramework(item.framework || "html");
+    setEditVersion(item.version || "1.0.0");
     setEditCategory(typeof item.category === "object" ? (item.category?.name || item.category?.slug || "General") : (item.category || "General"));
     setEditDemoUrl(item.preview_url || "");
     setEditError("");
@@ -845,7 +853,11 @@ function Dashboard() {
   const [categoryId, setCategoryId] = useState("");
   const [subCategory, setSubCategory] = useState("");
   const [industryFocus, setIndustryFocus] = useState("");
-  const [framework, setFramework] = useState("nextjs");
+  const [framework, setFramework] = useState("html");
+  const [version, setVersion] = useState("1.0.0");
+  const [isHtmlMode, setIsHtmlMode] = useState(false);
+  const [detectedVersion, setDetectedVersion] = useState("");
+  const [detectedFramework, setDetectedFramework] = useState("");
   const [price, setPrice] = useState("49");
   const [priceCurrency, setPriceCurrency] = useState("USD");
   const [salePrice, setSalePrice] = useState("");
@@ -1077,10 +1089,24 @@ function Dashboard() {
       setDesc(data.ai_description || "");
 
       const fw = (data.framework_detected || "html").toLowerCase();
-      if (fw.includes("next")) setFramework("nextjs");
-      else if (fw.includes("react")) setFramework("react");
-      else if (fw.includes("vue") || fw.includes("nuxt")) setFramework("vue");
-      else setFramework("html");
+      let matchedFw = "html";
+      if (fw.includes("next")) matchedFw = "nextjs";
+      else if (fw.includes("react")) matchedFw = "react";
+      else if (fw.includes("nuxt")) matchedFw = "nuxt";
+      else if (fw.includes("vue")) matchedFw = "vue";
+      else if (fw.includes("astro")) matchedFw = "astro";
+      else if (fw.includes("angular")) matchedFw = "angular";
+      else if (fw.includes("svelte")) matchedFw = "svelte";
+      else if (fw.includes("tailwind")) matchedFw = "tailwind";
+      else matchedFw = "html";
+
+      setFramework(matchedFw);
+      setDetectedFramework(data.framework_detected || (matchedFw === "html" ? "HTML5" : matchedFw));
+
+      const detVer = data.code_version || data.version || data.framework_version || (matchedFw === "html" ? "1.0.0" : "1.0.0");
+      setVersion(detVer);
+      setDetectedVersion(detVer);
+      setIsHtmlMode(matchedFw === "html" || !!data.is_html_only);
 
       setTags(data.ai_tags ? data.ai_tags.join(", ") : "");
       setKeywords(data.ai_tags ? data.ai_tags.slice(0, 4).join(", ") : "");
@@ -1199,10 +1225,24 @@ function Dashboard() {
       setDesc(data.ai_description || "");
 
       const fw = (data.framework_detected || "html").toLowerCase();
-      if (fw.includes("next")) setFramework("nextjs");
-      else if (fw.includes("react")) setFramework("react");
-      else if (fw.includes("vue") || fw.includes("nuxt")) setFramework("vue");
-      else setFramework("html");
+      let matchedFw = "html";
+      if (fw.includes("next")) matchedFw = "nextjs";
+      else if (fw.includes("react")) matchedFw = "react";
+      else if (fw.includes("nuxt")) matchedFw = "nuxt";
+      else if (fw.includes("vue")) matchedFw = "vue";
+      else if (fw.includes("astro")) matchedFw = "astro";
+      else if (fw.includes("angular")) matchedFw = "angular";
+      else if (fw.includes("svelte")) matchedFw = "svelte";
+      else if (fw.includes("tailwind")) matchedFw = "tailwind";
+      else matchedFw = "html";
+
+      setFramework(matchedFw);
+      setDetectedFramework(data.framework_detected || (matchedFw === "html" ? "HTML5" : matchedFw));
+
+      const detVer = data.code_version || data.version || data.framework_version || (matchedFw === "html" ? "1.0.0" : "1.0.0");
+      setVersion(detVer);
+      setDetectedVersion(detVer);
+      setIsHtmlMode(matchedFw === "html" || !!data.is_html_only);
 
       setTags(data.ai_tags ? data.ai_tags.join(", ") : "");
       setKeywords(data.ai_tags ? data.ai_tags.slice(0, 4).join(", ") : "");
@@ -1461,14 +1501,14 @@ function Dashboard() {
         tags: finalTagsList,
         industry: subCategory || industryFocus || (analysisResult && analysisResult.industry ? (Array.isArray(analysisResult.industry) ? analysisResult.industry.join(", ") : analysisResult.industry) : "Business"),
         color_scheme: analysisResult ? (analysisResult.color_palette ? analysisResult.color_palette.join(", ") : null) : null,
-        framework: framework,
+        framework: framework || "html",
         pages_count: analysisResult ? (analysisResult.pages ? analysisResult.pages.length : 1) : 1,
         has_dark_mode: analysisResult ? !!analysisResult.dark_mode : false,
         is_responsive: analysisResult ? !!analysisResult.responsive_analysis?.mobile : true,
         is_rtl_supported: false,
         is_ai_ready: !!analysisResult,
         compatibility: ["Chrome", "Firefox", "Safari", "Edge"],
-        version: "1.0.0",
+        version: version || "1.0.0",
         license_type: licenseType === "extended" ? "extended" : "regular",
         is_featured: false,
         is_bestseller: false,
@@ -3479,20 +3519,30 @@ function Dashboard() {
                               onDrop={(e) => {
                                 e.preventDefault();
                                 const file = e.dataTransfer.files[0];
-                                if (file && file.name.endsWith(".zip")) {
+                                if (file && (file.name.endsWith(".zip") || file.name.endsWith(".html") || file.name.endsWith(".htm"))) {
                                   handleZipAnalysis(file);
                                 } else {
-                                  alert("Please upload a valid ZIP archive.");
+                                  alert("Please upload a valid ZIP archive (.zip) or HTML document (.html, .htm).");
                                 }
                               }}
                             >
                               <div className="db-upload-dropzone-inner">
                                 <FileUp className="w-12 h-12 text-primary animate-pulse mb-4 mx-auto" />
-                                <h4 className="font-bold text-base text-foreground mb-1">Upload Website Template</h4>
-                                <p className="text-xs text-muted-foreground mb-4">Drag & Drop ZIP File or click to browse</p>
+                                <h4 className="font-bold text-base text-foreground mb-1">Upload Website Template or HTML</h4>
+                                <p className="text-xs text-muted-foreground mb-3">Drag & Drop ZIP file, HTML file, or click to browse</p>
+
+                                <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-primary/10 text-primary border border-primary/20">
+                                    <Sparkles className="w-3 h-3" /> Auto-Detects Version & Framework
+                                  </span>
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                    <Code className="w-3 h-3" /> Supports Pure HTML / Static Sites
+                                  </span>
+                                </div>
+
                                 <input
                                   type="file"
-                                  accept=".zip"
+                                  accept=".zip,.html,.htm"
                                   id="zip-uploader"
                                   className="hidden"
                                   onChange={(e) => {
@@ -3506,9 +3556,9 @@ function Dashboard() {
                               </div>
 
                               <div className="db-upload-tech-grid">
-                                <div className="db-upload-tech-title">Supported Frameworks & Layouts</div>
+                                <div className="db-upload-tech-title">Supported Frameworks & Standards</div>
                                 <div className="db-upload-tech-badges">
-                                  {["HTML", "CSS", "JavaScript", "React", "Next.js", "Vue", "Angular", "Astro"].map(tech => (
+                                  {["HTML5", "Tailwind CSS", "JavaScript / TS", "React", "Next.js", "Vue", "Nuxt", "Astro", "Angular", "Svelte"].map(tech => (
                                     <span key={tech} className="tech-chip">✓ {tech}</span>
                                   ))}
                                 </div>
@@ -3761,18 +3811,39 @@ function Dashboard() {
                                 {/* Left Column */}
                                 <div className="space-y-5">
                                   <div className="db-report-block">
-                                    <h4 className="db-report-block-title">Tech Stack Detection</h4>
+                                    <div className="flex items-center justify-between mb-2">
+                                      <h4 className="db-report-block-title">Tech Stack & Code Version</h4>
+                                      {framework !== "html" ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setFramework("html");
+                                            setVersion("1.0.0");
+                                            setIsHtmlMode(true);
+                                          }}
+                                          className="text-[11px] px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-semibold border border-emerald-500/30 transition-all flex items-center gap-1 cursor-pointer"
+                                          title="Override framework detection and treat as pure static HTML5"
+                                        >
+                                          <Code className="w-3 h-3" /> Use Just HTML
+                                        </button>
+                                      ) : (
+                                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/20 flex items-center gap-1">
+                                          ✓ Pure HTML5 Mode
+                                        </span>
+                                      )}
+                                    </div>
                                     <div className="db-tech-cards-grid">
                                       {[
-                                        { label: "Framework", val: analysisResult.framework_detected, version: analysisResult.version },
-                                        { label: "Language", val: analysisResult.language },
-                                        { label: "CSS", val: analysisResult.css_system },
-                                        { label: "UI Library", val: analysisResult.ui_library },
+                                        { label: "Detected Framework", val: isHtmlMode ? "HTML5" : (analysisResult.framework_detected || "HTML"), version: isHtmlMode ? "HTML5" : (analysisResult.framework_version || analysisResult.version) },
+                                        { label: "Code Version", val: isHtmlMode ? "v1.0.0" : (version ? `v${version}` : "v1.0.0") },
+                                        { label: "Language", val: isHtmlMode ? "HTML5 / CSS / JS" : analysisResult.language },
+                                        { label: "CSS System", val: analysisResult.css_system },
+                                        { label: "UI Library", val: isHtmlMode ? "Vanilla" : analysisResult.ui_library },
                                         { label: "Animations", val: analysisResult.animation_library },
                                       ].map(tech => (
                                         <div key={tech.label} className="db-tech-report-card">
                                           <span className="text-[10px] text-muted-foreground font-semibold uppercase">{tech.label}</span>
-                                          <span className="text-sm font-bold text-foreground mt-0.5">{tech.val} {tech.version ? `v${tech.version}` : ""}</span>
+                                          <span className="text-sm font-bold text-foreground mt-0.5">{tech.val} {tech.version && tech.version !== "1.0.0" && tech.version !== "HTML5" ? `(${tech.version})` : ""}</span>
                                         </div>
                                       ))}
                                     </div>
@@ -4017,10 +4088,10 @@ function Dashboard() {
                             </div>
                           </div>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                             <div>
                               <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
-                                Category * {isIncompleteAnalysis && !categoryId && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - select manually)</span>}
+                                Category * {isIncompleteAnalysis && !categoryId && <span className="text-amber-500 font-bold normal-case ml-1">(Select)</span>}
                               </label>
                               <select
                                 required
@@ -4035,20 +4106,66 @@ function Dashboard() {
                               </select>
                             </div>
                             <div>
-                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
-                                Framework * {isIncompleteAnalysis && !framework && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - select manually)</span>}
-                              </label>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="block text-xs font-semibold text-muted-foreground uppercase">
+                                  Framework *
+                                </label>
+                                {framework !== "html" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setFramework("html");
+                                      setVersion("1.0.0");
+                                      setIsHtmlMode(true);
+                                    }}
+                                    className="text-[10px] text-emerald-500 hover:text-emerald-400 font-semibold underline cursor-pointer"
+                                  >
+                                    Just HTML?
+                                  </button>
+                                )}
+                              </div>
                               <select
                                 required
                                 value={framework}
-                                onChange={(e) => setFramework(e.target.value)}
+                                onChange={(e) => {
+                                  setFramework(e.target.value);
+                                  if (e.target.value === "html") {
+                                    setIsHtmlMode(true);
+                                    if (!version || version === "15.0.0" || version === "19.0.0" || version === "3.0.0" || version === "4.0.0") {
+                                      setVersion("1.0.0");
+                                    }
+                                  } else {
+                                    setIsHtmlMode(false);
+                                  }
+                                }}
                                 className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
                               >
+                                <option value="html" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>HTML5 (Pure HTML / Static)</option>
                                 <option value="nextjs" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Next.js</option>
                                 <option value="react" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>React</option>
-                                <option value="vue" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Vue</option>
-                                <option value="html" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>HTML</option>
+                                <option value="vue" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Vue.js</option>
+                                <option value="nuxt" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Nuxt.js</option>
+                                <option value="astro" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Astro</option>
+                                <option value="tailwind" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Tailwind CSS (HTML)</option>
+                                <option value="angular" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Angular</option>
+                                <option value="svelte" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Svelte</option>
                               </select>
+                            </div>
+                            <div>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="block text-xs font-semibold text-muted-foreground uppercase">
+                                  Code Version *
+                                </label>
+                                <span className="text-[10px] text-primary font-bold">Auto-detected</span>
+                              </div>
+                              <input
+                                type="text"
+                                required
+                                value={version}
+                                onChange={(e) => setVersion(e.target.value)}
+                                placeholder="e.g. 1.0.0"
+                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50 font-mono"
+                              />
                             </div>
                             <div>
                               <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">License Type</label>
@@ -5996,7 +6113,8 @@ function Dashboard() {
                             description: editDescription.trim(),
                             price: finalUsdPrice,
                             price_currency: "USD",
-                            framework: editFramework,
+                            framework: editFramework.toLowerCase(),
+                            version: editVersion.trim() || "1.0.0",
                             category: editCategory,
                             preview_url: editDemoUrl.trim() || undefined,
                           },
@@ -6021,7 +6139,7 @@ function Dashboard() {
                         />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div className="space-y-1.5">
                           <div className="flex justify-between items-center">
                             <label className="block text-xs font-semibold text-muted-foreground uppercase">Price ({editCurrency})</label>
@@ -6051,9 +6169,9 @@ function Dashboard() {
                           />
                           <div className="text-[10px] text-muted-foreground">
                             {editCurrency === "INR" ? (
-                              <span>Marketplace Listing: <strong className="font-bold text-primary">${convertToUSD(editPrice, "INR", rates)} USD</strong> <span className="text-muted-foreground/80">(Auto-converted from ₹{Number(editPrice || 0).toLocaleString()} INR)</span></span>
+                              <span>Marketplace: <strong className="font-bold text-primary">${convertToUSD(editPrice, "INR", rates)} USD</strong></span>
                             ) : (
-                              <span>Marketplace Listing: <strong className="font-bold text-primary">${convertToUSD(editPrice, editCurrency, rates)} USD</strong></span>
+                              <span>Marketplace: <strong className="font-bold text-primary">${convertToUSD(editPrice, editCurrency, rates)} USD</strong></span>
                             )}
                           </div>
                         </div>
@@ -6065,12 +6183,27 @@ function Dashboard() {
                             onChange={(e) => setEditFramework(e.target.value)}
                             className="w-full px-3 py-2 text-sm bg-background border border-border/40 rounded-xl text-foreground focus:outline-none focus:border-primary/50"
                           >
-                            <option value="React">React</option>
-                            <option value="NextJS">Next.js</option>
-                            <option value="HTML">HTML / CSS</option>
-                            <option value="Vue">Vue.js</option>
-                            <option value="Tailwind">Tailwind CSS</option>
+                            <option value="html">HTML5 (Pure HTML)</option>
+                            <option value="nextjs">Next.js</option>
+                            <option value="react">React</option>
+                            <option value="vue">Vue.js</option>
+                            <option value="nuxt">Nuxt.js</option>
+                            <option value="astro">Astro</option>
+                            <option value="tailwind">Tailwind CSS (HTML)</option>
+                            <option value="angular">Angular</option>
+                            <option value="svelte">Svelte</option>
                           </select>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="block text-xs font-semibold text-muted-foreground uppercase">Code Version</label>
+                          <input
+                            type="text"
+                            value={editVersion}
+                            onChange={(e) => setEditVersion(e.target.value)}
+                            placeholder="1.0.0"
+                            className="w-full px-3 py-2 text-sm bg-background border border-border/40 rounded-xl text-foreground focus:outline-none focus:border-primary/50 font-mono"
+                          />
                         </div>
                       </div>
 
@@ -6085,16 +6218,16 @@ function Dashboard() {
                         />
                       </div>
 
-                      {/* Re-upload ZIP Section */}
+                      {/* Re-upload Template Section */}
                       <div className="border-t border-border/20 pt-3 space-y-2">
                         <label className="block text-xs font-semibold text-muted-foreground uppercase flex items-center justify-between">
-                          <span>Replace Source Code (.ZIP)</span>
+                          <span>Replace Source Code (.ZIP or .HTML)</span>
                           <span className="text-[10px] text-muted-foreground font-normal">Optional</span>
                         </label>
                         <div className="flex items-center gap-2">
                           <input
                             type="file"
-                            accept=".zip"
+                            accept=".zip,.html,.htm"
                             onChange={(e) => {
                               if (e.target.files && e.target.files[0]) {
                                 const file = e.target.files[0];
@@ -6105,12 +6238,17 @@ function Dashboard() {
                           />
                           {reuploadZipMutation.isPending && (
                             <span className="text-xs text-primary font-semibold flex items-center gap-1">
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Uploading ZIP...
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Uploading & Auditing...
                             </span>
                           )}
                           {reuploadZipMutation.isSuccess && (
                             <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Updated!
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Source Code Replaced & Verified!
+                            </span>
+                          )}
+                          {reuploadZipMutation.isError && (
+                            <span className="text-xs text-red-400 font-semibold flex items-center gap-1">
+                              ❌ {reuploadZipMutation.error?.message || "Upload failed"}
                             </span>
                           )}
                         </div>

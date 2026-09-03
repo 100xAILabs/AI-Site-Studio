@@ -44,6 +44,17 @@ class ProjectAnalyzer:
         return await self.analyze_zip(zip_bytes, filename)
 
     async def analyze_zip(self, file_content: bytes, original_filename: str = "template.zip") -> Dict[str, Any]:
+        # If raw HTML/HTM was uploaded or not a ZIP archive, auto-wrap into in-memory ZIP
+        if original_filename.lower().endswith((".html", ".htm")) or not zipfile.is_zipfile(io.BytesIO(file_content)):
+            try:
+                zip_buf = io.BytesIO()
+                with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                    zf.writestr("index.html", file_content)
+                file_content = zip_buf.getvalue()
+                original_filename = "index.html.zip"
+            except Exception as e:
+                logger.warning(f"Failed to auto-wrap raw HTML file into ZIP: {e}")
+
         temp_id = uuid.uuid4().hex
         temp_dir = Path(tempfile.gettempdir()) / "ai_site_studio" / "temp_zips" / temp_id
         temp_dir.mkdir(parents=True, exist_ok=True)
@@ -125,15 +136,18 @@ class ProjectAnalyzer:
             # Combine and return
             return {
                 "success": True,
-                "project_name": ai_analysis.get("project_name") or Path(original_filename).stem.replace("-", " ").title(),
+                "project_name": ai_analysis.get("project_name") or Path(original_filename).stem.replace(".html", "").replace("-", " ").title(),
                 "framework_detected": scan_results["framework"],
                 "version": scan_results["version"],
+                "framework_version": scan_results.get("framework_version"),
+                "code_version": scan_results.get("code_version"),
+                "is_html_only": scan_results.get("is_html_only", False),
                 "language": scan_results["language"],
                 "css_system": scan_results["css_system"],
                 "ui_library": scan_results["ui_library"],
                 "animation_library": scan_results["animation_library"],
                 "pages": scan_results["pages"] or ["Home"],
-                "components": scan_results["components"] or ["Navbar", "Hero", "Footer"],
+                "components": scan_results["components"] or (["Navbar", "Hero", "Footer"] if scan_results["framework"] != "html" else ["Header", "Content", "Footer"]),
                 "categories": ai_analysis.get("categories") or {"Business": 90, "Agency": 85},
                 "industry": ai_analysis.get("industry") or ["Marketing", "Software", "SaaS"],
                 "color_palette": scan_results["color_palette"] or ["#7C3AED", "#2563EB", "#FFFFFF", "#111827"],
@@ -153,7 +167,7 @@ class ProjectAnalyzer:
                 },
                 "accessibility": scan_results["accessibility"],
                 "features_detected": ai_analysis.get("features_detected") or scan_results["features_detected"] or ["Responsive Layout", "CSS Grid"],
-                "ai_description": ai_analysis.get("ai_description") or f"Modern and fully responsive template built with {scan_results['framework']}.",
+                "ai_description": ai_analysis.get("ai_description") or (f"Modern and clean HTML5 website template." if scan_results["framework"] == "html" else f"Modern and fully responsive template built with {scan_results['framework']}."),
                 "ai_tags": ai_analysis.get("ai_tags") or ["template", scan_results["framework"]],
                 "ai_selling_points": ai_analysis.get("ai_selling_points") or ["Clean codebase", "Fully responsive", "SEO optimized"],
                 "ai_score": ai_analysis.get("ai_score") or 95,
@@ -261,12 +275,15 @@ class ProjectAnalyzer:
                 "project_name": ai_analysis.get("project_name") or repo_name.replace("-", " ").title(),
                 "framework_detected": scan_results["framework"],
                 "version": scan_results["version"],
+                "framework_version": scan_results.get("framework_version"),
+                "code_version": scan_results.get("code_version"),
+                "is_html_only": scan_results.get("is_html_only", False),
                 "language": scan_results["language"],
                 "css_system": scan_results["css_system"],
                 "ui_library": scan_results["ui_library"],
                 "animation_library": scan_results["animation_library"],
                 "pages": scan_results["pages"] or ["Home"],
-                "components": scan_results["components"] or ["Navbar", "Hero", "Footer"],
+                "components": scan_results["components"] or (["Navbar", "Hero", "Footer"] if scan_results["framework"] != "html" else ["Header", "Content", "Footer"]),
                 "categories": ai_analysis.get("categories") or {"Business": 90, "Agency": 85},
                 "industry": ai_analysis.get("industry") or ["Marketing", "Software", "SaaS"],
                 "color_palette": scan_results["color_palette"] or ["#7C3AED", "#2563EB", "#FFFFFF", "#111827"],
@@ -286,7 +303,7 @@ class ProjectAnalyzer:
                 },
                 "accessibility": scan_results["accessibility"],
                 "features_detected": ai_analysis.get("features_detected") or scan_results["features_detected"] or ["Responsive Layout", "CSS Grid"],
-                "ai_description": ai_analysis.get("ai_description") or f"Modern and fully responsive template built with {scan_results['framework']}.",
+                "ai_description": ai_analysis.get("ai_description") or (f"Modern and clean HTML5 website template." if scan_results["framework"] == "html" else f"Modern and fully responsive template built with {scan_results['framework']}."),
                 "ai_tags": ai_analysis.get("ai_tags") or ["template", scan_results["framework"]],
                 "ai_selling_points": ai_analysis.get("ai_selling_points") or ["Clean codebase", "Fully responsive", "SEO optimized"],
                 "ai_score": ai_analysis.get("ai_score") or 95,
@@ -303,9 +320,16 @@ class ProjectAnalyzer:
 
     def _scan_project_files(self, root_path: Path) -> Dict[str, Any]:
         """Runs rule-based scanning over the directory code structures."""
-        framework = "HTML"
+        def clean_ver(v_str: Any) -> str:
+            if not v_str:
+                return ""
+            return re.sub(r"^[^\d]*", "", str(v_str)).strip()
+
+        framework = "html"
         version = "1.0.0"
-        language = "JavaScript"
+        framework_version = "HTML5"
+        code_version = "1.0.0"
+        language = "HTML5 / CSS / JavaScript"
         css_system = "Vanilla CSS"
         ui_library = "None"
         animation_library = "None"
@@ -380,28 +404,55 @@ class ProjectAnalyzer:
                     all_deps = {**deps, **dev_deps}
                     dependencies = deps
 
-                    # Framework
+                    # Extract project's own package version if present
+                    if pkg_data.get("version"):
+                        code_version = clean_ver(pkg_data.get("version")) or "1.0.0"
+                        version = code_version
+
+                    # Framework detection with exact dependency version
                     if "next" in all_deps:
                         framework = "nextjs"
-                        version = all_deps.get("next", "15.0.0").replace("^", "").replace("~", "")
+                        framework_version = clean_ver(all_deps.get("next", "15.0.0"))
+                        version = code_version if (code_version and code_version != "1.0.0") else (framework_version or "15.0.0")
+                        language = "TypeScript" if "typescript" in all_deps else "JavaScript"
                     elif "react" in all_deps:
                         framework = "react"
-                        version = all_deps.get("react", "19.0.0").replace("^", "").replace("~", "")
+                        framework_version = clean_ver(all_deps.get("react", "19.0.0"))
+                        version = code_version if (code_version and code_version != "1.0.0") else (framework_version or "19.0.0")
+                        language = "TypeScript" if "typescript" in all_deps else "JavaScript"
                     elif "nuxt" in all_deps:
                         framework = "nuxt"
-                        version = all_deps.get("nuxt", "3.0.0").replace("^", "").replace("~", "")
+                        framework_version = clean_ver(all_deps.get("nuxt", "3.0.0"))
+                        version = code_version if (code_version and code_version != "1.0.0") else (framework_version or "3.0.0")
+                        language = "TypeScript" if "typescript" in all_deps else "JavaScript"
                     elif "vue" in all_deps:
                         framework = "vue"
-                        version = all_deps.get("vue", "3.0.0").replace("^", "").replace("~", "")
+                        framework_version = clean_ver(all_deps.get("vue", "3.0.0"))
+                        version = code_version if (code_version and code_version != "1.0.0") else (framework_version or "3.0.0")
+                        language = "TypeScript" if "typescript" in all_deps else "JavaScript"
                     elif "astro" in all_deps:
                         framework = "astro"
-                        version = all_deps.get("astro", "4.0.0").replace("^", "").replace("~", "")
+                        framework_version = clean_ver(all_deps.get("astro", "4.0.0"))
+                        version = code_version if (code_version and code_version != "1.0.0") else (framework_version or "4.0.0")
+                        language = "TypeScript" if "typescript" in all_deps else "JavaScript"
                     elif "@angular/core" in all_deps:
                         framework = "angular"
-                        version = all_deps.get("@angular/core", "18.0.0").replace("^", "").replace("~", "")
+                        framework_version = clean_ver(all_deps.get("@angular/core", "18.0.0"))
+                        version = code_version if (code_version and code_version != "1.0.0") else (framework_version or "18.0.0")
+                        language = "TypeScript"
                     elif "svelte" in all_deps:
                         framework = "svelte"
-                        version = all_deps.get("svelte", "5.0.0").replace("^", "").replace("~", "")
+                        framework_version = clean_ver(all_deps.get("svelte", "5.0.0"))
+                        version = code_version if (code_version and code_version != "1.0.0") else (framework_version or "5.0.0")
+                        language = "TypeScript" if "typescript" in all_deps else "JavaScript"
+                    elif "tailwindcss" in all_deps:
+                        framework = "tailwind"
+                        framework_version = clean_ver(all_deps.get("tailwindcss", "3.4.0"))
+                        version = code_version if (code_version and code_version != "1.0.0") else (framework_version or "3.4.0")
+                    else:
+                        framework = "html"
+                        framework_version = "HTML5"
+                        version = code_version or "1.0.0"
 
                     # Language
                     if "typescript" in all_deps or any(Path(root_path).glob("**/*.ts")) or any(Path(root_path).glob("**/*.tsx")):
@@ -409,11 +460,12 @@ class ProjectAnalyzer:
 
                     # CSS System
                     if "tailwindcss" in all_deps:
-                        css_system = "Tailwind CSS"
+                        tw_v = clean_ver(all_deps.get("tailwindcss", "3.0"))
+                        css_system = f"Tailwind CSS v{tw_v}" if tw_v else "Tailwind CSS"
                     elif "styled-components" in all_deps:
                         css_system = "Styled Components"
-                    elif "sass" in all_deps:
-                        css_system = "SASS"
+                    elif "sass" in all_deps or "node-sass" in all_deps:
+                        css_system = "SASS / SCSS"
 
                     # UI Library
                     if "@radix-ui/react-dialog" in all_deps or "lucide-react" in all_deps:
@@ -574,20 +626,37 @@ class ProjectAnalyzer:
                         components.append(comp_name)
 
         # Fallback framework detection based on files, extensions, and imports if not set via package.json
-        if framework == "HTML":
+        if framework.lower() == "html":
             if has_next_import or (extension_counts.get(".tsx", 0) > 0 and has_next_import):
                 framework = "nextjs"
+                framework_version = "15.0.0"
+                version = code_version or "15.0.0"
+                language = "TypeScript" if extension_counts.get(".tsx", 0) > 0 else "JavaScript"
             elif has_react_import or extension_counts.get(".tsx", 0) > 0 or extension_counts.get(".jsx", 0) > 0:
                 framework = "react"
+                framework_version = "19.0.0"
+                version = code_version or "19.0.0"
+                language = "TypeScript" if extension_counts.get(".tsx", 0) > 0 else "JavaScript"
             elif has_vue_import or extension_counts.get(".vue", 0) > 0:
                 framework = "vue"
+                framework_version = "3.0.0"
+                version = code_version or "3.0.0"
+                language = "JavaScript"
             elif has_svelte_import or extension_counts.get(".svelte", 0) > 0:
                 framework = "svelte"
+                framework_version = "5.0.0"
+                version = code_version or "5.0.0"
+                language = "JavaScript"
             elif has_astro_import or extension_counts.get(".astro", 0) > 0:
                 framework = "astro"
-            
-            if framework != "HTML":
-                version = "1.0.0"
+                framework_version = "4.0.0"
+                version = code_version or "4.0.0"
+                language = "JavaScript"
+            else:
+                framework = "html"
+                framework_version = "HTML5"
+                version = code_version or "1.0.0"
+                language = "HTML5 / JavaScript / CSS"
 
         # Language fallback
         if language == "JavaScript":
@@ -617,13 +686,16 @@ class ProjectAnalyzer:
 
         return {
             "framework": framework,
-            "version": version,
+            "version": version or "1.0.0",
+            "framework_version": framework_version or "1.0.0",
+            "code_version": code_version or "1.0.0",
+            "is_html_only": framework.lower() == "html",
             "language": language,
             "css_system": css_system,
             "ui_library": ui_library,
             "animation_library": animation_library,
-            "pages": pages[:15],
-            "components": components[:15],
+            "pages": pages[:15] or ["Home"],
+            "components": components[:15] or (["Navbar", "Hero", "Footer"] if framework.lower() != "html" else ["Header", "Content", "Footer"]),
             "color_palette": color_palette,
             "typography": typography,
             "is_responsive": is_responsive,

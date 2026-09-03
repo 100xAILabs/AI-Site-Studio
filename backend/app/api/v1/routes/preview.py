@@ -4,13 +4,22 @@ Preview routes — create preview sessions and serve watermarked previews.
 
 import os
 import re
+import io
+import json
 import uuid
+import shutil
+import asyncio
+import zipfile
+import platform
+import subprocess
 import logging
-from typing import Optional
+from pathlib import Path
+from typing import Optional, List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Body, Response, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -1428,9 +1437,16 @@ async def serve_live_preview(
                         raise HTTPException(status_code=404, detail="Source template archive file not found")
                     zip_data = stored_file.data
 
-                # Use security_scanner.sanitize_extract_zip to safely extract clean website files
+                # Extract ZIP or write raw HTML file
                 from app.services.security_scanner import security_scanner
-                security_scanner.sanitize_extract_zip(zip_data, Path(preview_dir))
+                if not zipfile.is_zipfile(io.BytesIO(zip_data)):
+                    # Raw HTML file uploaded directly
+                    index_dest = os.path.join(preview_dir, "index.html")
+                    with open(index_dest, "wb") as f:
+                        f.write(zip_data)
+                else:
+                    # Use security_scanner.sanitize_extract_zip to safely extract clean website files
+                    security_scanner.sanitize_extract_zip(zip_data, Path(preview_dir))
 
                 # Re-detect package.json after extraction
                 package_json_path = detect_project_ui_package_json(preview_dir)
@@ -1684,14 +1700,97 @@ async def serve_live_preview(
             else:
                 serve_root = project_root
     
-        # Locate index.html
+        # Locate entry HTML file (index.html, index.htm, or any single/fallback HTML page)
         index_file_path = os.path.join(serve_root, "index.html")
         if not os.path.exists(index_file_path):
-            for root, dirs, files in os.walk(serve_root):
-                if "index.html" in files:
-                    index_file_path = os.path.join(root, "index.html")
-                    serve_root = root
+            found_html = None
+            candidate_names = ["index.htm", "home.html", "landing.html", "main.html", "default.html", "app.html"]
+            # 1. Check priority candidates in serve_root
+            for cand in candidate_names:
+                candidate_path = os.path.join(serve_root, cand)
+                if os.path.exists(candidate_path):
+                    found_html = candidate_path
                     break
+
+            # 2. Search recursively for index.html, index.htm, or candidate names
+            if not found_html:
+                for root, dirs, files in os.walk(serve_root):
+                    for cand in ["index.html", "index.htm"] + candidate_names:
+                        if cand in files:
+                            found_html = os.path.join(root, cand)
+                            serve_root = root
+                            break
+                    if found_html:
+                        break
+
+            # 3. If still not found, search for ANY .html / .htm file in the extracted template
+            if not found_html:
+                for root, dirs, files in os.walk(serve_root):
+                    html_files = [f for f in files if f.lower().endswith((".html", ".htm"))]
+                    if html_files:
+                        found_html = os.path.join(root, html_files[0])
+                        serve_root = root
+                        break
+
+            if found_html:
+                index_file_path = found_html
+            elif not filepath or filepath == "/" or filepath.endswith(".html") or filepath.endswith(".htm"):
+                # Friendly fallback warning message explaining how to structure the HTML template
+                missing_html_warning = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Site Studio — Preview Notice</title>
+  <style>
+    body {{
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0b0f19;
+      color: #f1f5f9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 24px;
+      box-sizing: border-box;
+    }}
+    .card {{
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      padding: 32px;
+      max-width: 580px;
+      text-align: center;
+      box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+    }}
+    .icon {{ font-size: 42px; margin-bottom: 12px; }}
+    h1 {{ font-size: 20px; font-weight: 700; margin: 0 0 12px 0; color: #f8fafc; }}
+    p {{ font-size: 14px; color: #94a3b8; line-height: 1.6; margin: 0 0 20px 0; }}
+    .tip {{
+      background: rgba(99, 102, 241, 0.1);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      border-radius: 10px;
+      padding: 14px 18px;
+      font-size: 13px;
+      color: #a5b4fc;
+      text-align: left;
+    }}
+    code {{ font-family: monospace; font-weight: bold; color: #e2e8f0; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">📄</div>
+    <h1>No HTML Entry Point Found</h1>
+    <p>We could not find an entry file (e.g. <code>index.html</code> or <code>index.htm</code>) in your uploaded template archive.</p>
+    <div class="tip">
+      <strong>Tip for HTML Templates:</strong> Please ensure your template archive includes an <code>index.html</code> (or <code>index.htm</code>) file in the root folder, or upload a standalone <code>.html</code> file directly.
+    </div>
+  </div>
+</body>
+</html>"""
+                return Response(content=missing_html_warning.encode("utf-8"), media_type="text/html")
     
         # Intercept and forward API calls to the template's embedded sub-app
         if filepath and (filepath.startswith("api/") or filepath == "api"):

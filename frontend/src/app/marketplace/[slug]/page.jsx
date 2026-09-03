@@ -332,8 +332,27 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
         thumbnail_url: editForm.thumbnail_url || undefined,
       };
       await api.patch(`/templates/${template.id}`, payload, tokenVal);
+
+      // If a replacement source file was selected, upload and re-audit it
+      if (reuploadZipFile) {
+        const fileFormData = new FormData();
+        fileFormData.append("file", reuploadZipFile);
+        const reupRes = await fetch(`${API_URL}/templates/${template.id}/reupload`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${tokenVal}`,
+          },
+          body: fileFormData,
+        });
+        if (!reupRes.ok) {
+          const errData = await reupRes.json().catch(() => ({}));
+          throw new Error(errData.detail || "Failed to upload new template file.");
+        }
+        setReuploadZipFile(null);
+      }
+
       queryClient.invalidateQueries({ queryKey: ["templates"] });
-      alert("Template updated successfully!");
+      alert("Template and source files updated successfully!");
       setIsEditModalOpen(false);
       window.location.reload();
     } catch (err) {
@@ -344,7 +363,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
     }
   };
 
-  // Seller Re-upload ZIP state
+  // Seller Re-upload ZIP/HTML state
   const [reuploadZipFile, setReuploadZipFile] = useState(null);
   const [isUploadingZip, setIsUploadingZip] = useState(false);
 
@@ -368,9 +387,9 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || "Failed to re-upload template ZIP archive.");
+        throw new Error(errData.detail || "Failed to re-upload template package.");
       }
-      alert("New template website ZIP package uploaded successfully! Live preview and download assets updated.");
+      alert("New template website package (.ZIP / .HTML) uploaded and audited successfully! Live preview and download assets updated.");
       setReuploadZipFile(null);
       window.location.reload();
     } catch (err) {
@@ -2728,18 +2747,18 @@ npm run build`;
                           <Upload className="w-6 h-6" />
                         </div>
                         <div>
-                          <h4 className="edit-modal-zip-title">Upload Updated ZIP Package</h4>
+                          <h4 className="edit-modal-zip-title">Upload Updated Template (.ZIP or .HTML)</h4>
                           <p className="edit-modal-zip-sub">
-                            Re-uploading the ZIP automatically updates the downloadable source archive and re-deploys the live interactive sandbox.
+                            Re-uploading automatically audits code versions, framework types, purges preview cache, and updates downloadable files immediately.
                           </p>
                         </div>
 
                         <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold shadow-md shadow-indigo-600/20 hover:bg-indigo-700 transition-all">
                           <Plus className="w-4 h-4" />
-                          <span>Choose .ZIP File</span>
+                          <span>Choose .ZIP or .HTML File</span>
                           <input
                             type="file"
-                            accept=".zip"
+                            accept=".zip,.html,.htm"
                             onChange={(e) => setReuploadZipFile(e.target.files[0] || null)}
                             className="hidden"
                           />

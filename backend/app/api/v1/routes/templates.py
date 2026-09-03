@@ -250,13 +250,14 @@ async def analyze_project_zip(
     _user: User = Depends(require_seller_or_admin),
 ):
     """
-    Upload a project ZIP file, extract it, analyze the code and assets,
+    Upload a project ZIP file or single HTML file, extract/analyze the code and assets,
     and generate visual/SEO/code suggestions and meta parameters via Gemini.
     """
-    if not file.filename.endswith(".zip"):
+    allowed_exts = (".zip", ".html", ".htm", ".tar", ".gz")
+    if not file.filename.lower().endswith(allowed_exts):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only ZIP archives are supported"
+            detail="Supported upload formats: ZIP archives (.zip) or HTML documents (.html, .htm)"
         )
     content = await file.read()
     return await project_analyzer.analyze_zip(content, file.filename)
@@ -373,10 +374,11 @@ async def reupload_template_zip(
     Automatically purges dangerous executables, updates download_assets,
     clears live preview disk cache, and updates updated_at timestamp.
     """
-    if not file.filename.endswith(".zip"):
+    valid_exts = (".zip", ".html", ".htm", ".tar", ".gz")
+    if not any(file.filename.lower().endswith(ext) for ext in valid_exts):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File must be a ZIP archive (.zip)",
+            detail="File must be a ZIP archive (.zip) or HTML file (.html, .htm)",
         )
 
     t_uuid = uuid.UUID(str(template_id))
@@ -390,18 +392,65 @@ async def reupload_template_zip(
     if str(role_val).lower() not in ("admin", "super_admin") and str(template.seller_id or "") != str(current_user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only re-upload ZIP files for your own templates.",
+            detail="You can only re-upload template files for your own templates.",
         )
 
     zip_bytes = await file.read()
     from app.models.stored_file import StoredFile
     from app.api.v1.routes.files import create_signed_url
+    from app.services.project_analyzer import project_analyzer
 
-    # Save to StoredFile table in PostgreSQL
+    # 1. Run automatic project analysis & security scan on the re-uploaded file
+    analysis = await project_analyzer.analyze_zip(zip_bytes, file.filename)
+    if analysis.get("success"):
+        detected_fw = analysis.get("framework_detected")
+        if detected_fw:
+            fw_lower = str(detected_fw).lower()
+            if "next" in fw_lower:
+                template.framework = TemplateFramework.NEXTJS
+            elif "react" in fw_lower:
+                template.framework = TemplateFramework.REACT
+            elif "nuxt" in fw_lower:
+                template.framework = TemplateFramework.NUXT
+            elif "vue" in fw_lower:
+                template.framework = TemplateFramework.VUE
+            elif "astro" in fw_lower:
+                template.framework = TemplateFramework.ASTRO
+            elif "svelte" in fw_lower:
+                template.framework = TemplateFramework.SVELTE
+            elif "angular" in fw_lower:
+                template.framework = TemplateFramework.ANGULAR
+            elif "tailwind" in fw_lower:
+                template.framework = TemplateFramework.TAILWIND
+            else:
+                template.framework = TemplateFramework.HTML
+
+        detected_ver = analysis.get("code_version") or analysis.get("version") or analysis.get("framework_version")
+        if detected_ver:
+            template.version = str(detected_ver)
+
+        if analysis.get("pages"):
+            template.pages_count = len(analysis["pages"])
+            template.included_pages = analysis["pages"]
+
+        if analysis.get("dark_mode") is not None:
+            template.has_dark_mode = bool(analysis["dark_mode"])
+
+        if analysis.get("responsive_analysis"):
+            template.is_responsive = bool(analysis["responsive_analysis"].get("mobile", True))
+
+        if analysis.get("changelog"):
+            template.changelog = {
+                **(template.changelog or {}),
+                "last_reupload_analysis": analysis,
+                "reuploaded_at": datetime.now(timezone.utc).isoformat()
+            }
+
+    # 2. Save to StoredFile table in PostgreSQL
     sf = StoredFile(
         filename=f"templates/{t_uuid}_{file.filename}",
         original_filename=file.filename,
-        content_type="application/zip",
+        content_type="application/zip" if file.filename.lower().endswith(".zip") else "text/html",
         size=len(zip_bytes),
         data=zip_bytes,
         created_by_id=current_user.id,
@@ -413,14 +462,18 @@ async def reupload_template_zip(
     download_assets = dict(template.download_assets or {})
     download_assets["zip"] = signed_url
     template.download_assets = download_assets
-    template.updated_at = datetime.utcnow()
+    template.updated_at = datetime.now(timezone.utc)
     await db.commit()
 
-    # Clear stale preview disk cache so live demo re-extracts new ZIP contents
-    preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(t_uuid))
-    if os.path.exists(preview_dir):
-        import shutil
-        shutil.rmtree(preview_dir, ignore_errors=True)
+    # 3. Purge all preview disk caches so the next preview extracts the new files
+    import shutil
+    cache_dirs = [
+        os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(t_uuid)),
+        os.path.join(tempfile.gettempdir(), "ai_site_studio_previews", str(t_uuid)),
+    ]
+    for p_dir in cache_dirs:
+        if os.path.exists(p_dir):
+            shutil.rmtree(p_dir, ignore_errors=True)
 
     service = TemplateService(db)
     return await service.get_template_by_id(t_uuid)
