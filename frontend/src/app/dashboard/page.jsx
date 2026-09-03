@@ -4042,426 +4042,542 @@ function Dashboard() {
                       {wizardStep === 3 && (
                         <div className="space-y-6 animate-in fade-in duration-200">
                           {isIncompleteAnalysis ? (
-                            <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-start gap-3">
-                              <Info className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                            <div className="p-4 bg-amber-500/10 border-2 border-amber-500/30 rounded-2xl flex items-start gap-3.5 shadow-sm">
+                              <Info className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                               <div className="space-y-1">
-                                <p className="text-xs font-bold text-amber-400">
-                                  ⚠️ Incomplete Auto-Detection - Action Required
+                                <p className="text-xs font-extrabold text-amber-800 dark:text-amber-300 uppercase tracking-wide">
+                                  ⚠️ Incomplete Auto-Detection — Manual Review Required
                                 </p>
-                                <p className="text-[11px] text-slate-300 leading-relaxed">
-                                  Our code audit could not fully determine all metadata (e.g. category mapping, title, framework, or descriptions) from your upload. Please review all fields below and manually answer these questions to ensure buyers can search and find your template accurately.
+                                <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
+                                  Our audit could not fully determine some parameters from your upload. Please review all fields below and fill in any missing details before publishing.
                                 </p>
                               </div>
                             </div>
                           ) : (
-                            <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl flex items-center gap-3">
-                              <Sparkles className="w-5 h-5 text-primary shrink-0" />
-                              <p className="text-xs text-muted-foreground leading-relaxed">
-                                <strong>Instant Auto-Fill Active:</strong> We have analyzed your project and pre-filled standard catalog details. Please review these parameters and click <strong>Publish Template</strong>.
+                            <div className="p-4 bg-primary/10 border border-primary/30 rounded-2xl flex items-center gap-3.5 shadow-xs">
+                              <div className="w-8 h-8 rounded-xl bg-primary/20 text-primary flex items-center justify-center shrink-0">
+                                <Sparkles className="w-4 h-4" />
+                              </div>
+                              <p className="text-xs text-slate-800 dark:text-slate-200 leading-relaxed font-medium">
+                                <strong className="text-primary font-bold">✨ Instant Auto-Fill Active:</strong> We have analyzed your project and pre-filled standard catalog details. Please review these parameters and click <strong>Publish Template</strong>.
                               </p>
                             </div>
                           )}
 
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {/* ── CARD 1: BASIC INFORMATION & COPYWRITING ── */}
+                          <div className="bg-slate-50/90 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-4">
+                            <div className="flex items-center gap-2.5 pb-2 border-b border-slate-200/80 dark:border-slate-800">
+                              <div className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold">
+                                <FileText className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-bold text-slate-900 dark:text-white">Basic Information & Overview</h4>
+                                <p className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">Main template title, marketplace slug, and marketing descriptions</p>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-1.5">
+                                  Template Title * {isIncompleteAnalysis && !title && <span className="text-amber-600 font-bold normal-case ml-1">(Required)</span>}
+                                </label>
+                                <input
+                                  type="text"
+                                  required
+                                  value={title}
+                                  onChange={(e) => setTitle(e.target.value)}
+                                  placeholder="e.g. Nexus - Modern SaaS Landing Page"
+                                  className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-2xs"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-1.5">
+                                  URL Slug *
+                                </label>
+                                <input
+                                  type="text"
+                                  value={slug}
+                                  onChange={(e) => setSlug(e.target.value)}
+                                  placeholder="nexus-modern-saas-landing"
+                                  className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-2xs font-mono"
+                                />
+                              </div>
+                            </div>
+
                             <div>
-                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
-                                Template Title * {isIncompleteAnalysis && !title && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - input manually)</span>}
+                              <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-1.5">
+                                Short Tagline / Summary * {isIncompleteAnalysis && !shortDesc && <span className="text-amber-600 font-bold normal-case ml-1">(Required)</span>}
                               </label>
                               <input
                                 type="text"
-                                required
-                                value={title}
-                                onChange={(e) => setTitle(e.target.value)}
-                                placeholder="My Awesome SaaS Landing Page"
-                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
+                                value={shortDesc}
+                                onChange={(e) => setShortDesc(e.target.value)}
+                                placeholder="A high-converting, responsive landing page built with modern standards."
+                                className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-2xs"
                               />
                             </div>
+
                             <div>
-                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Slug</label>
-                              <input
-                                type="text"
-                                value={slug}
-                                onChange={(e) => setSlug(e.target.value)}
-                                placeholder="my-awesome-saas-landing"
-                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
+                              <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-1.5">
+                                Detailed Product Description * {isIncompleteAnalysis && !desc && <span className="text-amber-600 font-bold normal-case ml-1">(Required)</span>}
+                              </label>
+                              <textarea
+                                rows={4}
+                                value={desc}
+                                onChange={(e) => setDesc(e.target.value)}
+                                placeholder="Describe full template features, customization options, responsive views, and technical advantages..."
+                                className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-2xs h-28 leading-relaxed"
                               />
                             </div>
                           </div>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                            <div>
-                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
-                                Category * {isIncompleteAnalysis && !categoryId && <span className="text-amber-500 font-bold normal-case ml-1">(Select)</span>}
-                              </label>
-                              <select
-                                required
-                                value={categoryId}
-                                onChange={(e) => setCategoryId(e.target.value)}
-                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
-                              >
-                                <option value="" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Select Category</option>
-                                {categories.map((c) => (
-                                  <option key={c.id} value={c.id} style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>{c.name}</option>
-                                ))}
-                              </select>
+                          {/* ── CARD 2: TECHNICAL & FRAMEWORK ARCHITECTURE ── */}
+                          <div className="bg-slate-50/90 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-4">
+                            <div className="flex items-center gap-2.5 pb-2 border-b border-slate-200/80 dark:border-slate-800">
+                              <div className="w-7 h-7 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold">
+                                <Code className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-bold text-slate-900 dark:text-white">Framework & Technical Specifications</h4>
+                                <p className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">Category, framework engine, semantic code version, and licensing terms</p>
+                              </div>
                             </div>
-                            <div>
-                              <div className="flex items-center justify-between mb-1">
-                                <label className="block text-xs font-semibold text-muted-foreground uppercase">
-                                  Framework *
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                              <div>
+                                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-1.5">
+                                  Category * {isIncompleteAnalysis && !categoryId && <span className="text-amber-600 font-bold normal-case ml-1">(Select)</span>}
                                 </label>
-                                {framework !== "html" && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setFramework("html");
-                                      setVersion("1.0.0");
+                                <select
+                                  required
+                                  value={categoryId}
+                                  onChange={(e) => setCategoryId(e.target.value)}
+                                  className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all shadow-2xs"
+                                >
+                                  <option value="" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Select Category</option>
+                                  {categories.map((c) => (
+                                    <option key={c.id} value={c.id} style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>{c.name}</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div>
+                                <div className="flex items-center justify-between mb-1.5">
+                                  <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                                    Framework *
+                                  </label>
+                                  {framework !== "html" && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setFramework("html");
+                                        setVersion("1.0.0");
+                                        setIsHtmlMode(true);
+                                      }}
+                                      className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline font-extrabold cursor-pointer"
+                                    >
+                                      Just HTML?
+                                    </button>
+                                  )}
+                                </div>
+                                <select
+                                  required
+                                  value={framework}
+                                  onChange={(e) => {
+                                    setFramework(e.target.value);
+                                    if (e.target.value === "html") {
                                       setIsHtmlMode(true);
-                                    }}
-                                    className="text-[10px] text-emerald-500 hover:text-emerald-400 font-semibold underline cursor-pointer"
-                                  >
-                                    Just HTML?
-                                  </button>
+                                      if (!version || version === "15.0.0" || version === "19.0.0" || version === "3.0.0" || version === "4.0.0") {
+                                        setVersion("1.0.0");
+                                      }
+                                    } else {
+                                      setIsHtmlMode(false);
+                                    }
+                                  }}
+                                  className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all shadow-2xs"
+                                >
+                                  <option value="html" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>HTML5 (Pure HTML / Static)</option>
+                                  <option value="nextjs" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Next.js</option>
+                                  <option value="react" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>React</option>
+                                  <option value="vue" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Vue.js</option>
+                                  <option value="nuxt" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Nuxt.js</option>
+                                  <option value="astro" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Astro</option>
+                                  <option value="tailwind" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Tailwind CSS (HTML)</option>
+                                  <option value="angular" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Angular</option>
+                                  <option value="svelte" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Svelte</option>
+                                </select>
+                              </div>
+
+                              <div>
+                                <div className="flex items-center justify-between mb-1.5">
+                                  <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                                    Code Version *
+                                  </label>
+                                  <span className="text-[10px] text-primary font-bold px-1.5 py-0.5 rounded bg-primary/10">Auto-detected</span>
+                                </div>
+                                <input
+                                  type="text"
+                                  required
+                                  value={version}
+                                  onChange={(e) => setVersion(e.target.value)}
+                                  placeholder="1.0.0"
+                                  className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-emerald-400 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all font-mono shadow-2xs"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-1.5">
+                                  License Type
+                                </label>
+                                <select
+                                  value={licenseType}
+                                  onChange={(e) => setLicenseType(e.target.value)}
+                                  className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all shadow-2xs"
+                                >
+                                  <option value="standard" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Standard License</option>
+                                  <option value="commercial" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Commercial License</option>
+                                  <option value="extended" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Extended License</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            {/* Sub-Category / Industry Focus */}
+                            <div className="space-y-2 pt-2 border-t border-slate-200/80 dark:border-slate-800">
+                              <div className="flex items-center justify-between">
+                                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                                  Sub-Category / Specialization
+                                </label>
+                                {subCategory && (
+                                  <span className="text-xs font-bold text-primary px-2 py-0.5 rounded-md bg-primary/10">
+                                    Selected: {subCategory}
+                                  </span>
                                 )}
                               </div>
-                              <select
-                                required
-                                value={framework}
-                                onChange={(e) => {
-                                  setFramework(e.target.value);
-                                  if (e.target.value === "html") {
-                                    setIsHtmlMode(true);
-                                    if (!version || version === "15.0.0" || version === "19.0.0" || version === "3.0.0" || version === "4.0.0") {
-                                      setVersion("1.0.0");
-                                    }
-                                  } else {
-                                    setIsHtmlMode(false);
-                                  }
-                                }}
-                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
-                              >
-                                <option value="html" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>HTML5 (Pure HTML / Static)</option>
-                                <option value="nextjs" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Next.js</option>
-                                <option value="react" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>React</option>
-                                <option value="vue" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Vue.js</option>
-                                <option value="nuxt" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Nuxt.js</option>
-                                <option value="astro" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Astro</option>
-                                <option value="tailwind" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Tailwind CSS (HTML)</option>
-                                <option value="angular" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Angular</option>
-                                <option value="svelte" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Svelte</option>
-                              </select>
-                            </div>
-                            <div>
-                              <div className="flex items-center justify-between mb-1">
-                                <label className="block text-xs font-semibold text-muted-foreground uppercase">
-                                  Code Version *
-                                </label>
-                                <span className="text-[10px] text-primary font-bold">Auto-detected</span>
-                              </div>
                               <input
                                 type="text"
-                                required
-                                value={version}
-                                onChange={(e) => setVersion(e.target.value)}
-                                placeholder="e.g. 1.0.0"
-                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50 font-mono"
+                                value={subCategory}
+                                onChange={(e) => setSubCategory(e.target.value)}
+                                placeholder="e.g. Corporate, Small Business, Dashboard, Cafe, Clinic"
+                                className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-2xs"
                               />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">License Type</label>
-                              <select
-                                value={licenseType}
-                                onChange={(e) => setLicenseType(e.target.value)}
-                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
-                              >
-                                <option value="standard" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Standard License</option>
-                                <option value="commercial" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Commercial License</option>
-                                <option value="extended" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>Extended License</option>
-                              </select>
-                            </div>
-                          </div>
-
-                          {/* Sub-Category / Industry Focus */}
-                          <div className="space-y-1.5 p-3.5 bg-muted/10 border border-border/40 rounded-xl">
-                            <div className="flex items-center justify-between">
-                              <label className="block text-xs font-semibold text-foreground uppercase">
-                                Sub-Category / Specialization
-                              </label>
-                              {subCategory && (
-                                <span className="text-[10px] text-primary font-semibold">Selected: {subCategory}</span>
+                              {categoryId && categories.find(c => c.id === categoryId) && (
+                                <div className="flex flex-wrap gap-1.5 pt-1">
+                                  {(DASHBOARD_SUB_CATEGORIES[categories.find(c => c.id === categoryId)?.slug] || ["General", "Custom"]).map(sub => {
+                                    const isSelected = subCategory.toLowerCase() === sub.toLowerCase();
+                                    return (
+                                      <button
+                                        key={sub}
+                                        type="button"
+                                        onClick={() => {
+                                          setSubCategory(sub);
+                                          if (!tags.toLowerCase().includes(sub.toLowerCase())) {
+                                            setTags(prev => prev ? `${prev}, ${sub.toLowerCase()}` : sub.toLowerCase());
+                                          }
+                                        }}
+                                        className={cn(
+                                          "text-xs px-3 py-1 rounded-lg border transition-all cursor-pointer font-semibold",
+                                          isSelected
+                                            ? "bg-primary text-white border-primary shadow-xs font-bold"
+                                            : "bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-primary/10 hover:border-primary/50 hover:text-primary"
+                                        )}
+                                      >
+                                        {sub}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
                               )}
                             </div>
-                            <input
-                              type="text"
-                              value={subCategory}
-                              onChange={(e) => setSubCategory(e.target.value)}
-                              placeholder="e.g. Small Business, Accounting, Corporate, Dashboard, Cafe, Clinic"
-                              className="w-full px-4 py-2 rounded-lg glass border border-border/50 text-xs focus:outline-none focus:border-primary bg-card/50"
-                            />
-                            {categoryId && categories.find(c => c.id === categoryId) && (
-                              <div className="flex flex-wrap gap-1.5 pt-1.5">
-                                {(DASHBOARD_SUB_CATEGORIES[categories.find(c => c.id === categoryId)?.slug] || ["General", "Custom"]).map(sub => (
-                                  <button
-                                    key={sub}
-                                    type="button"
-                                    onClick={() => {
-                                      setSubCategory(sub);
-                                      if (!tags.toLowerCase().includes(sub.toLowerCase())) {
-                                        setTags(prev => prev ? `${prev}, ${sub.toLowerCase()}` : sub.toLowerCase());
-                                      }
-                                    }}
-                                    className={cn(
-                                      "text-[10px] px-2 py-0.5 rounded-full border transition-all cursor-pointer",
-                                      subCategory.toLowerCase() === sub.toLowerCase()
-                                        ? "bg-primary/20 text-primary border-primary font-semibold"
-                                        : "bg-muted/20 text-muted-foreground border-border/40 hover:bg-primary/10 hover:text-foreground"
-                                    )}
-                                  >
-                                    {sub}
-                                  </button>
-                                ))}
+                          </div>
+
+                          {/* ── CARD 3: PRICING & COMMERCIAL TERMS ── */}
+                          <div className="bg-slate-50/90 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-4">
+                            <div className="flex items-center gap-2.5 pb-2 border-b border-slate-200/80 dark:border-slate-800">
+                              <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
+                                <CreditCard className="w-4 h-4" />
                               </div>
-                            )}
-                          </div>
+                              <div>
+                                <h4 className="text-sm font-bold text-slate-900 dark:text-white">Pricing & Marketplace Listing</h4>
+                                <p className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">Set catalog currency, listing prices, and monetization tiers</p>
+                              </div>
+                            </div>
 
-                          {user?.country && (
-                            <div className="flex items-center gap-2 mb-3 px-3.5 py-2 rounded-xl bg-primary/10 border border-primary/20 text-xs font-medium text-primary">
-                              <Globe className="w-4 h-4 shrink-0 text-primary" />
-                              <span>
-                                Seller Location: <strong>{user.city && user.city !== "Unknown" ? `${user.city}, ` : ""}{user.country}</strong> — Pricing currency auto-selected to <strong>{priceCurrency}</strong> based on location
-                              </span>
-                            </div>
-                          )}
-
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                            <div>
-                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Pricing Currency *</label>
-                              <select
-                                value={priceCurrency}
-                                onChange={(e) => setPriceCurrency(e.target.value)}
-                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm font-bold focus:outline-none focus:border-primary bg-card/50"
-                              >
-                                <option value="USD" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>USD ($)</option>
-                                <option value="INR" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>INR (₹)</option>
-                                <option value="EUR" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>EUR (€)</option>
-                                <option value="GBP" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>GBP (£)</option>
-                                <option value="CAD" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>CAD (CA$)</option>
-                                <option value="AUD" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>AUD (A$)</option>
-                                <option value="JPY" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>JPY (¥)</option>
-                                <option value="AED" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>AED (AED)</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Regular Price *</label>
-                              <input
-                                type="number"
-                                required
-                                min="0"
-                                value={price}
-                                onChange={(e) => setPrice(e.target.value)}
-                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm font-bold focus:outline-none focus:border-primary bg-card/50"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Original Price (Sale Reference)</label>
-                              <input
-                                type="number"
-                                min="0"
-                                value={salePrice}
-                                onChange={(e) => setSalePrice(e.target.value)}
-                                placeholder="Optional sale price"
-                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
-                              />
-                            </div>
-                          </div>
-
-                          {/* Auto USD Conversion Indicator for Sellers */}
-                          {price && Number(price) > 0 && (
-                            <div className="p-3 bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/80 rounded-xl flex items-center justify-between gap-3 text-xs">
-                              <div className="flex items-center gap-2">
-                                <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                                <span className="text-slate-800 dark:text-slate-200 font-medium">
-                                  Marketplace Listing Price: <strong className="text-indigo-600 dark:text-indigo-400 font-bold">${convertToUSD(price, priceCurrency, rates)} USD</strong>
-                                  {priceCurrency !== "USD" && ` (Auto-converted from ${priceCurrency} ${price})`}
+                            {user?.country && (
+                              <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/80 text-xs font-semibold text-blue-800 dark:text-blue-300">
+                                <Globe className="w-4 h-4 shrink-0 text-blue-600 dark:text-blue-400" />
+                                <span>
+                                  Seller Location: <strong>{user.city && user.city !== "Unknown" ? `${user.city}, ` : ""}{user.country}</strong> — Pricing currency auto-selected to <strong>{priceCurrency}</strong> based on location
                                 </span>
                               </div>
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 uppercase">
-                                USD Catalog
-                              </span>
-                            </div>
-                          )}
+                            )}
 
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Thumbnail Cover Photo *</label>
-                              <input
-                                type="file"
-                                accept="image/*"
-                                required={!thumbnailFile}
-                                onChange={(e) => setThumbnailFile(e.target.files[0])}
-                                className="w-full text-xs text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Live Demo URL</label>
-                              <input
-                                type="url"
-                                value={demoUrl}
-                                onChange={(e) => setDemoUrl(e.target.value)}
-                                placeholder="https://demotemplate.aisitestudio.com"
-                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
-                              />
-                            </div>
-                          </div>
-
-                          {/* Screenshots & Gallery Images Section with + Icon */}
-                          <div className="space-y-2 p-4 bg-muted/10 border border-border/40 rounded-xl">
-                            <div className="flex items-center justify-between">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                               <div>
-                                <label className="block text-xs font-semibold text-foreground uppercase">
-                                  Screenshots & Gallery Images (Optional)
+                                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-1.5">
+                                  Pricing Currency *
                                 </label>
-                                <p className="text-[10px] text-muted-foreground">
-                                  Add multiple showcase screenshots of your pages, components, and responsive views through the + icon.
-                                </p>
+                                <select
+                                  value={priceCurrency}
+                                  onChange={(e) => setPriceCurrency(e.target.value)}
+                                  className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all shadow-2xs"
+                                >
+                                  <option value="USD" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>USD ($)</option>
+                                  <option value="INR" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>INR (₹)</option>
+                                  <option value="EUR" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>EUR (€)</option>
+                                  <option value="GBP" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>GBP (£)</option>
+                                  <option value="CAD" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>CAD (CA$)</option>
+                                  <option value="AUD" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>AUD (A$)</option>
+                                  <option value="JPY" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>JPY (¥)</option>
+                                  <option value="AED" style={{ backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))" }}>AED (AED)</option>
+                                </select>
                               </div>
-                              <span className="text-[10px] font-bold text-primary">
-                                {galleryFiles.length} image{galleryFiles.length !== 1 ? "s" : ""} selected
-                              </span>
+                              <div>
+                                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-1.5">
+                                  Regular Price ({priceCurrency}) *
+                                </label>
+                                <input
+                                  type="number"
+                                  required
+                                  min="0"
+                                  value={price}
+                                  onChange={(e) => setPrice(e.target.value)}
+                                  className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm font-extrabold focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all font-mono shadow-2xs"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-1.5">
+                                  Original Price (Sale Reference)
+                                </label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={salePrice}
+                                  onChange={(e) => setSalePrice(e.target.value)}
+                                  placeholder="Optional original price"
+                                  className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-2xs font-mono"
+                                />
+                              </div>
                             </div>
 
-                            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3 pt-2">
-                              {galleryPreviews.map((previewUrl, idx) => (
-                                <div key={idx} className="relative aspect-video rounded-lg overflow-hidden border border-border bg-card group shadow-sm">
-                                  <img src={previewUrl} alt={`Gallery ${idx + 1}`} className="w-full h-full object-cover" />
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemoveDashboardGalleryFile(idx)}
-                                    className="absolute top-1 right-1 p-1 rounded-full bg-red-600/90 hover:bg-red-700 text-white shadow opacity-90 group-hover:opacity-100 transition-all border-none cursor-pointer"
-                                    title="Remove image"
-                                  >
-                                    <X className="w-3 h-3" />
-                                  </button>
-                                  <span className="absolute bottom-1 left-1 bg-black/60 backdrop-blur-sm text-white text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">
-                                    #{idx + 1}
+                            {/* Auto USD Conversion Indicator for Sellers */}
+                            {price && Number(price) > 0 && (
+                              <div className="p-3.5 bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-xl flex items-center justify-between gap-3 text-xs">
+                                <div className="flex items-center gap-2.5">
+                                  <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                  <span className="text-slate-900 dark:text-slate-100 font-semibold">
+                                    Marketplace Listing Price: <strong className="text-emerald-700 dark:text-emerald-400 font-bold text-sm">${convertToUSD(price, priceCurrency, rates)} USD</strong>
+                                    {priceCurrency !== "USD" && ` (Auto-converted from ${priceCurrency} ${price})`}
                                   </span>
                                 </div>
-                              ))}
-
-                              {/* + Add Images Card */}
-                              <label className="aspect-video rounded-lg border-2 border-dashed border-primary/40 hover:border-primary bg-primary/5 hover:bg-primary/10 flex flex-col items-center justify-center gap-1 transition-all cursor-pointer group text-primary select-none">
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  multiple
-                                  onChange={handleAddDashboardGalleryFiles}
-                                  className="hidden"
-                                />
-                                <div className="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center group-hover:scale-110 transition-transform">
-                                  <Plus className="w-4 h-4 text-primary" />
-                                </div>
-                                <span className="text-[10px] font-bold">Add Images</span>
-                              </label>
-                            </div>
-                          </div>
-
-                          {/* Video Upload */}
-                          <div className="p-4 border border-primary/20 bg-primary/5 rounded-xl space-y-2">
-                            <label className="block text-xs font-semibold text-primary uppercase mb-1 flex items-center gap-1.5">
-                              <Video className="w-4 h-4" />
-                              Video Walkthrough Preview
-                            </label>
-                            <p className="text-[10px] text-muted-foreground">Upload a walkthrough video of your template. Buyers will see this on the product page.</p>
-                            <input
-                              type="file"
-                              accept="video/*"
-                              onChange={(e) => setVideoFile(e.target.files[0])}
-                              className="w-full text-xs text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
-                            />
-                            {videoFile && (
-                              <p className="text-[10px] text-green-500 font-semibold">✓ {videoFile.name} selected</p>
+                                <span className="text-[10px] font-extrabold px-2.5 py-1 rounded-md bg-emerald-200/70 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-200 uppercase tracking-wider">
+                                  USD Catalog
+                                </span>
+                              </div>
                             )}
-                          </div>
 
-                          <div>
-                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
-                              Short Description * {isIncompleteAnalysis && !shortDesc && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - fill in manually)</span>}
-                            </label>
-                            <input
-                              type="text"
-                              value={shortDesc}
-                              onChange={(e) => setShortDesc(e.target.value)}
-                              placeholder="A beautiful responsive landing page built with TailwindCSS."
-                              className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">
-                              Description * {isIncompleteAnalysis && !desc && <span className="text-amber-500 font-bold normal-case ml-1">(Could not detect automatically - fill in manually)</span>}
-                            </label>
-                            <textarea
-                              rows={4}
-                              value={desc}
-                              onChange={(e) => setDesc(e.target.value)}
-                              placeholder="Describe full product features and customizability..."
-                              className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50 h-28"
-                            />
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Tags (Comma-separated)</label>
+                            <div className="flex items-center gap-3 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl">
                               <input
-                                type="text"
-                                value={tags}
-                                onChange={(e) => setTags(e.target.value)}
-                                placeholder="saas, dashboard, admin, tailwind"
-                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
+                                type="checkbox"
+                                id="premium"
+                                checked={premium}
+                                onChange={(e) => setPremium(e.target.checked)}
+                                className="w-4 h-4 accent-primary cursor-pointer"
                               />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">SEO Keywords (Comma-separated)</label>
-                              <input
-                                type="text"
-                                value={keywords}
-                                onChange={(e) => setKeywords(e.target.value)}
-                                placeholder="agency website, landing page, custom nextjs"
-                                className="w-full px-4 py-2.5 rounded-xl glass border border-border/50 text-sm focus:outline-none focus:border-primary bg-card/50"
-                              />
+                              <div>
+                                <label htmlFor="premium" className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider cursor-pointer select-none">
+                                  Mark as Premium Marketplace Template
+                                </label>
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400">Featured in premium curated collections and seller showcases</p>
+                              </div>
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-3 pt-2">
-                            <input
-                              type="checkbox"
-                              id="premium"
-                              checked={premium}
-                              onChange={(e) => setPremium(e.target.checked)}
-                              className="w-4 h-4 accent-primary"
-                            />
-                            <label htmlFor="premium" className="text-xs font-semibold text-foreground uppercase select-none">Premium Template</label>
+                          {/* ── CARD 4: MEDIA & PREVIEW ASSETS ── */}
+                          <div className="bg-slate-50/90 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-4">
+                            <div className="flex items-center gap-2.5 pb-2 border-b border-slate-200/80 dark:border-slate-800">
+                              <div className="w-7 h-7 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
+                                <Palette className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-bold text-slate-900 dark:text-white">Media & Visual Assets</h4>
+                                <p className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">Cover photo, live demo URL, screenshot gallery, and video preview</p>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div className="space-y-1.5">
+                                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                                  Thumbnail Cover Photo *
+                                </label>
+                                <div className="flex items-center gap-3 p-2 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl">
+                                  <label className="px-3.5 py-2 bg-primary hover:bg-primary/95 text-white text-xs font-bold rounded-lg cursor-pointer transition-all shrink-0">
+                                    Choose Cover Photo
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      required={!thumbnailFile}
+                                      onChange={(e) => setThumbnailFile(e.target.files[0])}
+                                      className="hidden"
+                                    />
+                                  </label>
+                                  <span className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">
+                                    {thumbnailFile ? `✓ ${thumbnailFile.name} (${(thumbnailFile.size / 1024).toFixed(1)} KB)` : "No cover photo chosen yet"}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                                  Live Demo URL
+                                </label>
+                                <input
+                                  type="url"
+                                  value={demoUrl}
+                                  onChange={(e) => setDemoUrl(e.target.value)}
+                                  placeholder="https://demotemplate.aisitestudio.com"
+                                  className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-2xs"
+                                />
+                              </div>
+                            </div>
+
+                            {/* Screenshots & Gallery Images Section with + Icon */}
+                            <div className="space-y-2 p-4 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <label className="block text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider">
+                                    Screenshots & Gallery Showcase (Optional)
+                                  </label>
+                                  <p className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">
+                                    Add multiple showcase screenshots of pages, responsive views, and components.
+                                  </p>
+                                </div>
+                                <span className="text-xs font-bold text-primary px-2 py-0.5 rounded-md bg-primary/10">
+                                  {galleryFiles.length} image{galleryFiles.length !== 1 ? "s" : ""} selected
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3 pt-2">
+                                {galleryPreviews.map((previewUrl, idx) => (
+                                  <div key={idx} className="relative aspect-video rounded-lg overflow-hidden border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 group shadow-sm">
+                                    <img src={previewUrl} alt={`Gallery ${idx + 1}`} className="w-full h-full object-cover" />
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveDashboardGalleryFile(idx)}
+                                      className="absolute top-1 right-1 p-1 rounded-full bg-red-600/95 hover:bg-red-700 text-white shadow opacity-90 group-hover:opacity-100 transition-all border-none cursor-pointer"
+                                      title="Remove image"
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
+                                    <span className="absolute bottom-1 left-1 bg-black/70 backdrop-blur-sm text-white text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">
+                                      #{idx + 1}
+                                    </span>
+                                  </div>
+                                ))}
+
+                                {/* + Add Images Card */}
+                                <label className="aspect-video rounded-lg border-2 border-dashed border-primary/50 hover:border-primary bg-primary/5 hover:bg-primary/10 flex flex-col items-center justify-center gap-1 transition-all cursor-pointer group text-primary select-none">
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    multiple
+                                    onChange={handleAddDashboardGalleryFiles}
+                                    className="hidden"
+                                  />
+                                  <div className="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                    <Plus className="w-4 h-4 text-primary" />
+                                  </div>
+                                  <span className="text-[11px] font-bold">Add Images</span>
+                                </label>
+                              </div>
+                            </div>
+
+                            {/* Video Upload */}
+                            <div className="p-4 border border-blue-200 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-950/20 rounded-xl space-y-2">
+                              <label className="block text-xs font-bold text-blue-900 dark:text-blue-300 uppercase tracking-wider flex items-center gap-1.5">
+                                <Video className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                Video Walkthrough Preview (Optional)
+                              </label>
+                              <p className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">Upload a short product walkthrough MP4/WebM video shown on the catalog listing.</p>
+                              <div className="flex items-center gap-3 p-2 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl">
+                                <label className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg cursor-pointer transition-all shrink-0">
+                                  Choose Video File
+                                  <input
+                                    type="file"
+                                    accept="video/*"
+                                    onChange={(e) => setVideoFile(e.target.files[0])}
+                                    className="hidden"
+                                  />
+                                </label>
+                                <span className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">
+                                  {videoFile ? `✓ ${videoFile.name} (${(videoFile.size / (1024 * 1024)).toFixed(2)} MB)` : "No walkthrough video selected"}
+                                </span>
+                              </div>
+                            </div>
                           </div>
 
-                          {/* Review step publish button */}
-                          <div className="flex justify-between items-center pt-4 border-t border-border/50">
+                          {/* ── CARD 5: SEO & DISCOVERABILITY ── */}
+                          <div className="bg-slate-50/90 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-4">
+                            <div className="flex items-center gap-2.5 pb-2 border-b border-slate-200/80 dark:border-slate-800">
+                              <div className="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
+                                <Tag className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-bold text-slate-900 dark:text-white">SEO & Marketplace Discoverability</h4>
+                                <p className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">Tags and keyword metadata to optimize search rankings</p>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-1.5">
+                                  Tags (Comma-separated)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={tags}
+                                  onChange={(e) => setTags(e.target.value)}
+                                  placeholder="saas, dashboard, admin, tailwind, responsive"
+                                  className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-2xs"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-1.5">
+                                  SEO Keywords (Comma-separated)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={keywords}
+                                  onChange={(e) => setKeywords(e.target.value)}
+                                  placeholder="agency website, landing page, custom nextjs template"
+                                  className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-2xs"
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* ── FOOTER ACTIONS ── */}
+                          <div className="flex items-center justify-between pt-4 border-t border-slate-200 dark:border-slate-800">
                             <button
                               type="button"
                               onClick={() => setWizardStep(2)}
-                              className="px-4 py-2 border border-border hover:border-slate-500 rounded-xl text-xs font-semibold transition-all"
+                              className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-700 transition-all cursor-pointer flex items-center gap-1.5"
                             >
-                              Back to Audit Report
+                              ← Back to Audit Report
                             </button>
                             <button
                               type="submit"
                               disabled={uploading}
-                              className="px-5 py-2.5 bg-primary text-white rounded-xl text-xs font-semibold hover:bg-primary/95 transition-all flex items-center gap-1"
+                              className="px-7 py-3 bg-primary hover:bg-primary/95 text-white text-xs font-extrabold rounded-xl shadow-lg shadow-primary/25 transition-all flex items-center gap-2 cursor-pointer border-0 disabled:opacity-50"
                             >
                               {uploading ? (
                                 <>
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Publishing...
+                                  <Loader2 className="w-4 h-4 animate-spin" /> Publishing Template...
                                 </>
-                              ) : "Publish Template"}
+                              ) : (
+                                <>
+                                  Publish Template <Check className="w-4 h-4" />
+                                </>
+                              )}
                             </button>
                           </div>
                         </div>
