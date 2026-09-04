@@ -15,6 +15,7 @@ import subprocess
 import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +183,1026 @@ async def get_preview_session(
 _build_locks = {}
 
 
+@router.get("/live/{template_id}/extracted-data")
+async def get_live_preview_extracted_data(
+    template_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Dynamically extract the real template content directly from its source files:
+    Real brand name, logo text, H1 headline, subtitle, navigation links, CTA buttons,
+    contact info, footer copyright, and lively detected sections (no fake/unrelated sections).
+    """
+    import zipfile
+    import io
+    import re
+    import tempfile
+    from app.models.template import Template
+    from app.models.stored_file import StoredFile
+    from app.repositories.template_repo import TemplateRepository
+    
+    template_repo = TemplateRepository(db)
+    template = await template_repo.get_by_id(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+        
+    title = template.title or "Web Template"
+    clean_brand = title.split("—")[0].split("-")[0].split("|")[0].strip()
+    primary_color = "#6366f1"
+    if template.color_scheme:
+        c_lower = template.color_scheme.lower()
+        if "red" in c_lower: primary_color = "#C4222C"
+        elif "green" in c_lower: primary_color = "#059669"
+        elif "blue" in c_lower: primary_color = "#2563eb"
+        elif "purple" in c_lower or "violet" in c_lower: primary_color = "#8b5cf6"
+        elif "amber" in c_lower or "orange" in c_lower: primary_color = "#d97706"
+
+    preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
+
+    # Read content from preview_dir first (if already extracted/running), else fallback to stored ZIP
+    content = ""
+    if os.path.exists(preview_dir):
+        candidates = []
+        for root, _, files in os.walk(preview_dir):
+            if any(d in root.replace("\\", "/").split("/") for d in ["node_modules", ".git", "dist", "build", ".output"]):
+                continue
+            for f in files:
+                ext = os.path.splitext(f)[1].lower()
+                if ext in [".html", ".jsx", ".tsx", ".vue"]:
+                    candidates.append(os.path.join(root, f))
+        
+        main_f = None
+        for c in candidates:
+            if os.path.basename(c).lower() == "index.html":
+                main_f = c
+                break
+        if not main_f:
+            for c in candidates:
+                if c.endswith(".html"):
+                    main_f = c
+                    break
+        if not main_f and candidates:
+            main_f = candidates[0]
+            
+        if main_f and os.path.exists(main_f):
+            try:
+                with open(main_f, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+            except Exception as e_rf:
+                logger.warning(f"Failed to read preview file {main_f}: {e_rf}")
+
+    # Collect ALL source files from DB stored file (HTML + JSX/TSX)
+    all_source_files = {}  # filename -> content string
+    if not content:
+        download_assets = template.download_assets or {}
+        zip_url = download_assets.get("zip")
+        if zip_url:
+            match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
+            if match:
+                file_id = uuid.UUID(match.group(1))
+                sf_res = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
+                stored_file = sf_res.scalar_one_or_none()
+                if stored_file and stored_file.data:
+                    if zipfile.is_zipfile(io.BytesIO(stored_file.data)):
+                        with zipfile.ZipFile(io.BytesIO(stored_file.data), "r") as z_in:
+                            namelist = z_in.namelist()
+                            # Collect ALL source files (exclude build dirs)
+                            for n in namelist:
+                                is_build = any(d in n.replace("\\", "/").split("/")
+                                               for d in ["node_modules", "dist", "build", "out", ".output", "__MACOSX"])
+                                is_src = (n.endswith(".html") or n.endswith(".jsx") or
+                                          n.endswith(".tsx") or n.endswith(".vue") or
+                                          n.endswith(".js") or n.endswith(".ts"))
+                                if is_src and not is_build:
+                                    try:
+                                        all_source_files[n] = z_in.read(n).decode("utf-8", errors="ignore")
+                                    except Exception:
+                                        pass
+                            # Pick main file content for BS4 path (use already-read dict)
+                            html_keys = [n for n in all_source_files if n.endswith("index.html") or
+                                         (n.endswith(".html") and "__MACOSX" not in n)]
+                            jsx_keys = [n for n in all_source_files if (n.endswith("App.jsx") or n.endswith("App.tsx"))]
+                            if html_keys:
+                                content = all_source_files[html_keys[0]]
+                            elif jsx_keys:
+                                content = all_source_files[jsx_keys[0]]
+                            elif all_source_files:
+                                content = next(iter(all_source_files.values()))
+                    else:
+                        content = stored_file.data.decode("utf-8", errors="ignore")
+
+    # Also collect files from already-extracted preview_dir (for JSX builds)
+    if not all_source_files and os.path.exists(preview_dir):
+        for root, _, files in os.walk(preview_dir):
+            if any(d in root.replace("\\", "/").split("/")
+                   for d in ["node_modules", ".git", "dist", "build", ".output"]):
+                continue
+            for f in files:
+                ext = os.path.splitext(f)[1].lower()
+                if ext in [".html", ".jsx", ".tsx", ".vue", ".js", ".ts"]:
+                    fpath = os.path.join(root, f)
+                    try:
+                        with open(fpath, "r", encoding="utf-8", errors="ignore") as fh:
+                            all_source_files[fpath] = fh.read()
+                    except Exception:
+                        pass
+
+    # ─── Universal JSX/TSX Source Code Extractor ────────────────────────────
+    def extract_from_jsx_sources(src_files: dict, tmpl_title: str, tmpl_color: str):
+        """Parse JSX/TSX/Vue source files to extract real sections without BS4."""
+        combined = "\n".join(src_files.values())
+
+        # 1. Brand / business name — look for common JSX string patterns
+        bname = tmpl_title
+        for pattern in [
+            r"brandName\s*[=:]\s*['\"`]([^'\"\`]{2,50})['\"`]",
+            r"business_name\s*[=:]\s*['\"`]([^'\"\`]{2,50})['\"`]",
+            r"companyName\s*[=:]\s*['\"`]([^'\"\`]{2,50})['\"`]",
+            r"siteName\s*[=:]\s*['\"`]([^'\"\`]{2,50})['\"`]",
+            r"<title>([^<]{2,50})</title>",
+            r"title:\s*['\"`]([^'\"\`]{2,60})['\"`]",
+        ]:
+            m = re.search(pattern, combined, re.I)
+            if m:
+                bname = m.group(1).split("—")[0].split("-")[0].strip()
+                if 2 < len(bname) < 60:
+                    break
+
+        # 2. Primary color
+        pcolor = tmpl_color
+        for cp in [
+            r"primary(?:Color)?\s*[=:]\s*['\"`](#[0-9a-fA-F]{3,8})['\"`]",
+            r"--(?:primary|accent|brand)(?:-color)?:\s*(#[0-9a-fA-F]{3,8})",
+            r"themeColor\s*[=:]\s*['\"`](#[0-9a-fA-F]{3,8})['\"`]",
+            r"--red:\s*(#[0-9a-fA-F]{3,8})",
+        ]:
+            m = re.search(cp, combined, re.I)
+            if m:
+                pcolor = m.group(1)
+                break
+
+        logo_text = re.sub(r"[^A-Z0-9]", "", bname.upper())[:7] or "BRAND"
+
+        def classify_jsx_section(sid: str):
+            k = sid.lower()
+            if any(w in k for w in ["hero", "home", "banner", "intro", "landing"]):
+                return "Hero & Banner", "Zap"
+            if any(w in k for w in ["nav", "header", "menu"]):
+                return "Header & Nav", "Monitor"
+            if any(w in k for w in ["about", "story", "who", "bio"]):
+                return "Content & Story", "FileText"
+            if any(w in k for w in ["service", "offering", "solution", "capability", "feature"]):
+                return "Capabilities & Services", "Layers"
+            if any(w in k for w in ["work", "port", "project", "evidence", "case", "exhibit"]):
+                return "Portfolio & Case Files", "Layers"
+            if any(w in k for w in ["skill", "dossier", "stack", "tech"]):
+                return "Skills & Capabilities", "Shield"
+            if any(w in k for w in ["timeline", "history", "log", "experience", "resume"]):
+                return "Historical Record", "Clock"
+            if any(w in k for w in ["price", "pricing", "plan", "tier", "subscription"]):
+                return "Conversion & Plans", "Sparkles"
+            if any(w in k for w in ["review", "testimonial", "client", "rating"]):
+                return "Social Proof & Reviews", "Star"
+            if any(w in k for w in ["contact", "touch", "reach", "inquiry", "lead", "form"]):
+                return "Inquiry & Leads", "Mail"
+            if any(w in k for w in ["footer", "foot"]):
+                return "Footer & Record", "Shield"
+            return "Section Content", "Globe"
+
+        def extract_str_near(key: str, text: str, max_len: int = 120) -> str:
+            """Find a string value near a JSX key."""
+            p = rf"{key}\s*[=:{{]\s*['\"`]([^'\"\`]{{1,{max_len}}})['\"`]"
+            m = re.search(p, text, re.I)
+            return m.group(1).strip() if m else ""
+
+        # 3. Discover section IDs from JSX
+        #    Patterns: id="hero", section id='about', id={sectionId} where sectionId='...',
+        #    component names like <HeroSection, <AboutSection, <NavBar etc.
+        section_ids_found = []
+        seen = set()
+
+        # a) HTML-like id attributes in JSX
+        for m in re.finditer(r'id=["\']([a-zA-Z][a-zA-Z0-9_-]{1,30})["\']', combined):
+            sid = m.group(1).lower().replace("-", "_")
+            if sid not in seen and sid not in ["root", "app", "main", "wrap", "wrapper", "container"]:
+                seen.add(sid)
+                section_ids_found.append(m.group(1))
+
+        # b) Component function/const names like function HeroSection, const AboutSection
+        for m in re.finditer(r'(?:function|const|export\s+default\s+function)\s+([A-Z][a-zA-Z]{3,40})(?:Section|Component|Block|Page)?\b', combined):
+            name = m.group(1)
+            # Strip 'Section', 'Component' etc suffix to get the base ID
+            base = re.sub(r'(?:Section|Component|Block|Page|Widget)$', '', name, flags=re.I)
+            sid = base.lower()
+            if sid not in seen and sid not in ["app", "root", "main", "index", "default", "export", "import"]:
+                seen.add(sid)
+                section_ids_found.append(sid)
+
+        # c) Route / page file names (each .jsx/.tsx file is a section/page)
+        for fname in src_files.keys():
+            base = os.path.splitext(os.path.basename(fname))[0].lower()
+            # Skip generic names
+            skip_names = {"index", "app", "main", "layout", "root", "vite", "config",
+                          "tailwind", "global", "style", "styles", "utils", "helpers",
+                          "types", "constants", "context", "hooks", "store", "api"}
+            if base not in skip_names and len(base) > 2 and base not in seen:
+                seen.add(base)
+                section_ids_found.append(base)
+
+        # 4. Build sections list
+        out_sections = {}
+        out_sections_list = []
+
+        # Always add navbar — extract ALL nav links into array (no fixed limit)
+        nav_link_values = []
+
+        # Strategy 1: keyed link1...link20 style
+        for i in range(1, 21):
+            p = rf"link{i}\s*[=:]\s*['\"`]([^'\"\`]{{1,40}})['\"`]"
+            m = re.search(p, combined, re.I)
+            if m:
+                nav_link_values.append(m.group(1))
+
+        # Strategy 2: navItems / navLinks / menuItems / links arrays
+        if len(nav_link_values) < 2:
+            arr_m = re.search(
+                r'(?:navItems|navLinks|menuItems|links|navMenu|navigation)\s*[=:]\s*\[([^\]]{1,600})\]',
+                combined, re.I
+            )
+            if arr_m:
+                raw = arr_m.group(1)
+                found = re.findall(r"['\"`]([^'\"\`]{2,40})['\"`]", raw)
+                nav_link_values = [f for f in found if 1 < len(f) < 40]
+
+        # Strategy 3: object array [{label:'Home',href:'/'}, ...]
+        if len(nav_link_values) < 2:
+            obj_arr_m = re.findall(
+                r'(?:label|title|name|text)\s*:\s*[\'"`]([^\'"`]{2,30})[\'"`]',
+                combined[:5000], re.I
+            )
+            if obj_arr_m:
+                nav_link_values = obj_arr_m[:15]
+
+        # Strategy 4: href="#section" anchor links
+        if len(nav_link_values) < 2:
+            anchor_matches = re.findall(
+                r'href=["\'](?:#|/)[^"\']*["\'][^>]*>\s*([^<]{2,30})\s*<', combined
+            )
+            if anchor_matches:
+                nav_link_values = [a.strip() for a in anchor_matches if a.strip()]
+
+        # Remove duplicates, keep order
+        seen_links = set()
+        nav_link_values_dedup = []
+        for lnk in nav_link_values:
+            lc = lnk.strip().lower()
+            if lc not in seen_links and lc:
+                seen_links.add(lc)
+                nav_link_values_dedup.append(lnk.strip())
+        nav_link_values = nav_link_values_dedup
+
+        # Fallback: at least provide 4 sensible defaults
+        if not nav_link_values:
+            nav_link_values = ["Home", "About", "Services", "Contact"]
+
+        cta_m = re.search(r"ctaText\s*[=:]\s*['\"`]([^'\"\`]{1,40})['\"`]", combined, re.I)
+        out_sections["navbar"] = {
+            "brandName": bname,
+            "logoText": logo_text,
+            "navLinks": nav_link_values,   # ← unlimited array
+            "ctaText": cta_m.group(1) if cta_m else "Get Started",
+            "stickyGlass": True,
+            "themeColor": pcolor
+        }
+        out_sections_list.append({
+            "id": "navbar", "name": "Navigation Header",
+            "category": "Header & Nav", "icon": "Monitor",
+            "desc": "Top navigation bar with brand logo and navigation links",
+            "targetSection": "navbar"
+        })
+        seen_sec = {"navbar"}
+
+        # Map each discovered section ID to its data by looking in the relevant file
+        for raw_sid in section_ids_found:
+            sid = raw_sid.lower().replace("-", "_")
+            if sid in seen_sec:
+                continue
+            # Skip nav-like and footer (we add footer at end)
+            if any(x in sid for x in ["nav", "header", "foot", "wrap", "root", "app", "main",
+                                       "logo", "menu", "route", "router", "provider"]):
+                continue
+            seen_sec.add(sid)
+
+            # Find the relevant file(s) for this section
+            relevant_text = ""
+            for fname, ftext in src_files.items():
+                base = os.path.splitext(os.path.basename(fname))[0].lower()
+                if base == sid or sid in base or base in sid:
+                    relevant_text = ftext
+                    break
+            if not relevant_text:
+                # Search in combined for id="section"
+                sec_match = re.search(
+                    rf'id=["\'](?:{re.escape(raw_sid)})["\'].*?(?=id=["\'][a-zA-Z]|</(?:section|main|body|div class="(?:footer|nav))|$)',
+                    combined, re.DOTALL | re.I
+                )
+                relevant_text = sec_match.group(0) if sec_match else ""
+
+            if not relevant_text:
+                relevant_text = combined  # Use all combined as fallback
+
+            # Extract meaningful strings from the relevant text
+            headline = ""
+            for hp in [
+                r"headline\s*[=:]\s*['\"`]([^'\"\`]{4,120})['\"`]",
+                r"title\s*[=:]\s*['\"`]([^'\"\`]{4,100})['\"`]",
+                r"h1[^>]*>([^<]{4,100})<",
+                r"h2[^>]*>([^<]{4,100})<",
+            ]:
+                m = re.search(hp, relevant_text, re.I)
+                if m and m.group(1).strip():
+                    headline = m.group(1).strip()
+                    break
+
+            subheadline = ""
+            for sp in [
+                r"subheadline\s*[=:]\s*['\"`]([^'\"\`]{10,200})['\"`]",
+                r"subtitle\s*[=:]\s*['\"`]([^'\"\`]{10,200})['\"`]",
+                r"description\s*[=:]\s*['\"`]([^'\"\`]{10,200})['\"`]",
+                r"<p[^>]*>([^<]{20,200})</p>",
+            ]:
+                m = re.search(sp, relevant_text, re.I)
+                if m and m.group(1).strip():
+                    subheadline = m.group(1).strip()
+                    break
+
+            badge = extract_str_near("badgeText|badge|pill|tag", relevant_text, 60)
+            email_m = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', relevant_text)
+            phone_m = re.search(r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', relevant_text)
+
+            cat_name, icon_name = classify_jsx_section(sid)
+            disp_name = headline if (headline and 3 < len(headline) < 40) else \
+                (sid.replace("_", " ").replace("-", " ").title())
+
+            sec_data = {
+                "title": headline or disp_name,
+                "headline": headline or disp_name,
+                "badgeText": badge,
+                "subheadline": subheadline,
+                "description": subheadline,
+                "themeColor": pcolor
+            }
+            if email_m:
+                sec_data["email"] = email_m.group(0)
+            if phone_m:
+                sec_data["phone"] = phone_m.group(0)
+
+            out_sections[sid] = sec_data
+            out_sections_list.append({
+                "id": sid,
+                "name": disp_name,
+                "category": cat_name,
+                "icon": icon_name,
+                "desc": subheadline[:80] if subheadline else f"Template section for {disp_name}",
+                "targetSection": sid
+            })
+
+        # Footer
+        copy_m = re.search(r"copyright\s*[=:]\s*['\"`]([^'\"\`]{5,100})['\"`]", combined, re.I)
+        footer_tagline = extract_str_near("tagline|footerTagline|footerDesc", combined, 120)
+        out_sections["footer"] = {
+            "brandName": bname,
+            "tagline": footer_tagline or f"{bname}. All rights reserved.",
+            "copyright": copy_m.group(1) if copy_m else f"© {2026} {bname}. All rights reserved.",
+            "themeColor": pcolor
+        }
+        out_sections_list.append({
+            "id": "footer", "name": "Website Footer",
+            "category": "Footer & Record", "icon": "Shield",
+            "desc": "Site footer with brand signature, legal copyright, and links",
+            "targetSection": "footer"
+        })
+
+        return {
+            "status": "success",
+            "brand": {"business_name": bname, "logo_text": logo_text, "primary_color": pcolor},
+            "sections": out_sections,
+            "sections_list": out_sections_list
+        }
+
+    # ─── Decide: use JSX extractor OR BeautifulSoup (HTML) ──────────────────
+    # If we have JSX/TSX/Vue files but no real HTML, use the JSX extractor
+    jsx_files_found = {k: v for k, v in all_source_files.items()
+                       if k.endswith(".jsx") or k.endswith(".tsx") or k.endswith(".vue")}
+    html_content_is_html = content and bool(re.search(r'<html|<!DOCTYPE', content, re.I))
+
+    if not html_content_is_html and jsx_files_found:
+        # React/Vue template — use the universal JSX extractor
+        result = extract_from_jsx_sources(all_source_files, title, primary_color)
+        return result
+
+    from bs4 import BeautifulSoup
+
+    def clean_text(text: str) -> str:
+        if not text:
+            return ""
+        c = re.sub(r"<[^>]+>", " ", text)
+        c = re.sub(r"\s+([.,!?:;])", r"\1", c)
+        return re.sub(r"\s+", " ", c).strip()
+
+    soup = BeautifulSoup(content or "", "html.parser")
+    
+    # 1. Page Title & Clean Brand
+    title_tag = soup.find("title")
+    page_title = clean_text(title_tag.string) if title_tag and title_tag.string else title
+    clean_brand = page_title.split("—")[0].split("-")[0].split("|")[0].strip() or title
+    
+    h1_tag = soup.find("h1")
+    h1_text = clean_text(h1_tag.get_text()) if h1_tag else ""
+    brand_el = soup.find(class_=re.compile(r"\bbrand\b|\blogo\b", re.I)) or soup.find(id=re.compile(r"brand|logo", re.I))
+    if h1_text and 2 < len(h1_text) < 40 and not any(w in h1_text.lower() for w in ["welcome", "hello", "home", "loading", "main"]):
+        brand_name = h1_text
+    elif brand_el and brand_el.get_text(strip=True):
+        brand_name = clean_text(brand_el.get_text())
+    else:
+        brand_name = clean_brand
+    if len(brand_name) > 40:
+        brand_name = clean_brand
+
+    # Detect theme color from :root or style
+    primary_color = "#6366f1"
+    style_tag = soup.find("style")
+    if style_tag and style_tag.string:
+        st = style_tag.string
+        if "--red" in st or "var(--red)" in st or "#c4222c" in st.lower(): primary_color = "#C4222C"
+        elif "--blue" in st or "var(--blue)" in st or "#2563eb" in st.lower(): primary_color = "#2563eb"
+        elif "--green" in st or "var(--green)" in st or "#059669" in st.lower(): primary_color = "#059669"
+        elif "--orange" in st or "--amber" in st: primary_color = "#d97706"
+
+    sections = {}
+    sections_list = []
+    seen_ids = set()
+
+    # 2. Navigation Header
+    nav_el = soup.find("nav") or soup.find("header")
+    if nav_el or "<nav" in content.lower() or "logo" in content.lower():
+        nav_text_container = nav_el if nav_el else soup
+        links = [clean_text(a.get_text()) for a in nav_text_container.find_all("a") if 0 < len(clean_text(a.get_text())) < 25]
+        if links and (links[0].lower() == brand_name.lower() or len(links[0]) > 20):
+            links = links[1:]
+            
+        btn = nav_text_container.find("button") or nav_text_container.find(class_=re.compile(r"btn|cta", re.I))
+        btn_text = clean_text(btn.get_text()) if btn else (links[-1] if len(links) > 4 else "Get Started")
+        
+        # Remove CTA link from nav links if it matches the button text
+        nav_link_list = [lnk for lnk in links if lnk.lower() != (btn_text or "").lower()]
+        if not nav_link_list:
+            nav_link_list = ["Home", "About", "Services", "Contact"]
+
+        sections["navbar"] = {
+            "brandName": brand_name,
+            "logoText": re.sub(r"[^A-Z0-9]", "", brand_name.upper())[:7] or "BRAND",
+            "navLinks": nav_link_list,     # unlimited array, all links from template
+            "ctaText": btn_text or "Get Started",
+            "stickyGlass": True,
+            "themeColor": primary_color
+        }
+        sections_list.append({
+            "id": "navbar",
+            "name": "Navigation Header",
+            "category": "Header & Nav",
+            "icon": "Monitor",
+            "desc": f"Top navigation bar with brand logo, {len(nav_link_list)} menu links, and action button",
+            "targetSection": "navbar"
+        })
+        seen_ids.add("navbar")
+
+    # 2b. Hero & Banner Section
+    hero_el = soup.find(id=re.compile(r"hero|banner|intro", re.I)) or soup.find(class_=re.compile(r"hero|banner|intro|header-wrapper|header-clip", re.I))
+    hero_h1 = hero_el.find("h1") if hero_el else soup.find("h1")
+    hero_h2 = hero_el.find(["h2", "h3"]) if hero_el else soup.find(["h2", "h3"])
+    hero_p = hero_el.find("p") if hero_el else None
+    hero_cta = hero_el.find(["a", "button"], class_=re.compile(r"scroll|btn|cta|btn-primary", re.I)) if hero_el else None
+
+    if hero_h1 or hero_h2 or hero_el:
+        h1_val = clean_text(hero_h1.get_text()) if hero_h1 else brand_name
+        h2_val = clean_text(hero_h2.get_text()) if hero_h2 else (clean_text(hero_p.get_text()) if hero_p else "")
+        cta_val = clean_text(hero_cta.get_text()) if hero_cta else "Explore More"
+        sections["hero"] = {
+            "title": h1_val,
+            "headline": h1_val,
+            "subheadline": h2_val,
+            "description": h2_val,
+            "primaryCta": cta_val,
+            "themeColor": primary_color
+        }
+        sections_list.append({
+            "id": "hero",
+            "name": "Hero & Banner",
+            "category": "Hero & Banner",
+            "icon": "Zap",
+            "desc": "Primary introduction banner with headline and action callout",
+            "targetSection": "hero"
+        })
+        seen_ids.add("hero")
+
+    def classify_section(sid: str, stitle: str):
+        k = (sid + " " + stitle).lower()
+        if any(w in k for w in ["hero", "home", "banner", "intro"]):
+            return "Hero & Banner", "Zap"
+        if any(w in k for w in ["about", "story", "who", "bio"]):
+            return "Content & Story", "FileText"
+        if any(w in k for w in ["service", "offering", "solution", "capability", "feature"]):
+            return "Capabilities & Services", "Layers"
+        if any(w in k for w in ["work", "port", "project", "evidence", "case", "exhibit"]):
+            return "Portfolio & Case Files", "Layers"
+        if any(w in k for w in ["skill", "dossier", "stack", "tech"]):
+            return "Skills & Capabilities", "Shield"
+        if any(w in k for w in ["timeline", "history", "log", "experience", "resume"]):
+            return "Historical Record", "Clock"
+        if any(w in k for w in ["price", "pricing", "plan", "tier"]):
+            return "Conversion & Plans", "Sparkles"
+        if any(w in k for w in ["review", "testimonial", "client", "rating"]):
+            return "Social Proof & Reviews", "Star"
+        if any(w in k for w in ["contact", "touch", "reach", "inquiry", "lead"]):
+            return "Inquiry & Leads", "Mail"
+        if any(w in k for w in ["info", "address", "phone", "location"]):
+            return "Direct Reach & Contact", "Phone"
+        if any(w in k for w in ["social", "network"]):
+            return "Social Channels", "Share2"
+        if any(w in k for w in ["career", "job", "training"]):
+            return "Opportunities & Programs", "Globe"
+        return "Section Content", "Globe"
+
+    # 3. Discover True Top-Level Sections
+    raw_sections = soup.find_all("section")
+    if not raw_sections:
+        candidates = soup.find_all("div", id=re.compile(r"^[a-zA-Z0-9_-]+$"))
+        class_candidates = soup.find_all("div", class_=re.compile(r"\b(review|reviews|testimonial|testimonials|client|clients|about|services|skills|resume|portfolio|work|contact|info|social)\b", re.I))
+        for cc in class_candidates:
+            if cc not in candidates and not any(cand in cc.parents for cand in candidates):
+                candidates.append(cc)
+
+        raw_sections = []
+        for c in candidates:
+            cid = c.get("id", "").lower()
+            cclass = " ".join(c.get("class", [])).lower()
+            if cclass in ["footer", "header", "nav", "row", "container", "wrap", "wrapper", "header-clip"]:
+                continue
+            if any(skip in cid for skip in ["header-clip", "header", "nav", "root", "app", "tab-content", "tab-pane", "clip", "modal", "overlay", "container", "row"]):
+                continue
+            if c.find_parent("section") or c.find_parent("div", id=re.compile(r"^(?!wrap|main|root|app).*$")):
+                continue
+            if c.find(["h1", "h2", "h3", "h4", "form", "img"]) or len(clean_text(c.get_text())) > 25:
+                raw_sections.append(c)
+
+    for idx, s in enumerate(raw_sections):
+        s_id = s.get("id") or (s.get("class", [""])[0] if s.get("class") else f"sec_{idx}")
+        s_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(s_id)).lower()
+        if not s_id or s_id in seen_ids or s_id in ["header", "nav", "footer", "header_clip"]:
+            continue
+        seen_ids.add(s_id)
+
+        # Headings
+        h_tag = s.find(["h1", "h2", "h3", "h4"])
+        headline = clean_text(h_tag.get_text()) if h_tag else ""
+        
+        # Badge / Pill Tag
+        badge_el = s.find(class_=re.compile(r"badge|tag|status|stamp|pill", re.I))
+        badge = clean_text(badge_el.get_text()) if badge_el else ""
+        
+        # Narrative / Description / Bio — extract BOTH subtitle and full narrative
+        p_tags = s.find_all("p")
+        p_clean = [clean_text(p.get_text()) for p in p_tags if len(clean_text(p.get_text())) > 5]
+        subtitle = ""
+        story = ""
+        if len(p_clean) == 1:
+            subtitle = p_clean[0]
+            story = p_clean[0]
+        elif len(p_clean) >= 2:
+            if len(p_clean[0]) < 80:
+                subtitle = p_clean[0]
+                story = "\n\n".join(p_clean[1:])
+            else:
+                subtitle = p_clean[0]
+                story = "\n\n".join(p_clean)
+        narrative = story or subtitle
+
+        # Form Inspection (STRICT: only real fields that exist in this section)
+        form_el = s.find("form")
+        inputs = [clean_text(inp.get("placeholder") or inp.get("name") or "") for inp in s.find_all("input") if inp.get("type") not in ["hidden", "submit"]]
+        textareas = [clean_text(ta.get("placeholder") or ta.get("name") or "") for ta in s.find_all("textarea")]
+        submit_btn = s.find(["button", "input"], type=re.compile(r"submit|button", re.I)) or s.find("button")
+        submit_text = clean_text(submit_btn.get_text()) if submit_btn and hasattr(submit_btn, "get_text") else "Submit"
+        has_form = bool(form_el or (inputs and len(inputs) >= 1))
+
+        # Check Phone & Address STRICTLY in template code
+        s_text = s.get_text()
+        phone_match = re.search(r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', s_text)
+        has_phone = bool(phone_match or s.find(href=re.compile(r"^tel:", re.I)) or s.find("input", type="tel"))
+        phone_val = phone_match.group(0) if phone_match else ""
+
+        has_address = bool(s.find("address") or re.search(r'\b(?:\d{2,}\s+[A-Za-z]+|\b[A-Z]{2}\s+\d{5}\b|suite\s+\d+|floor\s+\d+)\b', s_text, re.I))
+        address_val = ""
+        if has_address:
+            addr_tag = s.find("address")
+            address_val = clean_text(addr_tag.get_text()) if addr_tag else ""
+
+        # Key-Value Meta Items (e.g. <div>ROLE<span>...</span></div> or .stat)
+        meta_items = []
+        div_spans = s.find_all(lambda tag: tag.name == "div" and tag.find("span") and len(tag.get_text(strip=True)) < 60)
+        for ds in div_spans:
+            sp = ds.find("span")
+            k = clean_text(ds.get_text().replace(sp.get_text(), ""))
+            v = clean_text(sp.get_text())
+            if k and v and len(k) < 20 and len(v) < 35:
+                meta_items.append({"label": k, "value": v})
+
+        # Cards / Child items extraction with deduplication & specialized support
+        card_items = []
+        seen_card_keys = set()
+
+        # 1. Timeline / Resume Milestones
+        timeline_lis = []
+        for rl in s.find_all(class_=re.compile(r"resume-list|timeline", re.I)):
+            timeline_lis.extend(rl.find_all("li", recursive=False))
+        if not timeline_lis:
+            timeline_lis = s.find_all("li", class_=re.compile(r"timeline", re.I))
+
+        if timeline_lis:
+            for tli in timeline_lis:
+                date_el = tli.find(class_=re.compile(r"timeline-image|date|year", re.I))
+                date_text = clean_text(date_el.get_text()) if date_el else ""
+                h_els = tli.find_all(["h4", "h3", "h5", "strong"])
+                title_text = ""
+                sub_text = ""
+                for h in h_els:
+                    ht = clean_text(h.get_text())
+                    if ht == date_text:
+                        continue
+                    if not title_text:
+                        title_text = ht
+                    elif not sub_text:
+                        sub_text = ht
+                desc_el = tli.find("p")
+                desc_text = clean_text(desc_el.get_text()) if desc_el else ""
+                if title_text:
+                    key = (title_text.lower(), desc_text[:30].lower())
+                    if key not in seen_card_keys:
+                        seen_card_keys.add(key)
+                        card_items.append({
+                            "title": title_text,
+                            "desc": desc_text,
+                            "tag": date_text,
+                            "stack": sub_text
+                        })
+
+        # 2. Skills / Circular progress meters
+        skill_els = s.find_all(class_=re.compile(r"\bskill\b", re.I)) or s.find_all(attrs={"data-percent": True})
+        if skill_els and not card_items:
+            for sk in skill_els:
+                name_el = sk.find(["h4", "h5", "h6", "strong"]) or sk.find("span")
+                percent_attr = sk.get("data-percent") or (sk.find(attrs={"data-percent": True}) or {}).get("data-percent")
+                percent_el = sk.find(class_=re.compile(r"percent", re.I))
+                pct = percent_attr or (clean_text(percent_el.get_text()) if percent_el else "")
+                name = clean_text(name_el.get_text()) if name_el else ""
+                if name and pct:
+                    if name == pct:
+                        h = sk.find(["h4", "h5", "h6", "strong"])
+                        if h: name = clean_text(h.get_text())
+                    key = name.lower()
+                    if key not in seen_card_keys:
+                        seen_card_keys.add(key)
+                        card_items.append({
+                            "title": name,
+                            "desc": f"Mastery Level: {pct}%",
+                            "tag": f"{pct}%",
+                            "stack": f"Proficiency: {pct}%"
+                        })
+
+        # 3. Portfolio / Projects (e.g. .filtr-item, .portfolio-thumb)
+        portfolio_items = s.find_all(class_=re.compile(r"filtr-item|portfolio-thumb", re.I))
+        if any("filtr-item" in " ".join(pi.get("class", [])) for pi in portfolio_items):
+            portfolio_items = [pi for pi in portfolio_items if "filtr-item" in " ".join(pi.get("class", []))]
+        if portfolio_items and not card_items:
+            for idx_p, pi in enumerate(portfolio_items):
+                th = pi.find(["h3", "h4", "h5", "strong"])
+                t_val = clean_text(th.get_text()) if th else f"Project #{idx_p+1}"
+                img_el = pi.find("img")
+                a_el = pi.find("a")
+                img_src = img_el.get("src", "") if img_el else ""
+                href = a_el.get("href", "") if a_el else ""
+                card_items.append({
+                    "title": t_val,
+                    "desc": href or f"Portfolio Project #{idx_p+1}",
+                    "tag": f"Project #{idx_p+1}",
+                    "stack": img_src or href
+                })
+
+        # 4. Client Logos / Partners
+        logo_imgs = s.find_all("img", class_=re.compile(r"logo|client|partner", re.I))
+        if logo_imgs and not card_items:
+            for idx_l, img in enumerate(logo_imgs):
+                alt = clean_text(img.get("alt", "")) or f"Partner #{idx_l+1}"
+                src = img.get("src", "")
+                card_items.append({
+                    "title": alt.title() if len(alt) < 25 else f"Partner #{idx_l+1}",
+                    "desc": f"Client Partner Asset: {src}",
+                    "tag": f"Partner {idx_l+1}",
+                    "stack": src
+                })
+
+        # 5. Reviews / Testimonials
+        review_els = s.find_all(class_=re.compile(r"review-wrap|testimonial-wrap|swiper-slide", re.I))
+        if any("review-wrap" in " ".join(re_el.get("class", [])) for re_el in review_els):
+            review_els = [re_el for re_el in review_els if "review-wrap" in " ".join(re_el.get("class", []))]
+        if review_els and not card_items:
+            for idx_r, r_el in enumerate(review_els):
+                rt = r_el.find(class_=re.compile(r"review-text|testimonial-text", re.I)) or r_el.find("p")
+                rn = r_el.find(["h4", "h3", "h5", "strong"])
+                img = r_el.find("img")
+                r_text = clean_text(rt.get_text()) if rt else ""
+                r_author = clean_text(rn.get_text()) if rn else f"Client #{idx_r+1}"
+                img_src = img.get("src", "") if img else ""
+                card_items.append({
+                    "title": r_author,
+                    "desc": r_text,
+                    "tag": f"Review #{idx_r+1}",
+                    "stack": img_src or "5-Star Rating"
+                })
+
+        # 6. Social Networks (if social container or footer-social)
+        if any(w in s_id for w in ["social", "network"]):
+            social_links = s.find_all("a")
+            if social_links and not card_items:
+                for idx_s, sa in enumerate(social_links):
+                    sh = sa.find(["h4", "h5", "span"])
+                    sname = clean_text(sh.get_text()) if sh else clean_text(sa.get_text())
+                    href = sa.get("href", "#")
+                    card_items.append({
+                        "title": sname.title() if sname else f"Social #{idx_s+1}",
+                        "desc": href,
+                        "tag": "Social Profile",
+                        "stack": href
+                    })
+
+        # 7. Standard Cards / Services / Features (with parent-child deduplication)
+        if not card_items:
+            # Prefer innermost card wrappers to prevent parent/child duplicate matches
+            card_els = s.find_all(class_=re.compile(r"\b(?:card|service-wrap|service-item|service|feature-item|feature|thumb|exhibit|portfolio-item|pricing-card)\b", re.I))
+            if not card_els:
+                card_els = s.find_all(class_=re.compile(r"col-", re.I))
+
+            for c in card_els:
+                if h_tag and (h_tag in c.find_all(["h1", "h2", "h3", "h4"]) or c == h_tag):
+                    continue
+                ch = c.find(["h3", "h4", "h5", "strong"])
+                ctitle = clean_text(ch.get_text()) if ch else ""
+                if not ctitle or ctitle.lower() == headline.lower():
+                    continue
+                cp = c.find("p")
+                cdesc = clean_text(cp.get_text()) if cp else ""
+                ctag = c.find(class_=re.compile(r"tag|badge|date|year", re.I))
+                ctag_text = clean_text(ctag.get_text()) if ctag else ""
+                cstack = c.find(class_=re.compile(r"stack|tech|tools", re.I))
+                cstack_text = clean_text(cstack.get_text()) if cstack else ""
+
+                key = (ctitle.lower(), cdesc[:30].lower())
+                if key not in seen_card_keys:
+                    seen_card_keys.add(key)
+                    card_items.append({
+                        "title": ctitle,
+                        "desc": cdesc,
+                        "tag": ctag_text,
+                        "stack": cstack_text
+                    })
+
+        # Check tabs in section (e.g. resume / timeline tabs)
+        tabs = []
+        for tb in s.find_all(["button", "a"], class_=re.compile(r"nav-link|tab", re.I)):
+            t_txt = clean_text(tb.get_text())
+            if t_txt and t_txt not in tabs and len(t_txt) < 30:
+                tabs.append(t_txt)
+
+        # Check category filter tags (e.g. portfolio work categories)
+        filters = []
+        filter_els = s.find_all(lambda tag: tag.name in ["li", "button", "a"] and (tag.has_attr("data-filter") or re.search(r"filtr|filter|category", " ".join(tag.get("class", [])))))
+        if not filter_els:
+            filter_menu = s.find(["ul", "div"], class_=re.compile(r"filter|control|portfolio-menu", re.I))
+            if filter_menu:
+                filter_els = filter_menu.find_all(["li", "button", "a"])
+        for fel in filter_els:
+            f_txt = clean_text(fel.get_text())
+            if f_txt and f_txt not in filters and 0 < len(f_txt) < 30:
+                filters.append(f_txt)
+
+        # Social links extraction
+        social_links = []
+        if any(w in s_id for w in ["social", "network"]) or s.find(class_=re.compile(r"social", re.I)):
+            seen_soc = set()
+            for sa in s.find_all("a"):
+                stxt = clean_text(sa.get_text())
+                shref = sa.get("href", "#")
+                if stxt and stxt.lower() not in seen_soc:
+                    seen_soc.add(stxt.lower())
+                    social_links.append({"platform": stxt.capitalize(), "url": shref})
+
+        cat_name, icon_name = classify_section(s_id, headline)
+        if s_id == "info" or any(w in s_id for w in ["contact_info", "reach_us"]):
+            disp_name = "Contact Details"
+            cat_name = "Direct Reach & Contact"
+            icon_name = "Phone"
+        elif any(w in s_id for w in ["social", "network"]):
+            disp_name = "Social Networks"
+            cat_name = "Social Channels"
+            icon_name = "Share2"
+        elif s_id in ["review", "reviews"]:
+            disp_name = "Client Reviews"
+            cat_name = "Social Proof & Reviews"
+            icon_name = "Star"
+        elif headline and 3 < len(headline) < 32:
+            disp_name = headline
+        elif s_id and len(s_id) > 2:
+            disp_name = s_id.replace("_", " ").replace("-", " ").title()
+        else:
+            disp_name = f"Section {idx+1}"
+
+        sec_data = {
+            "title": headline or disp_name,
+            "headline": headline or disp_name,
+            "badgeText": badge,
+            "subtitle": subtitle,
+            "subheadline": subtitle,
+            "description": narrative,
+            "story": story or narrative,
+            "themeColor": primary_color
+        }
+
+        if tabs:
+            sec_data["tabs"] = tabs
+        if filters:
+            sec_data["filters"] = filters
+        if social_links:
+            sec_data["socialLinks"] = social_links
+
+        # Buttons
+        cta_btns = [clean_text(b.get_text()) for b in s.find_all(["a", "button"], class_=re.compile(r"btn|cta|button", re.I)) if 0 < len(clean_text(b.get_text())) < 25]
+        if cta_btns:
+            sec_data["primaryCta"] = cta_btns[0]
+            if len(cta_btns) > 1:
+                sec_data["secondaryCta"] = cta_btns[1]
+
+        # Meta attributes (Role, Years Active, Status, etc. - ONLY real ones)
+        if meta_items:
+            sec_data["metaItems"] = meta_items
+            for mi in meta_items:
+                clean_k = re.sub(r"[^a-zA-Z0-9]", "", mi["label"]).lower()
+                if "role" in clean_k: sec_data["role"] = mi["value"]
+                elif "year" in clean_k: sec_data["yearsActive"] = mi["value"]
+                elif "status" in clean_k: sec_data["status"] = mi["value"]
+                elif "base" in clean_k or "loc" in clean_k: sec_data["location"] = mi["value"]
+
+        # Specialized handling for direct contact info section
+        if s_id == "info" or any(w in s_id for w in ["contact_info", "reach_us"]):
+            sec_data["title"] = "Contact Information"
+            sec_data["headline"] = "Contact Information"
+            card_items = []
+            for h in s.find_all(["h4", "h3", "h5", "p", "span", "a"]):
+                txt = clean_text(h.get_text())
+                if "@" in txt and not sec_data.get("email"):
+                    sec_data["email"] = txt
+                elif any(ch.isdigit() for ch in txt) and sum(ch.isdigit() for ch in txt) >= 7 and not sec_data.get("phone"):
+                    sec_data["phone"] = txt
+                elif any(w in txt.lower() for w in ["brooklyn", "st", "ave", "road", "street", "ny", "suite", "floor", "box", "city", "usa", "uk"]) and not sec_data.get("address"):
+                    sec_data["address"] = txt
+
+        # Cards (Support up to 20 items without arbitrary 6-item cap)
+        if card_items:
+            sec_data["cards"] = card_items[:20]
+            for c_i, card in enumerate(card_items[:20]):
+                sec_data[f"card{c_i+1}_title"] = card["title"]
+                sec_data[f"card{c_i+1}_desc"] = card["desc"]
+                if card["tag"]: sec_data[f"card{c_i+1}_tag"] = card["tag"]
+                if card["stack"]: sec_data[f"card{c_i+1}_stack"] = card["stack"]
+
+        # Form
+        if has_form:
+            sec_data["hasForm"] = True
+            sec_data["buttonText"] = submit_text or "Submit"
+            if len(inputs) > 0 and inputs[0]: sec_data["namePlaceholder"] = inputs[0]
+            if len(inputs) > 1 and inputs[1]: sec_data["emailPlaceholder"] = inputs[1]
+            if textareas and textareas[0]: sec_data["messagePlaceholder"] = textareas[0]
+            if has_phone and phone_val:
+                sec_data["hasPhone"] = True
+                sec_data["phone"] = phone_val
+            if has_address and address_val:
+                sec_data["hasAddress"] = True
+                sec_data["address"] = address_val
+
+        # Contact Info fields (Phone / Email / Address from info section)
+        phone_in_s = s.find(class_=re.compile(r"phone", re.I))
+        email_in_s = s.find(class_=re.compile(r"email", re.I))
+        address_in_s = s.find(class_=re.compile(r"address", re.I))
+        if phone_in_s and not sec_data.get("phone"): sec_data["phone"] = clean_text(phone_in_s.get_text())
+        if email_in_s and not sec_data.get("email"): sec_data["email"] = clean_text(email_in_s.get_text())
+        if address_in_s and not sec_data.get("address"): sec_data["address"] = clean_text(address_in_s.get_text())
+
+        # Universal Leaf Text Collector: Crawl all remaining text elements so NOTHING is missed
+        captured_texts = set()
+        for v in [sec_data.get("title"), sec_data.get("headline"), sec_data.get("subtitle"),
+                  sec_data.get("subheadline"), sec_data.get("badgeText"), sec_data.get("description"),
+                  sec_data.get("story"), sec_data.get("phone"), sec_data.get("email"), sec_data.get("address"),
+                  sec_data.get("buttonText"), sec_data.get("primaryCta"), sec_data.get("secondaryCta")]:
+            if v and isinstance(v, str):
+                captured_texts.add(v.lower().strip())
+        for c in card_items:
+            for cv in [c.get("title"), c.get("desc"), c.get("tag"), c.get("stack")]:
+                if cv and isinstance(cv, str):
+                    captured_texts.add(cv.lower().strip())
+        for tb in tabs:
+            captured_texts.add(tb.lower().strip())
+        for flt in filters:
+            captured_texts.add(flt.lower().strip())
+        for sl in social_links:
+            captured_texts.add(sl.get("platform", "").lower().strip())
+
+        text_items = []
+        seen_leaf = set()
+        for el in s.find_all(True):
+            if el.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'a', 'li', 'button', 'label', 'strong', 'em', 'small', 'div']:
+                has_child_text = any(child.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'a', 'li', 'button', 'label', 'strong'] for child in el.find_all(True))
+                if not has_child_text:
+                    ltxt = clean_text(el.get_text())
+                    if ltxt and len(ltxt) > 1:
+                        lt_lower = ltxt.lower()
+                        is_cap = any(lt_lower == cap or (len(lt_lower) > 10 and lt_lower in cap) for cap in captured_texts)
+                        if not is_cap and lt_lower not in seen_leaf:
+                            seen_leaf.add(lt_lower)
+                            text_items.append({
+                                "id": f"txt_{len(text_items)+1}",
+                                "tag": el.name,
+                                "label": f"<{el.name}> Text",
+                                "text": ltxt,
+                                "originalText": ltxt
+                            })
+        if text_items:
+            sec_data["textItems"] = text_items
+
+        sections[s_id] = sec_data
+        sections_list.append({
+            "id": s_id,
+            "name": disp_name,
+            "category": cat_name,
+            "icon": icon_name,
+            "desc": f"Showcase component with {len(card_items)} items" if card_items else (f"Interactive form with {len(inputs)} fields" if has_form else "Content presentation section"),
+            "targetSection": s_id
+        })
+
+    # 4. Footer Section
+    footer_el = soup.find("footer")
+    f_text = clean_text(footer_el.get_text()) if footer_el else ""
+    c_match = re.search(r'(?:©|\(c\)|copyright)\s*\d{4}[^.\n]*', f_text, re.I)
+    copyright_text = c_match.group(0) if c_match else f"© 2026 {brand_name}. All rights reserved."
+    sections["footer"] = {
+        "brandName": brand_name,
+        "tagline": "All rights reserved.",
+        "copyright": copyright_text,
+        "themeColor": primary_color
+    }
+    sections_list.append({
+        "id": "footer",
+        "name": "Website Footer",
+        "category": "Footer & Record",
+        "icon": "Shield",
+        "desc": "Site footer with brand signature, legal copyright, and navigation links",
+        "targetSection": "footer"
+    })
+
+    # Master Brand
+    contact_sec = next((s for s in sections.values() if s.get("hasForm")), {})
+    info_sec = sections.get("info", {})
+    brand = {
+        "business_name": brand_name,
+        "logo_text": re.sub(r"[^A-Z0-9]", "", brand_name.upper())[:7] or "BRAND",
+        "tagline": page_title,
+        "primary_color": primary_color
+    }
+    phone_val = contact_sec.get("phone") or info_sec.get("phone")
+    email_val = contact_sec.get("email") or info_sec.get("email")
+    if phone_val:
+        brand["contact_phone"] = phone_val
+    if email_val:
+        brand["contact_email"] = email_val
+
+    return {
+        "status": "success",
+        "template_id": template_id,
+        "brand": brand,
+        "sections": sections,
+        "sections_list": sections_list
+    }
+
+
 @router.post("/live/{template_id}/edit-manual")
 async def edit_live_preview_manual(
     template_id: str,
@@ -201,53 +1222,71 @@ async def edit_live_preview_manual(
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
         
+    original_template_id = str(template.id)
+    is_new_clone = False
+
     # If the template is PUBLISHED, clone it so the user modifies their own private DRAFT copy
     if template.status == TemplateStatus.PUBLISHED:
-        new_template = Template(
-            title=f"Customized {template.title}",
-            short_description=template.short_description,
-            description=template.description,
-            slug=f"{template.slug}-custom-{uuid.uuid4().hex[:6]}",
-            price=template.price,
-            original_price=template.original_price,
-            is_free=template.is_free,
-            is_on_sale=template.is_on_sale,
-            category_id=template.category_id,
-            status=TemplateStatus.DRAFT,
-            seller_id=current_user.id if current_user else template.seller_id,
-            thumbnail_url=template.thumbnail_url,
-            preview_url=template.preview_url,
-            tags=template.tags,
-            framework=template.framework,
-            pages_count=template.pages_count,
-            has_dark_mode=template.has_dark_mode,
-            is_responsive=template.is_responsive,
-            is_rtl_supported=template.is_rtl_supported,
-            is_ai_ready=template.is_ai_ready,
-            compatibility=template.compatibility,
-            version=template.version,
-            license_type=template.license_type,
-            industry=template.industry,
-            color_scheme=template.color_scheme,
-            seo_keywords=template.seo_keywords,
-            included_pages=template.included_pages,
-            download_assets=template.download_assets.copy() if template.download_assets else {}
-        )
-        db.add(new_template)
-        await db.flush()
-        template = new_template
-        template_id = new_template.id
+        existing_draft = None
+        if current_user:
+            ed_res = await db.execute(
+                select(Template).where(
+                    Template.seller_id == current_user.id,
+                    Template.status == TemplateStatus.DRAFT,
+                    Template.slug.like(f"{template.slug}-custom-%")
+                )
+            )
+            existing_draft = ed_res.scalar_one_or_none()
+            
+        if existing_draft:
+            template = existing_draft
+            template_id = str(existing_draft.id)
+        else:
+            is_new_clone = True
+            new_template = Template(
+                title=f"Customized {template.title}",
+                short_description=template.short_description,
+                description=template.description,
+                slug=f"{template.slug}-custom-{uuid.uuid4().hex[:6]}",
+                price=template.price,
+                original_price=template.original_price,
+                is_free=template.is_free,
+                is_on_sale=template.is_on_sale,
+                category_id=template.category_id,
+                status=TemplateStatus.DRAFT,
+                seller_id=current_user.id if current_user else template.seller_id,
+                thumbnail_url=template.thumbnail_url,
+                preview_url=template.preview_url,
+                tags=template.tags,
+                framework=template.framework,
+                pages_count=template.pages_count,
+                has_dark_mode=template.has_dark_mode,
+                is_responsive=template.is_responsive,
+                is_rtl_supported=template.is_rtl_supported,
+                is_ai_ready=template.is_ai_ready,
+                compatibility=template.compatibility,
+                version=template.version,
+                license_type=template.license_type,
+                industry=template.industry,
+                color_scheme=template.color_scheme,
+                seo_keywords=template.seo_keywords,
+                included_pages=template.included_pages,
+                download_assets=template.download_assets.copy() if template.download_assets else {}
+            )
+            db.add(new_template)
+            await db.flush()
+            template = new_template
+            template_id = str(new_template.id)
 
     download_assets = template.download_assets or {}
     zip_url = download_assets.get("zip")
     if not zip_url:
         raise HTTPException(status_code=400, detail="Template does not have source ZIP assets")
         
-    file_id_str = zip_url.split("/")[-1]
-    try:
-        file_id = uuid.UUID(file_id_str)
-    except ValueError:
+    match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
+    if not match:
         raise HTTPException(status_code=400, detail="External/Invalid zip storage format")
+    file_id = uuid.UUID(match.group(1))
         
     from app.models.stored_file import StoredFile
     from sqlalchemy import select
@@ -271,8 +1310,183 @@ async def edit_live_preview_manual(
 
     if not files_dict:
         raise HTTPException(status_code=400, detail="Could not locate code files in template archive")
-        
-    # 2. Use Gemini to do simple content/styling updates across all files
+
+    updated_filenames = set()
+
+    # 2. Fast, Guaranteed Direct Deterministic Replacements across all files
+    try:
+        extracted = await get_live_preview_extracted_data(original_template_id, db)
+    except Exception as ex_ext:
+        logger.warning(f"Could not pre-extract sections for direct replacement: {ex_ext}")
+        extracted = {}
+
+    orig_brand = extracted.get("brand", {}).get("business_name")
+    orig_primary_color = extracted.get("brand", {}).get("primary_color")
+    orig_sections = extracted.get("sections", {})
+
+    # (a) Business Name Replacement
+    if request.business_name:
+        new_bname = request.business_name.strip()
+        names_to_replace = set()
+        if orig_brand and orig_brand.strip() and orig_brand.strip() != new_bname:
+            names_to_replace.add(orig_brand.strip())
+        if template.title and template.title.strip() != new_bname:
+            names_to_replace.add(template.title.strip())
+
+        for old_b in names_to_replace:
+            if len(old_b) > 1:
+                for fname in files_dict:
+                    if old_b in files_dict[fname]:
+                        files_dict[fname] = files_dict[fname].replace(old_b, new_bname)
+                        updated_filenames.add(fname)
+
+    # (b) Primary Theme Color Replacement
+    if request.primary_color:
+        new_color = request.primary_color.strip()
+        colors_to_replace = set()
+        if orig_primary_color and orig_primary_color.lower() != new_color.lower():
+            colors_to_replace.add(orig_primary_color)
+            colors_to_replace.add(orig_primary_color.lower())
+            colors_to_replace.add(orig_primary_color.upper())
+
+        for c_old in colors_to_replace:
+            for fname in files_dict:
+                if fname.endswith(".css") or fname.endswith(".html") or fname.endswith(".jsx") or fname.endswith(".tsx"):
+                    if c_old in files_dict[fname]:
+                        files_dict[fname] = files_dict[fname].replace(c_old, new_color)
+                        updated_filenames.add(fname)
+
+    # (c) Global Contact Email & Phone
+    if request.contact_email:
+        new_email = request.contact_email.strip()
+        for s_data in orig_sections.values():
+            if isinstance(s_data, dict) and s_data.get("email"):
+                old_email = s_data["email"].strip()
+                if old_email and old_email != new_email:
+                    for fname in files_dict:
+                        if old_email in files_dict[fname]:
+                            files_dict[fname] = files_dict[fname].replace(old_email, new_email)
+                            updated_filenames.add(fname)
+
+    if request.contact_phone:
+        new_phone = request.contact_phone.strip()
+        for s_data in orig_sections.values():
+            if isinstance(s_data, dict) and s_data.get("phone"):
+                old_phone = s_data["phone"].strip()
+                if old_phone and old_phone != new_phone:
+                    for fname in files_dict:
+                        if old_phone in files_dict[fname]:
+                            files_dict[fname] = files_dict[fname].replace(old_phone, new_phone)
+                            updated_filenames.add(fname)
+
+    # (d) Section-by-Section Edits (Titles, Subtitles, Descriptions, CTAs, Cards, Tabs, Filters, Text Items)
+    if request.page_edits and isinstance(request.page_edits, dict):
+        for p_name, p_data in request.page_edits.items():
+            if not isinstance(p_data, dict):
+                continue
+            orig_s = orig_sections.get(p_name, {})
+
+            # Title / Headline
+            new_title = (p_data.get("title") or "").strip()
+            old_title = (orig_s.get("title") or orig_s.get("headline") or "").strip()
+            if new_title and old_title and new_title != old_title:
+                for fname in files_dict:
+                    if old_title in files_dict[fname]:
+                        files_dict[fname] = files_dict[fname].replace(old_title, new_title)
+                        updated_filenames.add(fname)
+
+            # Subtitle / Subheadline
+            new_sub = (p_data.get("subtitle") or "").strip()
+            old_sub = (orig_s.get("subtitle") or orig_s.get("subheadline") or "").strip()
+            if new_sub and old_sub and new_sub != old_sub:
+                for fname in files_dict:
+                    if old_sub in files_dict[fname]:
+                        files_dict[fname] = files_dict[fname].replace(old_sub, new_sub)
+                        updated_filenames.add(fname)
+
+            # Description / Story
+            new_desc = (p_data.get("description") or "").strip()
+            old_desc = (orig_s.get("description") or orig_s.get("story") or "").strip()
+            if new_desc and old_desc and new_desc != old_desc:
+                for fname in files_dict:
+                    if old_desc in files_dict[fname]:
+                        files_dict[fname] = files_dict[fname].replace(old_desc, new_desc)
+                        updated_filenames.add(fname)
+
+            # CTA Text
+            new_cta = (p_data.get("cta_text") or "").strip()
+            old_cta = (orig_s.get("primaryCta") or orig_s.get("buttonText") or "").strip()
+            if new_cta and old_cta and new_cta != old_cta:
+                for fname in files_dict:
+                    if old_cta in files_dict[fname]:
+                        files_dict[fname] = files_dict[fname].replace(old_cta, new_cta)
+                        updated_filenames.add(fname)
+
+            # Tabs
+            new_tabs = p_data.get("tabs", [])
+            old_tabs = orig_s.get("tabs", [])
+            if isinstance(new_tabs, list) and isinstance(old_tabs, list):
+                for o_tab, n_tab in zip(old_tabs, new_tabs):
+                    o_tab_s = str(o_tab).strip()
+                    n_tab_s = str(n_tab).strip()
+                    if o_tab_s and n_tab_s and o_tab_s != n_tab_s:
+                        for fname in files_dict:
+                            if o_tab_s in files_dict[fname]:
+                                files_dict[fname] = files_dict[fname].replace(o_tab_s, n_tab_s)
+                                updated_filenames.add(fname)
+
+            # Category Filters
+            new_filters = p_data.get("filters", [])
+            old_filters = orig_s.get("filters", [])
+            if isinstance(new_filters, list) and isinstance(old_filters, list):
+                for o_f, n_f in zip(old_filters, new_filters):
+                    o_f_s = str(o_f).strip()
+                    n_f_s = str(n_f).strip()
+                    if o_f_s and n_f_s and o_f_s != n_f_s:
+                        for fname in files_dict:
+                            if o_f_s in files_dict[fname]:
+                                files_dict[fname] = files_dict[fname].replace(o_f_s, n_f_s)
+                                updated_filenames.add(fname)
+
+            # Cards
+            new_cards = p_data.get("cards", [])
+            old_cards = orig_s.get("cards", [])
+            if isinstance(new_cards, list) and isinstance(old_cards, list):
+                for o_card, n_card in zip(old_cards, new_cards):
+                    if isinstance(o_card, dict) and isinstance(n_card, dict):
+                        o_ctitle = (o_card.get("title") or "").strip()
+                        n_ctitle = (n_card.get("title") or "").strip()
+                        if o_ctitle and n_ctitle and o_ctitle != n_ctitle:
+                            for fname in files_dict:
+                                if o_ctitle in files_dict[fname]:
+                                    files_dict[fname] = files_dict[fname].replace(o_ctitle, n_ctitle)
+                                    updated_filenames.add(fname)
+                        o_cdesc = (o_card.get("desc") or "").strip()
+                        n_cdesc = (n_card.get("desc") or "").strip()
+                        if o_cdesc and n_cdesc and o_cdesc != n_cdesc:
+                            for fname in files_dict:
+                                if o_cdesc in files_dict[fname]:
+                                    files_dict[fname] = files_dict[fname].replace(o_cdesc, n_cdesc)
+                                    updated_filenames.add(fname)
+                        o_ctag = (o_card.get("tag") or "").strip()
+                        n_ctag = (n_card.get("tag") or "").strip()
+                        if o_ctag and n_ctag and o_ctag != n_ctag:
+                            for fname in files_dict:
+                                if o_ctag in files_dict[fname]:
+                                    files_dict[fname] = files_dict[fname].replace(o_ctag, n_ctag)
+                                    updated_filenames.add(fname)
+
+            # Text Items (exact match replace)
+            for ti in p_data.get("textItems", []):
+                orig = (ti.get("originalText") or "").strip()
+                new_t = (ti.get("text") or "").strip()
+                if orig and new_t and orig != new_t:
+                    for fname in files_dict:
+                        if orig in files_dict[fname]:
+                            files_dict[fname] = files_dict[fname].replace(orig, new_t)
+                            updated_filenames.add(fname)
+
+    # 3. Use Gemini for smart content/styling updates across all files
     files_str = ""
     for name, content in files_dict.items():
         files_str += f"\n--- FILE: {name} ---\n{content}\n"
@@ -285,12 +1499,33 @@ async def edit_live_preview_manual(
             page_edits_str += f"- For page/file '{page_name}' (If the template is a single-page template/only has index.html, map these changes to the corresponding section like #{page_name_clean} or the '{page_name_clean}' area inside index.html):\n"
             if edits.get("title"):
                 page_edits_str += f"  * Set main title/header/headline to: \"{edits['title']}\"\n"
+            if edits.get("subtitle"):
+                page_edits_str += f"  * Set subtitle / hook text to: \"{edits['subtitle']}\"\n"
             if edits.get("description"):
                 page_edits_str += f"  * Set main body content/description/story to: \"{edits['description']}\"\n"
             if edits.get("cta_text"):
                 page_edits_str += f"  * Set primary Call to Action (CTA) button text to: \"{edits['cta_text']}\"\n"
             if edits.get("cta_link"):
                 page_edits_str += f"  * Set primary Call to Action (CTA) button link/href/action to: \"{edits['cta_link']}\"\n"
+            if edits.get("phone"):
+                page_edits_str += f"  * Set phone number to: \"{edits['phone']}\"\n"
+            if edits.get("email"):
+                page_edits_str += f"  * Set contact email to: \"{edits['email']}\"\n"
+            if edits.get("address"):
+                page_edits_str += f"  * Set address / location to: \"{edits['address']}\"\n"
+            if edits.get("tabs") and isinstance(edits["tabs"], list):
+                page_edits_str += f"  * Set section tabs/pills labels to: {edits['tabs']}\n"
+            if edits.get("filters") and isinstance(edits["filters"], list):
+                page_edits_str += f"  * Set category filter buttons to: {edits['filters']}\n"
+            if edits.get("cards") and isinstance(edits["cards"], list):
+                for idx_c, card in enumerate(edits["cards"]):
+                    page_edits_str += f"  * Item/Card #{idx_c+1}: title=\"{card.get('title','')}\", description=\"{card.get('desc','')}\", tag=\"{card.get('tag','')}\", stack=\"{card.get('stack','')}\"\n"
+            if edits.get("textItems") and isinstance(edits["textItems"], list):
+                for ti in edits["textItems"]:
+                    orig = ti.get("originalText") or ti.get("text")
+                    new_t = ti.get("text")
+                    if orig and new_t and orig != new_t:
+                        page_edits_str += f"  * Replace text snippet \"{orig}\" with: \"{new_t}\"\n"
 
     edit_prompt = f"""You are a specialized React/HTML code refactoring tool.
 Your task is to take the provided website template files and replace specific business fields and styles with these new values:
@@ -335,41 +1570,38 @@ Here are the codebase files:
         import json
         raw_code = await ai_service._generate_content(edit_prompt, response_mime_type="application/json", feature_name="code_assistant")
         chunks = json.loads(clean_code_response(raw_code, "json"))
-        if not isinstance(chunks, list):
-            if isinstance(chunks, dict):
-                chunks = [{"filename": k, "find": files_dict.get(k, ""), "replace": v} for k, v in chunks.items()]
-            else:
-                chunks = []
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to refactor template code: {str(e)}")
-        
-    # Apply chunks to files_dict
-    updated_filenames = set()
-    for chunk in chunks:
-        filename = chunk.get("filename")
-        find_str = chunk.get("find")
-        replace_str = chunk.get("replace")
-        if not filename or find_str is None or replace_str is None:
-            continue
-        matched_name = None
-        for name in files_dict:
-            if name == filename or name.endswith("/" + filename) or name.endswith("\\" + filename) or os.path.basename(name) == filename:
-                matched_name = name
-                break
-        if matched_name:
-            if find_str in files_dict[matched_name]:
-                files_dict[matched_name] = files_dict[matched_name].replace(find_str, replace_str)
-                updated_filenames.add(matched_name)
-                print(f"Applied manual replacement chunk for {matched_name}")
-            else:
-                # Try simple replacement if exact match failed due to spacing
-                cleaned_find = find_str.strip()
-                if cleaned_find and cleaned_find in files_dict[matched_name]:
-                    files_dict[matched_name] = files_dict[matched_name].replace(cleaned_find, replace_str.strip())
-                    updated_filenames.add(matched_name)
-                    print(f"Applied fuzzy-spaced manual replacement chunk for {matched_name}")
+        if isinstance(chunks, list):
+            for chunk in chunks:
+                filename = chunk.get("filename")
+                find_str = chunk.get("find")
+                replace_str = chunk.get("replace")
+                if not filename or find_str is None or replace_str is None:
+                    continue
+                matched_name = None
+                for name in files_dict:
+                    if name == filename or name.endswith("/" + filename) or name.endswith("\\" + filename) or os.path.basename(name) == filename:
+                        matched_name = name
+                        break
+                if matched_name:
+                    if find_str in files_dict[matched_name]:
+                        files_dict[matched_name] = files_dict[matched_name].replace(find_str, replace_str)
+                        updated_filenames.add(matched_name)
+                    else:
+                        cleaned_find = find_str.strip()
+                        if cleaned_find and cleaned_find in files_dict[matched_name]:
+                            files_dict[matched_name] = files_dict[matched_name].replace(cleaned_find, replace_str.strip())
+                            updated_filenames.add(matched_name)
+    except Exception as e_ai:
+        logger.warning(f"AI edit refactor fallback notice: {e_ai}")
 
-    # 3. Overwrite files in ZIP
+    # If no files updated by AI or direct text, update business name and primary color directly
+    if not updated_filenames:
+        for name in files_dict:
+            if name.endswith(".html") or name.endswith(".jsx") or name.endswith(".tsx"):
+                files_dict[name] = files_dict[name].replace(template.title or "Port", request.business_name)
+                updated_filenames.add(name)
+
+    # 4. Overwrite files in ZIP
     new_zip_buffer = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
         with zipfile.ZipFile(new_zip_buffer, "w", zipfile.ZIP_DEFLATED) as z_out:
@@ -377,21 +1609,46 @@ Here are the codebase files:
                 content = z_in.read(item.filename)
                 if item.filename in updated_filenames:
                     content = files_dict[item.filename].encode("utf-8")
-                    print(f"Saved manual edited file to ZIP: {item.filename}")
                 z_out.writestr(item, content)
                 
     new_zip_bytes = new_zip_buffer.getvalue()
     
-    # 4. Save the updated ZIP back to the database
-    stored_file.data = new_zip_bytes
-    stored_file.size = len(new_zip_bytes)
-    db.add(stored_file)
-    await db.flush()
+    # 5. Save the updated ZIP back to the database
+    if is_new_clone:
+        new_stored_file = StoredFile(
+            storage_key=f"templates/{uuid.uuid4().hex}/customized.zip",
+            original_filename=f"customized_{stored_file.original_filename or 'template.zip'}",
+            content_type=stored_file.content_type or "application/zip",
+            size=len(new_zip_bytes),
+            data=new_zip_bytes
+        )
+        db.add(new_stored_file)
+        await db.flush()
+        template.download_assets = {
+            "zip": f"/api/v1/files/{new_stored_file.id}"
+        }
+        db.add(template)
+        await db.flush()
+    else:
+        stored_file.data = new_zip_bytes
+        stored_file.size = len(new_zip_bytes)
+        db.add(stored_file)
+        await db.flush()
     
-    # 6. Clear local preview directory cache to force a rebuild on the next preview request
+    # 6. Extract updated files directly into the live preview directories
     preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
     shutil.rmtree(preview_dir, ignore_errors=True)
-    
+    os.makedirs(preview_dir, exist_ok=True)
+    with zipfile.ZipFile(io.BytesIO(new_zip_bytes), "r") as z_refresh:
+        z_refresh.extractall(preview_dir)
+        
+    if original_template_id and original_template_id != str(template_id):
+        orig_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(original_template_id))
+        shutil.rmtree(orig_dir, ignore_errors=True)
+        os.makedirs(orig_dir, exist_ok=True)
+        with zipfile.ZipFile(io.BytesIO(new_zip_bytes), "r") as z_refresh:
+            z_refresh.extractall(orig_dir)
+            
     # Commit session changes
     await db.commit()
     
@@ -2187,14 +3444,15 @@ async def ai_debug_template_code(
     if not zip_url:
         raise HTTPException(status_code=400, detail="Template does not have source ZIP archive")
 
-    file_id_str = zip_url.split("/")[-1]
+    match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
     stored_file = None
-    try:
-        file_id = uuid.UUID(file_id_str)
-        sf_res = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
-        stored_file = sf_res.scalar_one_or_none()
-    except Exception:
-        pass
+    if match:
+        try:
+            file_id = uuid.UUID(match.group(1))
+            sf_res = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
+            stored_file = sf_res.scalar_one_or_none()
+        except Exception:
+            pass
 
     if not stored_file or not stored_file.data:
         raise HTTPException(status_code=404, detail="Source archive data not found")
@@ -2269,5 +3527,6 @@ async def ai_debug_template_code(
         "fixed_files": list(repaired_map.keys()),
         "fixed_count": fixed_files_count
     }
+
 
 

@@ -24,6 +24,7 @@ import AdminPanel from './app/admin/page.jsx'
 import TemplateDetailsPage from './app/marketplace/[slug]/page.jsx'
 import GenerateTemplatePage from './app/marketplace/generate.jsx'
 import PreviewPage from './app/preview/page.jsx'
+import StorybookPage from './app/storybook/page.jsx'
 import PricingPage from './app/pricing/page.jsx'
 import AboutPage from './app/about/page.jsx'
 import ContactPage from './app/contact/page.jsx'
@@ -100,6 +101,7 @@ function App() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/preview" element={<PreviewPage />} />
+          <Route path="/storybook" element={<StorybookPage />} />
           <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/dashboard/receipt/:orderId" element={<ProtectedRoute><ReceiptPage /></ProtectedRoute>} />
