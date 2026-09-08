@@ -72,6 +72,7 @@ import {
   UploadCloud,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
+import FigmaImportModal from "@/components/marketplace/FigmaImportModal";
 import { api } from "@/lib/api";
 import { cn, formatPrice, convertToUSD } from "@/lib/utils";
 import Image from "@/components/Image";
@@ -132,7 +133,8 @@ function Dashboard() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [templatesSubTab, setTemplatesSubTab] = useState("purchased");
-  const [studioProjectsSubTab, setStudioProjectsSubTab] = useState("created"); // "created" | "purchased"
+  const [studioProjectsSubTab, setStudioProjectsSubTab] = useState("created");
+  const [figmaModalOpen, setFigmaModalOpen] = useState(false); // "created" | "purchased"
 
   // Template Redesign & Edit state
   const [uploadedTemplatesView, setUploadedTemplatesView] = useState("grid"); // "grid" | "table"
@@ -203,17 +205,17 @@ function Dashboard() {
     setEditingTemplate(item);
     setEditTitle(item.title || "");
     setEditDescription(item.description || "");
-    
+
     const pref = (user?.currency || (user?.country === "India" ? "INR" : "USD")).toUpperCase();
     setEditCurrency(pref);
-    
+
     if (pref === "INR") {
       const inrRate = rates?.INR || 87.0;
       setEditPrice(Math.round((item.price || 0) * inrRate));
     } else {
       setEditPrice(item.price || 0);
     }
-    
+
     setEditFramework(item.framework || "html");
     setEditVersion(item.version || "1.0.0");
     setEditCategory(typeof item.category === "object" ? (item.category?.name || item.category?.slug || "General") : (item.category || "General"));
@@ -225,7 +227,7 @@ function Dashboard() {
   const handleEditCurrencyChange = (newCurr) => {
     const currentNum = parseFloat(editPrice) || 0;
     const inrRate = rates?.INR || 87.0;
-    
+
     if (editCurrency === "USD" && newCurr === "INR") {
       setEditPrice(Math.round(currentNum * inrRate));
     } else if (editCurrency === "INR" && newCurr === "USD") {
@@ -259,7 +261,7 @@ function Dashboard() {
   // Wizard form state
   const [deployProjectName, setDeployProjectName] = useState("");
   const [deployTemplateId, setDeployTemplateId] = useState("");
-  const [deployProvider, setDeployProvider] = useState("vercel");
+  const [deployProvider, setDeployProvider] = useState("story");
   const [deployBranch, setDeployBranch] = useState("main");
   const [deployBuildCommand, setDeployBuildCommand] = useState("npm run build");
   const [deployOutputDir, setDeployOutputDir] = useState("dist");
@@ -517,7 +519,7 @@ function Dashboard() {
   const { data: deploymentsData = [], isLoading: deploymentsLoading, refetch: refetchDeployments } = useQuery({
     queryKey: ["deployments"],
     queryFn: () => api.get("/deployments/", authToken ?? undefined),
-    enabled: !!authToken && activeTab === "deployments",
+    enabled: !!authToken,
   });
 
   // Strip ANSI escape codes from terminal output
@@ -1630,7 +1632,21 @@ function Dashboard() {
   const renderMyTemplatesSection = () => {
     const completedOrders = orders.filter(o => o.status === "completed");
     const purchasedItems = completedOrders.flatMap(o => (o.items || []).map(i => ({ ...i, orderId: o.id })));
-    const uploadedItems = Array.isArray(templateResponse) ? templateResponse : [];
+    const allUserTemplates = Array.isArray(templateResponse) ? templateResponse : [];
+
+    // Separate personal customized/edited drafts from creator marketplace uploads
+    const customizedItems = allUserTemplates.filter(item =>
+      item.is_ai_ready ||
+      item.status === "draft" ||
+      (item.slug && item.slug.includes("-custom-")) ||
+      (item.title && item.title.includes("(Customized)"))
+    );
+
+    const uploadedItems = allUserTemplates.filter(item =>
+      !item.slug?.includes("-custom-") &&
+      !item.title?.includes("(Customized)") &&
+      item.status !== "draft"
+    );
 
     // Filter items based on search query
     const query = (uploadedTemplatesSearch || "").toLowerCase().trim();
@@ -1640,6 +1656,14 @@ function Dashboard() {
       item.framework?.toLowerCase().includes(query) ||
       item.license_type?.toLowerCase().includes(query) ||
       item.short_description?.toLowerCase().includes(query)
+    );
+
+    const filteredCustomized = customizedItems.filter(item =>
+      !query ||
+      item.title?.toLowerCase().includes(query) ||
+      item.framework?.toLowerCase().includes(query) ||
+      item.short_description?.toLowerCase().includes(query) ||
+      item.description?.toLowerCase().includes(query)
     );
 
     const filteredUploaded = uploadedItems.filter(item => {
@@ -1668,14 +1692,20 @@ function Dashboard() {
                   <h2 className="mt-title">
                     My Templates
                     <span className="mt-count-badge">
-                      {templatesSubTab === "purchased" ? `${purchasedItems.length} Purchased` : `${uploadedItems.length} Uploaded`}
+                      {templatesSubTab === "purchased"
+                        ? `${purchasedItems.length} Purchased`
+                        : templatesSubTab === "customized"
+                          ? `${customizedItems.length} Edited`
+                          : `${uploadedItems.length} Uploaded`}
                     </span>
                   </h2>
                 </div>
                 <p className="mt-desc">
                   {templatesSubTab === "purchased"
                     ? "Manage your purchased templates, redesign with AI Studio, and launch live websites."
-                    : "Manage your creator catalog, track downloads, and update listings."}
+                    : templatesSubTab === "customized"
+                      ? "Your personal template drafts edited in AI Site Studio. Open them in the Studio, download source, or publish live."
+                      : "Manage your creator catalog, track downloads, and update listings."}
                 </p>
               </div>
             </div>
@@ -1716,6 +1746,18 @@ function Dashboard() {
                 <span>Purchased</span>
                 <span className={cn("mt-tab-count", templatesSubTab === "purchased" ? "active" : "inactive")}>
                   {purchasedItems.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTemplatesSubTab("customized")}
+                className={cn("mt-tab-btn", templatesSubTab === "customized" && "active")}
+              >
+                <Sparkles className="w-4 h-4" style={{ color: templatesSubTab === "customized" ? "#ec4899" : "#64748b" }} />
+                <span>Edited Projects</span>
+                <span className={cn("mt-tab-count", templatesSubTab === "customized" ? "active" : "inactive")}>
+                  {customizedItems.length}
                 </span>
               </button>
 
@@ -2040,6 +2082,283 @@ function Dashboard() {
               </table>
             </div>
           )
+        ) : templatesSubTab === "customized" ? (
+          /* ══════════════════════════════════════════════
+             CUSTOMIZED / EDITED PROJECTS VIEW
+             ══════════════════════════════════════════════ */
+          customizedItems.length === 0 ? (
+            <div className="mt-empty-card">
+              <div className="mt-empty-icon">
+                <Sparkles className="w-7 h-7" />
+              </div>
+              <h4 className="mt-empty-title">No Edited Projects Yet</h4>
+              <p className="mt-empty-desc">
+                Pick any marketplace template or open the AI Studio to customize copy, layout, and colors. Your personal edits will be saved privately here.
+              </p>
+              <Link
+                href="/marketplace"
+                className="mt-empty-btn"
+              >
+                <Sparkles className="w-4 h-4" /> Pick a Template to Edit
+              </Link>
+            </div>
+          ) : filteredCustomized.length === 0 ? (
+            <div className="text-center py-12 px-4 rounded-2xl border border-border/40 bg-card/30">
+              <p className="text-xs text-muted-foreground font-semibold">No edited projects match &ldquo;{uploadedTemplatesSearch}&rdquo;</p>
+              <button
+                onClick={() => setUploadedTemplatesSearch("")}
+                className="mt-3 text-xs text-primary underline font-bold bg-transparent border-0 cursor-pointer"
+              >
+                Clear Search Filter
+              </button>
+            </div>
+          ) : uploadedTemplatesView === "grid" ? (
+            /* Grid View for Customized */
+            <div className="db-templates-grid">
+              {filteredCustomized.map((item) => {
+                const isPurchased = purchasedItems.some(p => p.template_id === item.id || p.id === item.id);
+                const inCart = isInCart(item.id);
+
+                return (
+                  <div key={item.id} className="db-template-card group">
+                    {/* Thumbnail Header */}
+                    <div className="db-template-thumb">
+                      {item.thumbnail_url ? (
+                        <img
+                          src={item.thumbnail_url}
+                          alt={item.title || "Customized Project"}
+                          className="db-template-img"
+                          onError={(e) => {
+                            e.target.style.display = "none";
+                            if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = "flex";
+                          }}
+                        />
+                      ) : null}
+                      <div
+                        className="w-full h-full absolute inset-0 flex items-center justify-center"
+                        style={{
+                          display: item.thumbnail_url ? "none" : "flex",
+                          background: "linear-gradient(135deg, hsla(var(--primary)/0.2) 0%, hsla(var(--secondary)/0.2) 100%)",
+                        }}
+                      >
+                        <span style={{ fontSize: "2rem" }}>✨</span>
+                      </div>
+
+                      {/* Top-Left Floating Badges */}
+                      <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                        {isPurchased ? (
+                          <span className="px-2 py-0.5 bg-emerald-500 text-white text-[9px] font-black uppercase tracking-wider rounded-full shadow-sm flex items-center gap-1">
+                            <CheckCircle2 className="w-2.5 h-2.5" /> Purchased
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 bg-gradient-to-r from-indigo-500 to-blue-600 text-white text-[9px] font-black uppercase tracking-wider rounded-full shadow-sm flex items-center gap-1">
+                            <Sparkles className="w-2.5 h-2.5" /> Edited Draft
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Top-Right Framework Badge */}
+                      <div className="absolute top-2.5 right-2.5">
+                        <span className="px-2 py-0.5 bg-black/60 backdrop-blur-md text-white text-[9px] font-mono font-bold uppercase rounded-md border border-white/10">
+                          {item.framework || "HTML"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Card Content Body */}
+                    <div className="db-template-body">
+                      <div className="db-template-header-text">
+                        <h4 className="db-template-title" title={item.title}>
+                          {item.title || "Customized Project"}
+                        </h4>
+                        <p className="db-template-desc">
+                          {item.short_description || item.description || "Personalized project edited in AI Studio."}
+                        </p>
+                      </div>
+
+                      {/* Pricing & Metadata Strip */}
+                      <div className="db-template-meta-row">
+                        <div>
+                          <span className="text-[11px] text-muted-foreground">Draft ID: </span>
+                          <span className="font-mono text-muted-foreground font-bold">#{String(item.id || "").slice(0, 6).toUpperCase()}</span>
+                        </div>
+                        <span className="text-[10px] font-bold text-emerald-500 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Live Ready
+                        </span>
+                      </div>
+
+                      {/* Action Buttons Hub */}
+                      <div className="db-template-actions-box">
+                        {/* Primary AI Studio Action */}
+                        <Link
+                          href={`/preview?template=${item.id}`}
+                          className="db-btn-ai-studio"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-white" />
+                          <span style={{ color: "#ffffff" }}>Open in AI Studio</span>
+                        </Link>
+
+                        {/* Action Grid */}
+                        <div className="db-template-btn-grid">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDeployTemplateId(item.id);
+                              setDeployProjectName(item.title || "My Website");
+                              setIsDeployModalOpen(true);
+                            }}
+                            className="db-btn-publish"
+                            title="Deploy / Publish"
+                          >
+                            <Zap className="w-3 h-3 text-white" />
+                            <span style={{ color: "#ffffff" }}>Deploy</span>
+                          </button>
+
+                          <a
+                            href={`http://localhost:8000/api/v1/preview/live/${item.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="db-btn-secondary"
+                            title="Live Demo Preview"
+                          >
+                            <Globe className="w-3.5 h-3.5 text-indigo-500" />
+                            <span>Demo</span>
+                          </a>
+
+                          {isPurchased ? (
+                            <button
+                              type="button"
+                              onClick={() => triggerDownload.mutate({ templateId: item.id, format: "zip" })}
+                              className="db-btn-secondary"
+                              title="Download Clean Source ZIP"
+                            >
+                              <Download className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>ZIP</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                addToCart({
+                                  id: item.id,
+                                  templateId: item.id,
+                                  title: item.title,
+                                  price: item.price || 49,
+                                  thumbnail: item.thumbnail_url || "",
+                                  framework: item.framework || "HTML",
+                                  licenseType: "regular",
+                                });
+                              }}
+                              className={cn("db-btn-review", inCart && "bg-indigo-500/10 text-indigo-600 font-extrabold")}
+                              title="Add to Cart to purchase and unlock ZIP"
+                            >
+                              <ShoppingCart className="w-3.5 h-3.5 text-indigo-500" />
+                              <span>{inCart ? "In Cart ✓" : `Cart ($${item.price || 49})`}</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            /* Table View for Customized */
+            <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-border/40 bg-muted/40 font-bold uppercase text-muted-foreground text-[10px] tracking-wider">
+                    <th className="p-4">Project</th>
+                    <th className="p-4">Framework</th>
+                    <th className="p-4">Status</th>
+                    <th className="p-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/30">
+                  {filteredCustomized.map((item) => {
+                    const isPurchased = purchasedItems.some(p => p.template_id === item.id || p.id === item.id);
+                    const inCart = isInCart(item.id);
+
+                    return (
+                      <tr key={item.id} className="hover:bg-muted/20 transition-colors">
+                        <td className="p-4">
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={item.thumbnail_url}
+                              alt=""
+                              className="w-10 h-10 rounded-lg object-cover bg-muted shrink-0"
+                              onError={(e) => { e.target.style.display = "none"; }}
+                            />
+                            <div>
+                              <div className="font-bold text-foreground text-xs">{item.title}</div>
+                              <div className="text-[11px] text-muted-foreground line-clamp-1">{item.description || "Personal Draft Project"}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <span className="px-2 py-0.5 bg-muted text-foreground border border-border/50 rounded-md font-mono font-bold uppercase text-[10px]">
+                            {item.framework || "HTML"}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          {isPurchased ? (
+                            <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 text-[10px] font-bold rounded-full uppercase">
+                              Purchased
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-600 border border-indigo-500/20 text-[10px] font-bold rounded-full uppercase">
+                              Edited Draft
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Link
+                              href={`/preview?template=${item.id}`}
+                              className="px-2.5 py-1.5 bg-primary text-white text-[11px] font-bold rounded-lg flex items-center gap-1 text-decoration-none shadow-sm"
+                            >
+                              <Sparkles className="w-3 h-3" /> Edit in Studio
+                            </Link>
+                            {isPurchased ? (
+                              <button
+                                type="button"
+                                onClick={() => triggerDownload.mutate({ templateId: item.id, format: "zip" })}
+                                className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg border border-border/40 bg-muted/40 cursor-pointer"
+                                title="Download ZIP"
+                              >
+                                <Download className="w-3.5 h-3.5 text-emerald-600" />
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  addToCart({
+                                    id: item.id,
+                                    templateId: item.id,
+                                    title: item.title,
+                                    price: item.price || 49,
+                                    thumbnail: item.thumbnail_url || "",
+                                    framework: item.framework || "HTML",
+                                    licenseType: "regular",
+                                  });
+                                }}
+                                className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-lg flex items-center gap-1 cursor-pointer border-0 shadow-sm"
+                                title="Add to Cart to purchase"
+                              >
+                                <ShoppingCart className="w-3 h-3" />
+                                <span>{inCart ? "In Cart ✓" : `Cart ($${item.price || 49})`}</span>
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )
         ) : (
           /* ══════════════════════════════════════════════
              UPLOADED TEMPLATES VIEW
@@ -2340,7 +2659,16 @@ function Dashboard() {
               </div>
             </div>
 
-            <div className="db-header-actions">
+            <div className="db-header-actions flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setFigmaModalOpen(true)}
+                className="db-figma-btn"
+                title="Import design directly from Figma link"
+              >
+                <Sparkles className="w-4 h-4 text-amber-300" />
+                <span>Import from Figma</span>
+              </button>
               <button
                 onClick={() => signOut()}
                 className="db-signout-btn"
@@ -2464,6 +2792,13 @@ function Dashboard() {
                       >
                         <Cpu className="w-3.5 h-3.5" /> Launch Studio Workspace
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setFigmaModalOpen(true)}
+                        className="db-banner-btn secondary flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-400" /> Import from Figma
+                      </button>
                       <Link
                         href="/marketplace"
                         className="db-banner-btn secondary"
@@ -2474,35 +2809,196 @@ function Dashboard() {
                     </div>
                   </motion.div>
 
-                  {/* Summary Metric Cards */}
-                  <div className="db-metrics-grid">
-                    {[
-                      { label: "Purchased Templates", value: stats?.purchases ?? orders.length, icon: Folder, desc: "Ready for download" },
-                      { label: "Studio website projects", value: 0, icon: Cpu, desc: "Active workspaces" },
-                      { label: "Live Websites", value: 0, icon: Globe, desc: "Configured custom domains" },
-                      { label: "Hosting Deployments", value: 0, icon: Zap, desc: "Continuous build integrations" },
-                      { label: "Total Platform Spent", value: formatPrice(totalSpent), icon: CreditCard, desc: "Invoice order transactions" },
-                    ].map(({ label, value, icon: Icon, desc }) => (
-                      <motion.div
-                        key={label}
-                        whileHover={{ y: -4, scale: 1.01 }}
-                        transition={{ duration: 0.2 }}
-                        className="db-card"
-                        style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
-                      >
-                        <div className="db-metric-header">
-                          <span className="text-xs font-bold uppercase tracking-wider">{label}</span>
-                          <div className="p-1.5 bg-primary/10 rounded-lg text-primary">
-                            <Icon className="w-4 h-4" />
+                  {/* Dynamic Summary Metric Cards */}
+                  {(() => {
+                    const completedOrders = orders.filter(o => o.status === "completed");
+                    const purchasedItems = completedOrders.flatMap(o => (o.items || []).map(i => ({ ...i, orderId: o.id })));
+                    const allUserTemplates = Array.isArray(templateResponse) ? templateResponse : [];
+                    const customizedItems = allUserTemplates.filter(item =>
+                      item.is_ai_ready ||
+                      item.status === "draft" ||
+                      (item.slug && item.slug.includes("-custom-")) ||
+                      (item.title && item.title.includes("(Customized)"))
+                    );
+
+                    const buyerMetricCards = [
+                      {
+                        label: "Purchased Templates",
+                        value: purchasedItems.length,
+                        icon: Folder,
+                        desc: "Ready for download",
+                        onClick: () => { setActiveTab("buyer-templates"); setTemplatesSubTab("purchased"); }
+                      },
+                      {
+                        label: "Studio website projects",
+                        value: customizedItems.length,
+                        icon: Cpu,
+                        desc: "Active edited drafts",
+                        onClick: () => { setActiveTab("buyer-templates"); setTemplatesSubTab("customized"); }
+                      },
+                      {
+                        label: "Live Websites",
+                        value: deploymentsData.filter(d => d.custom_domain || d.live_url).length,
+                        icon: Globe,
+                        desc: "Active live websites",
+                        onClick: () => setActiveTab("my-websites")
+                      },
+                      {
+                        label: "Hosting Deployments",
+                        value: deploymentsData.length,
+                        icon: Zap,
+                        desc: "Continuous build integrations",
+                        onClick: () => setActiveTab("deployments")
+                      },
+                      {
+                        label: "Total Platform Spent",
+                        value: formatPrice(totalSpent),
+                        icon: CreditCard,
+                        desc: "Invoice order transactions",
+                        onClick: () => setActiveTab("orders")
+                      },
+                    ];
+
+                    return (
+                      <>
+                        <div className="db-metrics-grid">
+                          {buyerMetricCards.map(({ label, value, icon: Icon, desc, onClick }) => (
+                            <motion.div
+                              key={label}
+                              whileHover={{ y: -4, scale: 1.01 }}
+                              transition={{ duration: 0.2 }}
+                              onClick={onClick}
+                              className="db-card cursor-pointer hover:border-primary/50 transition-all"
+                              style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
+                            >
+                              <div className="db-metric-header">
+                                <span className="text-xs font-bold uppercase tracking-wider">{label}</span>
+                                <div className="p-1.5 bg-primary/10 rounded-lg text-primary">
+                                  <Icon className="w-4 h-4" />
+                                </div>
+                              </div>
+                              <div>
+                                <div className="db-metric-value">{value}</div>
+                                <div className="db-metric-footer">{desc}</div>
+                              </div>
+                            </motion.div>
+                          ))}
+                        </div>
+
+                        {/* Recent Edited Studio Projects Showcase on Home */}
+                        {customizedItems.length > 0 && (
+                          <div className="db-custom-projects-section">
+                            <div className="db-custom-section-header">
+                              <div className="db-custom-header-left">
+                                <div className="db-custom-header-icon">
+                                  <Sparkles className="w-4 h-4" />
+                                </div>
+                                <div>
+                                  <h3 className="db-custom-header-title">Your Studio Projects &amp; Custom Drafts ({customizedItems.length})</h3>
+                                  <p className="db-custom-header-sub">Private template drafts customized in AI Site Studio. Pick up right where you left off.</p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => { setActiveTab("buyer-templates"); setTemplatesSubTab("customized"); }}
+                                className="db-custom-view-all-btn"
+                              >
+                                <span>View All ({customizedItems.length})</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </button>
+                            </div>
+
+                            <div className="db-custom-grid">
+                              {customizedItems.slice(0, 3).map((item) => {
+                                const isPurchased = purchasedItems.some(p => p.template_id === item.id || p.id === item.id);
+                                const inCart = isInCart(item.id);
+
+                                return (
+                                  <div key={item.id} className="db-custom-card">
+                                    <div className="db-custom-card-top">
+                                      {isPurchased ? (
+                                        <span className="db-custom-purchased-badge">
+                                          <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" /> Purchased
+                                        </span>
+                                      ) : (
+                                        <span className="db-custom-draft-badge">
+                                          <Sparkles className="w-2.5 h-2.5 text-indigo-500" /> Private Draft
+                                        </span>
+                                      )}
+                                      <span className="db-custom-fw-badge">
+                                        {item.framework || "HTML"}
+                                      </span>
+                                    </div>
+
+                                    <div className="db-custom-card-content">
+                                      <h4 className="db-custom-card-title" title={item.title}>
+                                        {item.title}
+                                      </h4>
+                                      <p className="db-custom-card-desc">
+                                        {item.short_description || item.description || "Custom website modified in AI Site Studio."}
+                                      </p>
+                                    </div>
+
+                                    <div className="db-custom-actions-row">
+                                      <Link
+                                        href={`/preview?template=${item.id}&mode=live`}
+                                        className="db-custom-edit-btn"
+                                        style={{ color: "#ffffff" }}
+                                      >
+                                        <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                                        <span>Edit in Studio</span>
+                                      </Link>
+                                      <a
+                                        href={`http://localhost:8000/api/v1/preview/live/${item.id}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="db-custom-icon-btn"
+                                        title="Live Demo Preview"
+                                      >
+                                        <Globe className="w-3.5 h-3.5 text-indigo-500" />
+                                        <span>Demo</span>
+                                      </a>
+                                      {isPurchased ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => triggerDownload.mutate({ templateId: item.id, format: "zip" })}
+                                          className="db-custom-download-btn"
+                                          title="Download Clean Source ZIP"
+                                        >
+                                          <Download className="w-3.5 h-3.5 text-emerald-600" />
+                                          <span>ZIP</span>
+                                        </button>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            addToCart({
+                                              id: item.id,
+                                              templateId: item.id,
+                                              title: item.title,
+                                              price: item.price || 49,
+                                              thumbnail: item.thumbnail_url || "",
+                                              framework: item.framework || "HTML",
+                                              licenseType: "regular",
+                                            });
+                                          }}
+                                          className={cn("db-custom-cart-btn", inCart && "in-cart")}
+                                          title={inCart ? "In Cart - Click to view" : "Add to Cart to purchase"}
+                                        >
+                                          <ShoppingCart className="w-3.5 h-3.5" />
+                                          <span>{inCart ? "In Cart ✓" : `Cart ($${item.price || 49})`}</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-                        <div>
-                          <div className="db-metric-value">{value}</div>
-                          <div className="db-metric-footer">{desc}</div>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
+                        )}
+                      </>
+                    );
+                  })()}
 
                   <div className="db-activity-qa-grid">
                     {/* Recent Activity */}
@@ -3008,36 +3504,15 @@ function Dashboard() {
                       </div>
                       <p className="text-sm text-muted-foreground">Publish your websites and studio templates to Vercel, Netlify, or GitHub Pages.</p>
                     </div>
-                    <button
-                      onClick={() => {
-                        const available = [...sellerTemplatesList];
-                        if (available.length > 0) {
-                          setDeployTemplateId(available[0].id);
-                          setDeployProjectName(available[0].title);
-                        } else {
-                          setDeployTemplateId("mock-project-id");
-                          setDeployProjectName("Restaurant Demo Prototype");
-                        }
-                        setIsDeployModalOpen(true);
-                      }}
-                      className="btn-primary"
-                    >
-                      <Plus className="w-4 h-4" /> Deploy a Project
-                    </button>
-                  </div>
-
-                  {deploymentsLoading ? (
-                    <div className="text-center py-12">
-                      <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
-                      <p className="text-xs text-muted-foreground mt-2">Loading deployments...</p>
-                    </div>
-                  ) : deploymentsData.length === 0 ? (
-                    <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-card/5">
-                      <Zap className="w-8 h-8 text-primary mx-auto mb-3 opacity-60" />
-                      <p className="text-sm font-semibold text-foreground">No active deployments</p>
-                      <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
-                        Connect a project template or custom sandbox to start building and hosting.
-                      </p>
+                    <div className="flex items-center gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => setFigmaModalOpen(true)}
+                        className="btn-secondary flex items-center gap-1.5"
+                        title="Import design directly from Figma and deploy live"
+                      >
+                        <Sparkles className="w-4 h-4 text-indigo-400" /> Deploy from Figma
+                      </button>
                       <button
                         onClick={() => {
                           const available = [...sellerTemplatesList];
@@ -3050,10 +3525,50 @@ function Dashboard() {
                           }
                           setIsDeployModalOpen(true);
                         }}
-                        className="mt-4 btn-secondary"
+                        className="btn-primary"
                       >
-                        Create First Deployment
+                        <Plus className="w-4 h-4" /> Deploy a Project
                       </button>
+                    </div>
+                  </div>
+
+                  {deploymentsLoading ? (
+                    <div className="text-center py-12">
+                      <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+                      <p className="text-xs text-muted-foreground mt-2">Loading deployments...</p>
+                    </div>
+                  ) : deploymentsData.length === 0 ? (
+                    <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-card/5">
+                      <Zap className="w-8 h-8 text-primary mx-auto mb-3 opacity-60" />
+                      <p className="text-sm font-semibold text-foreground">No active deployments</p>
+                      <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+                        Connect a project template or import directly from Figma to start building and hosting.
+                      </p>
+                      <div className="flex items-center justify-center gap-3 mt-4">
+                        <button
+                          type="button"
+                          onClick={() => setFigmaModalOpen(true)}
+                          className="btn-primary flex items-center gap-1.5"
+                        >
+                          <Sparkles className="w-4 h-4 text-indigo-300" /> Deploy from Figma
+                        </button>
+                        <button
+                          onClick={() => {
+                            const available = [...sellerTemplatesList];
+                            if (available.length > 0) {
+                              setDeployTemplateId(available[0].id);
+                              setDeployProjectName(available[0].title);
+                            } else {
+                              setDeployTemplateId("mock-project-id");
+                              setDeployProjectName("Restaurant Demo Prototype");
+                            }
+                            setIsDeployModalOpen(true);
+                          }}
+                          className="btn-secondary"
+                        >
+                          Create Project Deployment
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div className="deployments-grid">
@@ -3490,7 +4005,7 @@ function Dashboard() {
                         <span>Recent Sales & Orders</span>
                         <span className="text-xs text-slate-500 font-semibold">Live Transactions</span>
                       </div>
-                      
+
                       {(earningsSummary?.sales || []).length > 0 ? (
                         <div className="space-y-2">
                           {(earningsSummary.sales || []).slice(0, 5).map((sale) => (
@@ -6841,6 +7356,17 @@ function Dashboard() {
           </div>
         </div>
       </div>
+      <FigmaImportModal
+        isOpen={figmaModalOpen}
+        onClose={() => setFigmaModalOpen(false)}
+        onDeploy={(item) => {
+          setFigmaModalOpen(false);
+          setActiveTab("deployments");
+          setDeployTemplateId(item.id);
+          setDeployProjectName(item.title);
+          setIsDeployModalOpen(true);
+        }}
+      />
     </>
   );
 }

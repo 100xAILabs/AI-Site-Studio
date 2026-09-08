@@ -95,8 +95,8 @@ def create_application() -> FastAPI:
     async def general_exception_handler(
         request: Request, exc: Exception
     ) -> JSONResponse:
-        if settings.DEBUG:
-            raise exc
+        import traceback
+        print(f"[SERVER EXCEPTION] {traceback.format_exc()}", flush=True)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"detail": "Internal server error"},

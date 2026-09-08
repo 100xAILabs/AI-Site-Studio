@@ -89,6 +89,7 @@ yarn-error.log*
 uploads/
 static/deployments/
 backend/static/deployments/
+backend/static/thumbnails/
 
 # ==================== Executables / Media ====================
 *.exe

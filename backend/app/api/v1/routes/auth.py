@@ -546,50 +546,61 @@ async def login_email(
     db: AsyncSession = Depends(get_db)
 ):
     """Login with email and password."""
-    data = await request.json()
-    email = data.get("email")
-    password = data.get("password")
-    
-    if not email or not password:
-        raise HTTPException(status_code=400, detail="Email and password required")
-        
-
-
-    repo = UserRepository(db)
-    user = await repo.get_by_email(email)
-    if not user or not user.hashed_password:
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-        
-    from app.core.security import verify_password
-    if not verify_password(password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-        
-    if not user.is_email_verified:
-        await generate_otp(user.email, "verify_email")
-        return {
-            "status": "otp_required",
-            "email": user.email,
-            "message": "Your email is not verified yet. An OTP has been sent to your email."
-        }
-        
-    if is_company_email(user.email) and user.role.value.lower() == "buyer":
-        from app.models.user import UserRole
-        user.role = UserRole.SELLER
-        await db.flush()
-        await db.commit()
-        await db.refresh(user)
-
-    user_role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
-    print(f"\n[USER LOGIN] Email: {user.email} | Active Role: {user_role_str}\n", flush=True)
-
-    from app.services.location_service import update_user_location
     try:
-        await update_user_location(user, db, request=request)
-    except Exception as err:
-        print(f"Location update notice on login: {err}")
+        data = await request.json()
+        email = data.get("email")
+        password = data.get("password")
+        
+        if not email or not password:
+            raise HTTPException(status_code=400, detail="Email and password required")
 
-    access_token = create_access_token(subject=str(user.id))
-    return {"access_token": access_token, "token_type": "bearer"}
+        repo = UserRepository(db)
+        user = await repo.get_by_email(email)
+        if not user or not user.hashed_password:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+            
+        from app.core.security import verify_password
+        if not verify_password(password, user.hashed_password):
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+            
+        if not user.is_email_verified:
+            await generate_otp(user.email, "verify_email")
+            return {
+                "status": "otp_required",
+                "email": user.email,
+                "message": "Your email is not verified yet. An OTP has been sent to your email."
+            }
+            
+        if is_company_email(user.email) and user.role.value.lower() == "buyer":
+            from app.models.user import UserRole
+            user.role = UserRole.SELLER
+            await db.flush()
+            await db.commit()
+            await db.refresh(user)
+
+        user_role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
+        print(f"\n[USER LOGIN] Email: {user.email} | Active Role: {user_role_str}\n", flush=True)
+
+        from app.services.location_service import update_user_location
+        try:
+            await update_user_location(user, db, request=request)
+        except Exception as err:
+            print(f"Location update notice on login: {err}")
+
+        access_token = create_access_token(subject=str(user.id))
+        return {"access_token": access_token, "token_type": "bearer"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        tb = traceback.format_exc()
+        try:
+            with open("login_error.log", "w", encoding="utf-8") as f:
+                f.write(tb)
+        except Exception:
+            pass
+        print(f"[LOGIN ERROR] {tb}", flush=True)
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/verify-otp")

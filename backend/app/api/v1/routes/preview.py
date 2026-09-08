@@ -27,6 +27,8 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user_optional
 from app.models.user import User
+from app.models.template import Template, TemplateStatus
+from app.models.stored_file import StoredFile
 from app.services.preview_service import PreviewService
 from app.services.ai_service import ai_service
 from app.repositories.template_repo import TemplateRepository
@@ -1225,29 +1227,38 @@ async def edit_live_preview_manual(
     original_template_id = str(template.id)
     is_new_clone = False
 
-    # If the template is PUBLISHED, clone it so the user modifies their own private DRAFT copy
-    if template.status == TemplateStatus.PUBLISHED:
+    # If the template is PUBLISHED or belongs to another user, clone/fork it so the user modifies their own private DRAFT copy
+    is_user_owned_draft = (
+        template.status == TemplateStatus.DRAFT 
+        and current_user 
+        and template.seller_id == current_user.id
+    )
+
+    if not is_user_owned_draft:
         existing_draft = None
         if current_user:
+            slug_prefix = template.slug.split("-custom-")[0]
             ed_res = await db.execute(
                 select(Template).where(
                     Template.seller_id == current_user.id,
                     Template.status == TemplateStatus.DRAFT,
-                    Template.slug.like(f"{template.slug}-custom-%")
+                    Template.slug.like(f"{slug_prefix}-custom-%")
                 )
             )
-            existing_draft = ed_res.scalar_one_or_none()
+            existing_draft = ed_res.scalars().first()
             
         if existing_draft:
             template = existing_draft
             template_id = str(existing_draft.id)
         else:
             is_new_clone = True
+            custom_bname = request.business_name.strip() if request.business_name else ""
+            custom_title = f"{custom_bname} (Customized)" if custom_bname else f"Customized {template.title}"
             new_template = Template(
-                title=f"Customized {template.title}",
+                title=custom_title,
                 short_description=template.short_description,
                 description=template.description,
-                slug=f"{template.slug}-custom-{uuid.uuid4().hex[:6]}",
+                slug=f"{template.slug.split('-custom-')[0]}-custom-{uuid.uuid4().hex[:6]}",
                 price=template.price,
                 original_price=template.original_price,
                 is_free=template.is_free,
@@ -1263,7 +1274,7 @@ async def edit_live_preview_manual(
                 has_dark_mode=template.has_dark_mode,
                 is_responsive=template.is_responsive,
                 is_rtl_supported=template.is_rtl_supported,
-                is_ai_ready=template.is_ai_ready,
+                is_ai_ready=True,
                 compatibility=template.compatibility,
                 version=template.version,
                 license_type=template.license_type,
@@ -1288,8 +1299,6 @@ async def edit_live_preview_manual(
         raise HTTPException(status_code=400, detail="External/Invalid zip storage format")
     file_id = uuid.UUID(match.group(1))
         
-    from app.models.stored_file import StoredFile
-    from sqlalchemy import select
     result = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
     stored_file = result.scalar_one_or_none()
     if not stored_file:
@@ -1324,20 +1333,37 @@ async def edit_live_preview_manual(
     orig_primary_color = extracted.get("brand", {}).get("primary_color")
     orig_sections = extracted.get("sections", {})
 
-    # (a) Business Name Replacement
+    # (a) Business Name Replacement across all case variations
     if request.business_name:
         new_bname = request.business_name.strip()
-        names_to_replace = set()
+        names_to_replace = []
         if orig_brand and orig_brand.strip() and orig_brand.strip() != new_bname:
-            names_to_replace.add(orig_brand.strip())
+            ob = orig_brand.strip()
+            names_to_replace.extend([
+                (ob, new_bname),
+                (ob.upper(), new_bname.upper()),
+                (ob.lower(), new_bname.lower()),
+                (ob.title(), new_bname.title()),
+            ])
+            # Also if original brand was multi-word like "Jerome Pascal", also match "Jerome" or "Pascal" in isolated headers
+            parts = ob.split()
+            if len(parts) > 1:
+                names_to_replace.append((ob.replace(" ", "<br>"), new_bname))
+                names_to_replace.append((ob.upper().replace(" ", "<br>"), new_bname.upper()))
         if template.title and template.title.strip() != new_bname:
-            names_to_replace.add(template.title.strip())
+            tb = template.title.strip()
+            names_to_replace.extend([
+                (tb, new_bname),
+                (tb.upper(), new_bname.upper()),
+                (tb.lower(), new_bname.lower()),
+                (tb.title(), new_bname.title()),
+            ])
 
-        for old_b in names_to_replace:
-            if len(old_b) > 1:
+        for old_str, new_str in names_to_replace:
+            if len(old_str) > 1:
                 for fname in files_dict:
-                    if old_b in files_dict[fname]:
-                        files_dict[fname] = files_dict[fname].replace(old_b, new_bname)
+                    if old_str in files_dict[fname]:
+                        files_dict[fname] = files_dict[fname].replace(old_str, new_str)
                         updated_filenames.add(fname)
 
     # (b) Primary Theme Color Replacement
@@ -1386,13 +1412,31 @@ async def edit_live_preview_manual(
                 continue
             orig_s = orig_sections.get(p_name, {})
 
-            # Title / Headline
-            new_title = (p_data.get("title") or "").strip()
-            old_title = (orig_s.get("title") or orig_s.get("headline") or "").strip()
+            # Logo Monogram / Code
+            new_logo = (p_data.get("logoText") or p_data.get("logo_text") or "").strip()
+            old_logo = (orig_s.get("logoText") or orig_s.get("logo_text") or extracted.get("brand", {}).get("logo_text") or "").strip()
+            if new_logo and old_logo and new_logo != old_logo:
+                for fname in files_dict:
+                    if old_logo in files_dict[fname]:
+                        files_dict[fname] = files_dict[fname].replace(old_logo, new_logo)
+                        updated_filenames.add(fname)
+                    if old_logo.upper() in files_dict[fname]:
+                        files_dict[fname] = files_dict[fname].replace(old_logo.upper(), new_logo.upper())
+                        updated_filenames.add(fname)
+
+            # Title / Headline (with case sensitivity variations)
+            new_title = (p_data.get("title") or p_data.get("brandName") or "").strip()
+            old_title = (orig_s.get("title") or orig_s.get("headline") or orig_s.get("brandName") or "").strip()
             if new_title and old_title and new_title != old_title:
                 for fname in files_dict:
                     if old_title in files_dict[fname]:
                         files_dict[fname] = files_dict[fname].replace(old_title, new_title)
+                        updated_filenames.add(fname)
+                    if old_title.upper() in files_dict[fname]:
+                        files_dict[fname] = files_dict[fname].replace(old_title.upper(), new_title.upper())
+                        updated_filenames.add(fname)
+                    if old_title.lower() in files_dict[fname]:
+                        files_dict[fname] = files_dict[fname].replace(old_title.lower(), new_title.lower())
                         updated_filenames.add(fname)
 
             # Subtitle / Subheadline
@@ -1402,6 +1446,9 @@ async def edit_live_preview_manual(
                 for fname in files_dict:
                     if old_sub in files_dict[fname]:
                         files_dict[fname] = files_dict[fname].replace(old_sub, new_sub)
+                        updated_filenames.add(fname)
+                    if old_sub.upper() in files_dict[fname]:
+                        files_dict[fname] = files_dict[fname].replace(old_sub.upper(), new_sub.upper())
                         updated_filenames.add(fname)
 
             # Description / Story
@@ -1415,12 +1462,31 @@ async def edit_live_preview_manual(
 
             # CTA Text
             new_cta = (p_data.get("cta_text") or "").strip()
-            old_cta = (orig_s.get("primaryCta") or orig_s.get("buttonText") or "").strip()
+            old_cta = (orig_s.get("primaryCta") or orig_s.get("buttonText") or orig_s.get("ctaText") or "").strip()
             if new_cta and old_cta and new_cta != old_cta:
                 for fname in files_dict:
                     if old_cta in files_dict[fname]:
                         files_dict[fname] = files_dict[fname].replace(old_cta, new_cta)
                         updated_filenames.add(fname)
+                    if old_cta.upper() in files_dict[fname]:
+                        files_dict[fname] = files_dict[fname].replace(old_cta.upper(), new_cta.upper())
+                        updated_filenames.add(fname)
+
+            # Nav Links
+            new_nav_links = p_data.get("navLinks") or p_data.get("nav_links") or []
+            old_nav_links = orig_s.get("navLinks") or orig_s.get("nav_links") or []
+            if isinstance(new_nav_links, list) and isinstance(old_nav_links, list):
+                for o_lnk, n_lnk in zip(old_nav_links, new_nav_links):
+                    o_l = str(o_lnk).strip()
+                    n_l = str(n_lnk).strip()
+                    if o_l and n_l and o_l != n_l:
+                        for fname in files_dict:
+                            if o_l in files_dict[fname]:
+                                files_dict[fname] = files_dict[fname].replace(o_l, n_l)
+                                updated_filenames.add(fname)
+                            if o_l.upper() in files_dict[fname]:
+                                files_dict[fname] = files_dict[fname].replace(o_l.upper(), n_l.upper())
+                                updated_filenames.add(fname)
 
             # Tabs
             new_tabs = p_data.get("tabs", [])
@@ -1613,46 +1679,52 @@ Here are the codebase files:
                 
     new_zip_bytes = new_zip_buffer.getvalue()
     
-    # 5. Save the updated ZIP back to the database
-    if is_new_clone:
-        new_stored_file = StoredFile(
-            storage_key=f"templates/{uuid.uuid4().hex}/customized.zip",
-            original_filename=f"customized_{stored_file.original_filename or 'template.zip'}",
-            content_type=stored_file.content_type or "application/zip",
-            size=len(new_zip_bytes),
-            data=new_zip_bytes
+    # 5. Save the updated ZIP back to the database as an isolated StoredFile
+    new_stored_file = StoredFile(
+        storage_key=f"templates/{uuid.uuid4().hex}/customized.zip",
+        original_filename=f"customized_{stored_file.original_filename or 'template.zip'}",
+        content_type=stored_file.content_type or "application/zip",
+        size=len(new_zip_bytes),
+        data=new_zip_bytes
+    )
+    db.add(new_stored_file)
+    await db.flush()
+    template.download_assets = {
+        "zip": f"/api/v1/files/{new_stored_file.id}"
+    }
+    if request.business_name and request.business_name.strip():
+        template.title = f"{request.business_name.strip()} (Customized)"
+
+    # Automatically generate visual snapshot thumbnail
+    try:
+        from app.services.screenshot_service import screenshot_service
+        cat_name = "Modern Website"
+        if hasattr(template, "category") and template.category:
+            cat_name = template.category.name if hasattr(template.category, "name") else str(template.category)
+        thumb_url = screenshot_service.save_thumbnail(
+            template_id=str(template.id),
+            title=template.title or "Custom Website",
+            framework=template.framework or "HTML",
+            category=cat_name,
         )
-        db.add(new_stored_file)
-        await db.flush()
-        template.download_assets = {
-            "zip": f"/api/v1/files/{new_stored_file.id}"
-        }
-        db.add(template)
-        await db.flush()
-    else:
-        stored_file.data = new_zip_bytes
-        stored_file.size = len(new_zip_bytes)
-        db.add(stored_file)
-        await db.flush()
+        template.thumbnail_url = thumb_url
+    except Exception as thumb_err:
+        logger.warning(f"Could not auto-generate thumbnail: {thumb_err}")
+
+    db.add(template)
+    await db.flush()
     
-    # 6. Extract updated files directly into the live preview directories
+    # 6. Extract updated files ONLY into this user draft's isolated live preview directory
     preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
     shutil.rmtree(preview_dir, ignore_errors=True)
     os.makedirs(preview_dir, exist_ok=True)
     with zipfile.ZipFile(io.BytesIO(new_zip_bytes), "r") as z_refresh:
         z_refresh.extractall(preview_dir)
-        
-    if original_template_id and original_template_id != str(template_id):
-        orig_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(original_template_id))
-        shutil.rmtree(orig_dir, ignore_errors=True)
-        os.makedirs(orig_dir, exist_ok=True)
-        with zipfile.ZipFile(io.BytesIO(new_zip_bytes), "r") as z_refresh:
-            z_refresh.extractall(orig_dir)
             
     # Commit session changes
     await db.commit()
     
-    return {"status": "success", "template_id": str(template_id)}
+    return {"status": "success", "template_id": str(template_id), "title": template.title, "thumbnail_url": template.thumbnail_url, "original_template_id": original_template_id}
 
 
 class FindReplaceRequest(BaseModel):
@@ -1727,8 +1799,6 @@ async def edit_live_preview_find_replace(
     except ValueError:
         raise HTTPException(status_code=400, detail="External/Invalid zip storage format")
         
-    from app.models.stored_file import StoredFile
-    from sqlalchemy import select
     result = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
     stored_file = result.scalar_one_or_none()
     if not stored_file:
@@ -1797,7 +1867,6 @@ async def edit_live_preview_ai(
     import io
     import shutil
     import tempfile
-    from app.models.template import Template, TemplateStatus
     from app.core.storage import storage
     
     template_repo = TemplateRepository(db)
@@ -1805,42 +1874,64 @@ async def edit_live_preview_ai(
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
         
-    # If the template is PUBLISHED, clone it so the user modifies their own private DRAFT copy
-    if template.status == TemplateStatus.PUBLISHED:
-        new_template = Template(
-            title=f"Customized {template.title}",
-            short_description=template.short_description,
-            description=template.description,
-            slug=f"{template.slug}-custom-{uuid.uuid4().hex[:6]}",
-            price=template.price,
-            original_price=template.original_price,
-            is_free=template.is_free,
-            is_on_sale=template.is_on_sale,
-            category_id=template.category_id,
-            status=TemplateStatus.DRAFT,
-            seller_id=current_user.id if current_user else template.seller_id,
-            thumbnail_url=template.thumbnail_url,
-            preview_url=template.preview_url,
-            tags=template.tags,
-            framework=template.framework,
-            pages_count=template.pages_count,
-            has_dark_mode=template.has_dark_mode,
-            is_responsive=template.is_responsive,
-            is_rtl_supported=template.is_rtl_supported,
-            is_ai_ready=template.is_ai_ready,
-            compatibility=template.compatibility,
-            version=template.version,
-            license_type=template.license_type,
-            industry=template.industry,
-            color_scheme=template.color_scheme,
-            seo_keywords=template.seo_keywords,
-            included_pages=template.included_pages,
-            download_assets=template.download_assets.copy() if template.download_assets else {}
-        )
-        db.add(new_template)
-        await db.flush()
-        template = new_template
-        template_id = new_template.id
+    # If the template is PUBLISHED or belongs to another user, clone/fork it so the user modifies their own private DRAFT copy
+    is_user_owned_draft = (
+        template.status == TemplateStatus.DRAFT 
+        and current_user 
+        and template.seller_id == current_user.id
+    )
+
+    if not is_user_owned_draft:
+        existing_draft = None
+        if current_user:
+            slug_prefix = template.slug.split("-custom-")[0]
+            ed_res = await db.execute(
+                select(Template).where(
+                    Template.seller_id == current_user.id,
+                    Template.status == TemplateStatus.DRAFT,
+                    Template.slug.like(f"{slug_prefix}-custom-%")
+                )
+            )
+            existing_draft = ed_res.scalars().first()
+            
+        if existing_draft:
+            template = existing_draft
+            template_id = str(existing_draft.id)
+        else:
+            new_template = Template(
+                title=f"Customized {template.title}",
+                short_description=template.short_description,
+                description=template.description,
+                slug=f"{template.slug.split('-custom-')[0]}-custom-{uuid.uuid4().hex[:6]}",
+                price=template.price,
+                original_price=template.original_price,
+                is_free=template.is_free,
+                is_on_sale=template.is_on_sale,
+                category_id=template.category_id,
+                status=TemplateStatus.DRAFT,
+                seller_id=current_user.id if current_user else template.seller_id,
+                thumbnail_url=template.thumbnail_url,
+                preview_url=template.preview_url,
+                tags=template.tags,
+                framework=template.framework,
+                pages_count=template.pages_count,
+                has_dark_mode=template.has_dark_mode,
+                is_responsive=template.is_responsive,
+                is_rtl_supported=template.is_rtl_supported,
+                is_ai_ready=True,
+                compatibility=template.compatibility,
+                version=template.version,
+                license_type=template.license_type,
+                industry=template.industry,
+                color_scheme=template.color_scheme,
+                seo_keywords=template.seo_keywords,
+                included_pages=template.included_pages,
+                download_assets=template.download_assets.copy() if template.download_assets else {}
+            )
+            db.add(new_template)
+            await db.flush()
+            template = new_template
+            template_id = str(new_template.id)
 
     download_assets = template.download_assets or {}
     zip_url = download_assets.get("zip")
@@ -1853,8 +1944,6 @@ async def edit_live_preview_ai(
     except ValueError:
         raise HTTPException(status_code=400, detail="External/Invalid zip storage format")
         
-    from app.models.stored_file import StoredFile
-    from sqlalchemy import select
     result = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
     stored_file = result.scalar_one_or_none()
     if not stored_file:
@@ -1961,17 +2050,28 @@ Here are the codebase files:
                     print(f"Saved AI edited file to ZIP: {item.filename}")
                 z_out.writestr(item, content)
                 
-    new_zip_bytes = new_zip_buffer.getvalue()
-    
-    # 4. Save the updated ZIP back to the database
-    stored_file.data = new_zip_bytes
-    stored_file.size = len(new_zip_bytes)
-    db.add(stored_file)
+    # 4. Save the updated ZIP back to the database as an isolated StoredFile
+    new_stored_file = StoredFile(
+        storage_key=f"templates/{uuid.uuid4().hex}/customized_ai.zip",
+        original_filename=f"customized_{stored_file.original_filename or 'template.zip'}",
+        content_type=stored_file.content_type or "application/zip",
+        size=len(new_zip_bytes),
+        data=new_zip_bytes
+    )
+    db.add(new_stored_file)
+    await db.flush()
+    template.download_assets = {
+        "zip": f"/api/v1/files/{new_stored_file.id}"
+    }
+    db.add(template)
     await db.flush()
     
-    # 6. Clear local preview directory cache to force a rebuild on the next preview request
+    # 5. Extract updated files ONLY into this user draft's isolated live preview directory
     preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
     shutil.rmtree(preview_dir, ignore_errors=True)
+    os.makedirs(preview_dir, exist_ok=True)
+    with zipfile.ZipFile(io.BytesIO(new_zip_bytes), "r") as z_refresh:
+        z_refresh.extractall(preview_dir)
     
     # Commit session changes
     await db.commit()
@@ -2079,6 +2179,24 @@ async def serve_live_preview(
 
   .preview-purchase-footer-banner a:hover {
     color: #0ea5e9 !important;
+  }
+
+  /* Robust navigation bar and button layout protection */
+  .navbar, nav, header nav, .nav-container {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 0.5rem !important;
+  }
+
+  .navbar .btn, nav a.btn, nav button, nav .nav-btn, .nav-cta, a.btn, button.btn {
+    white-space: nowrap !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    min-width: max-content !important;
+    line-height: 1.25 !important;
   }
 
   /* Block PDF printing */
@@ -3378,10 +3496,26 @@ async def serve_live_preview(
       })();
     </script>
     """.replace("__PURCHASE_URL__", purchase_url)
-                if "</body>" in html_content:
-                    html_content = html_content.replace("</body>", f"{watermark_payload}\n</body>", 1)
-                else:
-                    html_content = html_content + "\n" + watermark_payload
+
+                # Check if this template is a personal project, figma import, customized draft, or live mode
+                is_personal_or_clean = (
+                    getattr(template, "is_free", False) or
+                    getattr(template, "price", 0) <= 0 or
+                    template.status == TemplateStatus.DRAFT or
+                    "figma" in (template.tags or []) or
+                    "personal" in (template.tags or []) or
+                    (template.title and "(Figma Import)" in template.title) or
+                    (template.title and "(Customized)" in template.title) or
+                    (template.slug and "-custom-" in template.slug) or
+                    request.query_params.get("mode") == "live" or
+                    request.query_params.get("clean") == "1"
+                )
+
+                if not is_personal_or_clean:
+                    if "</body>" in html_content:
+                        html_content = html_content.replace("</body>", f"{watermark_payload}\n</body>", 1)
+                    else:
+                        html_content = html_content + "\n" + watermark_payload
 
                 # Ensure all /marketplace links point to the React frontend application
                 html_content = html_content.replace('href="/marketplace"', f'href="{purchase_url}"')
@@ -3527,6 +3661,38 @@ async def ai_debug_template_code(
         "fixed_files": list(repaired_map.keys()),
         "fixed_count": fixed_files_count
     }
+
+
+@router.get("/thumbnail/{template_id}.svg", include_in_schema=False)
+async def get_dynamic_thumbnail(template_id: str, db: AsyncSession = Depends(get_db)):
+    """Dynamically serves or generates on-demand SVG thumbnail snapshot for any template or draft."""
+    from fastapi.responses import FileResponse, Response
+    from app.services.screenshot_service import screenshot_service, _THUMBNAILS_DIR
+    thumb_path = Path(_THUMBNAILS_DIR) / f"{template_id}.svg"
+    if thumb_path.exists():
+        return FileResponse(str(thumb_path), media_type="image/svg+xml")
+
+    # If not on disk, lookup template and dynamically generate
+    try:
+        t_res = await db.execute(select(Template).where((Template.id == template_id) | (Template.slug == template_id)))
+        tmpl = t_res.scalar_one_or_none()
+    except Exception:
+        tmpl = None
+
+    title = tmpl.title if tmpl else "Modern Website Template"
+    fw = str(tmpl.framework) if tmpl and tmpl.framework else "HTML"
+    cat = "Modern Business"
+    if tmpl and hasattr(tmpl, "category") and tmpl.category:
+        cat = tmpl.category.name if hasattr(tmpl.category, "name") else str(tmpl.category)
+    
+    svg = screenshot_service.generate_svg_snapshot(title=title, framework=fw, category=cat)
+    try:
+        with open(thumb_path, "w", encoding="utf-8") as f:
+            f.write(svg)
+    except Exception:
+        pass
+    return Response(content=svg, media_type="image/svg+xml")
+
 
 
 

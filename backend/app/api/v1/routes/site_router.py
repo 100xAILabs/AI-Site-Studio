@@ -13,6 +13,9 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse
 
 from app.services.security_scanner import security_scanner
+from app.core.database import AsyncSessionLocal
+from app.models.deployment import Deployment
+from sqlalchemy import select
 
 router = APIRouter(tags=["Tenant Workload Sites"])
 
@@ -22,6 +25,8 @@ _DEPLOYMENTS_ROOT = _STATIC_ROOT / "deployments"
 
 @router.get("/sites/{site_identifier}", include_in_schema=False)
 @router.get("/sites/{site_identifier}/{filepath:path}", include_in_schema=False)
+@router.get("/api/v1/deployments/live/{site_identifier}", include_in_schema=False)
+@router.get("/api/v1/deployments/live/{site_identifier}/{filepath:path}", include_in_schema=False)
 async def serve_tenant_workload(
     site_identifier: str,
     filepath: str = "",
@@ -29,25 +34,42 @@ async def serve_tenant_workload(
 ):
     """
     Serves static assets and pages for an isolated customer website.
-    Resolves `site_identifier` (e.g. `SITE-8F72A` or `subdomain.aisitestudio.com`)
+    Resolves `site_identifier` (e.g. `SITE-8F72A` or `subdomain.aisitestudio.com` or custom domain)
     and streams files from `static/deployments/{site_id}/current/`.
     """
+    clean_identifier = site_identifier.strip().lower()
     clean_site_id = site_identifier.split(".")[0].upper()
     
-    # Try exact match or SITE- prefixed match
-    site_dir = _DEPLOYMENTS_ROOT / clean_site_id / "current"
+    # 1. Check DB for matching site_id, subdomain, or custom_domain
+    resolved_site_id = None
+    try:
+        async with AsyncSessionLocal() as session:
+            stmt = select(Deployment.site_id).where(
+                (Deployment.site_id == clean_site_id) |
+                (Deployment.subdomain == clean_identifier) |
+                (Deployment.custom_domain == clean_identifier) |
+                (Deployment.subdomain == f"{clean_identifier}.aisitestudio.com")
+            ).limit(1)
+            res = await session.execute(stmt)
+            resolved_site_id = res.scalar_one_or_none()
+    except Exception:
+        pass
+
+    target_id = (resolved_site_id or clean_site_id).upper()
+    site_dir = _DEPLOYMENTS_ROOT / target_id / "current"
+
     if not site_dir.exists():
         # Check all site folders for matching subdomain
         matching_site = None
         if _DEPLOYMENTS_ROOT.exists():
             for folder in _DEPLOYMENTS_ROOT.iterdir():
-                if folder.is_dir() and folder.name.upper() == clean_site_id:
+                if folder.is_dir() and (folder.name.upper() == target_id or folder.name.upper() == clean_site_id):
                     matching_site = folder / "current"
                     break
         if matching_site and matching_site.exists():
             site_dir = matching_site
         else:
-            raise HTTPException(status_code=404, detail="Tenant website deployment not found or inactive.")
+            raise HTTPException(status_code=404, detail=f"Tenant website deployment '{site_identifier}' not found or inactive.")
 
     # Sanitize requested file path to prevent directory traversal
     safe_path = filepath.strip("/\\")

@@ -505,6 +505,75 @@ export default function PreviewPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [iframeKey, setIframeKey] = useState(0);
 
+  // Multi-Page Visual AI Studio State
+  const [pages, setPages] = useState([
+    { id: "index.html", title: "Home", icon: "🏠", sectionKey: "hero", path: "index.html" },
+    { id: "about.html", title: "About", icon: "🏢", sectionKey: "about", path: "about.html" },
+    { id: "services.html", title: "Services", icon: "⚙️", sectionKey: "services", path: "services.html" },
+    { id: "pricing.html", title: "Pricing", icon: "💳", sectionKey: "pricing", path: "pricing.html" },
+    { id: "contact.html", title: "Contact", icon: "✉️", sectionKey: "contact", path: "contact.html" },
+  ]);
+  const [activePage, setActivePage] = useState("index.html");
+  const [showAddPageModal, setShowAddPageModal] = useState(false);
+  const [newPageName, setNewPageName] = useState("");
+  const [newPagePreset, setNewPagePreset] = useState("content");
+
+  const handleSelectPage = (page) => {
+    setActivePage(page.id);
+    if (page.sectionKey && sections.some((s) => s.id === page.sectionKey)) {
+      setSelectedSectionId(page.sectionKey);
+    }
+    setNotice(`✓ Switched to "${page.title}" (${page.path || page.id})`);
+    setTimeout(() => setNotice(""), 3000);
+  };
+
+  const handleConfirmAddPage = () => {
+    if (!newPageName.trim()) return;
+    const cleanSlug = newPageName.trim().toLowerCase().replace(/[^a-z0-9]/g, "-");
+    const pageFileName = `${cleanSlug}.html`;
+    const newPageObj = {
+      id: pageFileName,
+      title: newPageName.trim(),
+      icon: "📄",
+      path: pageFileName,
+      sectionKey: cleanSlug,
+      isNew: true,
+    };
+    setPages((prev) => [...prev, newPageObj]);
+
+    // If section does not exist in the left filter column, register it dynamically
+    if (!sections.some((s) => s.id === cleanSlug)) {
+      const newSec = {
+        id: cleanSlug,
+        name: `${newPageName.trim()} Page`,
+        category: "Custom Subpages",
+        icon: FileText,
+        desc: `Custom dynamic page layout for ${newPageName.trim()}`,
+        targetSection: cleanSlug,
+      };
+      setSections((prev) => [...prev, newSec]);
+      setSectionProps((prev) => ({
+        ...prev,
+        [cleanSlug]: {
+          headline: newPageName.trim(),
+          subheadline: `Discover our specialized ${newPageName.trim()} solutions and resources.`,
+          sectionTitle: newPageName.trim(),
+          sectionSubtitle: `Welcome to the official ${newPageName.trim()} subpage.`,
+          story: `This page is fully integrated into your multi-page website studio. Customize its layout, copy, and components lively.`,
+          primaryCta: "Learn More",
+          themeColor: brand.primary_color || "#6366f1",
+        },
+      }));
+    }
+
+    setActivePage(pageFileName);
+    setSelectedSectionId(cleanSlug);
+    setShowAddPageModal(false);
+    setNewPageName("");
+    setNotice(`✓ Subpage "${newPageName.trim()}" added to workspace!`);
+    setTimeout(() => setNotice(""), 4000);
+  };
+
   // Master Brand State
   const [brand, setBrand] = useState({
     business_name: "Apex Design Studio",
@@ -839,15 +908,17 @@ export default function PreviewPage() {
     setSavingManual(true);
     try {
       if (activeTemplateId !== "default") {
+        const targetId = customDraftId || activeTemplateId;
         const page_edits = {};
         sections.forEach((sec) => {
           const props = sectionProps[sec.id];
           if (!props) return;
           page_edits[sec.id] = {
-            title: props.headline || props.title || props.sectionTitle || "",
+            title: props.headline || props.title || props.sectionTitle || props.brandName || "",
             subtitle: props.subtitle || props.subheadline || props.sectionSubtitle || "",
             description: props.story || props.description || "",
             cta_text: props.primaryCta || props.ctaText || props.buttonText || "",
+            cta_link: props.ctaLink || "",
             phone: props.phone || "",
             email: props.email || "",
             address: props.address || "",
@@ -855,11 +926,25 @@ export default function PreviewPage() {
             filters: props.filters || [],
             cards: props.cards || [],
             socialLinks: props.socialLinks || [],
-            textItems: props.textItems || []
+            textItems: props.textItems || [],
+            brandName: props.brandName || "",
+            logoText: props.logoText || "",
+            navLinks: props.navLinks || []
           };
         });
 
-        const res = await api.post(`/preview/live/${activeTemplateId}/edit-manual`, {
+        if (sectionProps.navbar) {
+          page_edits["navbar"] = {
+            ...(page_edits["navbar"] || {}),
+            brandName: sectionProps.navbar.brandName || brand.business_name,
+            logoText: sectionProps.navbar.logoText || brand.logo_text,
+            navLinks: sectionProps.navbar.navLinks || [],
+            cta_text: sectionProps.navbar.ctaText || "",
+            cta_link: sectionProps.navbar.ctaLink || ""
+          };
+        }
+
+        const res = await api.post(`/preview/live/${targetId}/edit-manual`, {
           business_name: sectionProps.navbar?.brandName || brand.business_name,
           about: sectionProps.about?.story || sectionProps.about?.description || sectionProps.hero?.subheadline || brand.tagline,
           primary_color: sectionProps.navbar?.themeColor || brand.primary_color,
@@ -868,12 +953,16 @@ export default function PreviewPage() {
           contact_phone: sectionProps.contact?.phone || brand.contact_phone,
           page_edits
         });
-        if (res?.data?.template_id) {
-          setCustomDraftId(res.data.template_id);
+        
+        const newDraftId = res?.template_id || res?.data?.template_id;
+        if (newDraftId) {
+          setCustomDraftId(newDraftId);
+          navigate(`/preview?template=${newDraftId}&mode=live`, { replace: true });
         }
+        setViewMode("live");
         setIframeKey((prev) => prev + 1);
         setShowSaveSuccess(true);
-        setNotice("✓ All edits saved! Your customized template is ready.");
+        setNotice("✓ Saved to your private project draft! Viewable in Buyer Dashboard.");
       } else {
         setNotice("✓ Preview state updated!");
       }
@@ -882,7 +971,7 @@ export default function PreviewPage() {
       setNotice("✓ Preview state updated locally.");
     } finally {
       setSavingManual(false);
-      setTimeout(() => setNotice(""), 5000);
+      setTimeout(() => setNotice(""), 6000);
     }
   };
 
@@ -926,9 +1015,16 @@ export default function PreviewPage() {
       setAiLogs((prev) => [...prev, steps[i]]);
     }
 
-    if (activeTemplateId !== "default") {
+    const targetId = customDraftId || activeTemplateId;
+    if (targetId !== "default") {
       try {
-        await api.post(`/preview/live/${activeTemplateId}/edit-ai`, { prompt: promptToRun });
+        const res = await api.post(`/preview/live/${targetId}/edit-ai`, { prompt: promptToRun });
+        const newDraftId = res?.template_id || res?.data?.template_id;
+        if (newDraftId) {
+          setCustomDraftId(newDraftId);
+          navigate(`/preview?template=${newDraftId}&mode=live`, { replace: true });
+        }
+        setViewMode("live");
         setIframeKey((k) => k + 1);
       } catch (err) {
         console.warn("AI Backend refactor:", err);
@@ -962,11 +1058,13 @@ export default function PreviewPage() {
   };
 
   const handleRunAIDebugger = async () => {
-    if (!activeTemplateId || activeTemplateId === "default") return;
+    const targetId = customDraftId || activeTemplateId;
+    if (!targetId || targetId === "default") return;
     setIsDebugging(true);
     try {
-      const res = await api.post(`/preview/live/${activeTemplateId}/ai-debug`, {});
+      const res = await api.post(`/preview/live/${targetId}/ai-debug`, {});
       setNotice(res.message || "✓ AI Debugger analyzed and fixed syntax errors.");
+      setViewMode("live");
       setIframeKey((prev) => prev + 1);
     } catch (err) {
       alert("AI Debugger: " + (err.message || "Failed to debug project."));
@@ -983,8 +1081,10 @@ export default function PreviewPage() {
       (s.desc && s.desc.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  const liveServerUrl = activeTemplateId !== "default"
-    ? `${API_BASE}/preview/live/${activeTemplateId}/`
+  const effectiveTemplateId = customDraftId || activeTemplateId;
+  const pageRouteParam = activePage && activePage !== "index.html" ? activePage : "";
+  const liveServerUrl = effectiveTemplateId && effectiveTemplateId !== "default"
+    ? `${API_BASE}/preview/live/${effectiveTemplateId}/${pageRouteParam}${pageRouteParam ? "" : "/"}?v=${iframeKey}`
     : null;
 
   return (
@@ -1323,6 +1423,50 @@ export default function PreviewPage() {
            Displays Real Designed Output View (or Real Running Live Demo IFrame)
         ───────────────────────────────────────────────────────────────────── */}
         <main className="sb-center-stage">
+          {/* Multi-Page Visual Switcher Bar */}
+          <div className="sb-page-switcher-bar">
+            <div className="flex items-center gap-1.5 overflow-x-auto py-1 scrollbar-none flex-1">
+              <div className="flex items-center gap-1 text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground mr-1 shrink-0">
+                <Layers className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="hidden sm:inline">Pages ({pages.length}):</span>
+              </div>
+              {pages.map((p) => {
+                const isActive = activePage === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => handleSelectPage(p)}
+                    className={cn(
+                      "sb-page-tab-btn",
+                      isActive && "active"
+                    )}
+                    title={`Switch to ${p.title} (${p.path || p.id})`}
+                  >
+                    <span>{p.icon || "📄"}</span>
+                    <span>{p.title}</span>
+                    {p.isNew && (
+                      <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-bold">NEW</span>
+                    )}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => setShowAddPageModal(true)}
+                className="sb-add-page-btn"
+                title="Create a new subpage in this website"
+              >
+                <Plus className="w-3 h-3 text-indigo-400" />
+                <span>+ Add Page</span>
+              </button>
+            </div>
+            <div className="text-[11px] text-muted-foreground font-semibold px-2 py-0.5 rounded-md bg-muted/30 border border-border/40 shrink-0 hidden md:flex items-center gap-1">
+              <span className="text-emerald-400">●</span>
+              <span>Multi-Page Live Sync</span>
+            </div>
+          </div>
+
           {/* Stage Toolbar */}
           <div className="sb-stage-toolbar">
             <div className="flex items-center gap-2">
@@ -1669,6 +1813,92 @@ export default function PreviewPage() {
           )}
         </aside>
       </div>
+
+      {/* Multi-Page: Add Subpage Modal */}
+      {showAddPageModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-card border border-border/80 rounded-2xl shadow-2xl max-w-md w-full p-5 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-border/40 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                  <Plus className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-foreground">Add New Subpage</h3>
+                  <p className="text-[11px] text-muted-foreground">Synthesize a new page route into your studio workspace</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddPageModal(false)}
+                className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Page Title</label>
+                <input
+                  type="text"
+                  value={newPageName}
+                  onChange={(e) => setNewPageName(e.target.value)}
+                  placeholder="e.g. Careers, Blog, FAQ, Features..."
+                  className="sb-control-input text-xs w-full"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Page Preset / Blueprint</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { id: "content", label: "📄 Content / Story", desc: "Hero, story cards, text" },
+                    { id: "features", label: "⚙️ Features & Grid", desc: "Bento cards, feature specs" },
+                    { id: "pricing", label: "💳 Pricing & Plans", desc: "Tiers, FAQ, comparison" },
+                    { id: "contact", label: "✉️ Contact & Lead Form", desc: "Form, map, direct info" },
+                  ].map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => setNewPagePreset(preset.id)}
+                      className={cn(
+                        "p-2.5 rounded-xl border text-left transition-all text-xs",
+                        newPagePreset === preset.id
+                          ? "border-indigo-500 bg-indigo-500/10 text-indigo-400 font-bold"
+                          : "border-border/60 hover:bg-muted/40 text-muted-foreground"
+                      )}
+                    >
+                      <div className="font-semibold text-foreground">{preset.label}</div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">{preset.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/40">
+              <button
+                type="button"
+                onClick={() => setShowAddPageModal(false)}
+                className="sb-ghost-btn text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmAddPage}
+                disabled={!newPageName.trim()}
+                className="sb-primary-gradient-btn text-xs disabled:opacity-50"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Create Subpage</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1688,39 +1918,59 @@ function renderDesignedOutputView(sectionId, props) {
       <div className="w-full max-w-5xl mx-auto p-4 sm:p-6">
         <nav
           className={cn(
-            "px-6 py-4 rounded-2xl border flex items-center justify-between shadow-xl transition-all",
-            props.stickyGlass ? "bg-card/90 backdrop-blur-md border-border/80" : "bg-card border-border"
+            "w-full px-5 sm:px-7 py-3.5 sm:py-4 rounded-2xl border flex items-center justify-between gap-4 shadow-2xl transition-all",
+            props.stickyGlass ? "bg-card/85 backdrop-blur-xl border-border/80 shadow-black/10" : "bg-card border-border shadow-md"
           )}
         >
-          <div className="flex items-center gap-3">
-            {props.logoText && (
+          {/* Left: Brand Monogram & Title */}
+          <div className="flex items-center gap-3 min-w-0 flex-shrink-0">
+            {props.logoText ? (
               <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs text-white shadow-md uppercase"
-                style={{ backgroundColor: themeColor }}
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center font-black text-xs sm:text-sm text-white shadow-lg tracking-wider uppercase flex-shrink-0"
+                style={{
+                  background: `linear-gradient(135deg, ${themeColor}, #ec4899)`,
+                  boxShadow: `0 4px 14px ${themeColor}40`
+                }}
               >
-                {props.logoText}
+                {props.logoText.slice(0, 5)}
               </div>
-            )}
-            <span className="font-extrabold text-base tracking-tight text-foreground">
+            ) : null}
+            <span className="font-extrabold text-sm sm:text-base tracking-tight text-foreground truncate block">
               {props.brandName || "Website Studio"}
             </span>
           </div>
+
+          {/* Center: Dynamic Nav Links */}
           {navLinks.length > 0 && (
-            <div className="hidden md:flex items-center gap-6 text-xs font-semibold text-muted-foreground">
+            <div className="hidden md:flex items-center gap-1 px-3 py-1.5 rounded-xl bg-muted/40 border border-border/40 text-xs font-semibold text-muted-foreground">
               {navLinks.map((lnk, i) => (
-                <span key={i} className="hover:text-foreground cursor-pointer transition-colors">{lnk}</span>
+                <span
+                  key={i}
+                  className="px-3 py-1 rounded-lg hover:text-foreground hover:bg-background/80 transition-all cursor-pointer whitespace-nowrap"
+                >
+                  {lnk}
+                </span>
               ))}
             </div>
           )}
-          {props.ctaText && (
-            <button
-              type="button"
-              className="px-4 py-2 rounded-xl text-white font-bold text-xs shadow-md transition-all hover:scale-105"
-              style={{ backgroundColor: themeColor }}
-            >
-              {props.ctaText}
-            </button>
-          )}
+
+          {/* Right: CTA Button */}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            {props.ctaText ? (
+              <button
+                type="button"
+                className="px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-white font-bold text-xs shadow-lg transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5"
+                style={{
+                  backgroundColor: themeColor,
+                  boxShadow: `0 4px 16px ${themeColor}50`,
+                  whiteSpace: "nowrap"
+                }}
+              >
+                <span>{props.ctaText}</span>
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </button>
+            ) : null}
+          </div>
         </nav>
       </div>
     );
@@ -2148,6 +2398,34 @@ function renderFriendlyFields(sectionId, props, onChange) {
             placeholder="e.g. Get Started"
             className="sb-control-input text-xs font-bold"
           />
+        </div>
+        <div>
+          <label className="sb-control-label">CTA Link / Target</label>
+          <input
+            type="text"
+            value={props.ctaLink || ""}
+            onChange={(e) => onChange("ctaLink", e.target.value)}
+            placeholder="e.g. #contact or /pricing"
+            className="sb-control-input text-xs font-mono"
+          />
+        </div>
+        <div>
+          <label className="sb-control-label">Theme Accent Color</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              value={props.themeColor || "#6366f1"}
+              onChange={(e) => onChange("themeColor", e.target.value)}
+              className="w-9 h-9 rounded-lg border border-border cursor-pointer p-0.5 bg-background"
+            />
+            <input
+              type="text"
+              value={props.themeColor || "#6366f1"}
+              onChange={(e) => onChange("themeColor", e.target.value)}
+              placeholder="#6366f1"
+              className="sb-control-input text-xs font-mono flex-1"
+            />
+          </div>
         </div>
         <div className="flex items-center justify-between pt-2">
           <span className="text-xs font-semibold text-foreground">Glassmorphism / Fixed Header</span>
