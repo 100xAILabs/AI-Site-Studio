@@ -9,11 +9,12 @@
   background-color: rgba(15, 23, 42, 0.65);
   backdrop-filter: blur(6px);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 1rem;
+  padding: 1.5rem 1rem;
   overflow-y: auto;
   animation: rimFadeIn 0.2s ease-out;
+  -webkit-overflow-scrolling: touch;
 }
 
 @keyframes rimFadeIn {
@@ -29,9 +30,12 @@
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
   width: 100%;
   max-width: 680px;
-  overflow: hidden;
+  max-height: calc(100vh - 3rem);
+  max-height: calc(100dvh - 3rem);
+  margin: auto;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   animation: rimSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -45,9 +49,10 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 1.25rem 1.5rem;
+  padding: 1.15rem 1.5rem;
   border-bottom: 1px solid hsl(var(--border) / 0.7);
   background: linear-gradient(to right, hsl(var(--card)), hsl(var(--muted) / 0.3));
+  flex-shrink: 0;
 }
 
 .rim-header-title-box {
@@ -112,7 +117,56 @@
   color: hsl(var(--foreground));
 }
 
-/* Form Styles */
+/* Form Wrapper & Scrollable Body */
+.rim-form-wrapper {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rim-scroll-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+/* Custom Scrollbars */
+.rim-scroll-body::-webkit-scrollbar,
+.rim-overlay::-webkit-scrollbar,
+.rim-success-card::-webkit-scrollbar,
+.rim-loading-card::-webkit-scrollbar {
+  width: 6px;
+}
+
+.rim-scroll-body::-webkit-scrollbar-track,
+.rim-overlay::-webkit-scrollbar-track,
+.rim-success-card::-webkit-scrollbar-track,
+.rim-loading-card::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.rim-scroll-body::-webkit-scrollbar-thumb,
+.rim-overlay::-webkit-scrollbar-thumb,
+.rim-success-card::-webkit-scrollbar-thumb,
+.rim-loading-card::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.25);
+  border-radius: 9999px;
+}
+
+.rim-scroll-body::-webkit-scrollbar-thumb:hover,
+.rim-overlay::-webkit-scrollbar-thumb:hover,
+.rim-success-card::-webkit-scrollbar-thumb:hover,
+.rim-loading-card::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.45);
+}
+
 .rim-form {
   padding: 1.25rem 1.5rem;
   display: flex;
@@ -270,15 +324,17 @@
   transform: translateX(1rem);
 }
 
-/* Footer & Buttons */
+/* Footer & Buttons (Pinned at bottom) */
 .rim-footer {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 0.75rem;
-  margin-top: 0.5rem;
-  padding-top: 1rem;
-  border-top: 1px solid hsl(var(--border) / 0.6);
+  padding: 0.875rem 1.5rem;
+  border-top: 1px solid hsl(var(--border) / 0.7);
+  background-color: hsl(var(--card));
+  flex-shrink: 0;
+  z-index: 10;
 }
 
 .rim-btn-primary {

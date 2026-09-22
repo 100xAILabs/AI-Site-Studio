@@ -1379,23 +1379,26 @@
   border: 1px solid hsla(0, 84%, 60%, 0.15);
 }
 
-/* Modals */
 .modal-backdrop {
   position: fixed;
   inset: 0;
   background-color: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(8px);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   z-index: 1000;
-  padding: 1.5rem;
+  padding: 1.5rem 1rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .modal-content {
   width: 100%;
   max-width: 550px;
-  max-height: 90vh;
+  max-height: calc(100vh - 3rem);
+  max-height: calc(100dvh - 3rem);
+  margin: auto;
   overflow-y: auto;
   animation: modalSlideUp 0.3s ease-out;
 }

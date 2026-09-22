@@ -263,127 +263,129 @@ export default function ReportIssueModal({
           </div>
         ) : (
           /* Report Form */
-          <form onSubmit={handleSubmit} className="rim-form">
-            {errorMessage && (
-              <div className="rim-error-banner">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>{errorMessage}</span>
-              </div>
-            )}
+          <form onSubmit={handleSubmit} className="rim-form-wrapper">
+            <div className="rim-scroll-body">
+              {errorMessage && (
+                <div className="rim-error-banner">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{errorMessage}</span>
+                </div>
+              )}
 
-            {/* Category Selector */}
-            <div className="space-y-1.5">
-              <label className="rim-label">Issue Category</label>
-              <div className="rim-category-grid">
-                {ISSUE_CATEGORIES.map((cat) => {
-                  const Icon = cat.icon;
-                  const isSelected = issueType === cat.id;
-                  return (
-                    <button
-                      key={cat.id}
-                      type="button"
-                      onClick={() => setIssueType(cat.id)}
-                      className={`rim-category-btn ${isSelected ? "selected" : ""}`}
-                    >
-                      <Icon className={`w-4 h-4 ${isSelected ? "text-primary" : "text-muted-foreground"}`} />
-                      <div className="text-left">
-                        <div className="rim-cat-name">{cat.label}</div>
-                        <div className="rim-cat-desc">{cat.desc}</div>
-                      </div>
-                    </button>
-                  );
-                })}
+              {/* Category Selector */}
+              <div className="space-y-1.5">
+                <label className="rim-label">Issue Category</label>
+                <div className="rim-category-grid">
+                  {ISSUE_CATEGORIES.map((cat) => {
+                    const Icon = cat.icon;
+                    const isSelected = issueType === cat.id;
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setIssueType(cat.id)}
+                        className={`rim-category-btn ${isSelected ? "selected" : ""}`}
+                      >
+                        <Icon className={`w-4 h-4 ${isSelected ? "text-primary" : "text-muted-foreground"}`} />
+                        <div className="text-left">
+                          <div className="rim-cat-name">{cat.label}</div>
+                          <div className="rim-cat-desc">{cat.desc}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
 
-            {/* Title & Affected URL */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Title & Affected URL */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="rim-label">Short Issue Summary *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Navigation menu doesn't open on click"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    className="rim-input"
+                  />
+                </div>
+                <div>
+                  <label className="rim-label">Affected Page or Path</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. /index.html or /about"
+                    value={pageUrl}
+                    onChange={(e) => setPageUrl(e.target.value)}
+                    className="rim-input"
+                  />
+                </div>
+              </div>
+
+              {/* Description */}
               <div>
-                <label className="rim-label">Short Issue Summary *</label>
-                <input
-                  type="text"
+                <label className="rim-label">What broke? What is the expected behavior? *</label>
+                <textarea
                   required
-                  placeholder="e.g. Navigation menu doesn't open on click"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  className="rim-input"
+                  rows={3}
+                  placeholder="Describe what happened when the failure occurred..."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="rim-textarea"
                 />
               </div>
+
+              {/* Error Logs / Console Output */}
               <div>
-                <label className="rim-label">Affected Page or Path</label>
-                <input
-                  type="text"
-                  placeholder="e.g. /index.html or /about"
-                  value={pageUrl}
-                  onChange={(e) => setPageUrl(e.target.value)}
-                  className="rim-input"
+                <div className="flex justify-between items-center mb-1">
+                  <label className="rim-label mb-0">Console Errors / Stack Trace (Optional)</label>
+                  <span className="text-[11px] text-muted-foreground">Helps AI isolate the line of code</span>
+                </div>
+                <textarea
+                  rows={2}
+                  placeholder="Paste browser console errors (e.g., Uncaught TypeError: Cannot read property...)"
+                  value={errorLogs}
+                  onChange={(e) => setErrorLogs(e.target.value)}
+                  className="rim-textarea font-mono text-xs"
                 />
               </div>
-            </div>
 
-            {/* Description */}
-            <div>
-              <label className="rim-label">What broke? What is the expected behavior? *</label>
-              <textarea
-                required
-                rows={3}
-                placeholder="Describe what happened when the failure occurred..."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className="rim-textarea"
-              />
-            </div>
-
-            {/* Error Logs / Console Output */}
-            <div>
-              <div className="flex justify-between items-center mb-1">
-                <label className="rim-label mb-0">Console Errors / Stack Trace (Optional)</label>
-                <span className="text-[11px] text-muted-foreground">Helps AI isolate the line of code</span>
-              </div>
-              <textarea
-                rows={2}
-                placeholder="Paste browser console errors (e.g., Uncaught TypeError: Cannot read property...)"
-                value={errorLogs}
-                onChange={(e) => setErrorLogs(e.target.value)}
-                className="rim-textarea font-mono text-xs"
-              />
-            </div>
-
-            {/* Severity Pill Selector */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pt-1">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-muted-foreground">Severity:</span>
-                {["low", "medium", "high", "critical"].map((lvl) => (
-                  <button
-                    key={lvl}
-                    type="button"
-                    onClick={() => setSeverity(lvl)}
-                    className={`rim-sev-btn ${severity === lvl ? `active-${lvl}` : ""}`}
-                  >
-                    {lvl.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-
-              {/* Instant Auto-Fix Toggle */}
-              <label className="rim-autoheal-toggle">
-                <input
-                  type="checkbox"
-                  checked={autoHealWithAi}
-                  onChange={(e) => setAutoHealWithAi(e.target.checked)}
-                  className="sr-only"
-                />
-                <div className={`rim-toggle-switch ${autoHealWithAi ? "checked" : ""}`}>
-                  <div className="rim-toggle-thumb" />
+              {/* Severity Pill Selector */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pt-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-muted-foreground">Severity:</span>
+                  {["low", "medium", "high", "critical"].map((lvl) => (
+                    <button
+                      key={lvl}
+                      type="button"
+                      onClick={() => setSeverity(lvl)}
+                      className={`rim-sev-btn ${severity === lvl ? `active-${lvl}` : ""}`}
+                    >
+                      {lvl.toUpperCase()}
+                    </button>
+                  ))}
                 </div>
-                <div className="flex items-center gap-1.5 text-xs font-bold text-foreground cursor-pointer">
-                  <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-                  <span>Fix immediately with AI Site Doctor</span>
-                </div>
-              </label>
+
+                {/* Instant Auto-Fix Toggle */}
+                <label className="rim-autoheal-toggle">
+                  <input
+                    type="checkbox"
+                    checked={autoHealWithAi}
+                    onChange={(e) => setAutoHealWithAi(e.target.checked)}
+                    className="sr-only"
+                  />
+                  <div className={`rim-toggle-switch ${autoHealWithAi ? "checked" : ""}`}>
+                    <div className="rim-toggle-thumb" />
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-foreground cursor-pointer">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>Fix immediately with AI Site Doctor</span>
+                  </div>
+                </label>
+              </div>
             </div>
 
-            {/* Action Bar */}
+            {/* Pinned Action Bar Footer */}
             <div className="rim-footer">
               <button type="button" onClick={handleReset} className="rim-btn-secondary">
                 Cancel
