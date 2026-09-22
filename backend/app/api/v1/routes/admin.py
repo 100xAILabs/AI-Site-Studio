@@ -17,6 +17,7 @@ from app.models.order import Order
 from app.repositories.user_repo import UserRepository
 from app.schemas.user import UserResponse, UserAdminUpdate
 from app.schemas.common import PaginatedResponse
+from pydantic import BaseModel
 import uuid
 
 router = APIRouter()
@@ -61,26 +62,44 @@ async def admin_stats(
     }
 
 
+class BatchStatusUpdate(BaseModel):
+    template_ids: List[uuid.UUID]
+    status: str
+
+
 @router.get("/templates")
 async def list_templates(
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_admin),
 ):
-    """[Admin] Get all templates, including drafts/reviews."""
+    """[Admin] Get all templates, including drafts/reviews with rich metadata."""
+    from sqlalchemy.orm import selectinload
     result = await db.execute(
-        select(Template).order_by(Template.created_at.desc())
+        select(Template)
+        .options(selectinload(Template.category))
+        .order_by(Template.created_at.desc())
     )
     templates = result.scalars().all()
     return [{
-        "id": t.id,
+        "id": str(t.id),
         "title": t.title,
         "slug": t.slug,
         "price": float(t.price),
-        "status": t.status,
-        "framework": t.framework,
+        "status": t.status.value if hasattr(t.status, "value") else str(t.status),
+        "framework": t.framework.value if hasattr(t.framework, "value") else str(t.framework or ""),
         "developer_name": t.developer_name or "Unknown",
+        "developer_avatar": t.developer_avatar,
+        "thumbnail_url": t.thumbnail_url,
+        "preview_url": t.preview_url,
+        "category": t.category.name if t.category else "Uncategorized",
+        "category_slug": t.category.slug if t.category else "",
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+        "pages_count": t.pages_count,
+        "is_ai_ready": t.is_ai_ready,
+        "version": t.version or "1.0.0",
         "downloads_count": t.downloads_count,
         "views_count": t.views_count,
+        "short_description": t.short_description,
     } for t in templates]
 
 
@@ -91,7 +110,7 @@ async def update_template_status(
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_admin),
 ):
-    """[Admin] Approve/reject (publish/draft) a template in the queue."""
+    """[Admin] Approve/reject (publish/draft/archive) a template in the queue."""
     from app.models.template import TemplateStatus, Template
     from fastapi import HTTPException
     
@@ -108,9 +127,39 @@ async def update_template_status(
     await db.flush()
     await db.commit()
     return {
-        "id": template.id,
+        "id": str(template.id),
         "title": template.title,
-        "status": template.status
+        "status": template.status.value if hasattr(template.status, "value") else str(template.status)
+    }
+
+
+@router.post("/templates/batch-status")
+async def batch_update_template_status(
+    payload: BatchStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """[Admin] Batch approve, reject, or archive multiple templates."""
+    from app.models.template import TemplateStatus, Template
+    from fastapi import HTTPException
+
+    try:
+        new_status = TemplateStatus(payload.status)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid status value")
+
+    result = await db.execute(
+        select(Template).where(Template.id.in_(payload.template_ids))
+    )
+    templates = result.scalars().all()
+    for t in templates:
+        t.status = new_status
+
+    await db.flush()
+    await db.commit()
+    return {
+        "updated_count": len(templates),
+        "status": new_status.value
     }
 
 
@@ -326,3 +375,295 @@ async def get_platform_analytics(
         "gross_sales_usd": float(gross_sales),
         "platform_fee_revenue_usd": round(float(gross_sales) * 0.20, 2),
     }
+
+
+# ── Incident Management & Deployment Code Studio ──────────────────────────────
+
+@router.get("/incidents")
+async def list_all_incidents(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    search: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """
+    [Admin] Lists all reported website failures across the platform.
+    Includes resolution breakdown and deployment metadata.
+    """
+    from app.models.incident import SiteIncident
+    from app.models.deployment import Deployment
+    from sqlalchemy.orm import selectinload
+
+    stmt = select(SiteIncident).options(selectinload(SiteIncident.deployment)).order_by(SiteIncident.created_at.desc())
+
+    if status_filter and status_filter.lower() != "all":
+        if status_filter.lower() == "auto_fixed":
+            stmt = stmt.where(SiteIncident.resolved_by == "ai_site_doctor")
+        elif status_filter.lower() == "open":
+            stmt = stmt.where(SiteIncident.status.in_(["open", "investigating", "auto_fixing"]))
+        else:
+            stmt = stmt.where(SiteIncident.status == status_filter.lower())
+
+    res = await db.execute(stmt)
+    all_incidents = res.scalars().all()
+
+    # Search filter
+    if search and search.strip():
+        term = search.strip().lower()
+        all_incidents = [
+            inc for inc in all_incidents
+            if term in inc.site_id.lower()
+            or term in inc.title.lower()
+            or term in (inc.reporter_email or "").lower()
+            or (inc.deployment and term in inc.deployment.project_name.lower())
+        ]
+
+    # Overall stats
+    total_q = await db.execute(select(func.count(SiteIncident.id)))
+    total_count = total_q.scalar_one()
+
+    open_q = await db.execute(select(func.count(SiteIncident.id)).where(SiteIncident.status.in_(["open", "investigating", "auto_fixing"])))
+    open_count = open_q.scalar_one()
+
+    auto_fixed_q = await db.execute(select(func.count(SiteIncident.id)).where(SiteIncident.resolved_by == "ai_site_doctor"))
+    auto_fixed_count = auto_fixed_q.scalar_one()
+
+    resolved_q = await db.execute(select(func.count(SiteIncident.id)).where(SiteIncident.status == "resolved"))
+    resolved_count = resolved_q.scalar_one()
+
+    items = []
+    for inc in all_incidents:
+        items.append({
+            "id": str(inc.id),
+            "deployment_id": str(inc.deployment_id),
+            "site_id": inc.site_id,
+            "project_name": inc.deployment.project_name if inc.deployment else "Unknown Website",
+            "live_url": inc.deployment.live_url if inc.deployment else None,
+            "subdomain": inc.deployment.subdomain if inc.deployment else None,
+            "reporter_email": inc.reporter_email,
+            "reporter_name": inc.reporter_name,
+            "issue_type": inc.issue_type,
+            "title": inc.title,
+            "description": inc.description,
+            "error_logs": inc.error_logs,
+            "page_url": inc.page_url,
+            "severity": inc.severity,
+            "status": inc.status,
+            "resolved_by": inc.resolved_by,
+            "resolution_notes": inc.resolution_notes,
+            "ai_diagnosis": inc.ai_diagnosis,
+            "ai_patch_summary": inc.ai_patch_summary,
+            "created_at": inc.created_at.isoformat() if inc.created_at else None,
+            "resolved_at": inc.resolved_at.isoformat() if inc.resolved_at else None,
+        })
+
+    return {
+        "items": items,
+        "stats": {
+            "total": total_count,
+            "open": open_count,
+            "auto_fixed": auto_fixed_count,
+            "resolved": resolved_count,
+        }
+    }
+
+
+@router.patch("/incidents/{incident_id}/status")
+async def update_incident_status(
+    incident_id: uuid.UUID,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """[Admin] Updates the lifecycle status of an incident (resolved, dismissed, investigating)."""
+    from app.models.incident import SiteIncident
+    from fastapi import HTTPException
+    from datetime import datetime, timezone
+
+    stmt = select(SiteIncident).where(SiteIncident.id == incident_id)
+    res = await db.execute(stmt)
+    incident = res.scalar_one_or_none()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found.")
+
+    new_status = payload.get("status", incident.status)
+    incident.status = new_status
+    if payload.get("resolution_notes"):
+        incident.resolution_notes = payload["resolution_notes"]
+
+    if new_status == "resolved":
+        incident.resolved_at = datetime.now(timezone.utc)
+        incident.resolved_by = payload.get("resolved_by", "admin_manual")
+
+    await db.commit()
+    await db.refresh(incident)
+    return {"message": "Incident status updated.", "status": incident.status}
+
+
+@router.get("/deployments/{deployment_id}/files")
+async def get_deployment_files(
+    deployment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """
+    [Admin] Lists all files in the deployment's current directory for the web Code Studio.
+    """
+    from app.models.deployment import Deployment
+    from app.services.deployment_healing_service import DeploymentHealingService
+    from fastapi import HTTPException
+
+    stmt = select(Deployment).where(Deployment.id == deployment_id)
+    res = await db.execute(stmt)
+    deployment = res.scalar_one_or_none()
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found.")
+
+    healing_service = DeploymentHealingService(db)
+    files = healing_service.list_files(deployment.site_id)
+    return {
+        "deployment_id": str(deployment.id),
+        "site_id": deployment.site_id,
+        "project_name": deployment.project_name,
+        "current_version": deployment.current_version,
+        "live_url": deployment.live_url,
+        "files": files,
+    }
+
+
+@router.get("/deployments/{deployment_id}/file-content")
+async def get_deployment_file_content(
+    deployment_id: uuid.UUID,
+    path: str = Query(..., description="Relative file path"),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """
+    [Admin] Safely reads file content for the code editor.
+    """
+    from app.models.deployment import Deployment
+    from app.services.deployment_healing_service import DeploymentHealingService
+    from fastapi import HTTPException
+
+    stmt = select(Deployment).where(Deployment.id == deployment_id)
+    res = await db.execute(stmt)
+    deployment = res.scalar_one_or_none()
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found.")
+
+    healing_service = DeploymentHealingService(db)
+    success, content, ext = healing_service.read_file(deployment.site_id, path)
+    if not success:
+        raise HTTPException(status_code=400, detail=content)
+
+    return {
+        "path": path,
+        "content": content,
+        "ext": ext,
+        "size": len(content),
+    }
+
+
+@router.put("/deployments/{deployment_id}/files")
+async def save_deployment_file(
+    deployment_id: uuid.UUID,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """
+    [Admin] Saves updated code, hot-reloads the deployed site, and optionally marks linked incident as resolved.
+    """
+    from app.models.deployment import Deployment
+    from app.models.incident import SiteIncident
+    from app.services.deployment_healing_service import DeploymentHealingService
+    from fastapi import HTTPException
+    from datetime import datetime, timezone
+
+    file_path = payload.get("path")
+    content = payload.get("content")
+    incident_id = payload.get("incident_id")
+
+    if not file_path or content is None:
+        raise HTTPException(status_code=400, detail="Path and content are required.")
+
+    stmt = select(Deployment).where(Deployment.id == deployment_id)
+    res = await db.execute(stmt)
+    deployment = res.scalar_one_or_none()
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found.")
+
+    healing_service = DeploymentHealingService(db)
+    success, msg = await healing_service.save_file(
+        deployment=deployment,
+        relative_path=file_path,
+        content=content,
+        user_or_admin_label="Admin Code Studio",
+    )
+    if not success:
+        raise HTTPException(status_code=400, detail=msg)
+
+    # Health check
+    live_url = deployment.live_url or f"http://localhost:8000/sites/{deployment.site_id}/"
+    is_healthy, _, h_msg = await healing_service.provider.health_check(live_url, site_id=deployment.site_id)
+    deployment.health_status = "healthy"
+    deployment.status = "live"
+
+    # Mark incident resolved if passed
+    if incident_id:
+        try:
+            inc_id_parsed = uuid.UUID(str(incident_id))
+            inc_res = await db.execute(select(SiteIncident).where(SiteIncident.id == inc_id_parsed))
+            inc = inc_res.scalar_one_or_none()
+            if inc:
+                inc.status = "resolved"
+                inc.resolved_by = "admin_manual"
+                inc.resolution_notes = f"Manually patched {file_path} via Admin Code Studio."
+                inc.resolved_at = datetime.now(timezone.utc)
+        except Exception:
+            pass
+
+    await db.commit()
+    return {"message": msg, "health": h_msg, "live_url": live_url}
+
+
+@router.post("/deployments/{deployment_id}/auto-fix")
+async def admin_auto_fix_deployment(
+    deployment_id: uuid.UUID,
+    payload: Optional[dict] = None,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """
+    [Admin] Triggers the Autonomous AI Site Doctor on any deployment.
+    """
+    from app.models.deployment import Deployment
+    from app.models.incident import SiteIncident
+    from app.services.deployment_healing_service import DeploymentHealingService
+    from fastapi import HTTPException
+
+    stmt = select(Deployment).where(Deployment.id == deployment_id)
+    res = await db.execute(stmt)
+    deployment = res.scalar_one_or_none()
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found.")
+
+    incident = None
+    if payload and payload.get("incident_id"):
+        try:
+            inc_id = uuid.UUID(str(payload["incident_id"]))
+            inc_res = await db.execute(select(SiteIncident).where(SiteIncident.id == inc_id))
+            incident = inc_res.scalar_one_or_none()
+        except Exception:
+            pass
+
+    healing_service = DeploymentHealingService(db)
+    result = await healing_service.auto_heal_deployment(
+        deployment=deployment,
+        incident=incident,
+        issue_type=payload.get("issue_type", "broken_website") if payload else "broken_website",
+        issue_description=payload.get("issue_description", "Admin requested automated recovery.") if payload else "Admin requested automated recovery.",
+        error_logs=payload.get("error_logs") if payload else None,
+    )
+
+    return result

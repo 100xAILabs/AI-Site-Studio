@@ -17,6 +17,7 @@ from . import (
     preview,
     ai,
     files,
+    incidents,
 )
 
 __all__ = [
@@ -34,4 +35,5 @@ __all__ = [
     "preview",
     "ai",
     "files",
+    "incidents",
 ]

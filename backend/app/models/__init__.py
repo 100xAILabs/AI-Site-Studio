@@ -18,6 +18,7 @@ from app.models.analytics import AnalyticsEvent
 from app.models.stored_file import StoredFile
 from app.models.follow import Follow
 from app.models.deployment import Deployment, DeploymentVersion, Domain, DeploymentLog
+from app.models.incident import SiteIncident
 from app.models.project import Project
 from app.models.withdrawal_request import WithdrawalRequest, WithdrawalStatus
 
@@ -41,6 +42,7 @@ __all__ = [
     "DeploymentVersion",
     "Domain",
     "DeploymentLog",
+    "SiteIncident",
     "Project",
     "WithdrawalRequest",
     "WithdrawalStatus",

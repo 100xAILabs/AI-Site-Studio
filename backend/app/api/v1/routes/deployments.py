@@ -10,6 +10,7 @@ Provides tenant-scoped lifecycle management:
 
 import uuid
 import asyncio
+from datetime import datetime
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status, Query
 from sqlalchemy import select, desc
@@ -30,6 +31,7 @@ from app.schemas.deployment import (
     DeploymentLogResponse,
     RollbackRequest,
     EnvironmentVariableUpdate,
+    ClientTelemetryPayload,
 )
 from app.services.deployment_service import DeploymentService
 from app.services.deployment_providers import local_deployment_provider
@@ -400,3 +402,111 @@ async def update_environment_variables(
     await db.commit()
     await db.refresh(deployment)
     return deployment
+
+
+@router.post("/telemetry/{site_identifier}", response_model=dict, status_code=status.HTTP_200_OK)
+async def record_client_telemetry(
+    site_identifier: str,
+    payload: ClientTelemetryPayload,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Ingests live browser runtime console logs (console.log, console.warn, console.error,
+    unhandled window errors, client boot events) from running live tenant websites.
+    Publicly accessible without auth so live visitors/browsers can stream runtime telemetry.
+    """
+    clean_identifier = site_identifier.strip().lower()
+    clean_site_id = site_identifier.split(".")[0].upper()
+
+    stmt = select(Deployment).where(
+        (Deployment.site_id == clean_site_id) |
+        (Deployment.subdomain == clean_identifier) |
+        (Deployment.custom_domain == clean_identifier) |
+        (Deployment.subdomain == f"{clean_identifier}.aisitestudio.com")
+    ).limit(1)
+    res = await db.execute(stmt)
+    deployment = res.scalar_one_or_none()
+
+    if not deployment:
+        stmt2 = select(Deployment).where(Deployment.site_id.ilike(clean_site_id)).limit(1)
+        res2 = await db.execute(stmt2)
+        deployment = res2.scalar_one_or_none()
+
+    if not deployment:
+        raise HTTPException(status_code=404, detail=f"Deployment '{site_identifier}' not found.")
+
+    time_str = datetime.now().strftime("%H:%M:%S")
+    clean_msg = payload.message.strip()[:4000]
+    lvl = payload.level.upper() if payload.level else "INFO"
+    if lvl not in ("INFO", "WARN", "ERROR", "SUCCESS"):
+        lvl = "INFO"
+
+    # Format log line with timestamp and level
+    formatted_log = f"[{time_str}] [{lvl}] {clean_msg}\n"
+
+    # Append to deployment logs text buffer, bounding to prevent unbounded growth
+    curr_logs = deployment.logs or ""
+    if len(curr_logs) > 200_000:
+        curr_logs = curr_logs[-150_000:]
+    deployment.logs = curr_logs + formatted_log
+
+    # If runtime error is reported on a healthy site, mark health status as degraded
+    if lvl == "ERROR" and deployment.health_status == "healthy":
+        deployment.health_status = "degraded"
+
+    # Add structured log event record
+    db.add(DeploymentLog(
+        deployment_id=deployment.id,
+        level=lvl,
+        message=clean_msg[:500],
+    ))
+
+    await db.commit()
+    return {"status": "ok", "site_id": deployment.site_id, "recorded_at": time_str}
+
+
+@router.post("/{deployment_id}/health-check")
+async def trigger_deployment_health_check(
+    deployment_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Executes an on-demand live health verification against the tenant website.
+    Verifies HTTP responsiveness and records verification telemetry into logs.
+    """
+    stmt = select(Deployment).where(Deployment.id == deployment_id, Deployment.user_id == current_user.id)
+    res = await db.execute(stmt)
+    deployment = res.scalar_one_or_none()
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found.")
+
+    service = DeploymentService(db)
+    is_healthy, status_str, msg = await service.provider.health_check(deployment.live_url or "", site_id=deployment.site_id)
+    deployment.health_status = "healthy" if is_healthy else "degraded"
+    time_str = datetime.now().strftime("%H:%M:%S")
+    tag = "[HEALTH CHECK SUCCESS]" if is_healthy else "[HEALTH CHECK FAILED]"
+    level = "INFO" if is_healthy else "ERROR"
+    log_line = f"[{time_str}] [{level}] {tag} {msg}\n"
+
+    curr = deployment.logs or ""
+    if len(curr) > 200_000:
+        curr = curr[-150_000:]
+    deployment.logs = curr + log_line
+
+    db.add(DeploymentLog(
+        deployment_id=deployment.id,
+        level=level,
+        message=f"{tag} {msg}"[:500]
+    ))
+
+    await db.commit()
+    await db.refresh(deployment)
+    return {
+        "is_healthy": is_healthy,
+        "health_status": deployment.health_status,
+        "message": msg,
+        "checked_at": time_str
+    }
+
+

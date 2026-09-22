@@ -1,0 +1,514 @@
+/* ==========================================================================
+   Report Issue Modal — Serenity Light Theme Stylesheet
+   ========================================================================== */
+
+.rim-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background-color: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  overflow-y: auto;
+  animation: rimFadeIn 0.2s ease-out;
+}
+
+@keyframes rimFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.rim-container {
+  background-color: hsl(var(--card));
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: 1.25rem;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  width: 100%;
+  max-width: 680px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: rimSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes rimSlideUp {
+  from { transform: translateY(16px) scale(0.98); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+/* Header */
+.rim-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.7);
+  background: linear-gradient(to right, hsl(var(--card)), hsl(var(--muted) / 0.3));
+}
+
+.rim-header-title-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+}
+
+.rim-header-icon-box {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  background-color: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.rim-title {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: hsl(var(--foreground));
+  margin: 0;
+  line-height: 1.2;
+}
+
+.rim-site-badge {
+  font-size: 0.7rem;
+  font-family: monospace;
+  font-weight: 800;
+  background-color: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+  border: 1px solid hsl(var(--primary) / 0.25);
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.375rem;
+}
+
+.rim-subtitle {
+  font-size: 0.8rem;
+  color: hsl(var(--muted-foreground));
+  margin-top: 0.25rem;
+  margin-bottom: 0;
+}
+
+.rim-close-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  padding: 0.4rem;
+  border-radius: 0.5rem;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rim-close-btn:hover {
+  background-color: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+/* Form Styles */
+.rim-form {
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.rim-label {
+  display: block;
+  font-size: 0.775rem;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+  margin-bottom: 0.35rem;
+}
+
+.rim-input,
+.rim-textarea {
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.625rem;
+  border: 1px solid hsl(var(--border));
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-size: 0.85rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
+}
+
+.rim-input:focus,
+.rim-textarea:focus {
+  outline: none;
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.15);
+}
+
+.rim-category-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+}
+
+@media (max-width: 600px) {
+  .rim-category-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.rim-category-btn {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.625rem;
+  border: 1px solid hsl(var(--border));
+  background-color: hsl(var(--card));
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.rim-category-btn:hover {
+  border-color: hsl(var(--primary) / 0.6);
+  background-color: hsl(var(--muted) / 0.3);
+}
+
+.rim-category-btn.selected {
+  border-color: hsl(var(--primary));
+  background-color: hsl(var(--primary) / 0.08);
+}
+
+.rim-cat-name {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+  line-height: 1.2;
+}
+
+.rim-cat-desc {
+  font-size: 0.7rem;
+  color: hsl(var(--muted-foreground));
+  margin-top: 0.15rem;
+}
+
+.rim-sev-btn {
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 0.25rem 0.6rem;
+  border-radius: 0.375rem;
+  border: 1px solid hsl(var(--border));
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.rim-sev-btn.active-low {
+  background-color: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.5);
+  color: #10b981;
+}
+
+.rim-sev-btn.active-medium {
+  background-color: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #3b82f6;
+}
+
+.rim-sev-btn.active-high {
+  background-color: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #f59e0b;
+}
+
+.rim-sev-btn.active-critical {
+  background-color: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #ef4444;
+}
+
+/* Auto-Heal Toggle */
+.rim-autoheal-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.rim-toggle-switch {
+  width: 2.25rem;
+  height: 1.25rem;
+  background-color: hsl(var(--muted));
+  border-radius: 9999px;
+  position: relative;
+  transition: background-color 0.2s ease;
+}
+
+.rim-toggle-switch.checked {
+  background-color: hsl(var(--primary));
+}
+
+.rim-toggle-thumb {
+  width: 0.95rem;
+  height: 0.95rem;
+  background-color: white;
+  border-radius: 9999px;
+  position: absolute;
+  top: 0.15rem;
+  left: 0.15rem;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.rim-toggle-switch.checked .rim-toggle-thumb {
+  transform: translateX(1rem);
+}
+
+/* Footer & Buttons */
+.rim-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid hsl(var(--border) / 0.6);
+}
+
+.rim-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.35rem;
+  background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.85));
+  color: white;
+  border: none;
+  border-radius: 0.625rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 12px hsl(var(--primary) / 0.25);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  text-decoration: none;
+}
+
+.rim-btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px hsl(var(--primary) / 0.35);
+}
+
+.rim-btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.rim-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.1rem;
+  background-color: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.625rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.rim-btn-secondary:hover {
+  background-color: hsl(var(--muted) / 0.8);
+}
+
+/* Loading Animation Card */
+.rim-loading-card {
+  padding: 3rem 2rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.rim-loading-spinner-wrap {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 1rem;
+  background-color: hsl(var(--primary) / 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.25rem;
+  border: 1px solid hsl(var(--primary) / 0.25);
+}
+
+.rim-loading-title {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: hsl(var(--foreground));
+  margin: 0;
+}
+
+.rim-loading-desc {
+  font-size: 0.85rem;
+  color: hsl(var(--muted-foreground));
+  margin-top: 0.35rem;
+  max-width: 480px;
+}
+
+.rim-stepper {
+  margin-top: 2rem;
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  text-align: left;
+}
+
+.rim-step {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: hsl(var(--muted-foreground));
+  opacity: 0.45;
+  transition: all 0.3s ease;
+}
+
+.rim-step.active {
+  opacity: 1;
+  color: hsl(var(--foreground));
+  font-weight: 700;
+}
+
+.rim-step-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 9999px;
+  background-color: hsl(var(--muted));
+  border: 1.5px solid hsl(var(--border));
+}
+
+.rim-step.active .rim-step-dot {
+  background-color: hsl(var(--primary));
+  box-shadow: 0 0 8px hsl(var(--primary) / 0.5);
+}
+
+/* Success Card */
+.rim-success-card {
+  padding: 1.75rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.rim-success-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.rim-success-icon-wrap {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 0.875rem;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(168, 85, 247, 0.15));
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.rim-success-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: hsl(var(--foreground));
+  margin: 0;
+}
+
+.rim-success-subtitle {
+  font-size: 0.825rem;
+  color: hsl(var(--muted-foreground));
+  margin-top: 0.25rem;
+}
+
+.rim-diagnosis-box {
+  background-color: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.rim-diagnosis-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: hsl(var(--foreground));
+}
+
+.rim-diagnosis-text {
+  font-size: 0.825rem;
+  color: hsl(var(--foreground));
+  line-height: 1.5;
+  margin: 0;
+}
+
+.rim-root-cause,
+.rim-patch-summary {
+  font-size: 0.775rem;
+  color: hsl(var(--muted-foreground));
+  line-height: 1.4;
+}
+
+.rim-root-cause strong,
+.rim-patch-summary strong {
+  color: hsl(var(--foreground));
+}
+
+.rim-file-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background-color: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.375rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.725rem;
+  font-family: monospace;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+}
+
+.rim-success-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.rim-error-banner {
+  background-color: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}

@@ -13,6 +13,10 @@ from app.schemas.order import OrderCreate, OrderResponse, OrderItemResponse
 from app.schemas.payment import PaymentInitResponse, PaymentVerifyRequest
 from app.schemas.common import PaginatedResponse, MessageResponse
 from app.schemas.deployment import DeploymentCreate, DeploymentResponse
+from app.schemas.incident import (
+    IncidentCreate, IncidentStatusUpdate, IncidentResponse,
+    AutoFixRequest, AutoFixResponse, FileItem, FileContentResponse, FileSaveRequest
+)
 
 __all__ = [
     # User
@@ -32,4 +36,7 @@ __all__ = [
     "PaginatedResponse", "MessageResponse",
     # Deployment
     "DeploymentCreate", "DeploymentResponse",
+    # Incident
+    "IncidentCreate", "IncidentStatusUpdate", "IncidentResponse",
+    "AutoFixRequest", "AutoFixResponse", "FileItem", "FileContentResponse", "FileSaveRequest",
 ]

@@ -15,6 +15,7 @@ from app.models.base import UUIDMixin, TimestampMixin
 if TYPE_CHECKING:
     from app.models.user import User
     from app.models.template import Template
+    from app.models.incident import SiteIncident
 
 
 class Deployment(UUIDMixin, TimestampMixin, Base):
@@ -72,6 +73,9 @@ class Deployment(UUIDMixin, TimestampMixin, Base):
     )
     deployment_logs: Mapped[List["DeploymentLog"]] = relationship(
         "DeploymentLog", back_populates="deployment", cascade="all, delete-orphan", lazy="select"
+    )
+    incidents: Mapped[List["SiteIncident"]] = relationship(
+        "SiteIncident", back_populates="deployment", cascade="all, delete-orphan", lazy="select"
     )
 
     def __repr__(self) -> str:

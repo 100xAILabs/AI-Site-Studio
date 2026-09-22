@@ -95,3 +95,13 @@ class RollbackRequest(BaseModel):
 
 class EnvironmentVariableUpdate(BaseModel):
     env_vars: Dict[str, str]
+
+
+class ClientTelemetryPayload(BaseModel):
+    level: str = "INFO"  # INFO, WARN, ERROR, SUCCESS
+    message: str
+    url: Optional[str] = None
+    pathname: Optional[str] = None
+    timestamp: Optional[str] = None
+    meta: Optional[Dict[str, Any]] = None
+

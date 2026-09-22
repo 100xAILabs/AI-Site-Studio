@@ -70,6 +70,8 @@ import {
   Search,
   Pencil,
   UploadCloud,
+  AlertTriangle,
+  Filter,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import FigmaImportModal from "@/components/marketplace/FigmaImportModal";
@@ -78,6 +80,10 @@ import { cn, formatPrice, convertToUSD } from "@/lib/utils";
 import Image from "@/components/Image";
 import Link from "@/components/Link";
 import { useCartStore } from "@/store";
+import AdminModerationHub from "@/components/dashboard/AdminModerationHub";
+import AdminIncidentsCenter from "@/components/dashboard/AdminIncidentsCenter";
+import ReportIssueModal from "@/components/dashboard/ReportIssueModal";
+import DeploymentFixConsole from "@/components/dashboard/DeploymentFixConsole";
 import "./Page.css";
 
 // Env-aware API base — reads VITE_API_URL from .env, falls back to localhost for development
@@ -257,6 +263,11 @@ function Dashboard() {
   const [selectedDeployment, setSelectedDeployment] = useState(null);
   const [activeConsoleLogs, setActiveConsoleLogs] = useState("");
   const [activeConsoleStatus, setActiveConsoleStatus] = useState("building");
+  const [consoleFilter, setConsoleFilter] = useState("all");
+  const [consoleSearch, setConsoleSearch] = useState("");
+  const [isConsoleStreamPaused, setIsConsoleStreamPaused] = useState(false);
+  const [isAutoFixingFromConsole, setIsAutoFixingFromConsole] = useState(false);
+  const [copyLogsFeedback, setCopyLogsFeedback] = useState(false);
 
   // Wizard form state
   const [deployProjectName, setDeployProjectName] = useState("");
@@ -273,6 +284,24 @@ function Dashboard() {
   const [versionDeployment, setVersionDeployment] = useState(null);
   const [versionsList, setVersionsList] = useState([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
+
+  // Failure Reporting & Deployment Code Fix Studio state
+  const [isReportIssueModalOpen, setIsReportIssueModalOpen] = useState(false);
+  const [reportIssueDeployment, setReportIssueDeployment] = useState(null);
+  const [isCodeStudioOpen, setIsCodeStudioOpen] = useState(false);
+  const [codeStudioDeployment, setCodeStudioDeployment] = useState(null);
+  const [codeStudioIncident, setCodeStudioIncident] = useState(null);
+
+  const openReportIssueModal = (deploy) => {
+    setReportIssueDeployment(deploy);
+    setIsReportIssueModalOpen(true);
+  };
+
+  const openCodeStudio = (deploy, incident = null) => {
+    setCodeStudioDeployment(deploy);
+    setCodeStudioIncident(incident);
+    setIsCodeStudioOpen(true);
+  };
 
   const openVersionHistory = async (deploy) => {
     setVersionDeployment(deploy);
@@ -525,7 +554,7 @@ function Dashboard() {
   // Strip ANSI escape codes from terminal output
   const stripAnsi = (str) => str.replace(/\x1B\[[0-9;]*[mGKHFJABCDETSTNHR]/g, "").replace(/\x1B[()][AB012]/g, "");
 
-  // Poll logs for active building deployments
+  // Live continuous log polling for build and live runtime telemetry
   useEffect(() => {
     let intervalId;
     if (isConsoleOpen && selectedDeployment) {
@@ -534,10 +563,8 @@ function Dashboard() {
           const data = await api.get(`/deployments/${selectedDeployment.id}`, authToken ?? undefined);
           setActiveConsoleLogs(data.logs || "");
           setActiveConsoleStatus(data.status);
-          if (data.status !== "building") {
-            clearInterval(intervalId);
-            // Update selectedDeployment with fresh data (including live_url)
-            setSelectedDeployment(data);
+          setSelectedDeployment(prev => prev ? { ...prev, ...data } : data);
+          if (data.status !== activeConsoleStatus) {
             refetchDeployments();
           }
         } catch (err) {
@@ -546,19 +573,19 @@ function Dashboard() {
       };
 
       fetchLogs();
-      intervalId = setInterval(fetchLogs, 1500);
+      intervalId = setInterval(fetchLogs, 1800);
     }
     return () => {
       if (intervalId) clearInterval(intervalId);
     };
-  }, [isConsoleOpen, selectedDeployment?.id, authToken, refetchDeployments]);
+  }, [isConsoleOpen, selectedDeployment?.id, authToken, refetchDeployments, activeConsoleStatus]);
 
   // Auto-scroll build console to bottom
   useEffect(() => {
-    if (consoleEndRef.current) {
+    if (consoleEndRef.current && !isConsoleStreamPaused) {
       consoleEndRef.current.scrollTop = consoleEndRef.current.scrollHeight;
     }
-  }, [activeConsoleLogs, isConsoleOpen]);
+  }, [activeConsoleLogs, isConsoleOpen, isConsoleStreamPaused]);
 
   // Calculated stats for seller
   const sellerTemplatesList = Array.isArray(templateResponse) ? templateResponse : [];
@@ -719,6 +746,37 @@ function Dashboard() {
       qc.invalidateQueries(["admin-all-templates"]);
       qc.invalidateQueries(["dashboard-stats"]);
       alert("Template review status updated!");
+    },
+  });
+
+  // Admin silent status update (for AdminModerationHub with its own toast)
+  const adminUpdateTemplateStatusMutation = useMutation({
+    mutationFn: ({ templateId, status }) =>
+      api.patch(`/admin/templates/${templateId}/status?status=${status}`, {}, authToken ?? undefined),
+    onSuccess: () => {
+      qc.invalidateQueries(["admin-all-templates"]);
+      qc.invalidateQueries(["dashboard-stats"]);
+    },
+  });
+
+  // Admin batch status update
+  const batchUpdateTemplateStatusMutation = useMutation({
+    mutationFn: ({ templateIds, status }) =>
+      api.post(`/admin/templates/batch-status`, { template_ids: templateIds, status }, authToken ?? undefined),
+    onSuccess: () => {
+      qc.invalidateQueries(["admin-all-templates"]);
+      qc.invalidateQueries(["dashboard-stats"]);
+    },
+  });
+
+  // Admin silent delete (for AdminModerationHub with its own toast)
+  const adminDeleteTemplateMutation = useMutation({
+    mutationFn: (templateId) => api.delete(`/templates/${templateId}`, authToken ?? undefined),
+    onSuccess: () => {
+      qc.invalidateQueries(["seller-templates"]);
+      qc.invalidateQueries(["admin-all-templates"]);
+      qc.invalidateQueries(["templates"]);
+      qc.invalidateQueries(["buyer-templates"]);
     },
   });
 
@@ -3650,6 +3708,21 @@ function Dashboard() {
                                 </button>
                               </div>
 
+                              {(deploy.health_status === "degraded" || deploy.health_status === "down" || deploy.status === "failed") && (
+                                <div className="flex items-center justify-between p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs">
+                                  <div className="flex items-center gap-1.5 font-bold text-amber-600 dark:text-amber-400">
+                                    <AlertTriangle className="w-3.5 h-3.5" /> Site Issue Reported
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => openReportIssueModal(deploy)}
+                                    className="px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white font-bold text-[11px] flex items-center gap-1 transition-all cursor-pointer"
+                                  >
+                                    <Sparkles className="w-3 h-3" /> Auto-Heal
+                                  </button>
+                                </div>
+                              )}
+
                               <div className="flex gap-2">
                                 <button
                                   type="button"
@@ -3699,6 +3772,27 @@ function Dashboard() {
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
+                              </div>
+
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => openReportIssueModal(deploy)}
+                                  className="flex-1 btn-deploy-action text-amber-600 dark:text-amber-400 hover:border-amber-400"
+                                  title="Report broken site issue & trigger autonomous AI Site Doctor"
+                                >
+                                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500" /> Report Issue
+                                </button>
+                                {isAdmin && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openCodeStudio(deploy)}
+                                    className="btn-deploy-action"
+                                    title="Open Deployment Code Fix Studio"
+                                  >
+                                    <Code className="w-3.5 h-3.5 text-indigo-600" />
+                                  </button>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -6004,82 +6098,7 @@ function Dashboard() {
                 </div>
               )}
 
-              {/* === ADMIN TEMPLATES REVIEW QUEUE === */}
-              {activeTab === "admin-templates" && (
-                <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
-                  <div>
-                    <h3 className="font-bold text-lg">Templates Moderation Queue</h3>
-                    <p className="text-sm text-muted-foreground">Approve or reject creator template submissions.</p>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead>
-                        <tr className="border-b border-border/50 text-muted-foreground font-bold uppercase">
-                          <th className="pb-2">Template Title</th>
-                          <th className="pb-2">Developer</th>
-                          <th className="pb-2">Price</th>
-                          <th className="pb-2">Framework</th>
-                          <th className="pb-2 text-right">Moderation Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {adminTemplatesLoading ? (
-                          <tr>
-                            <td colSpan={5} className="py-8 text-center text-muted-foreground">
-                              <Loader2 className="w-5 h-5 animate-spin mx-auto text-primary" />
-                            </td>
-                          </tr>
-                        ) : adminTemplates.filter(t => t.status === "draft").length === 0 ? (
-                          <tr>
-                            <td colSpan={5} className="py-8 text-center text-muted-foreground">No templates pending review.</td>
-                          </tr>
-                        ) : (
-                          adminTemplates.filter(t => t.status === "draft").map((t) => (
-                            <tr key={t.id} className="border-b border-border/40 hover:bg-muted/5">
-                              <td className="py-2.5 font-bold text-foreground">{t.title}</td>
-                              <td className="py-2.5">{t.developer_name}</td>
-                              <td className="py-2.5 font-semibold text-primary">{formatPrice(t.price)}</td>
-                              <td className="py-2.5 font-mono text-[10px] uppercase">{t.framework}</td>
-                              <td className="py-2.5 text-right space-x-2">
-                                <button
-                                  onClick={() => {
-                                    if (window.confirm(`Approve and publish "${t.title}"?`)) {
-                                      updateTemplateStatusMutation.mutate({ templateId: t.id, status: "published" });
-                                    }
-                                  }}
-                                  className="px-2.5 py-1 bg-green-500/10 text-green-500 rounded hover:bg-green-500/20 text-[10px] font-bold transition-all"
-                                >
-                                  Approve
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    if (window.confirm(`Reject and archive "${t.title}"?`)) {
-                                      updateTemplateStatusMutation.mutate({ templateId: t.id, status: "archived" });
-                                    }
-                                  }}
-                                  className="px-2.5 py-1 bg-yellow-500/10 text-yellow-500 rounded hover:bg-yellow-500/20 text-[10px] font-bold transition-all"
-                                >
-                                  Reject
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    if (window.confirm(`Are you sure you want to permanently delete template "${t.title}"?`)) {
-                                      deleteMutation.mutate(t.id);
-                                    }
-                                  }}
-                                  className="px-2.5 py-1 bg-red-500/10 text-red-500 rounded hover:bg-red-500/20 text-[10px] font-bold transition-all"
-                                >
-                                  Delete
-                                </button>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
+              {/* === ADMIN PAYMENTS === */}
 
               {/* === ADMIN PAYMENTS === */}
               {activeTab === "admin-payments" && (
@@ -6158,17 +6177,12 @@ function Dashboard() {
                 </div>
               )}
 
-              {/* === ADMIN REPORTS === */}
+              {/* === ADMIN REPORTS (INCIDENT RESOLUTION CENTER & AI SITE DOCTOR) === */}
               {activeTab === "admin-reports" && (
-                <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
-                  <div>
-                    <h3 className="font-bold text-lg">Platform Abuse Reports</h3>
-                    <p className="text-sm text-muted-foreground">Monitor copyright claims or reviews reports.</p>
-                  </div>
-                  <div className="p-8 text-center text-muted-foreground text-sm border border-border/40 rounded-xl">
-                    No active platform abuse reports found.
-                  </div>
-                </div>
+                <AdminIncidentsCenter
+                  authToken={authToken}
+                  onOpenCodeStudio={(deploy, incident) => openCodeStudio(deploy, incident)}
+                />
               )}
 
               {/* === ADMIN REVENUE === */}
@@ -6197,67 +6211,23 @@ function Dashboard() {
 
               {/* === ADMIN MODERATION === */}
               {activeTab === "admin-moderation" && (
-                <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
-                  <div>
-                    <h3 className="font-bold text-lg">Moderation Logs</h3>
-                    <p className="text-sm text-muted-foreground">Audit lists of live templates and moderation review statuses.</p>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead>
-                        <tr className="border-b border-border/50 text-muted-foreground font-bold uppercase">
-                          <th className="pb-2">Template</th>
-                          <th className="pb-2">Developer</th>
-                          <th className="pb-2">Status</th>
-                          <th className="pb-2">Moderation Status</th>
-                          <th className="pb-2 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {adminTemplatesLoading ? (
-                          <tr>
-                            <td colSpan={5} className="py-8 text-center text-muted-foreground">
-                              <Loader2 className="w-5 h-5 animate-spin mx-auto text-primary" />
-                            </td>
-                          </tr>
-                        ) : adminTemplates.length === 0 ? (
-                          <tr>
-                            <td colSpan={5} className="py-8 text-center text-muted-foreground">No templates logged in database.</td>
-                          </tr>
-                        ) : (
-                          adminTemplates.map((t) => (
-                            <tr key={t.id} className="border-b border-border/40 hover:bg-muted/5">
-                              <td className="py-2.5 font-bold text-foreground">{t.title}</td>
-                              <td className="py-2.5">{t.developer_name}</td>
-                              <td className="py-2.5 font-mono text-[10px] uppercase">{t.status}</td>
-                              <td className="py-2.5 font-semibold">
-                                <span className={cn(
-                                  "px-2 py-0.5 rounded text-[10px] font-bold uppercase",
-                                  t.status === "published" ? "bg-green-500/10 text-green-500" : "bg-yellow-500/10 text-yellow-500"
-                                )}>
-                                  {t.status === "published" ? "Approved" : "In Review"}
-                                </span>
-                              </td>
-                              <td className="py-2.5 text-right">
-                                <button
-                                  onClick={() => {
-                                    if (window.confirm(`Are you sure you want to permanently delete template "${t.title}"?`)) {
-                                      deleteMutation.mutate(t.id);
-                                    }
-                                  }}
-                                  className="p-1 text-red-500 hover:text-red-400 transition-colors"
-                                  title="Delete Template"
-                                >
-                                  <Trash2 className="w-4 h-4 inline" />
-                                </button>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                <AdminModerationHub
+                  adminTemplates={adminTemplates}
+                  isLoading={adminTemplatesLoading}
+                  onUpdateStatus={async (templateId, status) => {
+                    await adminUpdateTemplateStatusMutation.mutateAsync({ templateId, status });
+                  }}
+                  onDeleteTemplate={async (templateId) => {
+                    await adminDeleteTemplateMutation.mutateAsync(templateId);
+                  }}
+                  onBatchUpdateStatus={async (templateIds, status) => {
+                    await batchUpdateTemplateStatusMutation.mutateAsync({ templateIds, status });
+                  }}
+                  onRefresh={() => {
+                    qc.invalidateQueries(["admin-all-templates"]);
+                  }}
+                  formatPrice={formatPrice}
+                />
               )}
 
               {/* === PROFILE & SETTINGS === */}
@@ -6649,49 +6619,260 @@ function Dashboard() {
                 </div>
               )}
 
-              {/* === BUILD LOGS CONSOLE MODAL === */}
+              {/* === BUILD & LIVE RUNTIME LOGS CONSOLE MODAL === */}
               {isConsoleOpen && selectedDeployment && (() => {
                 const isBuilding = activeConsoleStatus === "building" || activeConsoleStatus === "queued" || activeConsoleStatus === "created";
                 const isSuccess = activeConsoleStatus === "live" || activeConsoleStatus === "success" || activeConsoleStatus === "ready" || activeConsoleLogs.includes("[SUCCESS]");
-                const lastErrorLine = activeConsoleLogs.split("\n").reverse().find(l => l.includes("[ERROR]") || l.includes("failed") || l.includes("Error"));
-                const displayError = lastErrorLine ? stripAnsi(lastErrorLine).replace(/^\[.*?\]\s*\[ERROR\]\s*/, '') : "Build failed. Review system logs above.";
+                
+                // Parse all log lines
+                const allLines = activeConsoleLogs.split("\n").filter(l => l.trim().length > 0);
+                const totalCount = allLines.length;
+
+                // Category counts
+                const errorLines = allLines.filter(l => {
+                  const low = l.toLowerCase();
+                  return low.includes("[error]") || low.includes("runtime error") || low.includes("failed") || low.includes("rejection") || l.startsWith("❌");
+                });
+                const browserLines = allLines.filter(l => l.includes("[BROWSER") || l.includes("[CLIENT BOOT]"));
+                const serverLines = allLines.filter(l => l.includes("[SERVER HTTP"));
+
+                // Filtered lines based on active filter & search
+                const filteredLines = allLines.filter(line => {
+                  const clean = stripAnsi(line);
+                  if (consoleSearch.trim()) {
+                    if (!clean.toLowerCase().includes(consoleSearch.toLowerCase().trim())) {
+                      return false;
+                    }
+                  }
+                  if (consoleFilter === "errors") {
+                    const low = clean.toLowerCase();
+                    return low.includes("[error]") || low.includes("runtime error") || low.includes("failed") || low.includes("rejection") || clean.startsWith("❌");
+                  }
+                  if (consoleFilter === "browser") {
+                    return clean.includes("[BROWSER") || clean.includes("[CLIENT BOOT]");
+                  }
+                  if (consoleFilter === "server") {
+                    return clean.includes("[SERVER HTTP");
+                  }
+                  return true;
+                });
+
+                const lastErrorLine = errorLines.length > 0 ? errorLines[errorLines.length - 1] : null;
+                const displayError = lastErrorLine ? stripAnsi(lastErrorLine).replace(/^\[.*?\]\s*\[ERROR\]\s*/, '') : "Runtime error detected on live website.";
+
+                const liveTargetUrl = selectedDeployment?.live_url
+                  || (selectedDeployment?.site_id ? `http://localhost:8000/sites/${selectedDeployment.site_id}/` : null)
+                  || (selectedDeployment?.custom_domain ? `http://${selectedDeployment.custom_domain}` : null);
+
+                // Quick AI Auto-Heal Handler
+                const handleQuickAutoHeal = async () => {
+                  if (isAutoFixingFromConsole) return;
+                  setIsAutoFixingFromConsole(true);
+                  try {
+                    const res = await api.post(
+                      `/incidents/deployments/${selectedDeployment.id}/auto-fix`,
+                      {
+                        issue_description: `Runtime console error: ${displayError}`,
+                        error_logs: activeConsoleLogs.slice(-2000),
+                        page_url: liveTargetUrl,
+                      },
+                      authToken ?? undefined
+                    );
+                    alert(`⚡ AI Site Doctor healed the website successfully!\n${res.diagnosis || res.message || 'Patches deployed live.'}`);
+                    refetchDeployments();
+                  } catch (err) {
+                    openCodeStudio(selectedDeployment);
+                  } finally {
+                    setIsAutoFixingFromConsole(false);
+                  }
+                };
 
                 return (
                   <div className="modal-backdrop bg-slate-950/80 backdrop-blur-md">
-                    <div className="modal-content large bg-[#0B0F19] border border-indigo-500/40 p-6 rounded-2xl space-y-4 shadow-2xl shadow-indigo-950/80 text-white">
-                      <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                    <div className="modal-content large bg-[#0B0F19] border border-indigo-500/40 p-6 rounded-2xl space-y-4 shadow-2xl shadow-indigo-950/80 text-white max-w-4xl w-full">
+                      {/* Modal Header */}
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-800 pb-3">
                         <div>
-                          <h3 className="font-bold text-lg text-white">Build & Deploy Console</h3>
-                          <p className="text-xs text-slate-400 mt-0.5">Project: {selectedDeployment.project_name}</p>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-bold text-lg text-white">Live Website Telemetry & Console</h3>
+                            {isSuccess && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                LIVE RUNTIME STREAM
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            Project: <strong className="text-slate-200">{selectedDeployment.project_name}</strong> • Site ID: <code className="text-indigo-400 font-mono">{selectedDeployment.site_id || selectedDeployment.id.slice(0, 8)}</code>
+                          </p>
                         </div>
-                        <button
-                          onClick={() => {
-                            setIsConsoleOpen(false);
-                            setSelectedDeployment(null);
-                          }}
-                          className="text-slate-400 hover:text-white transition-colors bg-transparent border-none text-xl cursor-pointer"
-                        >
-                          ×
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {liveTargetUrl && (
+                            <a
+                              href={liveTargetUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 shadow-md shadow-emerald-600/20 text-decoration-none"
+                            >
+                              <Globe className="w-3.5 h-3.5" /> Open Live Site
+                            </a>
+                          )}
+                          <button
+                            onClick={() => {
+                              setIsConsoleOpen(false);
+                              setSelectedDeployment(null);
+                            }}
+                            className="text-slate-400 hover:text-white transition-colors bg-transparent border-none text-2xl leading-none cursor-pointer p-1"
+                          >
+                            ×
+                          </button>
+                        </div>
                       </div>
 
+                      {/* Filter & Stream Controls Toolbar */}
+                      <div className="flex flex-wrap items-center justify-between gap-2.5 text-xs">
+                        <div className="flex items-center gap-1.5 bg-slate-900/90 p-1 rounded-xl border border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => setConsoleFilter("all")}
+                            className={`px-2.5 py-1 rounded-lg font-medium transition-all border-none cursor-pointer ${consoleFilter === "all" ? "bg-indigo-600 text-white shadow-sm" : "bg-transparent text-slate-400 hover:text-white"}`}
+                          >
+                            All ({totalCount})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConsoleFilter("errors")}
+                            className={`px-2.5 py-1 rounded-lg font-medium transition-all border-none cursor-pointer ${consoleFilter === "errors" ? "bg-red-600 text-white shadow-sm" : errorLines.length > 0 ? "bg-red-500/10 text-red-400 hover:bg-red-500/20" : "bg-transparent text-slate-400 hover:text-white"}`}
+                          >
+                            ❌ Errors ({errorLines.length})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConsoleFilter("browser")}
+                            className={`px-2.5 py-1 rounded-lg font-medium transition-all border-none cursor-pointer ${consoleFilter === "browser" ? "bg-cyan-600 text-white shadow-sm" : "bg-transparent text-slate-400 hover:text-white"}`}
+                          >
+                            🌐 Browser Logs ({browserLines.length})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConsoleFilter("server")}
+                            className={`px-2.5 py-1 rounded-lg font-medium transition-all border-none cursor-pointer ${consoleFilter === "server" ? "bg-teal-600 text-white shadow-sm" : "bg-transparent text-slate-400 hover:text-white"}`}
+                          >
+                            🖥️ Server HTTP ({serverLines.length})
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <div className="relative">
+                            <input
+                              type="text"
+                              value={consoleSearch}
+                              onChange={(e) => setConsoleSearch(e.target.value)}
+                              placeholder="Filter logs..."
+                              className="px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-36 sm:w-44"
+                            />
+                            {consoleSearch && (
+                              <button
+                                type="button"
+                                onClick={() => setConsoleSearch("")}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white bg-transparent border-none cursor-pointer text-xs"
+                              >
+                                ×
+                              </button>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setIsConsoleStreamPaused(!isConsoleStreamPaused)}
+                            className={`px-2.5 py-1 rounded-lg font-medium border border-slate-700 transition-all cursor-pointer flex items-center gap-1 ${isConsoleStreamPaused ? "bg-amber-500/20 text-amber-300 border-amber-500/40" : "bg-slate-800 hover:bg-slate-700 text-slate-300"}`}
+                            title={isConsoleStreamPaused ? "Resume live streaming" : "Pause live streaming"}
+                          >
+                            {isConsoleStreamPaused ? (
+                              <>
+                                <Play className="w-3 h-3 text-amber-400" /> Resume
+                              </>
+                            ) : (
+                              <>
+                                <Pause className="w-3 h-3 text-emerald-400" /> Pause
+                              </>
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(activeConsoleLogs);
+                              setCopyLogsFeedback(true);
+                              setTimeout(() => setCopyLogsFeedback(false), 2000);
+                            }}
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-medium border border-slate-700 transition-all cursor-pointer flex items-center gap-1"
+                            title="Copy all logs to clipboard"
+                          >
+                            {copyLogsFeedback ? (
+                              <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                                <Check className="w-3 h-3" /> Copied!
+                              </span>
+                            ) : (
+                              <>
+                                <Copy className="w-3 h-3 text-slate-400" /> Copy
+                              </>
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const blob = new Blob([activeConsoleLogs], { type: "text/plain;charset=utf-8" });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement("a");
+                              a.href = url;
+                              a.download = `${selectedDeployment?.site_id || "site"}-runtime.log`;
+                              a.click();
+                              URL.revokeObjectURL(url);
+                            }}
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-medium border border-slate-700 transition-all cursor-pointer flex items-center gap-1"
+                            title="Export logs as file"
+                          >
+                            <Download className="w-3 h-3 text-slate-400" /> Export
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const data = await api.get(`/deployments/${selectedDeployment.id}`, authToken ?? undefined);
+                                setActiveConsoleLogs(data.logs || "");
+                                setActiveConsoleStatus(data.status);
+                                setSelectedDeployment(prev => prev ? { ...prev, ...data } : data);
+                              } catch (e) {}
+                            }}
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-medium border border-slate-700 transition-all cursor-pointer flex items-center gap-1"
+                            title="Manually refresh logs"
+                          >
+                            <RefreshCw className="w-3 h-3 text-slate-400" /> Refresh
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Terminal Window */}
                       <div className="terminal-window border border-slate-800 bg-[#050811] rounded-xl overflow-hidden shadow-inner">
-                        <div className="terminal-header bg-slate-900/80 px-4 py-2.5 border-b border-slate-800 flex justify-between items-center">
+                        <div className="terminal-header bg-slate-900/80 px-4 py-2 border-b border-slate-800 flex justify-between items-center text-xs">
                           <div className="terminal-dots flex items-center gap-1.5">
                             <span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block"></span>
                             <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>
                             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
+                            <span className="font-mono text-[11px] text-slate-400 ml-2">aisitestudio-runtime-stream — {filteredLines.length} events</span>
                           </div>
                           <span className="text-xs font-mono flex items-center gap-1.5">
                             {isBuilding ? (
                               <span className="text-amber-400 font-bold flex items-center gap-1.5">
                                 <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
-                                BUILDING...
+                                COMPILING & DEPLOYING...
                               </span>
                             ) : isSuccess ? (
-                              <span className="text-emerald-400 font-bold flex items-center gap-1">
+                              <span className="text-emerald-400 font-semibold flex items-center gap-1">
                                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                                LIVE & READY
+                                {isConsoleStreamPaused ? "STREAM PAUSED" : "STREAMING ACTIVE"}
                               </span>
                             ) : (
                               <span className="text-red-400 font-bold flex items-center gap-1">
@@ -6701,62 +6882,124 @@ function Dashboard() {
                           </span>
                         </div>
 
-                        <div ref={consoleEndRef} className="terminal-body p-4 max-h-[350px] overflow-y-auto font-mono text-xs text-slate-200 leading-relaxed">
-                          {activeConsoleLogs.split("\n").map((line, idx) => {
-                            const clean = stripAnsi(line);
-                            if (!clean.trim()) return null;
-                            const isSuccessLine = clean.startsWith("✅") || clean.includes("SUCCESS") || clean.includes("successfully") || clean.startsWith("✓");
-                            const isErrorLine = clean.startsWith("❌") || clean.toLowerCase().includes("error") || clean.toLowerCase().includes("failed");
-                            const isStepLine = /^\d+\//.test(clean.trim()) || clean.includes("[1/") || clean.includes("[2/") || clean.includes("[3/") || clean.includes("[4/") || clean.includes("[INFO]");
-                            return (
-                              <div key={idx} className={`terminal-log-line py-0.5 ${isSuccessLine ? "text-emerald-400 font-semibold" : isErrorLine ? "text-red-400 font-semibold" : isStepLine ? "text-sky-300" : "text-slate-300"}`}>
-                                {clean}
-                              </div>
-                            );
-                          })}
-                          {isBuilding && <span className="inline-block w-2 h-4 bg-indigo-400 animate-pulse ml-1 align-middle" />}
+                        <div ref={consoleEndRef} className="terminal-body p-4 max-h-[380px] overflow-y-auto font-mono text-xs leading-relaxed space-y-0.5">
+                          {filteredLines.length === 0 ? (
+                            <div className="text-center py-8 text-slate-500 italic">
+                              {consoleSearch ? "No logs match the current search filter." : "No logs available yet. Live logs will appear in real time."}
+                            </div>
+                          ) : (
+                            filteredLines.map((line, idx) => {
+                              const clean = stripAnsi(line);
+                              if (!clean.trim()) return null;
+
+                              const isError = clean.includes("[ERROR]") || clean.includes("❌") || clean.includes("RUNTIME ERROR") || clean.includes("UNHANDLED REJECTION");
+                              const isBrowserWarn = clean.includes("[BROWSER WARN]") || clean.includes("[WARN]");
+                              const isBrowserLog = clean.includes("[BROWSER LOG]") || clean.includes("[BROWSER INFO]");
+                              const isClientBoot = clean.includes("[CLIENT BOOT]");
+                              const isServer200 = clean.includes("[SERVER HTTP 200]");
+                              const isServer404 = clean.includes("[SERVER HTTP 404]") || clean.includes("[SERVER HTTP 5");
+                              const isSuccessLine = clean.includes("[SUCCESS]") || clean.startsWith("✅") || clean.startsWith("✓");
+                              const isStepLine = /^\d+\//.test(clean.trim()) || clean.includes("[1/") || clean.includes("[2/") || clean.includes("[3/") || clean.includes("[4/");
+
+                              return (
+                                <div
+                                  key={idx}
+                                  className={`terminal-log-line py-0.5 px-1.5 rounded transition-colors ${
+                                    isError
+                                      ? "bg-red-500/15 text-red-300 font-semibold border-l-2 border-red-500"
+                                      : isBrowserWarn
+                                      ? "text-amber-300"
+                                      : isClientBoot
+                                      ? "text-cyan-300 font-semibold"
+                                      : isBrowserLog
+                                      ? "text-slate-100"
+                                      : isServer200
+                                      ? "text-teal-300"
+                                      : isServer404
+                                      ? "text-orange-400 font-semibold"
+                                      : isSuccessLine
+                                      ? "text-emerald-400 font-semibold"
+                                      : isStepLine
+                                      ? "text-sky-300"
+                                      : "text-slate-300"
+                                  }`}
+                                >
+                                  {clean}
+                                </div>
+                              );
+                            })
+                          )}
+                          {!isConsoleStreamPaused && <span className="inline-block w-2 h-3.5 bg-indigo-400 animate-pulse ml-1 align-middle" />}
                         </div>
                       </div>
 
-                      {/* Error details notification box if build failed */}
-                      {!isBuilding && !isSuccess && (
-                        <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-red-300">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-red-400">⚠️ Error:</span>
-                            <span className="text-red-200">{displayError}</span>
+                      {/* Intelligent Auto-Healer banner if live errors are detected */}
+                      {errorLines.length > 0 && (
+                        <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                          <div className="flex items-start sm:items-center gap-2">
+                            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5 sm:mt-0" />
+                            <div>
+                              <span className="font-bold text-red-300">Live Runtime Error Detected:</span>
+                              <p className="text-red-200/90 text-[11px] mt-0.5 font-mono line-clamp-1">{displayError}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={handleQuickAutoHeal}
+                              disabled={isAutoFixingFromConsole}
+                              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 border-none shadow-md shadow-amber-500/20"
+                            >
+                              {isAutoFixingFromConsole ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Auto-Healing...
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="w-3.5 h-3.5" /> ⚡ Auto-Fix with AI Doctor
+                                </>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsConsoleOpen(false);
+                                openCodeStudio(selectedDeployment);
+                              }}
+                              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-300 font-semibold rounded-lg transition-all border border-indigo-500/30 cursor-pointer"
+                            >
+                              🛠️ Open Code Studio
+                            </button>
                           </div>
                         </div>
                       )}
 
-                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pt-3 border-t border-slate-800">
-                        <div className="text-xs">
+                      {/* Modal Footer */}
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pt-3 border-t border-slate-800 text-xs">
+                        <div className="text-slate-400 flex items-center gap-2">
                           {isBuilding ? (
-                            <span className="text-amber-300">Please wait, compilation in progress...</span>
+                            <span className="text-amber-300 flex items-center gap-1.5">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Build in progress...
+                            </span>
                           ) : isSuccess ? (
                             <span className="text-emerald-400 font-semibold flex items-center gap-1.5">
-                              ✓ Build succeeded. Live URL available.
+                              ✓ Website is live and actively streaming client & server logs.
                             </span>
                           ) : (
                             <span className="text-red-400 font-semibold">✗ Deployment halted. Review error details above.</span>
                           )}
                         </div>
                         <div className="flex items-center gap-2.5 self-end sm:self-auto">
-                          {isSuccess && (() => {
-                            const liveTargetUrl = selectedDeployment?.live_url
-                              || (selectedDeployment?.site_id ? `http://localhost:8000/sites/${selectedDeployment.site_id}/` : null)
-                              || (selectedDeployment?.custom_domain ? `http://${selectedDeployment.custom_domain}` : null);
-                            if (!liveTargetUrl) return null;
-                            return (
-                              <a
-                                href={liveTargetUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold rounded-xl transition-all text-center text-decoration-none shadow-lg shadow-emerald-600/20 border-none"
-                              >
-                                🌐 Visit Live Site
-                              </a>
-                            );
-                          })()}
+                          {liveTargetUrl && (
+                            <a
+                              href={liveTargetUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold rounded-xl transition-all text-center text-decoration-none shadow-lg shadow-emerald-600/20 border-none"
+                            >
+                              🌐 Visit Live Site
+                            </a>
+                          )}
                           <button
                             onClick={() => {
                               setIsConsoleOpen(false);
@@ -7366,6 +7609,32 @@ function Dashboard() {
           setDeployProjectName(item.title);
           setIsDeployModalOpen(true);
         }}
+      />
+
+      {/* Failure Incident Reporting Modal */}
+      <ReportIssueModal
+        isOpen={isReportIssueModalOpen}
+        onClose={() => {
+          setIsReportIssueModalOpen(false);
+          setReportIssueDeployment(null);
+        }}
+        deployment={reportIssueDeployment}
+        authToken={authToken}
+        onReportSuccess={() => refetchDeployments()}
+      />
+
+      {/* Deployment Code Fix Studio & IDE Console */}
+      <DeploymentFixConsole
+        isOpen={isCodeStudioOpen}
+        onClose={() => {
+          setIsCodeStudioOpen(false);
+          setCodeStudioDeployment(null);
+          setCodeStudioIncident(null);
+        }}
+        deployment={codeStudioDeployment}
+        incident={codeStudioIncident}
+        authToken={authToken}
+        onUpdateSuccess={() => refetchDeployments()}
       />
     </>
   );
