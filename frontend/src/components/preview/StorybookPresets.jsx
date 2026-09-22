@@ -20,8 +20,8 @@ export const STORYBOOK_SECTION_PRESETS = {
       business_name: "Apex Cloud Studio",
       tagline: "Autonomous Cloud Infrastructure & AI Automation",
       logo_text: "APEX",
-      primary_color: "#6366f1",
-      secondary_color: "#ec4899",
+      primary_color: "#4f46e5",
+      secondary_color: "#0ea5e9",
       contact_email: "hello@apexcloud.io",
       contact_phone: "+1 (800) 555-0199",
     },
@@ -425,8 +425,8 @@ export function StorybookPresetBar({ sectionKey, onFetchPreset, activePreset = "
  * StorybookMiniPreview — Renders an interactive live Storybook preview card inside each section editor
  */
 export function StorybookMiniPreview({ section, brand, pages }) {
-  const primaryColor = brand?.primary_color || "#6366f1";
-  const secondaryColor = brand?.secondary_color || "#ec4899";
+  const primaryColor = brand?.primary_color || "#4f46e5";
+  const secondaryColor = brand?.secondary_color || "#0ea5e9";
 
   return (
     <div className="storybook-mini-preview-card">

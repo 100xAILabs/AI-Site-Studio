@@ -162,7 +162,7 @@ function extractTemplateFromHtml(htmlString) {
       brandName = navBrand.textContent.trim();
     }
 
-    let primaryColor = "#6366f1";
+    let primaryColor = "#4f46e5";
     const styles = doc.querySelectorAll("style");
     styles.forEach((st) => {
       const text = st.textContent || "";
@@ -579,8 +579,8 @@ export default function PreviewPage() {
     business_name: "Apex Design Studio",
     tagline: "Next-Generation Web & Design Solutions",
     logo_text: "APEX",
-    primary_color: "#6366f1",
-    secondary_color: "#ec4899",
+    primary_color: "#4f46e5",
+    secondary_color: "#0ea5e9",
     contact_email: "hello@apex-studio.com",
     contact_phone: "+1 (800) 555-0199",
   });
@@ -593,7 +593,7 @@ export default function PreviewPage() {
       navLinks: ["Templates", "Features", "Pricing", "About"],
       ctaText: "Get Started",
       stickyGlass: true,
-      themeColor: "#6366f1"
+      themeColor: "#4f46e5"
     },
     hero: {
       badgeText: "🚀 Next-Gen Web Studio",
@@ -605,7 +605,7 @@ export default function PreviewPage() {
       stat1Label: "Uptime SLA",
       stat2Value: "450k+",
       stat2Label: "Active Users",
-      themeColor: "#6366f1"
+      themeColor: "#4f46e5"
     },
     services: {
       sectionTitle: "Comprehensive Digital Capabilities",
@@ -616,7 +616,7 @@ export default function PreviewPage() {
       s2Desc: "Niche-tailored, high-converting copy and localized metatags.",
       s3Title: "SEO & Performance",
       s3Desc: "Lighthouse 100 optimization with automated schema markup.",
-      themeColor: "#6366f1"
+      themeColor: "#4f46e5"
     },
     about: {
       badgeText: "About Apex Studio",
@@ -624,7 +624,7 @@ export default function PreviewPage() {
       story: "Founded in 2024, our studio bridges the gap between dynamic code generation and human craft. We provide creators, developers, and enterprises with production-ready website templates.",
       mission: "To empower every creator to build, customize, and launch world-class digital experiences effortlessly.",
       teamCount: "24 Engineers & Designers",
-      themeColor: "#6366f1"
+      themeColor: "#4f46e5"
     },
     pricing: {
       title: "Flexible Transparent Pricing",
@@ -639,7 +639,7 @@ export default function PreviewPage() {
       tier3Price: "$299",
       tier3Period: "/ license",
       popular: true,
-      themeColor: "#6366f1"
+      themeColor: "#4f46e5"
     },
     testimonials: {
       sectionTitle: "Trusted by Creators & Agencies Worldwide",
@@ -648,7 +648,7 @@ export default function PreviewPage() {
       role: "VP of Product",
       company: "CloudScale Inc.",
       rating: "5",
-      themeColor: "#6366f1"
+      themeColor: "#4f46e5"
     },
     contact: {
       title: "Get in Touch with Our Team",
@@ -658,14 +658,14 @@ export default function PreviewPage() {
       address: "",
       hours: "Mon - Fri: 9:00 AM - 6:00 PM PST",
       buttonText: "Send Message",
-      themeColor: "#6366f1"
+      themeColor: "#4f46e5"
     },
     announcement: {
       badge: "Special Offer",
       title: "Spring 2026 Collection Live",
       message: "Explore our newest production-ready templates with 20% discount using promo code SPRING26.",
       ctaText: "Explore Now",
-      themeColor: "#6366f1"
+      themeColor: "#4f46e5"
     },
     footer: {
       brandName: "Apex Design Studio",
@@ -674,7 +674,7 @@ export default function PreviewPage() {
       link1: "Privacy Policy",
       link2: "Terms of Service",
       link3: "Support Center",
-      themeColor: "#6366f1"
+      themeColor: "#4f46e5"
     }
   });
 
@@ -1904,7 +1904,7 @@ export default function PreviewPage() {
 }
 
 function renderDesignedOutputView(sectionId, props) {
-  const themeColor = props.themeColor || "#6366f1";
+  const themeColor = props.themeColor || "#4f46e5";
   const sid = (sectionId || "").toLowerCase();
 
   // 🧭 1. NAVIGATION HEADER
@@ -1928,7 +1928,7 @@ function renderDesignedOutputView(sectionId, props) {
               <div
                 className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center font-black text-xs sm:text-sm text-white shadow-lg tracking-wider uppercase flex-shrink-0"
                 style={{
-                  background: `linear-gradient(135deg, ${themeColor}, #ec4899)`,
+                  background: `linear-gradient(135deg, ${themeColor}, #0ea5e9)`,
                   boxShadow: `0 4px 14px ${themeColor}40`
                 }}
               >
@@ -2302,6 +2302,398 @@ function renderDesignedOutputView(sectionId, props) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Color System & Conversion Utilities
+// ─────────────────────────────────────────────────────────────────────────────
+function hexToRgb(hex) {
+  if (!hex) return { r: 79, g: 70, b: 229 };
+  let h = hex.trim().replace(/^#/, "");
+  if (h.length === 3) {
+    h = h.split("").map((c) => c + c).join("");
+  }
+  if (h.length < 6) return { r: 79, g: 70, b: 229 };
+  const num = parseInt(h.substring(0, 6), 16);
+  if (isNaN(num)) return { r: 79, g: 70, b: 229 };
+  return {
+    r: (num >> 16) & 255,
+    g: (num >> 8) & 255,
+    b: num & 255,
+  };
+}
+
+function rgbToHex(r, g, b) {
+  const toHex = (n) => {
+    const clamped = Math.max(0, Math.min(255, Math.round(Number(n) || 0)));
+    return clamped.toString(16).padStart(2, "0");
+  };
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+function rgbToHsl(r, g, b) {
+  const rNorm = Math.max(0, Math.min(255, r)) / 255;
+  const gNorm = Math.max(0, Math.min(255, g)) / 255;
+  const bNorm = Math.max(0, Math.min(255, b)) / 255;
+  const max = Math.max(rNorm, gNorm, bNorm);
+  const min = Math.min(rNorm, gNorm, bNorm);
+  const delta = max - min;
+
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+
+  if (delta !== 0) {
+    s = l > 0.5 ? delta / (2 - max - min) : delta / (max + min);
+    if (max === rNorm) {
+      h = ((gNorm - bNorm) / delta + (gNorm < bNorm ? 6 : 0)) / 6;
+    } else if (max === gNorm) {
+      h = ((bNorm - rNorm) / delta + 2) / 6;
+    } else {
+      h = ((rNorm - gNorm) / delta + 4) / 6;
+    }
+  }
+
+  return {
+    h: Math.round(h * 360),
+    s: Math.round(s * 100),
+    l: Math.round(l * 100),
+  };
+}
+
+function hslToRgb(h, s, l) {
+  const hNorm = (((Number(h) % 360) + 360) % 360) / 360;
+  const sNorm = Math.max(0, Math.min(100, Number(s) || 0)) / 100;
+  const lNorm = Math.max(0, Math.min(100, Number(l) || 0)) / 100;
+
+  if (sNorm === 0) {
+    const val = Math.round(lNorm * 255);
+    return { r: val, g: val, b: val };
+  }
+
+  const hue2rgb = (p, q, t) => {
+    let tt = t;
+    if (tt < 0) tt += 1;
+    if (tt > 1) tt -= 1;
+    if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+    if (tt < 1 / 2) return q;
+    if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+    return p;
+  };
+
+  const q = lNorm < 0.5 ? lNorm * (1 + sNorm) : lNorm + sNorm - lNorm * sNorm;
+  const p = 2 * lNorm - q;
+
+  return {
+    r: Math.round(hue2rgb(p, q, hNorm + 1 / 3) * 255),
+    g: Math.round(hue2rgb(p, q, hNorm) * 255),
+    b: Math.round(hue2rgb(p, q, hNorm - 1 / 3) * 255),
+  };
+}
+
+function normalizeToHex(input) {
+  if (!input) return "#4f46e5";
+  const str = input.trim();
+  if (str.startsWith("#")) {
+    const raw = str.replace(/[^0-9a-fA-F]/g, "");
+    if (raw.length === 3) {
+      return "#" + raw.split("").map((c) => c + c).join("").toLowerCase();
+    }
+    if (raw.length >= 6) {
+      return "#" + raw.substring(0, 6).toLowerCase();
+    }
+    return str;
+  }
+  const rgbMatch = str.match(/rgba?\s*\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i);
+  if (rgbMatch) {
+    return rgbToHex(rgbMatch[1], rgbMatch[2], rgbMatch[3]);
+  }
+  const hslMatch = str.match(/hsla?\s*\(\s*(\d{1,3})\s*,\s*(\d{1,3})%?\s*,\s*(\d{1,3})%?/i);
+  if (hslMatch) {
+    const { r, g, b } = hslToRgb(hslMatch[1], hslMatch[2], hslMatch[3]);
+    return rgbToHex(r, g, b);
+  }
+  if (/^[0-9a-fA-F]{6}$/.test(str)) {
+    return "#" + str.toLowerCase();
+  }
+  if (/^[0-9a-fA-F]{3}$/.test(str)) {
+    return "#" + str.split("").map((c) => c + c).join("").toLowerCase();
+  }
+  return str;
+}
+
+function getFormattedColor(hex, format) {
+  const cleanHex = normalizeToHex(hex);
+  const rgb = hexToRgb(cleanHex);
+  if (format === "RGB") {
+    return `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
+  }
+  if (format === "HSL") {
+    const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+    return `hsl(${hsl.h}, ${hsl.s}%, ${hsl.l}%)`;
+  }
+  return cleanHex.toUpperCase();
+}
+
+// 12 Curated Vibrant Modern Web Palette Colors
+const ADDITIONAL_COLOR_SWATCHES = [
+  { name: "Emerald", hex: "#10b981", tag: "Success Emerald" },
+  { name: "Royal Violet", hex: "#8b5cf6", tag: "Vibrant Violet" },
+  { name: "Rose Pink", hex: "#ec4899", tag: "Modern Rose" },
+  { name: "Sunset Amber", hex: "#f59e0b", tag: "Warm Gold" },
+  { name: "Coral Orange", hex: "#f97316", tag: "Sunset Coral" },
+  { name: "Crimson Red", hex: "#e11d48", tag: "Vivid Crimson" },
+  { name: "Electric Blue", hex: "#2563eb", tag: "Tech Blue" },
+  { name: "Cyan Aqua", hex: "#06b6d4", tag: "Neon Cyan" },
+  { name: "Slate Navy", hex: "#1e293b", tag: "Dark Slate" },
+  { name: "Obsidian", hex: "#09090b", tag: "Obsidian Black" },
+  { name: "Plum Purple", hex: "#7c3aed", tag: "Deep Purple" },
+  { name: "Classic Ruby", hex: "#c4222c", tag: "Classic Ruby" },
+];
+
+/**
+ * Enhanced ThemeColorPicker — Supports Application Primary & Secondary presets,
+ * 12 Curated Colors, and Format Switching (HEX, RGB, HSL).
+ */
+function ThemeColorPicker({ value, onChange, label = "Theme Accent Color" }) {
+  const currentColor = value || "#4f46e5";
+  const [format, setFormat] = useState("HEX"); // "HEX" | "RGB" | "HSL"
+  const [copied, setCopied] = useState(false);
+  const [localInput, setLocalInput] = useState(() => getFormattedColor(currentColor, "HEX"));
+
+  useEffect(() => {
+    setLocalInput(getFormattedColor(currentColor, format));
+  }, [currentColor, format]);
+
+  const handleFormatChange = (fmt) => {
+    setFormat(fmt);
+    setLocalInput(getFormattedColor(currentColor, fmt));
+  };
+
+  const handleInputChange = (e) => {
+    const raw = e.target.value;
+    setLocalInput(raw);
+    const parsedHex = normalizeToHex(raw);
+    if (/^#[0-9a-fA-F]{6}$/.test(parsedHex)) {
+      onChange("themeColor", parsedHex);
+    }
+  };
+
+  const handleInputBlur = () => {
+    setLocalInput(getFormattedColor(currentColor, format));
+  };
+
+  const handleSelectColor = (hex) => {
+    const cleanHex = normalizeToHex(hex);
+    onChange("themeColor", cleanHex);
+    setLocalInput(getFormattedColor(cleanHex, format));
+  };
+
+  const handleCopy = () => {
+    const textToCopy = getFormattedColor(currentColor, format);
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(textToCopy);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+
+  const currentHex = normalizeToHex(currentColor).toLowerCase();
+  const isPrimaryActive = currentHex === "#4f46e5" || currentHex === "#6366f1";
+  const isSecondaryActive = currentHex === "#0ea5e9" || currentHex === "#0284c7";
+
+  return (
+    <div className="space-y-3 pt-1">
+      {/* Header & Format Switcher */}
+      <div className="flex items-center justify-between">
+        <label className="sb-control-label mb-0 flex items-center gap-1.5">
+          <span>{label}</span>
+        </label>
+        {/* Format Selector Pills (HEX | RGB | HSL) */}
+        <div className="flex items-center p-0.5 rounded-lg bg-muted/60 border border-border/60 text-[10px] font-semibold">
+          {["HEX", "RGB", "HSL"].map((fmt) => (
+            <button
+              key={fmt}
+              type="button"
+              onClick={() => handleFormatChange(fmt)}
+              className={cn(
+                "px-2 py-0.5 rounded-md transition-all",
+                format === fmt
+                  ? "bg-card text-foreground shadow-sm font-bold border border-border/40"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {fmt}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 1. Application Brand Color Presets (Primary & Secondary) */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+          <span>Application Brand Colors</span>
+          <span className="font-mono text-[9px] text-indigo-500 font-bold bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20">
+            Design Tokens
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {/* Primary Preset */}
+          <button
+            type="button"
+            onClick={() => handleSelectColor("#4f46e5")}
+            className={cn(
+              "p-2.5 rounded-xl border text-left flex flex-col gap-1 transition-all relative group cursor-pointer",
+              isPrimaryActive
+                ? "border-indigo-500 bg-indigo-500/10 ring-2 ring-indigo-500/30 shadow-sm"
+                : "border-border/70 bg-card hover:bg-muted/40 hover:border-indigo-500/40"
+            )}
+          >
+            <div className="flex items-center justify-between w-full">
+              <div className="flex items-center gap-1.5">
+                <span
+                  className="w-3.5 h-3.5 rounded-full shadow-sm flex-shrink-0 border border-white/20"
+                  style={{ backgroundColor: "#4f46e5" }}
+                />
+                <span className="text-xs font-bold text-foreground">Primary</span>
+              </div>
+              {isPrimaryActive ? (
+                <Check className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
+              ) : (
+                <span className="text-[9px] font-semibold text-muted-foreground uppercase">Brand</span>
+              )}
+            </div>
+            <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground">
+              <span>{format === "HEX" ? "#4F46E5" : format === "RGB" ? "rgb(79, 70, 229)" : "hsl(231, 58%, 55%)"}</span>
+            </div>
+          </button>
+
+          {/* Secondary Preset */}
+          <button
+            type="button"
+            onClick={() => handleSelectColor("#0ea5e9")}
+            className={cn(
+              "p-2.5 rounded-xl border text-left flex flex-col gap-1 transition-all relative group cursor-pointer",
+              isSecondaryActive
+                ? "border-sky-500 bg-sky-500/10 ring-2 ring-sky-500/30 shadow-sm"
+                : "border-border/70 bg-card hover:bg-muted/40 hover:border-sky-500/40"
+            )}
+          >
+            <div className="flex items-center justify-between w-full">
+              <div className="flex items-center gap-1.5">
+                <span
+                  className="w-3.5 h-3.5 rounded-full shadow-sm flex-shrink-0 border border-white/20"
+                  style={{ backgroundColor: "#0ea5e9" }}
+                />
+                <span className="text-xs font-bold text-foreground">Secondary</span>
+              </div>
+              {isSecondaryActive ? (
+                <Check className="w-3.5 h-3.5 text-sky-500 flex-shrink-0" />
+              ) : (
+                <span className="text-[9px] font-semibold text-muted-foreground uppercase">Accent</span>
+              )}
+            </div>
+            <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground">
+              <span>{format === "HEX" ? "#0EA5E9" : format === "RGB" ? "rgb(14, 165, 233)" : "hsl(197, 71%, 52%)"}</span>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* 2. Additional Curated Colors */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+          <span>Additional Curated Colors</span>
+          <span className="text-[10px] text-muted-foreground font-mono">12 Colors</span>
+        </div>
+        <div className="grid grid-cols-6 gap-2 pt-0.5">
+          {ADDITIONAL_COLOR_SWATCHES.map((sw) => {
+            const isSelected = currentHex === sw.hex.toLowerCase();
+            return (
+              <button
+                key={sw.hex}
+                type="button"
+                onClick={() => handleSelectColor(sw.hex)}
+                title={`${sw.name} (${sw.hex})`}
+                className={cn(
+                  "w-full aspect-square rounded-lg border flex items-center justify-center transition-all relative group cursor-pointer",
+                  isSelected
+                    ? "ring-2 ring-foreground/60 ring-offset-2 ring-offset-background scale-105 shadow-md"
+                    : "border-border/60 hover:scale-110 hover:shadow-sm"
+                )}
+                style={{ backgroundColor: sw.hex }}
+              >
+                {isSelected && (
+                  <Check
+                    className={cn(
+                      "w-3.5 h-3.5 stroke-[3]",
+                      sw.hex === "#09090b" || sw.hex === "#1e293b" || sw.hex === "#7c3aed" || sw.hex === "#c4222c" || sw.hex === "#e11d48" || sw.hex === "#2563eb"
+                        ? "text-white"
+                        : "text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]"
+                    )}
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 3. Formatted Live Input & Native Eyedropper / Color Picker */}
+      <div className="space-y-1.5 pt-1">
+        <div className="flex items-center justify-between text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+          <span>Custom Value ({format})</span>
+          {copied ? (
+            <span className="text-emerald-500 font-bold flex items-center gap-1 text-[10px]">
+              <Check className="w-3 h-3" /> Copied!
+            </span>
+          ) : (
+            <span className="text-[10px] text-muted-foreground">Click swatch to fine-tune</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Visual Swatch & Native Color Wheel Trigger */}
+          <div className="relative flex-shrink-0 group">
+            <div
+              className="w-9 h-9 rounded-xl border border-border shadow-sm flex items-center justify-center cursor-pointer transition-transform group-hover:scale-105"
+              style={{ backgroundColor: currentHex }}
+            />
+            <input
+              type="color"
+              value={currentHex.length === 7 ? currentHex : "#4f46e5"}
+              onChange={(e) => handleSelectColor(e.target.value)}
+              className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+              title="Click to open system color picker"
+            />
+          </div>
+
+          {/* Formatted Text Input (Supports HEX, RGB, HSL) */}
+          <div className="relative flex-1">
+            <input
+              type="text"
+              value={localInput}
+              onChange={handleInputChange}
+              onBlur={handleInputBlur}
+              placeholder={format === "HEX" ? "#4F46E5" : format === "RGB" ? "rgb(79, 70, 229)" : "hsl(231, 58%, 55%)"}
+              className="sb-control-input text-xs font-mono w-full pr-8"
+            />
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground transition-colors rounded hover:bg-muted cursor-pointer"
+              title={`Copy ${format} value`}
+            >
+              {copied ? (
+                <Check className="w-3.5 h-3.5 text-emerald-500" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function renderFriendlyFields(sectionId, props, onChange) {
   const sid = (sectionId || "").toLowerCase();
 
@@ -2409,24 +2801,11 @@ function renderFriendlyFields(sectionId, props, onChange) {
             className="sb-control-input text-xs font-mono"
           />
         </div>
-        <div>
-          <label className="sb-control-label">Theme Accent Color</label>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={props.themeColor || "#6366f1"}
-              onChange={(e) => onChange("themeColor", e.target.value)}
-              className="w-9 h-9 rounded-lg border border-border cursor-pointer p-0.5 bg-background"
-            />
-            <input
-              type="text"
-              value={props.themeColor || "#6366f1"}
-              onChange={(e) => onChange("themeColor", e.target.value)}
-              placeholder="#6366f1"
-              className="sb-control-input text-xs font-mono flex-1"
-            />
-          </div>
-        </div>
+        <ThemeColorPicker
+          value={props.themeColor}
+          onChange={onChange}
+          label="Theme Accent Color"
+        />
         <div className="flex items-center justify-between pt-2">
           <span className="text-xs font-semibold text-foreground">Glassmorphism / Fixed Header</span>
           <label className="sb-toggle-wrapper">
@@ -2477,6 +2856,11 @@ function renderFriendlyFields(sectionId, props, onChange) {
             className="sb-control-input text-xs"
           />
         </div>
+        <ThemeColorPicker
+          value={props.themeColor}
+          onChange={onChange}
+          label="Footer Accent Color"
+        />
       </div>
     );
   }
@@ -3047,6 +3431,12 @@ function renderFriendlyFields(sectionId, props, onChange) {
             />
           </div>
         </div>
+
+        <ThemeColorPicker
+          value={props.themeColor}
+          onChange={onChange}
+          label="Hero Button & Accent Color"
+        />
 
         {/* Stats */}
         {(props.stat1Value !== undefined || props.stat2Value !== undefined) && (

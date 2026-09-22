@@ -210,7 +210,7 @@ async def get_live_preview_extracted_data(
         
     title = template.title or "Web Template"
     clean_brand = title.split("—")[0].split("-")[0].split("|")[0].strip()
-    primary_color = "#6366f1"
+    primary_color = "#4f46e5"
     if template.color_scheme:
         c_lower = template.color_scheme.lower()
         if "red" in c_lower: primary_color = "#C4222C"
@@ -632,7 +632,7 @@ async def get_live_preview_extracted_data(
         brand_name = clean_brand
 
     # Detect theme color from :root or style
-    primary_color = "#6366f1"
+    primary_color = "#4f46e5"
     style_tag = soup.find("style")
     if style_tag and style_tag.string:
         st = style_tag.string
