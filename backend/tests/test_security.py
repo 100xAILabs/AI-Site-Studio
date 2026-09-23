@@ -210,4 +210,21 @@ async def test_site_router_path_traversal_blocked(client: AsyncClient):
     assert res.status_code in (403, 404)
 
 
+@pytest.mark.asyncio
+async def test_telemetry_crash_report(client: AsyncClient):
+    """Verify that frontend ErrorBoundary crash telemetry reports are recorded successfully."""
+    payload = {
+        "message": "TypeError: Cannot read properties of undefined",
+        "stack": "TypeError: Cannot read properties of undefined at Canvas.render",
+        "componentStack": "in Canvas\n in ErrorBoundary",
+        "url": "http://localhost:5173/preview/123",
+        "userAgent": "Mozilla/5.0 Test",
+        "timestamp": "2026-09-23T10:00:00Z",
+    }
+    res = await client.post("/api/v1/telemetry/crash", json=payload)
+    assert res.status_code == 200
+    assert res.json()["status"] == "recorded"
+
+
+
 

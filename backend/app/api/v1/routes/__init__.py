@@ -18,6 +18,7 @@ from . import (
     ai,
     files,
     incidents,
+    telemetry,
 )
 
 __all__ = [
@@ -36,4 +37,5 @@ __all__ = [
     "ai",
     "files",
     "incidents",
+    "telemetry",
 ]
