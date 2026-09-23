@@ -36,21 +36,11 @@ class AIDebuggerService:
 
         # Reject raw JSON status anomalies masquerading as code
         trimmed = code.strip()
-        if trimmed.startswith("{") and ("status" in trimmed or "diagnosis" in trimmed or "Dynamic structural" in trimmed):
+        if (trimmed.startswith("{") and ("status" in trimmed or "diagnosis" in trimmed or "Dynamic structural" in trimmed)) or (trimmed.startswith("{") and "export default" not in trimmed):
             if ext.lower() in [".jsx", ".tsx", ".js", ".ts"]:
-                return """import React from 'react';
-
-export default function App() {
-  return (
-    <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-8">
-      <div className="max-w-md text-center">
-        <h1 className="text-3xl font-extrabold mb-3">Live Template Preview</h1>
-        <p className="text-slate-400 text-sm">Synthesized full-stack React application ready for inspection.</p>
-      </div>
-    </div>
-  );
-}
-"""
+                from app.services.template_synthesizer import analyze_prompt_intent, synthesize_react_application
+                profile = analyze_prompt_intent("Professional Website Template")
+                return synthesize_react_application(profile)
 
         code = clean_code_response(code, ext)
         code = re.sub(r'export\s+default\s+function\s*;', 'export default App;', code)
@@ -61,15 +51,17 @@ export default function App() {
         code = re.sub(r'\);\s*(</[A-Za-z0-9_.-]+>)', r'\1', code)
         code = re.sub(r';\s*(</[A-Za-z0-9_.-]+>)', r'\1', code)
 
-        # Fix multiple duplicate `export default` statements
-        export_matches = list(re.finditer(r'export\s+default\s+([A-Za-z0-9_]+)\s*;?', code))
-        if len(export_matches) > 1:
-            # Keep only the last valid export default
-            last_match = export_matches[-1]
-            last_func = last_match.group(1)
-            # Remove all export defaults
-            code = re.sub(r'export\s+default\s+[A-Za-z0-9_]+\s*;?', '', code)
-            code = code.strip() + f"\n\nexport default {last_func};\n"
+        # Fix duplicate or missing export defaults safely
+        has_inline_export = bool(re.search(r'export\s+default\s+(function|class)\b', code))
+        if not has_inline_export:
+            export_matches = list(re.finditer(r'export\s+default\s+([A-Za-z0-9_]+)\s*;?', code))
+            valid_standalone = [m for m in export_matches if m.group(1) not in ("function", "class", "const")]
+            if len(valid_standalone) > 1:
+                last_func = valid_standalone[-1].group(1)
+                code = re.sub(r'export\s+default\s+[A-Za-z0-9_]+\s*;?', '', code)
+                code = code.strip() + f"\n\nexport default {last_func};\n"
+        else:
+            code = re.sub(r'\nexport\s+default\s+[A-Za-z0-9_]+\s*;?\s*$', '', code).strip() + "\n"
 
         # Apply structural repair for JSX/HTML
         if ext.lower() in [".jsx", ".tsx", ".js", ".ts"]:

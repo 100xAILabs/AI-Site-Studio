@@ -509,99 +509,10 @@ class AIService:
                     "score": 98
                 })
 
-        # Structural Code Generator Fallback
-        return """import React, { useState } from 'react';
-import { Sparkles, ArrowRight, Check, Star, Menu, X, Mail, Phone, MapPin, Globe } from 'lucide-react';
-
-export default function App() {
-  const [currentPage, setCurrentPage] = useState('home');
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans">
-      <nav className="sticky top-0 z-50 backdrop-blur-xl bg-slate-900/80 border-b border-white/10 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2 font-bold text-xl text-primary">
-          <Sparkles className="w-6 h-6 text-indigo-400" />
-          <span>Apex Studio</span>
-        </div>
-        <div className="hidden md:flex items-center gap-6 text-sm font-medium">
-          {['home', 'about', 'services', 'contact'].map((page) => (
-            <button
-              key={page}
-              onClick={() => setCurrentPage(page)}
-              className={`capitalize transition-colors ${currentPage === page ? 'text-indigo-400 font-bold' : 'text-slate-300 hover:text-white'}`}
-            >
-              {page}
-            </button>
-          ))}
-        </div>
-        <button className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold text-xs transition-transform hover:scale-105 shadow-lg shadow-indigo-500/20">
-          Get Started
-        </button>
-      </nav>
-
-      <main className="max-w-7xl mx-auto px-6 py-16">
-        {currentPage === 'home' && (
-          <section className="text-center py-20 animate-fade-in">
-            <span className="px-4 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-semibold uppercase tracking-wider">
-              ✨ Next-Gen Production Template
-            </span>
-            <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mt-6 mb-6 bg-gradient-to-r from-white via-slate-200 to-indigo-400 bg-clip-text text-transparent">
-              Build Extraordinary Full-Stack Web Experiences
-            </h1>
-            <p className="text-lg text-slate-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-              Designed with Awwwards-level glassmorphic components, responsive grid layouts, dedicated REST APIs, and isolated database architecture.
-            </p>
-            <div className="flex items-center justify-center gap-4">
-              <button onClick={() => setCurrentPage('services')} className="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm shadow-xl flex items-center gap-2">
-                <span>Explore Features</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-              <button onClick={() => setCurrentPage('about')} className="px-6 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/10 font-bold text-sm">
-                Learn More
-              </button>
-            </div>
-          </section>
-        )}
-
-        {currentPage === 'about' && (
-          <section className="py-12 animate-fade-in">
-            <h2 className="text-3xl font-bold text-white mb-4">About Our Platform</h2>
-            <p className="text-slate-400 leading-relaxed">
-              We empower creators and developers to generate, personalize, and deploy high-fidelity full-stack applications instantly.
-            </p>
-          </section>
-        )}
-
-        {currentPage === 'services' && (
-          <section className="py-12 grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in">
-            {['Frontend Architecture', 'Dedicated REST API', 'Isolated Database'].map((service, idx) => (
-              <div key={idx} className="p-6 rounded-2xl bg-slate-800/60 border border-white/10 backdrop-blur-lg hover:border-indigo-500/40 transition-all">
-                <Sparkles className="w-8 h-8 text-indigo-400 mb-4" />
-                <h3 className="text-lg font-bold text-white mb-2">{service}</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">Production-ready implementation engineered for high performance.</p>
-              </div>
-            ))}
-          </section>
-        )}
-
-        {currentPage === 'contact' && (
-          <section className="py-12 max-w-lg mx-auto bg-slate-800/60 p-8 rounded-2xl border border-white/10 animate-fade-in">
-            <h2 className="text-2xl font-bold text-white mb-6">Contact Us</h2>
-            <input type="text" placeholder="Your Name" className="w-full mb-4 px-4 py-2.5 rounded-xl bg-slate-900 border border-white/10 text-white text-sm" />
-            <input type="email" placeholder="Your Email" className="w-full mb-4 px-4 py-2.5 rounded-xl bg-slate-900 border border-white/10 text-white text-sm" />
-            <textarea placeholder="Your Message" rows={4} className="w-full mb-4 px-4 py-2.5 rounded-xl bg-slate-900 border border-white/10 text-white text-sm"></textarea>
-            <button className="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-500">Send Message</button>
-          </section>
-        )}
-      </main>
-
-      <footer className="border-t border-white/10 py-8 px-6 text-center text-xs text-slate-500">
-        © 2026 Apex Studio. All rights reserved.
-      </footer>
-    </div>
-  );
-}"""
+        # Structural Code Generator Fallback (Guaranteed 100% syntactically valid & domain-tailored)
+        from app.services.template_synthesizer import analyze_prompt_intent, synthesize_react_application
+        profile = analyze_prompt_intent(prompt)
+        return synthesize_react_application(profile)
 
     async def stream_ai_content(
         self,
@@ -833,13 +744,15 @@ export default function App() {
             if key in prompt_lower:
                 return unsplash_url
 
-        # Otherwise generate high-definition Flux HD model image via Pollinations
-        clean_prompt = prompt.replace("screenshot", "photography").replace("UI", "aesthetic").replace("landing page", "studio banner")
-        clean_prompt = f"hyperrealistic high definition 4k crisp photography of {clean_prompt}, sharp focus, studio lighting, highly detailed"
-        import random
-        seed = random.randint(1000, 99999)
-        encoded_prompt = urllib.parse.quote(clean_prompt[:250])
-        return f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1280&height=800&nologo=true&model=flux&seed={seed}&enhance=true"
+        try:
+            from app.services.template_synthesizer import analyze_prompt_intent
+            profile = analyze_prompt_intent(prompt)
+            if profile.hero_image:
+                return profile.hero_image
+        except Exception:
+            pass
+
+        return "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1280&q=80"
 
     async def generate_business_content(
         self,
@@ -1189,20 +1102,10 @@ def repair_truncated_jsx(code: str) -> str:
 
     # Guard against raw JSON status objects being parsed as JSX code
     trimmed = code.strip()
-    if trimmed.startswith("{") and ("status" in trimmed or "diagnosis" in trimmed or "Dynamic structural" in trimmed):
-        return """import React from 'react';
-
-export default function App() {
-  return (
-    <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-8">
-      <div className="max-w-md text-center">
-        <h1 className="text-3xl font-extrabold mb-3">Live Template Preview</h1>
-        <p className="text-slate-400 text-sm">Synthesized full-stack React application ready for inspection.</p>
-      </div>
-    </div>
-  );
-}
-"""
+    if (trimmed.startswith("{") and ("status" in trimmed or "diagnosis" in trimmed or "Dynamic structural" in trimmed)) or (trimmed.startswith("{") and "export default" not in trimmed):
+        from app.services.template_synthesizer import analyze_prompt_intent, synthesize_react_application
+        profile = analyze_prompt_intent("Professional Website Template")
+        return synthesize_react_application(profile)
 
     import re
 
@@ -1330,37 +1233,35 @@ export default function App() {
 
     repaired = code + closing_str
 
-    # Clean double export defaults
-    export_matches = list(re.finditer(r'export\s+default\s+([A-Za-z0-9_]+)\s*;?', repaired))
-    if len(export_matches) > 1:
-        last_func = export_matches[-1].group(1)
-        repaired = re.sub(r'export\s+default\s+[A-Za-z0-9_]+\s*;?', '', repaired)
-        repaired = repaired.strip() + f"\n\nexport default {last_func};\n"
-    elif not export_matches:
-        if "function App" in repaired or "const App" in repaired:
-            repaired += "\nexport default App;\n"
-        elif "function " in repaired:
-            func_name = re.search(r'function\s+([A-Za-z0-9_]+)', repaired)
-            if func_name:
-                repaired += f"\nexport default {func_name.group(1)};\n"
-        else:
-            repaired += "\nexport default App;\n"
+    # Clean and validate export defaults safely without destroying inline function exports
+    has_inline_export = bool(re.search(r'export\s+default\s+(function|class)\b', repaired))
 
-    # Clean invalid `export default function;` or `export default ;`
-    repaired = re.sub(r'export\s+default\s+function\s*;', 'export default App;', repaired)
-    repaired = re.sub(r'export\s+default\s*;', 'export default App;', repaired)
+    if not has_inline_export:
+        export_matches = list(re.finditer(r'export\s+default\s+([A-Za-z0-9_]+)\s*;?', repaired))
+        valid_standalone = [m for m in export_matches if m.group(1) not in ("function", "class", "const")]
+        if len(valid_standalone) > 1:
+            last_func = valid_standalone[-1].group(1)
+            repaired = re.sub(r'export\s+default\s+[A-Za-z0-9_]+\s*;?', '', repaired)
+            repaired = repaired.strip() + f"\n\nexport default {last_func};\n"
+        elif not valid_standalone:
+            if "function App" in repaired or "const App" in repaired:
+                repaired = repaired.strip() + "\n\nexport default App;\n"
+            elif "function " in repaired:
+                func_name = re.search(r'function\s+([A-Za-z0-9_]+)', repaired)
+                if func_name:
+                    repaired = repaired.strip() + f"\n\nexport default {func_name.group(1)};\n"
+                else:
+                    repaired = repaired.strip() + "\n\nexport default App;\n"
+            else:
+                repaired = repaired.strip() + "\n\nexport default App;\n"
 
-    # Strip any garbage, stray quotes, or unclosed HTML tags after export default
-    if "export default" in repaired:
-        parts = repaired.split("export default")
-        after_export = parts[1]
-        m_exp = re.search(r'^\s*([A-Za-z0-9_]+(?:\(\))?)\s*;?', after_export)
-        if m_exp:
-            exp_name = m_exp.group(1).replace("()", "")
-            if exp_name in ["function", "const", "class"]:
-                fn_match = re.search(r'function\s+([A-Za-z0-9_]+)', parts[0])
-                exp_name = fn_match.group(1) if fn_match else "App"
-            repaired = parts[0] + f"export default {exp_name};\n"
+        # Safely strip conversational trailing comments after the final standalone export default
+        last_export = list(re.finditer(r'(export\s+default\s+[A-Za-z0-9_]+\s*;)', repaired))
+        if last_export:
+            repaired = repaired[:last_export[-1].end()].strip() + "\n"
+    else:
+        # File has `export default function ...`. Remove any duplicate trailing standalone export defaults.
+        repaired = re.sub(r'\nexport\s+default\s+[A-Za-z0-9_]+\s*;?\s*$', '', repaired).strip() + "\n"
 
     # Final cleanup of premature `);` and stray trailing quotes
     repaired = re.sub(r'\);\s*(</[A-Za-z0-9_.-]+>)', r'\1', repaired)

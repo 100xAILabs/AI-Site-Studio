@@ -1390,11 +1390,13 @@ async def _generate_template_by_prompt_impl(
     has_dark_mode = True
     category_uuid = categories[0].id
     chosen_cat_name = categories[0].name
-    developer_avatar = f"https://image.pollinations.ai/prompt/developer%20avatar%20logo%20for%20{title}?width=200&height=200&nologo=true"
-    thumbnail_url = f"https://image.pollinations.ai/prompt/hero%20website%20screenshot%20for%20{title}?width=1200&height=800&nologo=true"
-    gallery_images = [
-        f"https://image.pollinations.ai/prompt/services%20grid%20screenshot%20for%20{title}?width=800&height=600&nologo=true",
-        f"https://image.pollinations.ai/prompt/contact%20form%20screenshot%20for%20{title}?width=800&height=600&nologo=true"
+    from app.services.template_synthesizer import analyze_prompt_intent
+    domain_profile = analyze_prompt_intent(prompt=request.prompt, industry_hint=request.business_type or "", business_title_hint=title)
+    developer_avatar = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&h=200&q=80"
+    thumbnail_url = domain_profile.hero_image
+    gallery_images = domain_profile.gallery_images if domain_profile.gallery_images else [
+        domain_profile.hero_image,
+        "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=800&q=80"
     ]
 
     # Stage F: Project ZIP Architecture Analysis (GEMINI_MODEL_PROJECT_ZIP_ANALYSIS)

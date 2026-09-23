@@ -2353,12 +2353,12 @@ async def serve_live_preview(
         c_title = request.query_params.get("title") or template.title
         c_sub = request.query_params.get("subtitle") or template.short_description
         c_cta = request.query_params.get("ctaText") or "Get Started"
-        import urllib.parse
-        img_prompt = urllib.parse.quote(f"premium beautiful modern {c_title} website visual showcase photo")
-        hero_bg_url = f"https://image.pollinations.ai/prompt/{img_prompt}?width=1200&height=800&nologo=true&seed=42"
-        gallery_1 = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(c_title + ' product feature visual showcase')}?width=600&height=400&nologo=true&seed=1"
-        gallery_2 = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(c_title + ' interior aesthetic atmosphere')}?width=600&height=400&nologo=true&seed=2"
-        gallery_3 = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(c_title + ' artisanal craftsmanship experience')}?width=600&height=400&nologo=true&seed=3"
+        from app.services.template_synthesizer import analyze_prompt_intent
+        domain_profile = analyze_prompt_intent(prompt=c_title, industry_hint=b_name)
+        hero_bg_url = domain_profile.hero_image
+        gallery_1 = domain_profile.gallery_images[0] if len(domain_profile.gallery_images) > 0 else domain_profile.hero_image
+        gallery_2 = domain_profile.gallery_images[1] if len(domain_profile.gallery_images) > 1 else domain_profile.hero_image
+        gallery_3 = domain_profile.gallery_images[2] if len(domain_profile.gallery_images) > 2 else domain_profile.hero_image
         
         is_light_fallback = (
             request.query_params.get("theme", "").lower() == "light" 
