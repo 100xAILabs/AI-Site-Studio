@@ -102,3 +102,40 @@ async def test_redis_caching_and_invalidation(client: AsyncClient, db: AsyncSess
     assert res2.status_code == 200
 
 
+@pytest.mark.asyncio
+async def test_storage_service_cloud_and_local_modes(db: AsyncSession):
+    """Verify StorageService properties and default local PostgreSQL fallback."""
+    from app.core.storage import storage
+
+    # Default in test environment should be postgres fallback
+    assert storage.bucket_name == "ai-site-studio"
+    assert storage.public_url.endswith("/files")
+
+    # Upload and verify retrieval via local DB fallback
+    dummy_data = b"<!DOCTYPE html><html><body>Test</body></html>"
+    file_url = await storage.upload_file(
+        db=db,
+        file_content=dummy_data,
+        folder="test",
+        original_filename="index.html",
+        content_type="text/html",
+    )
+    assert file_url is not None
+    assert "/files/" in file_url
+
+    file_id = storage._parse_file_id(file_url)
+    assert file_id is not None
+
+    retrieved = await storage.get_file(db, file_id)
+    assert retrieved is not None
+    content, content_type, filename = retrieved
+    assert content == dummy_data
+    assert content_type == "text/html"
+    assert filename == "index.html"
+
+    # Clean up
+    deleted = await storage.delete_file(db, file_url)
+    assert deleted is True
+
+
+

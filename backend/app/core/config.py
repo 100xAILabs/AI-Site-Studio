@@ -130,15 +130,22 @@ class Settings(BaseSettings):
     QDRANT_API_KEY: str = ""
     QDRANT_COLLECTION: str = "templates"
 
-    # ── Cloudflare R2 (optional — not used when STORAGE_BACKEND=postgres) ────
+    # ── Cloudflare R2 / AWS S3 (used when STORAGE_BACKEND in ('r2', 's3')) ────
     R2_ACCOUNT_ID: str = ""
     R2_ACCESS_KEY_ID: str = ""
     R2_SECRET_ACCESS_KEY: str = ""
     R2_BUCKET_NAME: str = "ai-site-studio"
     R2_PUBLIC_URL: str = ""
 
+    AWS_ACCESS_KEY_ID: str = ""
+    AWS_SECRET_ACCESS_KEY: str = ""
+    AWS_REGION: str = "us-east-1"
+    S3_BUCKET_NAME: str = "ai-site-studio"
+    S3_ENDPOINT_URL: str = ""
+    S3_PUBLIC_URL: str = ""
+
     # ── File Storage ──────────────────────────────────────────────────────────
-    STORAGE_BACKEND: str = "postgres"  # postgres
+    STORAGE_BACKEND: str = "postgres"  # "postgres", "r2", or "s3"
     STORAGE_BASE_URL: str = "http://localhost:8000/api/v1/files"
 
     # ── Razorpay ──────────────────────────────────────────────────────────────
