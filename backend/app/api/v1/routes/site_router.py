@@ -24,9 +24,20 @@ router = APIRouter(tags=["Tenant Workload Sites"])
 _STATIC_ROOT = Path(__file__).resolve().parents[4] / "static"
 _DEPLOYMENTS_ROOT = _STATIC_ROOT / "deployments"
 
+_STATIC_ASSET_EXTENSIONS = {
+    ".css", ".js", ".png", ".jpg", ".jpeg", ".svg", ".gif",
+    ".webp", ".ico", ".woff", ".woff2", ".ttf", ".eot", ".map", ".mp4"
+}
+
 
 async def _log_server_access(target_id: str, method: str, path: str, status_code: int, client_host: str = ""):
     """Records server-side HTTP request telemetry into the deployment logs asynchronously."""
+    # Skip noisy static asset requests for 200 OK to prevent DB connection pool exhaustion
+    if status_code < 400:
+        ext = Path(path.split("?")[0]).suffix.lower()
+        if ext in _STATIC_ASSET_EXTENSIONS:
+            return
+
     try:
         async with AsyncSessionLocal() as session:
             stmt = select(Deployment).where(
@@ -120,22 +131,32 @@ async def serve_tenant_workload(
 
     client_ip = request.client.host if request and request.client else ""
 
-    # Sanitize requested file path to prevent directory traversal
+    # Sanitize requested file path and enforce directory jail to prevent LFI
     safe_path = filepath.strip("/\\")
+    site_dir_resolved = site_dir.resolve()
+
     if not safe_path:
-        target_file = site_dir / "index.html"
+        target_file = (site_dir_resolved / "index.html").resolve()
     else:
-        target_file = site_dir / safe_path
+        target_file = (site_dir_resolved / safe_path).resolve()
+
+    # Reject any path escaping the site deployment root directory
+    if not target_file.is_relative_to(site_dir_resolved):
+        raise HTTPException(status_code=403, detail="Access denied: Invalid resource path.")
 
     # Clean URL support: if /about requested, check about.html or about/index.html or SPA fallback
     if not target_file.exists() or target_file.is_dir():
-        if (site_dir / f"{safe_path}.html").is_file():
-            target_file = site_dir / f"{safe_path}.html"
-        elif (site_dir / safe_path / "index.html").is_file():
-            target_file = site_dir / safe_path / "index.html"
-        elif (site_dir / "index.html").is_file() and not Path(safe_path).suffix:
+        candidate_html = (site_dir_resolved / f"{safe_path}.html").resolve()
+        candidate_idx = (site_dir_resolved / safe_path / "index.html").resolve()
+        candidate_spa = (site_dir_resolved / "index.html").resolve()
+
+        if candidate_html.is_file() and candidate_html.is_relative_to(site_dir_resolved):
+            target_file = candidate_html
+        elif candidate_idx.is_file() and candidate_idx.is_relative_to(site_dir_resolved):
+            target_file = candidate_idx
+        elif candidate_spa.is_file() and not Path(safe_path).suffix:
             # SPA route fallback (e.g. /dashboard or /blog/post-1)
-            target_file = site_dir / "index.html"
+            target_file = candidate_spa
         else:
             asyncio.create_task(_log_server_access(target_id, "GET", f"/{safe_path}", 404, client_ip))
             raise HTTPException(status_code=404, detail="Requested resource not found on this website.")

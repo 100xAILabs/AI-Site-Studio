@@ -59,7 +59,9 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 async def _ensure_db_service_running() -> None:
-    """Helper to auto-start Docker services if PostgreSQL is not yet accepting connections."""
+    """Helper to auto-start Docker services if PostgreSQL is not yet accepting connections.
+    Docker auto-launch is restricted to development/local environments only.
+    """
     import asyncio
     import os
     import subprocess
@@ -76,30 +78,36 @@ async def _ensure_db_service_running() -> None:
         except Exception:
             print(f"[Attempt {attempt}/{max_attempts}] Waiting for PostgreSQL connection...")
             if attempt == 1:
-                # 1. Attempt launching Docker Desktop on Windows if active process is not detected
-                if sys.platform == "win32":
-                    try:
-                        user_docker = os.path.expandvars(r"%LOCALAPPDATA%\Programs\DockerDesktop\Docker Desktop.exe")
-                        prog_docker = r"C:\Program Files\Docker\Docker\Docker Desktop.exe"
-                        docker_exe = user_docker if os.path.exists(user_docker) else (prog_docker if os.path.exists(prog_docker) else None)
-                        if docker_exe:
-                            print(f"[Auto-start] Launching Docker Desktop ({docker_exe})...")
-                            subprocess.Popen([docker_exe], creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
-                    except Exception as err:
-                        print(f"Notice: Could not auto-launch Docker Desktop executable: {err}")
+                # Auto-launching Docker Desktop is only safe in local/development environments.
+                # In production containers (Kubernetes, Cloud Run, Docker), the DB is external.
+                if settings.ENVIRONMENT in ("development", "local"):
+                    # 1. Attempt launching Docker Desktop on Windows if active process is not detected
+                    if sys.platform == "win32":
+                        try:
+                            user_docker = os.path.expandvars(r"%LOCALAPPDATA%\Programs\DockerDesktop\Docker Desktop.exe")
+                            prog_docker = r"C:\Program Files\Docker\Docker\Docker Desktop.exe"
+                            docker_exe = user_docker if os.path.exists(user_docker) else (prog_docker if os.path.exists(prog_docker) else None)
+                            if docker_exe:
+                                print(f"[Auto-start] Launching Docker Desktop ({docker_exe})...")
+                                subprocess.Popen([docker_exe], creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
+                        except Exception as err:
+                            print(f"Notice: Could not auto-launch Docker Desktop executable: {err}")
 
-                print("[Auto-start] Starting Docker services (postgres, redis)...")
-                project_root = Path(__file__).resolve().parents[2]
-                for cmd in [
-                    ["docker", "compose", "up", "-d", "postgres", "redis"],
-                    ["docker-compose", "up", "-d", "postgres", "redis"],
-                ]:
-                    try:
-                        subprocess.run(cmd, cwd=project_root, capture_output=True, timeout=15)
-                        break
-                    except Exception:
-                        continue
+                    print("[Auto-start] Starting Docker services (postgres, redis)...")
+                    project_root = Path(__file__).resolve().parents[2]
+                    for cmd in [
+                        ["docker", "compose", "up", "-d", "postgres", "redis"],
+                        ["docker-compose", "up", "-d", "postgres", "redis"],
+                    ]:
+                        try:
+                            subprocess.run(cmd, cwd=project_root, capture_output=True, timeout=15)
+                            break
+                        except Exception:
+                            continue
+                else:
+                    print(f"[Database] PostgreSQL not yet reachable in {settings.ENVIRONMENT} environment. Waiting...")
             await asyncio.sleep(2.0)
+
 
 
 async def init_db() -> None:

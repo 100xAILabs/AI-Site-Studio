@@ -20,6 +20,7 @@ import bcrypt
 def create_access_token(
     subject: str | Any,
     expires_delta: Optional[timedelta] = None,
+    role: str = "buyer",
 ) -> str:
     """Create a signed JWT access token."""
     expire = datetime.now(timezone.utc) + (
@@ -30,7 +31,7 @@ def create_access_token(
         "exp": expire,
         "iat": datetime.now(timezone.utc),
         "type": "access",
-        "role": "buyer"
+        "role": role,
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 

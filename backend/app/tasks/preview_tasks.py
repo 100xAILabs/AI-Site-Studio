@@ -24,5 +24,4 @@ def generate_screenshot_preview(session_id: str, thumbnail_url: str, user_email:
             )
             return url
 
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(run())
+    return asyncio.run(run())

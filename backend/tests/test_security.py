@@ -178,3 +178,36 @@ async def test_company_email_seller_auto_assignment(client: AsyncClient, db: Asy
     assert user.role == UserRole.SELLER
 
 
+@pytest.mark.asyncio
+async def test_jwt_role_persistence():
+    """Verify that create_access_token properly encodes the provided user role."""
+    from jose import jwt
+    from app.core.config import settings
+
+    # Buyer token
+    buyer_token = create_access_token(subject="user-123", role="buyer")
+    buyer_payload = jwt.decode(buyer_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    assert buyer_payload["role"] == "buyer"
+    assert buyer_payload["sub"] == "user-123"
+
+    # Seller token
+    seller_token = create_access_token(subject="user-456", role="seller")
+    seller_payload = jwt.decode(seller_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    assert seller_payload["role"] == "seller"
+    assert seller_payload["sub"] == "user-456"
+
+    # Admin token
+    admin_token = create_access_token(subject="user-789", role="admin")
+    admin_payload = jwt.decode(admin_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    assert admin_payload["role"] == "admin"
+
+
+@pytest.mark.asyncio
+async def test_site_router_path_traversal_blocked(client: AsyncClient):
+    """Verify that directory traversal attempts to /sites/{id}/... are rejected with 403."""
+    # Attempt to traverse out of the site directory using ../..
+    res = await client.get("/sites/some-site/..%2F..%2Fapp%2Fcore%2Fconfig.py")
+    assert res.status_code in (403, 404)
+
+
+

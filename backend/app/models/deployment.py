@@ -48,7 +48,7 @@ class Deployment(UUIDMixin, TimestampMixin, Base):
     deployment_type: Mapped[str] = mapped_column(String(50), default="static", nullable=False)  # static, container
     health_status: Mapped[str] = mapped_column(String(50), default="healthy", nullable=False)  # healthy, degraded, down
 
-    subdomain: Mapped[str] = mapped_column(String(255), nullable=False)
+    subdomain: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
     branch: Mapped[str] = mapped_column(String(100), default="main", nullable=False)
     commit_message: Mapped[str] = mapped_column(String(255), default="Initial deploy", nullable=False)
     build_command: Mapped[str] = mapped_column(String(255), default="npm run build", nullable=False)

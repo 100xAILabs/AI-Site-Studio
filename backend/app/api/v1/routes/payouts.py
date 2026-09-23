@@ -159,7 +159,16 @@ async def create_withdrawal_request(
 ):
     """
     Submit a request to withdraw a portion or all of the seller's available balance.
+    Uses a pessimistic row-level lock to prevent concurrent double-withdrawal race conditions.
     """
+    # Acquire a row-level lock on the seller's user record to serialize concurrent withdrawal attempts
+    locked_user_res = await db.execute(
+        select(User).where(User.id == current_user.id).with_for_update()
+    )
+    locked_user = locked_user_res.scalar_one_or_none()
+    if not locked_user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
     summary = await calculate_seller_earnings(db, current_user.id)
     available = summary["available_balance"]
 

@@ -57,7 +57,7 @@ async function request(path, options = {}) {
     if (err.name === "TypeError" || err.message?.includes("fetch")) {
       throw new ApiError(
         0,
-        "Unable to connect to Site Studio server. Please check if the backend is running on http://localhost:8000.",
+        "Unable to connect to the server. Please check your internet connection and try again.",
         { networkError: true }
       );
     }

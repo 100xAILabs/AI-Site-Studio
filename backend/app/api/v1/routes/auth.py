@@ -365,7 +365,8 @@ async def auth_callback(provider: str, request: Request, db: AsyncSession = Depe
     except Exception as err:
         print(f"Location update notice on OAuth callback: {err}")
 
-    access_token = create_access_token(subject=str(user.id))
+    user_role_for_token = user.role.value if hasattr(user.role, "value") else str(user.role)
+    access_token = create_access_token(subject=str(user.id), role=user_role_for_token)
     
     redirect_path = request.session.pop('auth_redirect', None)
     # If this was a GitHub connect operation, send the user back to the upload tab
@@ -587,7 +588,8 @@ async def login_email(
         except Exception as err:
             print(f"Location update notice on login: {err}")
 
-        access_token = create_access_token(subject=str(user.id))
+        user_role_for_token = user.role.value if hasattr(user.role, "value") else str(user.role)
+        access_token = create_access_token(subject=str(user.id), role=user_role_for_token)
         return {"access_token": access_token, "token_type": "bearer"}
     except HTTPException:
         raise
@@ -659,7 +661,8 @@ async def verify_otp(
     except Exception as err:
         print(f"Location update notice on OTP verify: {err}")
     
-    access_token = create_access_token(subject=str(user.id))
+    user_role_for_token = user.role.value if hasattr(user.role, "value") else str(user.role)
+    access_token = create_access_token(subject=str(user.id), role=user_role_for_token)
     return {
         "access_token": access_token,
         "token_type": "bearer",

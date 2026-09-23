@@ -35,6 +35,7 @@ import PayoutReceiptPage from './app/dashboard/payout-receipt/page.jsx'
 
 
 import SupportButton from './components/support/SupportButton.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 
 /** Handles the post-OAuth soft redirect without a full page reload */
 function OAuthRedirectHandler() {
@@ -85,29 +86,31 @@ function App() {
         <div className="app-bg-glow app-bg-glow-bottom-right" />
         <div className="app-bg-glow app-bg-glow-center-right" />
 
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/marketplace" element={<Marketplace />} />
-          <Route path="/marketplace/generate" element={<ProtectedRoute><GenerateTemplatePage /></ProtectedRoute>} />
-          <Route path="/marketplace/:slug" element={<TemplateDetailsPage />} />
-          <Route path="/pricing" element={<PricingPage />} />
-          <Route path="/about" element={<AboutPage />} />
-          <Route path="/contact" element={<ContactPage />} />
-          <Route path="/get-started" element={<GetStarted />} />
-          <Route path="/sign-in" element={<SignIn />} />
-          <Route path="/sign-up" element={<Navigate to="/register" replace />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/verify-otp" element={<VerifyOTPPage />} />
-          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-          <Route path="/onboarding" element={<Onboarding />} />
-          <Route path="/preview" element={<PreviewPage />} />
-          <Route path="/storybook" element={<StorybookPage />} />
-          <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
-          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/dashboard/receipt/:orderId" element={<ProtectedRoute><ReceiptPage /></ProtectedRoute>} />
-          <Route path="/dashboard/payout-receipt/:withdrawalId" element={<ProtectedRoute><PayoutReceiptPage /></ProtectedRoute>} />
-          <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPanel /></ProtectedRoute>} />
-        </Routes>
+        <ErrorBoundary>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/marketplace" element={<Marketplace />} />
+            <Route path="/marketplace/generate" element={<ProtectedRoute><GenerateTemplatePage /></ProtectedRoute>} />
+            <Route path="/marketplace/:slug" element={<TemplateDetailsPage />} />
+            <Route path="/pricing" element={<PricingPage />} />
+            <Route path="/about" element={<AboutPage />} />
+            <Route path="/contact" element={<ContactPage />} />
+            <Route path="/get-started" element={<GetStarted />} />
+            <Route path="/sign-in" element={<SignIn />} />
+            <Route path="/sign-up" element={<Navigate to="/register" replace />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="/verify-otp" element={<VerifyOTPPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/onboarding" element={<Onboarding />} />
+            <Route path="/preview" element={<PreviewPage />} />
+            <Route path="/storybook" element={<StorybookPage />} />
+            <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
+            <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/dashboard/receipt/:orderId" element={<ProtectedRoute><ReceiptPage /></ProtectedRoute>} />
+            <Route path="/dashboard/payout-receipt/:withdrawalId" element={<ProtectedRoute><PayoutReceiptPage /></ProtectedRoute>} />
+            <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPanel /></ProtectedRoute>} />
+          </Routes>
+        </ErrorBoundary>
         <SupportButton />
         <Toaster richColors position="top-center" theme="dark" />
       </div>

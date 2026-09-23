@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import uuid
 from decimal import Decimal
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -378,6 +379,57 @@ async def initiate_payment(
         )
 
 
+async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Optional[str] = None):
+    """
+    Idempotently creates License records for all order items and dispatches delivery emails.
+    Works for both real webhook fulfillment and development test verifications.
+    """
+    try:
+        from app.models.license import License, LicenseType
+        from app.models.order import OrderItem
+        from app.models.user import User
+        from app.tasks.email_tasks import send_license_delivery
+        import random, string
+
+        recipient_email = user_email
+        if not recipient_email and order.user_id:
+            user_res = await db.execute(select(User).where(User.id == order.user_id))
+            user = user_res.scalar_one_or_none()
+            if user:
+                recipient_email = user.email
+
+        items_res = await db.execute(select(OrderItem).where(OrderItem.order_id == order.id))
+        items = items_res.scalars().all()
+        for item in items:
+            # Check if license already generated (idempotent for webhook retries)
+            existing_lic = await db.execute(
+                select(License).where(
+                    License.order_id == order.id,
+                    License.template_id == item.template_id
+                )
+            )
+            if existing_lic.scalar_one_or_none():
+                continue
+
+            license_key = f"LIC-{''.join(random.choices(string.ascii_uppercase + string.digits, k=12))}"
+            lic = License(
+                user_id=order.user_id,
+                template_id=item.template_id,
+                order_id=order.id,
+                license_key=license_key,
+                license_type=LicenseType.REGULAR if item.license_type != "extended" else LicenseType.EXTENDED,
+                is_active=True,
+            )
+            db.add(lic)
+            if recipient_email:
+                try:
+                    send_license_delivery.delay(recipient_email, license_key, f"Template {item.template_id}")
+                except Exception:
+                    pass
+    except Exception as lic_err:
+        print(f"Notice: License fulfillment warning: {lic_err}")
+
+
 @router.post("/verify", response_model=PaymentVerifyResponse)
 async def verify_payment(
     data: PaymentVerifyRequest,
@@ -427,34 +479,7 @@ async def verify_payment(
             payment.gateway_payment_id = data.gateway_payment_id or payment.gateway_payment_id or f"upi_pay_{uuid.uuid4().hex[:12]}"
             
         order.status = OrderStatus.COMPLETED
-
-        # Create License records & dispatch license email task
-        try:
-            from app.models.license import License, LicenseType
-            from app.models.order import OrderItem
-            from app.tasks.email_tasks import send_license_delivery
-            import random, string
-
-            items_res = await db.execute(select(OrderItem).where(OrderItem.order_id == order.id))
-            items = items_res.scalars().all()
-            for item in items:
-                license_key = f"LIC-{''.join(random.choices(string.ascii_uppercase + string.digits, k=12))}"
-                lic = License(
-                    user_id=current_user.id,
-                    template_id=item.template_id,
-                    order_id=order.id,
-                    license_key=license_key,
-                    license_type=LicenseType.REGULAR if item.license_type != "extended" else LicenseType.EXTENDED,
-                    is_active=True,
-                )
-                db.add(lic)
-                # Dispatch background license email task
-                try:
-                    send_license_delivery.delay(current_user.email, license_key, f"Template {item.template_id}")
-                except Exception:
-                    pass
-        except Exception as lic_err:
-            print(f"Notice: License creation warning: {lic_err}")
+        await _fulfill_order_licenses(db, order, user_email=current_user.email if current_user else None)
 
         await db.flush()
         await db.commit()
@@ -574,6 +599,7 @@ async def stripe_webhook(
             payment.gateway_response = event
 
         order.status = OrderStatus.COMPLETED
+        await _fulfill_order_licenses(db, order)
         await db.flush()
         await db.commit()
 
@@ -635,6 +661,7 @@ async def razorpay_webhook(
         payment.gateway_response = data
         
         order.status = OrderStatus.COMPLETED
+        await _fulfill_order_licenses(db, order)
         await db.flush()
         await db.commit()
 
