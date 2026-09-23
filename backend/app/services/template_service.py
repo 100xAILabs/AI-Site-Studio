@@ -182,14 +182,20 @@ class TemplateService:
             )
             count_query = select(func.count(Template.id)).where(
                 count_cond,
-                Template.status == TemplateStatus.PUBLISHED
+                Template.status == TemplateStatus.PUBLISHED,
+                Template.slug.notlike("%-custom-%"),
+                Template.title.notlike("%(Customized)%"),
+                Template.title.notlike("Customized %"),
             )
             count_result = await self.db.execute(count_query)
             templates_count = count_result.scalar() or 0
 
             sales_query = select(func.sum(Template.downloads_count)).where(
                 count_cond,
-                Template.status == TemplateStatus.PUBLISHED
+                Template.status == TemplateStatus.PUBLISHED,
+                Template.slug.notlike("%-custom-%"),
+                Template.title.notlike("%(Customized)%"),
+                Template.title.notlike("Customized %"),
             )
             sales_result = await self.db.execute(sales_query)
             total_sales = sales_result.scalar() or 0

@@ -122,7 +122,7 @@ class Template(UUIDMixin, TimestampMixin, Base):
 
     # ── Status ────────────────────────────────────────────────────────────────
     status: Mapped[TemplateStatus] = mapped_column(
-        SAEnum(TemplateStatus), default=TemplateStatus.PUBLISHED, index=True
+        SAEnum(TemplateStatus), default=TemplateStatus.DRAFT, index=True
     )
     is_featured: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     is_bestseller: Mapped[bool] = mapped_column(Boolean, default=False)

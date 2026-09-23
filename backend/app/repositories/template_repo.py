@@ -100,7 +100,12 @@ class TemplateRepository:
         query = (
             select(Template)
             .options(selectinload(Template.category))
-            .where(Template.status == TemplateStatus.PUBLISHED)
+            .where(
+                Template.status == TemplateStatus.PUBLISHED,
+                Template.slug.notlike("%-custom-%"),
+                Template.title.notlike("%(Customized)%"),
+                Template.title.notlike("Customized %"),
+            )
         )
 
         # ── Filters ──────────────────────────────────────────────────────────
@@ -397,7 +402,13 @@ class TemplateRepository:
         result = await self.db.execute(
             select(Template)
             .options(selectinload(Template.category))
-            .where(Template.is_featured == True, Template.status == TemplateStatus.PUBLISHED)
+            .where(
+                Template.is_featured == True,
+                Template.status == TemplateStatus.PUBLISHED,
+                Template.slug.notlike("%-custom-%"),
+                Template.title.notlike("%(Customized)%"),
+                Template.title.notlike("Customized %"),
+            )
             .order_by(Template.downloads_count.desc())
             .limit(limit)
         )
@@ -407,10 +418,25 @@ class TemplateRepository:
         result = await self.db.execute(
             select(Template)
             .options(selectinload(Template.category))
-            .where(Template.id.in_(ids))
+            .where(
+                Template.id.in_(ids),
+                Template.status == TemplateStatus.PUBLISHED,
+                Template.slug.notlike("%-custom-%"),
+                Template.title.notlike("%(Customized)%"),
+                Template.title.notlike("Customized %"),
+            )
         )
         return list(result.scalars().all())
 
     async def count_all(self) -> int:
-        result = await self.db.execute(select(func.count()).select_from(Template))
+        result = await self.db.execute(
+            select(func.count())
+            .select_from(Template)
+            .where(
+                Template.status == TemplateStatus.PUBLISHED,
+                Template.slug.notlike("%-custom-%"),
+                Template.title.notlike("%(Customized)%"),
+                Template.title.notlike("Customized %"),
+            )
+        )
         return result.scalar_one()

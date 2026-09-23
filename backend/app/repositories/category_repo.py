@@ -63,6 +63,12 @@ class CategoryRepository:
         result = await self.db.execute(
             select(func.count())
             .select_from(Template)
-            .where(Template.category_id == category_id, Template.status == TemplateStatus.PUBLISHED)
+            .where(
+                Template.category_id == category_id,
+                Template.status == TemplateStatus.PUBLISHED,
+                Template.slug.notlike("%-custom-%"),
+                Template.title.notlike("%(Customized)%"),
+                Template.title.notlike("Customized %"),
+            )
         )
         return result.scalar_one()

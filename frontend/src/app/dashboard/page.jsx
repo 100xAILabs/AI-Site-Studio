@@ -375,6 +375,8 @@ function Dashboard() {
       setTemplatesSubTab("uploaded");
     } else if (activeTab === "buyer-templates") {
       setTemplatesSubTab("purchased");
+    } else if (activeTab === "customized-files") {
+      setTemplatesSubTab("customized");
     }
   }, [activeTab]);
 
@@ -1694,15 +1696,15 @@ function Dashboard() {
 
     // Separate personal customized/edited drafts from creator marketplace uploads
     const customizedItems = allUserTemplates.filter(item =>
-      item.is_ai_ready ||
-      item.status === "draft" ||
       (item.slug && item.slug.includes("-custom-")) ||
-      (item.title && item.title.includes("(Customized)"))
+      (item.title && (item.title.includes("(Customized)") || item.title.startsWith("Customized "))) ||
+      item.status === "draft"
     );
 
     const uploadedItems = allUserTemplates.filter(item =>
       !item.slug?.includes("-custom-") &&
       !item.title?.includes("(Customized)") &&
+      !item.title?.startsWith("Customized ") &&
       item.status !== "draft"
     );
 
@@ -1743,17 +1745,17 @@ function Dashboard() {
           <div className="mt-header-top">
             <div className="mt-header-title-box">
               <div className="mt-header-icon">
-                <Folder className="w-6 h-6" />
+                {templatesSubTab === "customized" ? <Sparkles className="w-6 h-6" /> : <Folder className="w-6 h-6" />}
               </div>
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="mt-title">
-                    My Templates
+                    {templatesSubTab === "customized" ? "Customized Files" : "My Templates"}
                     <span className="mt-count-badge">
                       {templatesSubTab === "purchased"
                         ? `${purchasedItems.length} Purchased`
                         : templatesSubTab === "customized"
-                          ? `${customizedItems.length} Edited`
+                          ? `${customizedItems.length} Customized Files`
                           : `${uploadedItems.length} Uploaded`}
                     </span>
                   </h2>
@@ -1762,7 +1764,7 @@ function Dashboard() {
                   {templatesSubTab === "purchased"
                     ? "Manage your purchased templates, redesign with AI Studio, and launch live websites."
                     : templatesSubTab === "customized"
-                      ? "Your personal template drafts edited in AI Site Studio. Open them in the Studio, download source, or publish live."
+                      ? "Your customized template files and personal drafts modified in AI Site Studio. Open them in the Studio, download source, or preview live."
                       : "Manage your creator catalog, track downloads, and update listings."}
                 </p>
               </div>
@@ -1813,7 +1815,7 @@ function Dashboard() {
                 className={cn("mt-tab-btn", templatesSubTab === "customized" && "active")}
               >
                 <Sparkles className="w-4 h-4" style={{ color: templatesSubTab === "customized" ? "#ec4899" : "#64748b" }} />
-                <span>Edited Projects</span>
+                <span>Customized Files</span>
                 <span className={cn("mt-tab-count", templatesSubTab === "customized" ? "active" : "inactive")}>
                   {customizedItems.length}
                 </span>
@@ -2149,20 +2151,20 @@ function Dashboard() {
               <div className="mt-empty-icon">
                 <Sparkles className="w-7 h-7" />
               </div>
-              <h4 className="mt-empty-title">No Edited Projects Yet</h4>
+              <h4 className="mt-empty-title">No Customized Files Yet</h4>
               <p className="mt-empty-desc">
-                Pick any marketplace template or open the AI Studio to customize copy, layout, and colors. Your personal edits will be saved privately here.
+                Pick any marketplace template or open the AI Studio to customize copy, layout, and colors. Your personal customized files will be saved privately here.
               </p>
               <Link
                 href="/marketplace"
                 className="mt-empty-btn"
               >
-                <Sparkles className="w-4 h-4" /> Pick a Template to Edit
+                <Sparkles className="w-4 h-4" /> Pick a Template to Customize
               </Link>
             </div>
           ) : filteredCustomized.length === 0 ? (
             <div className="text-center py-12 px-4 rounded-2xl border border-border/40 bg-card/30">
-              <p className="text-xs text-muted-foreground font-semibold">No edited projects match &ldquo;{uploadedTemplatesSearch}&rdquo;</p>
+              <p className="text-xs text-muted-foreground font-semibold">No customized files match &ldquo;{uploadedTemplatesSearch}&rdquo;</p>
               <button
                 onClick={() => setUploadedTemplatesSearch("")}
                 className="mt-3 text-xs text-primary underline font-bold bg-transparent border-0 cursor-pointer"
@@ -2774,6 +2776,7 @@ function Dashboard() {
                       { id: "buyer-home", label: "Dashboard", icon: LayoutDashboard },
                       { id: "marketplace-redirect", label: "Marketplace", icon: ShoppingBag, isLink: true, url: "/marketplace" },
                       { id: "buyer-templates", label: "My Templates", icon: Folder },
+                      { id: "customized-files", label: "Customized Files", icon: Sparkles },
                       { id: "studio-projects", label: "Studio Projects", icon: Cpu },
                       { id: "my-websites", label: "My Websites", icon: Globe },
                       { id: "deployments", label: "Deployments", icon: Zap },
@@ -2873,10 +2876,9 @@ function Dashboard() {
                     const purchasedItems = completedOrders.flatMap(o => (o.items || []).map(i => ({ ...i, orderId: o.id })));
                     const allUserTemplates = Array.isArray(templateResponse) ? templateResponse : [];
                     const customizedItems = allUserTemplates.filter(item =>
-                      item.is_ai_ready ||
-                      item.status === "draft" ||
                       (item.slug && item.slug.includes("-custom-")) ||
-                      (item.title && item.title.includes("(Customized)"))
+                      (item.title && (item.title.includes("(Customized)") || item.title.startsWith("Customized "))) ||
+                      item.status === "draft"
                     );
 
                     const buyerMetricCards = [
@@ -2888,11 +2890,11 @@ function Dashboard() {
                         onClick: () => { setActiveTab("buyer-templates"); setTemplatesSubTab("purchased"); }
                       },
                       {
-                        label: "Studio website projects",
+                        label: "Customized Files",
                         value: customizedItems.length,
-                        icon: Cpu,
-                        desc: "Active edited drafts",
-                        onClick: () => { setActiveTab("buyer-templates"); setTemplatesSubTab("customized"); }
+                        icon: Sparkles,
+                        desc: "Active customized template edits",
+                        onClick: () => { setActiveTab("customized-files"); setTemplatesSubTab("customized"); }
                       },
                       {
                         label: "Live Websites",
@@ -2952,16 +2954,16 @@ function Dashboard() {
                                   <Sparkles className="w-4 h-4" />
                                 </div>
                                 <div>
-                                  <h3 className="db-custom-header-title">Your Studio Projects &amp; Custom Drafts ({customizedItems.length})</h3>
+                                  <h3 className="db-custom-header-title">Your Customized Files &amp; Projects ({customizedItems.length})</h3>
                                   <p className="db-custom-header-sub">Private template drafts customized in AI Site Studio. Pick up right where you left off.</p>
                                 </div>
                               </div>
                               <button
                                 type="button"
-                                onClick={() => { setActiveTab("buyer-templates"); setTemplatesSubTab("customized"); }}
+                                onClick={() => { setActiveTab("customized-files"); setTemplatesSubTab("customized"); }}
                                 className="db-custom-view-all-btn"
                               >
-                                <span>View All ({customizedItems.length})</span>
+                                <span>View All Customized Files ({customizedItems.length})</span>
                                 <ExternalLink className="w-3 h-3" />
                               </button>
                             </div>
@@ -3139,8 +3141,8 @@ function Dashboard() {
                 </div>
               )}
 
-              {/* === BUYER TEMPLATES (UNIFIED MY TEMPLATES) === */}
-              {activeTab === "buyer-templates" && renderMyTemplatesSection()}
+              {/* === BUYER TEMPLATES & CUSTOMIZED FILES (UNIFIED MY TEMPLATES) === */}
+              {(activeTab === "buyer-templates" || activeTab === "customized-files") && renderMyTemplatesSection()}
 
               {/* === STUDIO PROJECTS === */}
               {activeTab === "studio-projects" && (() => {
