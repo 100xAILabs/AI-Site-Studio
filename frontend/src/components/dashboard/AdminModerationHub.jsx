@@ -69,45 +69,61 @@ export default function AdminModerationHub({
     }, 3500);
   };
 
+  // ── Strict Exclusion of Buyer Customized Personal Drafts ──────────────────
+  const moderationTemplates = useMemo(() => {
+    return (adminTemplates || []).filter(
+      (t) =>
+        !t.slug?.includes("-custom-") &&
+        !t.title?.includes("(Customized)") &&
+        !t.title?.startsWith("Customized ")
+    );
+  }, [adminTemplates]);
+
   // ── Metrics Calculation ──────────────────────────────────────────────────
   const metrics = useMemo(() => {
-    const total = adminTemplates.length;
-    const inReview = adminTemplates.filter((t) => t.status === "draft").length;
-    const published = adminTemplates.filter((t) => t.status === "published").length;
-    const archived = adminTemplates.filter((t) => t.status === "archived").length;
-    return { total, inReview, published, archived };
-  }, [adminTemplates]);
+    const total = moderationTemplates.length;
+    const inReview = moderationTemplates.filter((t) => t.status === "draft").length;
+    const published = moderationTemplates.filter((t) => t.status === "published").length;
+    const figmaCount = moderationTemplates.filter((t) => t.is_figma || t.title?.includes("(Figma Import)")).length;
+    const archived = moderationTemplates.filter((t) => t.status === "archived").length;
+    return { total, inReview, published, figmaCount, archived };
+  }, [moderationTemplates]);
 
   // ── Unique Frameworks List ───────────────────────────────────────────────
   const availableFrameworks = useMemo(() => {
     const set = new Set();
-    adminTemplates.forEach((t) => {
+    moderationTemplates.forEach((t) => {
       if (t.framework) set.add(t.framework);
     });
     return Array.from(set).sort();
-  }, [adminTemplates]);
+  }, [moderationTemplates]);
 
   // ── Filtered & Sorted Templates ──────────────────────────────────────────
   const filteredTemplates = useMemo(() => {
-    return adminTemplates
+    return moderationTemplates
       .filter((t) => {
-        // Status Filter
-        if (statusFilter !== "all" && t.status !== statusFilter) {
-          return false;
-        }
+        // Status & Category Filter
+        if (statusFilter === "draft" && t.status !== "draft") return false;
+        if (statusFilter === "published" && t.status !== "published") return false;
+        if (statusFilter === "archived" && t.status !== "archived") return false;
+        if (statusFilter === "figma" && !t.is_figma && !t.title?.includes("(Figma Import)")) return false;
+
         // Framework Filter
         if (frameworkFilter !== "all" && t.framework?.toLowerCase() !== frameworkFilter.toLowerCase()) {
           return false;
         }
-        // Search Query
+
+        // Search Query (Multi-attribute comprehensive search)
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase().trim();
           const matchTitle = t.title?.toLowerCase().includes(q);
           const matchDev = t.developer_name?.toLowerCase().includes(q);
+          const matchEmail = t.developer_email?.toLowerCase().includes(q);
           const matchSlug = t.slug?.toLowerCase().includes(q);
           const matchCategory = t.category?.toLowerCase().includes(q);
           const matchFramework = t.framework?.toLowerCase().includes(q);
-          if (!matchTitle && !matchDev && !matchSlug && !matchCategory && !matchFramework) {
+          const matchTags = (t.tags || []).some((tag) => tag.toLowerCase().includes(q));
+          if (!matchTitle && !matchDev && !matchEmail && !matchSlug && !matchCategory && !matchFramework && !matchTags) {
             return false;
           }
         }
@@ -129,7 +145,7 @@ export default function AdminModerationHub({
         if (sortBy === "title") return (a.title || "").localeCompare(b.title || "");
         return 0;
       });
-  }, [adminTemplates, statusFilter, frameworkFilter, searchQuery, sortBy]);
+  }, [moderationTemplates, statusFilter, frameworkFilter, searchQuery, sortBy]);
 
   // ── Multi-select Handlers ────────────────────────────────────────────────
   const isAllSelected =
@@ -425,8 +441,17 @@ export default function AdminModerationHub({
             className={cn("mod-tab-btn", statusFilter === "published" && "is-active")}
           >
             <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            Approved
+            Approved &amp; Live
             <span className="mod-tab-badge">{metrics.published}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatusFilter("figma")}
+            className={cn("mod-tab-btn", statusFilter === "figma" && "is-active")}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-500" />
+            Figma Imports
+            <span className="mod-tab-badge">{metrics.figmaCount}</span>
           </button>
           <button
             type="button"
@@ -672,6 +697,11 @@ export default function AdminModerationHub({
                               {t.title}
                             </button>
                             <div className="mod-tags-row">
+                              {Boolean(t.is_figma || t.title?.includes("(Figma Import)")) && (
+                                <span className="mod-category-pill !bg-purple-500/10 !text-purple-600 dark:!text-purple-400 !border-purple-500/20 font-bold flex items-center gap-1">
+                                  <Sparkles className="w-2.5 h-2.5" /> Figma
+                                </span>
+                              )}
                               <span className="mod-category-pill">
                                 {t.category || "General"}
                               </span>
@@ -697,12 +727,17 @@ export default function AdminModerationHub({
                             {t.developer_avatar ? (
                               <Image src={t.developer_avatar} alt={t.developer_name} />
                             ) : (
-                              <span>{(t.developer_name || "U").slice(0, 2).toUpperCase()}</span>
+                              <span>{(t.developer_name || "P").slice(0, 2).toUpperCase()}</span>
                             )}
                           </div>
                           <div>
-                            <div className="mod-dev-name">{t.developer_name || "Unknown Creator"}</div>
-                            <div className="mod-dev-role">
+                            <div className="mod-dev-name font-bold text-foreground text-xs">{t.developer_name || "Platform Creator"}</div>
+                            {t.developer_email && (
+                              <div className="text-[11px] text-muted-foreground truncate max-w-[150px]" title={t.developer_email}>
+                                {t.developer_email}
+                              </div>
+                            )}
+                            <div className="mod-dev-role text-[10px] text-muted-foreground mt-0.5">
                               {t.created_at
                                 ? new Date(t.created_at).toLocaleDateString(undefined, {
                                     month: "short",
@@ -792,15 +827,15 @@ export default function AdminModerationHub({
 
                           {/* Live Preview Button */}
                           <a
-                            href={`/preview?slug=${t.slug}`}
+                            href={t.preview_url || `/preview?template=${t.id}&mode=live`}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
                             className="mod-btn-action mod-btn-preview"
                             title="Open live sandboxed preview in new tab"
                           >
-                            <Eye className="w-3.5 h-3.5" />
-                            Preview
+                            <ExternalLink className="w-3.5 h-3.5 text-blue-500" />
+                            Live Demo
                           </a>
 
                           {/* Inspect Info Button */}
@@ -956,13 +991,13 @@ export default function AdminModerationHub({
 
                     <div className="flex items-center gap-1">
                       <a
-                        href={`/preview?slug=${t.slug}`}
+                        href={t.preview_url || `/preview?template=${t.id}&mode=live`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="mod-btn-icon-action mod-btn-preview !w-7 !h-7"
-                        title="Preview"
+                        title="Live Demo Preview"
                       >
-                        <Eye className="w-3.5 h-3.5" />
+                        <ExternalLink className="w-3.5 h-3.5" />
                       </a>
                       <button
                         type="button"
@@ -1039,7 +1074,7 @@ export default function AdminModerationHub({
                 )}
                 <div className="absolute top-3 right-3 flex items-center gap-2">
                   <a
-                    href={`/preview?slug=${inspectingTemplate.slug}`}
+                    href={inspectingTemplate.preview_url || `/preview?template=${inspectingTemplate.id}&mode=live`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="px-3 py-1.5 rounded-lg bg-black/75 backdrop-blur-md border border-white/20 text-xs font-bold text-white hover:bg-black transition-colors flex items-center gap-1.5 shadow-lg"

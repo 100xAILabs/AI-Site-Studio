@@ -33,12 +33,18 @@ async def admin_stats(
     from app.models.user import User as UserModel
     from app.models.order import Order as OrderModel, OrderStatus
 
+    custom_filter = [
+        Template.slug.notlike("%-custom-%"),
+        Template.title.notlike("%(Customized)%"),
+        Template.title.notlike("Customized %"),
+    ]
+
     total_users = (await db.execute(select(func.count(UserModel.id)))).scalar_one()
     total_templates = (await db.execute(
-        select(func.count(Template.id)).where(Template.status == TemplateStatus.PUBLISHED)
+        select(func.count(Template.id)).where(Template.status == TemplateStatus.PUBLISHED, *custom_filter)
     )).scalar_one()
     pending_templates = (await db.execute(
-        select(func.count(Template.id)).where(Template.status == TemplateStatus.DRAFT)
+        select(func.count(Template.id)).where(Template.status == TemplateStatus.DRAFT, *custom_filter)
     )).scalar_one()
     total_orders = (await db.execute(select(func.count(OrderModel.id)))).scalar_one()
 
@@ -72,35 +78,66 @@ async def list_templates(
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_admin),
 ):
-    """[Admin] Get all templates, including drafts/reviews with rich metadata."""
+    """[Admin] Get all creator templates and submissions for moderation, excluding buyer customized drafts."""
     from sqlalchemy.orm import selectinload
     result = await db.execute(
         select(Template)
-        .options(selectinload(Template.category))
+        .options(selectinload(Template.category), selectinload(Template.seller))
+        .where(
+            Template.slug.notlike("%-custom-%"),
+            Template.title.notlike("%(Customized)%"),
+            Template.title.notlike("Customized %"),
+        )
         .order_by(Template.created_at.desc())
     )
     templates = result.scalars().all()
-    return [{
-        "id": str(t.id),
-        "title": t.title,
-        "slug": t.slug,
-        "price": float(t.price),
-        "status": t.status.value if hasattr(t.status, "value") else str(t.status),
-        "framework": t.framework.value if hasattr(t.framework, "value") else str(t.framework or ""),
-        "developer_name": t.developer_name or "Unknown",
-        "developer_avatar": t.developer_avatar,
-        "thumbnail_url": t.thumbnail_url,
-        "preview_url": t.preview_url,
-        "category": t.category.name if t.category else "Uncategorized",
-        "category_slug": t.category.slug if t.category else "",
-        "created_at": t.created_at.isoformat() if t.created_at else None,
-        "pages_count": t.pages_count,
-        "is_ai_ready": t.is_ai_ready,
-        "version": t.version or "1.0.0",
-        "downloads_count": t.downloads_count,
-        "views_count": t.views_count,
-        "short_description": t.short_description,
-    } for t in templates]
+    
+    response_items = []
+    for t in templates:
+        dev_name = t.developer_name
+        if not dev_name or dev_name in ("Unknown", "Unknown Creator"):
+            if t.seller:
+                dev_name = t.seller.full_name or t.seller.username or (t.seller.email.split("@")[0] if t.seller.email else None)
+        if not dev_name:
+            dev_name = "Platform Creator"
+
+        dev_avatar = t.developer_avatar
+        if not dev_avatar and t.seller:
+            dev_avatar = t.seller.avatar_url
+
+        response_items.append({
+            "id": str(t.id),
+            "title": t.title,
+            "slug": t.slug,
+            "price": float(t.price),
+            "status": t.status.value if hasattr(t.status, "value") else str(t.status),
+            "framework": t.framework.value if hasattr(t.framework, "value") else str(t.framework or "HTML"),
+            "developer_name": dev_name,
+            "developer_email": t.seller.email if t.seller else None,
+            "developer_avatar": dev_avatar,
+            "thumbnail_url": t.thumbnail_url,
+            "preview_url": t.preview_url,
+            "category": t.category.name if t.category else "Technology",
+            "category_slug": t.category.slug if t.category else "technology",
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+            "pages_count": t.pages_count or 1,
+            "is_ai_ready": t.is_ai_ready,
+            "version": t.version or "1.0.0",
+            "downloads_count": t.downloads_count,
+            "views_count": t.views_count,
+            "short_description": t.short_description,
+            "description": t.description,
+            "tags": t.tags or [],
+            "industry": t.industry,
+            "color_scheme": t.color_scheme,
+            "has_dark_mode": t.has_dark_mode,
+            "is_responsive": t.is_responsive,
+            "license_type": t.license_type.value if hasattr(t.license_type, "value") else str(t.license_type or "regular"),
+            "included_pages": t.included_pages or [],
+            "download_assets": t.download_assets or {},
+            "is_figma": bool("figma" in (t.tags or []) or "(Figma Import)" in (t.title or "")),
+        })
+    return response_items
 
 
 @router.patch("/templates/{template_id}/status")
