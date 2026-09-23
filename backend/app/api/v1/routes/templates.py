@@ -35,6 +35,7 @@ from app.models.template import TemplateFramework, TemplateLicense, TemplateStat
 from app.models.order import Order, OrderItem, OrderStatus
 from app.core.config import settings
 from app.core.security import generate_file_signature
+from app.core.redis import CacheKeys, cache_get, cache_set, cache_delete, cache_delete_pattern
 from decimal import Decimal
 from datetime import datetime, timezone
 
@@ -110,9 +111,21 @@ async def get_featured_templates(
     limit: int = Query(8, ge=1, le=20),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return featured templates for the landing page."""
+    """Return featured templates for the landing page (cached in Redis)."""
+    cache_key = CacheKeys.featured(limit)
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return [TemplateCardResponse.model_validate(c) for c in cached]
+
     service = TemplateService(db)
-    return await service.get_featured_templates(limit)
+    result = await service.get_featured_templates(limit)
+    if result:
+        await cache_set(
+            cache_key,
+            [c.model_dump(mode="json") for c in result],
+            ttl=CacheKeys.CACHE_TTL_MEDIUM,
+        )
+    return result
 
 
 @router.get("/my-templates", response_model=list[TemplateResponse])
@@ -206,9 +219,23 @@ async def get_template(
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
-    """Get full template details by slug."""
+    """Get full template details by slug (cached in Redis for anonymous visitors)."""
+    cache_key = None
+    if not current_user:
+        cache_key = CacheKeys.template(slug)
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return TemplateResponse.model_validate(cached)
+
     service = TemplateService(db)
-    return await service.get_template(slug, current_user)
+    result = await service.get_template(slug, current_user)
+    if cache_key and result:
+        await cache_set(
+            cache_key,
+            result.model_dump(mode="json"),
+            ttl=CacheKeys.CACHE_TTL_MEDIUM,
+        )
+    return result
 
 
 @router.patch("/{template_id}", response_model=TemplateResponse)
@@ -241,6 +268,12 @@ async def update_template(
 
     updated = await repo.update(template, update_dict)
     await db.commit()
+
+    # Invalidate template details and featured caches
+    if hasattr(template, "slug") and template.slug:
+        await cache_delete(CacheKeys.template(template.slug))
+    await cache_delete_pattern("templates:featured:*")
+
     return updated
 
 

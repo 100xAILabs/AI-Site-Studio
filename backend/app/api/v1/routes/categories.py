@@ -1,5 +1,5 @@
 """
-Categories routes.
+Categories routes — with Redis caching and automatic invalidation on admin edits.
 """
 
 import uuid
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import require_admin
+from app.core.redis import CacheKeys, cache_get, cache_set, cache_delete
 from app.models.user import User
 from app.repositories.category_repo import CategoryRepository
 from app.schemas.category import CategoryCreate, CategoryUpdate, CategoryResponse
@@ -19,7 +20,12 @@ router = APIRouter()
 
 @router.get("", response_model=List[CategoryResponse])
 async def list_categories(db: AsyncSession = Depends(get_db)):
-    """Return all active top-level categories with their children."""
+    """Return all active top-level categories with their children (cached in Redis)."""
+    cache_key = CacheKeys.categories()
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return [CategoryResponse.model_validate(c) for c in cached]
+
     repo = CategoryRepository(db)
     categories = await repo.get_all_active()
     result = []
@@ -27,6 +33,12 @@ async def list_categories(db: AsyncSession = Depends(get_db)):
         cat_resp = CategoryResponse.model_validate(cat)
         cat_resp.template_count = await repo.count_templates(cat.id)
         result.append(cat_resp)
+
+    await cache_set(
+        cache_key,
+        [c.model_dump(mode="json") for c in result],
+        ttl=CacheKeys.CACHE_TTL_LONG,
+    )
     return result
 
 
@@ -57,6 +69,8 @@ async def create_category(
     cat = await repo.create(data)
     await db.commit()
     await db.refresh(cat)
+    # Invalidate categories cache
+    await cache_delete(CacheKeys.categories())
     return CategoryResponse.model_validate(cat)
 
 
@@ -75,6 +89,8 @@ async def update_category(
     cat = await repo.update(cat, data)
     await db.commit()
     await db.refresh(cat)
+    # Invalidate categories cache
+    await cache_delete(CacheKeys.categories())
     return CategoryResponse.model_validate(cat)
 
 
@@ -91,3 +107,5 @@ async def delete_category(
         raise HTTPException(status_code=404, detail="Category not found")
     await repo.delete(cat)
     await db.commit()
+    # Invalidate categories cache
+    await cache_delete(CacheKeys.categories())

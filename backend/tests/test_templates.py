@@ -69,3 +69,36 @@ async def test_seller_create_template_without_payout(seller_client: AsyncClient,
     assert response.status_code == 201
     assert response.json()["title"] == "Creative Portfolio Template"
 
+
+@pytest.mark.asyncio
+async def test_redis_caching_and_invalidation(client: AsyncClient, db: AsyncSession):
+    """Verify Redis cache set, get, invalidation, and deterministic keys."""
+    from app.core.redis import CacheKeys, cache_get, cache_set, cache_delete
+
+    # 1. Test set and get
+    test_key = "test:unit:cache_key"
+    payload = {"status": "ok", "items": [1, 2, 3], "value": 42.5}
+    await cache_set(test_key, payload, ttl=60)
+    cached = await cache_get(test_key)
+    assert cached is not None
+    assert cached["status"] == "ok"
+    assert cached["items"] == [1, 2, 3]
+
+    # 2. Test deletion
+    await cache_delete(test_key)
+    assert await cache_get(test_key) is None
+
+    # 3. Test CacheKeys determinism
+    key1 = CacheKeys.search("landing page", "category:tech")
+    key2 = CacheKeys.search("landing page", "category:tech")
+    assert key1 == key2
+    assert key1.startswith("search:")
+
+    # 4. Test categories list caching
+    res = await client.get("/api/v1/categories")
+    assert res.status_code == 200
+    # Second call should also succeed (cached)
+    res2 = await client.get("/api/v1/categories")
+    assert res2.status_code == 200
+
+
