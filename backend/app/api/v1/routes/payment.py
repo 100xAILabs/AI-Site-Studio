@@ -569,7 +569,11 @@ async def stripe_webhook(
         if not order_id_str:
             raise HTTPException(status_code=400, detail="Missing order_id in payment metadata")
 
-        order_uuid = uuid.UUID(order_id_str)
+        try:
+            order_uuid = uuid.UUID(order_id_str)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid order_id format in payment metadata")
+
         order_res = await db.execute(select(Order).where(Order.id == order_uuid))
         order = order_res.scalar_one_or_none()
         if not order:

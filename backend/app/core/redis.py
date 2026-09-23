@@ -7,6 +7,7 @@ fallback when Redis is unavailable.
 import json
 import hashlib
 import logging
+from datetime import datetime, date
 from decimal import Decimal
 from typing import Any, Optional
 from uuid import UUID
@@ -39,11 +40,13 @@ async def get_redis() -> aioredis.Redis:
 
 
 def _json_serial(obj: Any) -> Any:
-    """JSON serializer helper for UUIDs, Decimals, and Pydantic models."""
+    """JSON serializer helper for UUIDs, Decimals, dates/times, and Pydantic models."""
     if isinstance(obj, UUID):
         return str(obj)
     if isinstance(obj, Decimal):
         return float(obj)
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
     if hasattr(obj, "model_dump"):
         return obj.model_dump(mode="json")
     if hasattr(obj, "dict"):

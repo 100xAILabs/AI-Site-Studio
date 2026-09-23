@@ -4,6 +4,7 @@ Cloudflare R2 / AWS S3 (Production Object Storage) with signed URLs and CDN supp
 """
 
 import io
+import asyncio
 import logging
 import mimetypes
 import uuid
@@ -127,7 +128,8 @@ class StorageService:
         if self.is_cloud_storage:
             try:
                 s3 = self._get_s3_client()
-                s3.put_object(
+                await asyncio.to_thread(
+                    s3.put_object,
                     Bucket=self.bucket_name,
                     Key=storage_key,
                     Body=file_content,
@@ -181,8 +183,8 @@ class StorageService:
         if self.is_cloud_storage:
             try:
                 s3 = self._get_s3_client()
-                response = s3.get_object(Bucket=self.bucket_name, Key=stored_file.storage_key)
-                file_bytes = response["Body"].read()
+                response = await asyncio.to_thread(s3.get_object, Bucket=self.bucket_name, Key=stored_file.storage_key)
+                file_bytes = await asyncio.to_thread(response["Body"].read)
                 return file_bytes, stored_file.content_type, stored_file.original_filename
             except ClientError as e:
                 logger.error(f"[Storage] Failed to retrieve {stored_file.storage_key} from cloud: {e}")
@@ -222,7 +224,7 @@ class StorageService:
         if self.is_cloud_storage:
             try:
                 s3 = self._get_s3_client()
-                s3.delete_object(Bucket=self.bucket_name, Key=stored_file.storage_key)
+                await asyncio.to_thread(s3.delete_object, Bucket=self.bucket_name, Key=stored_file.storage_key)
             except Exception as e:
                 logger.warning(f"[Storage] Cloud delete failed for {stored_file.storage_key}: {e}")
 
