@@ -680,3 +680,619 @@ export default function App() {{
   );
 }}
 """
+
+
+def synthesize_vue_application(profile: DomainProfile) -> str:
+    """
+    Synthesizes a production-ready Vue 3 Single File Component (App.vue)
+    with <template>, <script setup>, and <style scoped>.
+    """
+    features_html = ""
+    for f in profile.features:
+        features_html += f"""
+              <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl border border-white/10 hover:border-white/20 transition-all">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white mb-4" style="background-color: {profile.primary_hex};">
+                  <span class="text-lg">✦</span>
+                </div>
+                <h3 class="text-lg font-bold text-white mb-2">{f['title']}</h3>
+                <p class="text-xs text-slate-400 leading-relaxed">{f['desc']}</p>
+              </div>"""
+
+    offerings_html = ""
+    for o in profile.offerings:
+        badge = f"""<span class="text-[11px] font-mono font-bold px-2.5 py-1 rounded-full text-white" style="background-color: {profile.primary_hex};">{o['price']}</span>""" if o.get('price') else ""
+        offerings_html += f"""
+              <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl border border-white/10 hover:border-white/20 transition-all flex flex-col justify-between">
+                <div>
+                  <div class="flex items-center justify-between gap-4 mb-3">
+                    <h3 class="text-base font-bold text-white">{o['title']}</h3>
+                    {badge}
+                  </div>
+                  <p class="text-xs text-slate-400 leading-relaxed">{o['desc']}</p>
+                </div>
+                <button @click="setPage('contact')" class="mt-6 w-full py-2.5 rounded-xl text-white font-bold text-xs shadow-md transition-all hover:opacity-90" style="background-color: {profile.primary_hex};">
+                  Inquire Now &rarr;
+                </button>
+              </div>"""
+
+    team_html = ""
+    for tm in profile.team:
+        team_html += f"""
+              <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl border border-white/10">
+                <div class="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-base mb-4" style="background-color: {profile.primary_hex};">
+                  {tm['name'][:2].upper()}
+                </div>
+                <h4 class="text-base font-bold text-white">{tm['name']}</h4>
+                <p class="text-xs font-semibold mb-2" style="color: {profile.accent_hex};">{tm['role']}</p>
+                <p class="text-xs text-slate-400">{tm['desc']}</p>
+              </div>"""
+
+    testimonials_html = ""
+    for t in profile.testimonials:
+        testimonials_html += f"""
+              <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl border border-white/10">
+                <div class="flex items-center gap-1 text-amber-400 mb-3 text-sm">
+                  <span>★</span><span>★</span><span>★</span><span>★</span><span>★</span>
+                </div>
+                <p class="text-xs text-slate-300 italic mb-4">"{t['quote']}"</p>
+                <div class="border-t border-white/10 pt-3">
+                  <p class="text-xs font-bold text-white">{t['name']}</p>
+                  <p class="text-[11px] text-slate-400">{t['role']}</p>
+                </div>
+              </div>"""
+
+    return f"""<script setup>
+import {{ ref }} from 'vue'
+
+const currentPage = ref('home')
+const contactSubmitted = ref(false)
+const mobileMenuOpen = ref(false)
+
+const navPages = [
+  {{ id: 'home', name: 'Home' }},
+  {{ id: 'about', name: 'About' }},
+  {{ id: 'services', name: 'Offerings' }},
+  {{ id: 'contact', name: 'Contact' }}
+]
+
+function setPage(pageId) {{
+  currentPage.value = pageId
+  mobileMenuOpen.value = false
+  window.scrollTo({{ top: 0, behavior: 'smooth' }})
+}}
+</script>
+
+<template>
+  <div class="min-h-screen font-sans text-slate-100 flex flex-col" style="background-color: {profile.bg_hex}; color: {profile.text_hex};">
+    <!-- Header -->
+    <header class="sticky top-0 z-50 backdrop-blur-md bg-slate-950/80 border-b border-white/10 px-4 sm:px-8 py-3.5 flex items-center justify-between">
+      <div class="flex items-center gap-2 cursor-pointer" @click="setPage('home')">
+        <div class="w-8 h-8 rounded-xl flex items-center justify-center text-white font-black text-sm" style="background-color: {profile.primary_hex};">
+          ✦
+        </div>
+        <span class="font-extrabold text-base tracking-tight text-white">{profile.business_title}</span>
+      </div>
+
+      <nav class="hidden md:flex items-center gap-1">
+        <button
+          v-for="p in navPages"
+          :key="p.id"
+          @click="setPage(p.id)"
+          class="px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer"
+          :style="currentPage === p.id ? 'background-color: rgba(255,255,255,0.1); color: #ffffff;' : 'color: #94a3b8;'"
+        >
+          {{{{ p.name }}}}
+        </button>
+      </nav>
+
+      <div class="hidden md:flex items-center gap-3">
+        <button
+          @click="setPage('contact')"
+          style="background-color: {profile.primary_hex};"
+          class="px-4 py-2 rounded-xl text-white font-bold text-xs shadow-lg hover:opacity-90 transition-all cursor-pointer"
+        >
+          Get in Touch &rarr;
+        </button>
+      </div>
+
+      <button @click="mobileMenuOpen = !mobileMenuOpen" class="md:hidden p-2 text-slate-300 hover:text-white">
+        ☰
+      </button>
+    </header>
+
+    <div v-if="mobileMenuOpen" class="md:hidden bg-slate-950/95 border-b border-white/10 px-6 py-4 space-y-2">
+      <button
+        v-for="p in navPages"
+        :key="p.id"
+        @click="setPage(p.id)"
+        class="block w-full text-left py-2 text-sm font-semibold"
+        :style="currentPage === p.id ? 'color: {profile.accent_hex};' : 'color: #94a3b8;'"
+      >
+        {{{{ p.name }}}}
+      </button>
+    </div>
+
+    <!-- Main Views -->
+    <main class="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 w-full">
+      <!-- HOME VIEW -->
+      <section v-if="currentPage === 'home'" class="space-y-16">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center pt-4">
+          <div>
+            <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-mono mb-6" style="color: {profile.accent_hex};">
+              <span>✦ {profile.domain_name}</span>
+            </div>
+            <h1 class="text-4xl sm:text-6xl font-extrabold tracking-tight text-white mb-6 leading-tight">
+              {profile.tagline}
+            </h1>
+            <p class="text-base sm:text-lg text-slate-400 mb-8 leading-relaxed">
+              {profile.value_prop}
+            </p>
+            <div class="flex flex-wrap items-center gap-4">
+              <button
+                @click="setPage('services')"
+                style="background-color: {profile.primary_hex};"
+                class="px-6 py-3.5 rounded-xl text-white font-bold text-sm shadow-xl hover:opacity-90 transition-all cursor-pointer"
+              >
+                View Offerings &rarr;
+              </button>
+              <button
+                @click="setPage('about')"
+                class="px-6 py-3.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 font-bold text-sm transition-all cursor-pointer"
+              >
+                Our Story
+              </button>
+            </div>
+          </div>
+
+          <div class="relative">
+            <div class="overflow-hidden rounded-3xl border border-white/15 shadow-2xl">
+              <img src="{profile.hero_image}" alt="{profile.business_title}" class="w-full h-96 sm:h-[450px] object-cover hover:scale-105 transition-transform duration-700" />
+            </div>
+            <div style="background-color: {profile.card_hex};" class="absolute -bottom-6 -left-6 p-4 rounded-2xl border border-white/15 shadow-2xl hidden sm:flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white" style="background-color: {profile.primary_hex};">
+                ★
+              </div>
+              <div>
+                <span class="font-extrabold text-sm text-white block">4.9 / 5.0 Rating</span>
+                <span class="text-[11px] text-slate-400">Over 500+ Verified Reviews</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 pt-10">
+          {features_html}
+        </div>
+
+        <div class="pt-8">
+          <h2 class="text-2xl sm:text-3xl font-extrabold text-white text-center mb-8">What Our Clients Say</h2>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            {testimonials_html}
+          </div>
+        </div>
+      </section>
+
+      <!-- ABOUT VIEW -->
+      <section v-if="currentPage === 'about'" class="space-y-16 max-w-4xl mx-auto py-4">
+        <div class="text-center">
+          <span class="text-xs font-mono uppercase tracking-wider block mb-2" style="color: {profile.primary_hex};">Heritage & Mission</span>
+          <h2 class="text-3xl sm:text-5xl font-extrabold text-white mb-4">About {profile.business_title}</h2>
+          <p class="text-slate-400 leading-relaxed text-sm sm:text-base max-w-2xl mx-auto">
+            {profile.value_prop}
+          </p>
+        </div>
+
+        <div>
+          <h3 class="text-2xl font-bold text-white text-center mb-8">Leadership Team</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            {team_html}
+          </div>
+        </div>
+      </section>
+
+      <!-- SERVICES VIEW -->
+      <section v-if="currentPage === 'services'" class="space-y-12 py-4">
+        <div class="text-center max-w-2xl mx-auto">
+          <span class="text-xs font-mono uppercase tracking-wider block mb-2" style="color: {profile.primary_hex};">Our Catalog & Offerings</span>
+          <h2 class="text-3xl sm:text-5xl font-extrabold text-white mb-4">Curated Offerings</h2>
+          <p class="text-slate-400 text-sm">Crafted with precision, passion, and uncompromising quality.</p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {offerings_html}
+        </div>
+      </section>
+
+      <!-- CONTACT VIEW -->
+      <section v-if="currentPage === 'contact'" class="max-w-4xl mx-auto py-4">
+        <div class="text-center mb-10">
+          <span class="text-xs font-mono uppercase tracking-wider block mb-2" style="color: {profile.primary_hex};">Connect With Us</span>
+          <h2 class="text-3xl sm:text-5xl font-extrabold text-white mb-3">Book & Inquire</h2>
+          <p class="text-slate-400 text-xs sm:text-sm">Reach out directly and our team will get back to you within 24 hours.</p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div class="lg:col-span-1 space-y-4">
+            <div style="background-color: {profile.card_hex};" class="p-5 rounded-2xl border border-white/10">
+              <h4 class="text-xs font-bold text-white">Direct Email</h4>
+              <p class="text-xs text-slate-400 mt-1">{profile.contact_info['email']}</p>
+            </div>
+            <div style="background-color: {profile.card_hex};" class="p-5 rounded-2xl border border-white/10">
+              <h4 class="text-xs font-bold text-white">Phone Support</h4>
+              <p class="text-xs text-slate-400 mt-1">{profile.contact_info['phone']}</p>
+            </div>
+            <div style="background-color: {profile.card_hex};" class="p-5 rounded-2xl border border-white/10">
+              <h4 class="text-xs font-bold text-white">Headquarters</h4>
+              <p class="text-xs text-slate-400 mt-1">{profile.contact_info['address']}</p>
+            </div>
+          </div>
+
+          <div style="background-color: {profile.card_hex};" class="lg:col-span-2 p-8 rounded-3xl border border-white/10 shadow-2xl">
+            <div v-if="contactSubmitted" class="text-center py-10 space-y-3">
+              <div class="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto text-2xl font-bold">
+                ✓
+              </div>
+              <h3 class="text-xl font-bold text-white">Message Dispatched</h3>
+              <p class="text-xs text-slate-400 max-w-sm mx-auto">Thank you for contacting {profile.business_title}. We will respond shortly.</p>
+              <button @click="contactSubmitted = false" class="text-xs text-cyan-400 underline pt-2 cursor-pointer">Submit another inquiry</button>
+            </div>
+
+            <form v-else @submit.prevent="contactSubmitted = true" class="space-y-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-300 mb-1.5">Your Name</label>
+                  <input required placeholder="Alex Rivera" class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/30" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-300 mb-1.5">Email Address</label>
+                  <input required type="email" placeholder="alex@company.com" class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/30" />
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1.5">Inquiry Details</label>
+                <textarea required rows="4" placeholder="Tell us how we can help you..." class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/30"></textarea>
+              </div>
+              <button
+                type="submit"
+                style="background-color: {profile.primary_hex};"
+                class="w-full py-3.5 rounded-xl text-white font-bold text-sm shadow-xl hover:opacity-90 transition-all cursor-pointer"
+              >
+                Send Message &rarr;
+              </button>
+            </form>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-white/10 py-8 px-6 text-center text-xs text-slate-500">
+      &copy; {{{{ new Date().getFullYear() }}}} {profile.business_title}. Powered by AI Site Studio.
+    </footer>
+  </div>
+</template>
+
+<style scoped>
+/* Scoped styles */
+</style>
+"""
+
+
+def synthesize_standalone_html(profile: DomainProfile, framework: str = "react") -> str:
+    """
+    Synthesizes a 100% complete, fully self-contained HTML page that renders the entire project
+    immediately when opened in ANY browser (via double click in Windows Explorer, file://, or web server),
+    while also seamlessly mounting the Vite React / Vue framework app when running `npm run dev`.
+    """
+    features_html = ""
+    for f in profile.features:
+        features_html += f"""
+          <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl border border-white/10 hover:border-white/20 transition-all">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white mb-4" style="background-color: {profile.primary_hex};">
+              <span class="text-lg">✦</span>
+            </div>
+            <h3 class="text-lg font-bold text-white mb-2">{f['title']}</h3>
+            <p class="text-xs text-slate-400 leading-relaxed">{f['desc']}</p>
+          </div>"""
+
+    offerings_html = ""
+    for o in profile.offerings:
+        badge = f"""<span class="text-[11px] font-mono font-bold px-2.5 py-1 rounded-full text-white" style="background-color: {profile.primary_hex};">{o['price']}</span>""" if o.get('price') else ""
+        offerings_html += f"""
+          <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl border border-white/10 hover:border-white/20 transition-all flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between gap-4 mb-3">
+                <h3 class="text-base font-bold text-white">{o['title']}</h3>
+                {badge}
+              </div>
+              <p class="text-xs text-slate-400 leading-relaxed">{o['desc']}</p>
+            </div>
+            <button onclick="switchTab('contact')" class="mt-6 w-full py-2.5 rounded-xl text-white font-bold text-xs shadow-md transition-all hover:opacity-90 cursor-pointer" style="background-color: {profile.primary_hex};">
+              Inquire Now &rarr;
+            </button>
+          </div>"""
+
+    team_html = ""
+    for tm in profile.team:
+        team_html += f"""
+          <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl border border-white/10">
+            <div class="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-base mb-4" style="background-color: {profile.primary_hex};">
+              {tm['name'][:2].upper()}
+            </div>
+            <h4 class="text-base font-bold text-white">{tm['name']}</h4>
+            <p class="text-xs font-semibold mb-2" style="color: {profile.accent_hex};">{tm['role']}</p>
+            <p class="text-xs text-slate-400">{tm['desc']}</p>
+          </div>"""
+
+    testimonials_html = ""
+    for t in profile.testimonials:
+        testimonials_html += f"""
+          <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl border border-white/10">
+            <div class="flex items-center gap-1 text-amber-400 mb-3 text-sm">
+              <span>★</span><span>★</span><span>★</span><span>★</span><span>★</span>
+            </div>
+            <p class="text-xs text-slate-300 italic mb-4">"{t['quote']}"</p>
+            <div class="border-t border-white/10 pt-3">
+              <p class="text-xs font-bold text-white">{t['name']}</p>
+              <p class="text-[11px] text-slate-400">{t['role']}</p>
+            </div>
+          </div>"""
+
+    entry_script = "./src/main.js" if framework.lower() == "vue" else "./src/main.jsx"
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{profile.business_title} — {profile.tagline}</title>
+    <meta name="description" content="{profile.value_prop}" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body {{ margin: 0; background-color: {profile.bg_hex}; color: {profile.text_hex}; font-family: system-ui, -apple-system, sans-serif; }}
+      .page-tab {{ display: none; }}
+      .page-tab.active {{ display: block; animation: tabFade 0.25s ease-out; }}
+      @keyframes tabFade {{ from {{ opacity: 0; transform: translateY(4px); }} to {{ opacity: 1; transform: translateY(0); }} }}
+    </style>
+  </head>
+  <body style="background-color: {profile.bg_hex}; color: {profile.text_hex};">
+    <!-- Standalone Universal Showcase Container (Renders instantly on double-click in any browser) -->
+    <div id="root">
+      <div class="min-h-screen flex flex-col justify-between">
+        <!-- Header / Navbar -->
+        <header class="sticky top-0 z-50 backdrop-blur-md bg-slate-950/80 border-b border-white/10 px-4 sm:px-8 py-3.5 flex items-center justify-between">
+          <div class="flex items-center gap-2 cursor-pointer" onclick="switchTab('home')">
+            <div class="w-8 h-8 rounded-xl flex items-center justify-center text-white font-black text-sm" style="background-color: {profile.primary_hex};">
+              ✦
+            </div>
+            <span class="font-extrabold text-base tracking-tight text-white">{profile.business_title}</span>
+          </div>
+
+          <nav class="hidden md:flex items-center gap-1">
+            <button onclick="switchTab('home')" class="nav-btn px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-white" data-tab="home" style="border-bottom: 2px solid {profile.primary_hex};">
+              Home
+            </button>
+            <button onclick="switchTab('about')" class="nav-btn px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-slate-400" data-tab="about" style="border-bottom: 2px solid transparent;">
+              About
+            </button>
+            <button onclick="switchTab('services')" class="nav-btn px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-slate-400" data-tab="services" style="border-bottom: 2px solid transparent;">
+              Offerings
+            </button>
+            <button onclick="switchTab('contact')" class="nav-btn px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-slate-400" data-tab="contact" style="border-bottom: 2px solid transparent;">
+              Contact
+            </button>
+          </nav>
+
+          <div class="hidden md:flex items-center gap-3">
+            <button onclick="switchTab('contact')" style="background-color: {profile.primary_hex};" class="px-4 py-2 rounded-xl text-white font-bold text-xs shadow-lg hover:opacity-90 transition-all cursor-pointer">
+              Get in Touch &rarr;
+            </button>
+          </div>
+        </header>
+
+        <!-- Main Content with Tab Pages -->
+        <main class="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 w-full">
+          <!-- TAB 1: HOME -->
+          <div id="view-home" class="page-tab active space-y-16">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center pt-4">
+              <div>
+                <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-mono mb-6" style="color: {profile.accent_hex};">
+                  <span>✦ {profile.domain_name}</span>
+                </div>
+                <h1 class="text-4xl sm:text-6xl font-extrabold tracking-tight text-white mb-6 leading-tight">
+                  {profile.tagline}
+                </h1>
+                <p class="text-base sm:text-lg text-slate-400 mb-8 leading-relaxed">
+                  {profile.value_prop}
+                </p>
+                <div class="flex flex-wrap items-center gap-4">
+                  <button onclick="switchTab('services')" style="background-color: {profile.primary_hex};" class="px-6 py-3.5 rounded-xl text-white font-bold text-sm shadow-xl hover:opacity-90 transition-all cursor-pointer">
+                    View Offerings &rarr;
+                  </button>
+                  <button onclick="switchTab('about')" class="px-6 py-3.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 font-bold text-sm transition-all cursor-pointer">
+                    Our Story
+                  </button>
+                </div>
+              </div>
+
+              <div class="relative">
+                <div class="overflow-hidden rounded-3xl border border-white/15 shadow-2xl">
+                  <img src="{profile.hero_image}" alt="{profile.business_title}" class="w-full h-96 sm:h-[450px] object-cover hover:scale-105 transition-transform duration-700" />
+                </div>
+                <div style="background-color: {profile.card_hex};" class="absolute -bottom-6 -left-6 p-4 rounded-2xl border border-white/15 shadow-2xl hidden sm:flex items-center gap-3">
+                  <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm" style="background-color: {profile.primary_hex};">
+                    ★
+                  </div>
+                  <div>
+                    <span class="font-extrabold text-sm text-white block">4.9 / 5.0 Rating</span>
+                    <span class="text-[11px] text-slate-400">Over 500+ Verified Reviews</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 pt-10">
+              {features_html}
+            </div>
+
+            <div class="pt-8">
+              <h2 class="text-2xl sm:text-3xl font-extrabold text-white text-center mb-8">What Our Clients Say</h2>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                {testimonials_html}
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 2: ABOUT -->
+          <div id="view-about" class="page-tab space-y-16 max-w-4xl mx-auto py-4">
+            <div class="text-center">
+              <span class="text-xs font-mono uppercase tracking-wider block mb-2" style="color: {profile.primary_hex};">Heritage & Mission</span>
+              <h2 class="text-3xl sm:text-5xl font-extrabold text-white mb-4">About {profile.business_title}</h2>
+              <p class="text-slate-400 leading-relaxed text-sm sm:text-base max-w-2xl mx-auto">
+                {profile.value_prop}
+              </p>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <div style="background-color: {profile.card_hex};" class="p-7 rounded-2xl border border-white/10">
+                <h3 class="text-lg font-bold text-white mb-2">Our Standard of Excellence</h3>
+                <p class="text-xs text-slate-400 leading-relaxed">Every detail is calibrated to provide unmatched reliability, refined aesthetics, and transparent client experiences.</p>
+              </div>
+              <div style="background-color: {profile.card_hex};" class="p-7 rounded-2xl border border-white/10">
+                <h3 class="text-lg font-bold text-white mb-2">Sustainable & Modern</h3>
+                <p class="text-xs text-slate-400 leading-relaxed">Embracing the latest industry standards, continuous technological optimization, and sustainable community practices.</p>
+              </div>
+            </div>
+
+            <div>
+              <h3 class="text-2xl font-bold text-white text-center mb-8">Leadership Team</h3>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                {team_html}
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 3: SERVICES -->
+          <div id="view-services" class="page-tab space-y-12 py-4">
+            <div class="text-center max-w-2xl mx-auto">
+              <span class="text-xs font-mono uppercase tracking-wider block mb-2" style="color: {profile.primary_hex};">Our Catalog & Offerings</span>
+              <h2 class="text-3xl sm:text-5xl font-extrabold text-white mb-4">Curated Offerings</h2>
+              <p class="text-slate-400 text-sm">Engineered with precision, passion, and uncompromising quality.</p>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              {offerings_html}
+            </div>
+          </div>
+
+          <!-- TAB 4: CONTACT -->
+          <div id="view-contact" class="page-tab max-w-4xl mx-auto py-4">
+            <div class="text-center mb-10">
+              <span class="text-xs font-mono uppercase tracking-wider block mb-2" style="color: {profile.primary_hex};">Connect With Us</span>
+              <h2 class="text-3xl sm:text-5xl font-extrabold text-white mb-3">Book & Inquire</h2>
+              <p class="text-slate-400 text-xs sm:text-sm">Reach out directly and our team will get back to you within 24 hours.</p>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div class="lg:col-span-1 space-y-4">
+                <div style="background-color: {profile.card_hex};" class="p-5 rounded-2xl border border-white/10">
+                  <h4 class="text-xs font-bold text-white">Direct Email</h4>
+                  <p class="text-xs text-slate-400 mt-1">{profile.contact_info['email']}</p>
+                </div>
+                <div style="background-color: {profile.card_hex};" class="p-5 rounded-2xl border border-white/10">
+                  <h4 class="text-xs font-bold text-white">Phone Support</h4>
+                  <p class="text-xs text-slate-400 mt-1">{profile.contact_info['phone']}</p>
+                </div>
+                <div style="background-color: {profile.card_hex};" class="p-5 rounded-2xl border border-white/10">
+                  <h4 class="text-xs font-bold text-white">Headquarters</h4>
+                  <p class="text-xs text-slate-400 mt-1">{profile.contact_info['address']}</p>
+                </div>
+              </div>
+
+              <div style="background-color: {profile.card_hex};" class="lg:col-span-2 p-8 rounded-3xl border border-white/10 shadow-2xl">
+                <div id="contact-success-card" class="hidden text-center py-10 space-y-3">
+                  <div class="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto text-2xl font-bold">
+                    ✓
+                  </div>
+                  <h3 class="text-xl font-bold text-white">Message Dispatched</h3>
+                  <p class="text-xs text-slate-400 max-w-sm mx-auto">Thank you for contacting {profile.business_title}. We will respond shortly.</p>
+                  <button onclick="document.getElementById('contact-success-card').classList.add('hidden'); document.getElementById('contact-form-card').classList.remove('hidden');" class="text-xs text-cyan-400 underline pt-2 cursor-pointer">Submit another inquiry</button>
+                </div>
+
+                <div id="contact-form-card">
+                  <form id="site-contact-form" class="space-y-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1.5">Your Name</label>
+                        <input required placeholder="Alex Rivera" class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/30" />
+                      </div>
+                      <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1.5">Email Address</label>
+                        <input required type="email" placeholder="alex@company.com" class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/30" />
+                      </div>
+                    </div>
+                    <div>
+                      <label class="block text-xs font-semibold text-slate-300 mb-1.5">Inquiry Details</label>
+                      <textarea required rows="4" placeholder="Tell us how we can help you..." class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/30"></textarea>
+                    </div>
+                    <button
+                      type="submit"
+                      style="background-color: {profile.primary_hex};"
+                      class="w-full py-3.5 rounded-xl text-white font-bold text-sm shadow-xl hover:opacity-90 transition-all cursor-pointer"
+                    >
+                      Send Message &rarr;
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="border-t border-white/10 py-8 px-6 text-center text-xs text-slate-500">
+          &copy; 2026 {profile.business_title}. Engineered with AI Site Studio.
+        </footer>
+      </div>
+    </div>
+
+    <!-- Client-side Interactive Tab Navigation -->
+    <script>
+      function switchTab(pageId) {{
+        document.querySelectorAll('.page-tab').forEach(function(el) {{ el.classList.remove('active'); }});
+        var target = document.getElementById('view-' + pageId);
+        if (target) target.classList.add('active');
+        document.querySelectorAll('.nav-btn').forEach(function(btn) {{
+          if (btn.dataset.tab === pageId) {{
+            btn.style.color = '#ffffff';
+            btn.style.borderBottom = '2px solid {profile.primary_hex}';
+          }} else {{
+            btn.style.color = '#94a3b8';
+            btn.style.borderBottom = '2px solid transparent';
+          }}
+        }});
+        window.scrollTo({{ top: 0, behavior: 'smooth' }});
+      }}
+
+      document.addEventListener('DOMContentLoaded', function() {{
+        var form = document.getElementById('site-contact-form');
+        if (form) {{
+          form.addEventListener('submit', function(e) {{
+            e.preventDefault();
+            var successCard = document.getElementById('contact-success-card');
+            var formCard = document.getElementById('contact-form-card');
+            if (successCard && formCard) {{
+              formCard.classList.add('hidden');
+              successCard.classList.remove('hidden');
+            }}
+          }});
+        }}
+      }});
+    </script>
+
+    <!-- Vite Framework Entry (Hydrates into full reactive app when running npm run dev) -->
+    <script type="module" src="{entry_script}"></script>
+  </body>
+</html>
+"""
+

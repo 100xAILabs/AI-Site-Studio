@@ -73,6 +73,23 @@ def create_application() -> FastAPI:
             allowed_hosts=["*.aisitestudio.com", "localhost"],
         )
 
+    @app.middleware("http")
+    async def custom_domain_host_middleware(request: Request, call_next):
+        raw_host = request.headers.get("host", "").split(":")[0].strip().lower()
+        platform_hosts = {"localhost", "127.0.0.1", "0.0.0.0", "testserver"}
+        
+        path = request.url.path
+        # Allow platform calls, API endpoints, docs, and direct asset routes to proceed normally
+        if raw_host in platform_hosts or path.startswith("/api/") or path.startswith("/docs") or path.startswith("/openapi") or path.startswith("/static") or path.startswith("/sites/"):
+            return await call_next(request)
+
+        # Resolve custom domain or tenant subdomain directly to tenant workload
+        from app.api.v1.routes.site_router import serve_tenant_workload
+        try:
+            return await serve_tenant_workload(site_identifier=raw_host, filepath=path.lstrip("/"), request=request)
+        except Exception:
+            return await call_next(request)
+
     # ── Exception Handlers ────────────────────────────────────────────────────
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(
@@ -89,6 +106,16 @@ def create_application() -> FastAPI:
                 "detail": "Validation error",
                 "errors": jsonable_encoder(exc.errors()),
             },
+        )
+
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=getattr(exc, "headers", None)
         )
 
     @app.exception_handler(Exception)

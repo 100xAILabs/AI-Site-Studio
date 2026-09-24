@@ -674,28 +674,10 @@ async def prepare_template_generation(
         }
     except Exception as e:
         logger.error(f"Prepare prompt analysis failed: {e}")
-        return {
-            "architecture_type": "multi_page",
-            "is_multipage": True,
-            "architecture_reasoning": "Standard multi-page website architecture suitable for comprehensive business showcase.",
-            "questions": [
-                {
-                    "id": "color_scheme",
-                    "question": "Which color scheme matches your brand best?",
-                    "options": ["Modern Slate & Teal", "Vibrant Electric Blue", "Sleek Dark Cyberpunk", "Warm Minimalist Coral"]
-                },
-                {
-                    "id": "layout_style",
-                    "question": "What layout style do you prefer?",
-                    "options": ["Clean & Corporate", "Glassmorphic & Futuristic", "Playful & Vibrant", "Minimalist & Spaced"]
-                }
-            ],
-            "suggested_pages": [
-                {"name": "Home Page", "filename": "index.html", "content_summary": "Hero banner, features grid, social proof, footer."},
-                {"name": "About Details", "filename": "about.html", "content_summary": "Story background, mission, core values, team showcase."},
-                {"name": "Contact Page", "filename": "contact.html", "content_summary": "Interactive contact form, location details, support FAQs."}
-            ]
-        }
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"AI Prompt Analysis Failed: {str(e)}"
+        )
 
 
 @router.post("/generate", response_model=TemplateResponse)
@@ -712,6 +694,12 @@ async def generate_template_by_prompt(
         return await _generate_template_by_prompt_impl(request, db, current_user)
     except HTTPException:
         raise
+    except RuntimeError as e:
+        logger.error(f"Template generation provider error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
         print("======== GENERATE TEMPLATE 500 ERROR TRACEBACK ========")
         traceback.print_exc()
@@ -1552,9 +1540,12 @@ async def stream_generate_template(
             except asyncio.TimeoutError:
                 continue
 
-        res = await task
-        zip_size = len(res["zip_bytes"])
-        yield f"data: {json.dumps({'step': 8, 'agent': 'Orchestrator', 'status': 'completed', 'details': f'ZIP package synthesized: {zip_size} bytes'})}\n\n"
+        try:
+            res = await task
+            zip_size = len(res["zip_bytes"])
+            yield f"data: {json.dumps({'step': 8, 'agent': 'Orchestrator', 'status': 'completed', 'details': f'ZIP package synthesized: {zip_size} bytes'})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 

@@ -59,8 +59,17 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    try:
+        user_uuid = UUID(user_id)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid user token format.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     repo = UserRepository(db)
-    user = await repo.get_by_id(UUID(user_id))
+    user = await repo.get_by_id(user_uuid)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

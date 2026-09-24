@@ -77,20 +77,16 @@ Return JSON only:
   ]
 }}"""
         try:
-            raw = await ai_service._generate_content(planning_prompt, response_mime_type="application/json", feature_name="planning_agent")
+            raw = await ai_service._generate_content(
+                planning_prompt,
+                response_mime_type="application/json",
+                feature_name="planning_agent",
+                preferred_provider=getattr(settings, "AGENT_PLANNING_PROVIDER", "kimi")
+            )
             return robust_json_loads(raw)
         except Exception as e:
-            logger.warning(f"Planning Agent fallback triggered: {e}")
-            from app.services.template_synthesizer import analyze_prompt_intent
-            profile = analyze_prompt_intent(prompt, industry_hint=industry)
-            return {
-                "domain": profile.domain_name,
-                "business_title": profile.business_title,
-                "tagline": profile.tagline,
-                "audience": f"Target Customers & Clients of {profile.business_title}",
-                "value_prop": profile.value_prop,
-                "pages": profile.pages
-            }
+            logger.error(f"Planning Agent execution failed: {e}")
+            raise RuntimeError(f"Planning Agent failed: {e}") from e
 
 
 class UIDesignerAgent:
@@ -124,7 +120,12 @@ Return JSON only:
   "aesthetic": "{default_aesthetic}"
 }}"""
         try:
-            raw = await ai_service._generate_content(design_prompt, response_mime_type="application/json", feature_name="designer_agent")
+            raw = await ai_service._generate_content(
+                design_prompt,
+                response_mime_type="application/json",
+                feature_name="designer_agent",
+                preferred_provider=getattr(settings, "AGENT_DESIGNER_PROVIDER", "kimi")
+            )
             res = robust_json_loads(raw)
             if is_light and res.get("bg_hex", "").lower() in ["#0f172a", "#000000", "#111827", "#090d16"]:
                 res["bg_hex"] = "#f8fafc"
@@ -132,20 +133,8 @@ Return JSON only:
                 res["text_hex"] = "#0f172a"
             return res
         except Exception as e:
-            logger.warning(f"UI Designer Agent fallback triggered: {e}")
-            from app.services.template_synthesizer import analyze_prompt_intent
-            profile = analyze_prompt_intent(prompt=str(plan.get("value_prop", "")), industry_hint=str(plan.get("domain", "")))
-            return {
-                "primary_hex": profile.primary_hex,
-                "secondary_hex": profile.secondary_hex,
-                "accent_hex": profile.accent_hex,
-                "bg_hex": default_bg if is_light else profile.bg_hex,
-                "card_hex": default_card if is_light else profile.card_hex,
-                "text_hex": default_text if is_light else profile.text_hex,
-                "font_display": "Plus Jakarta Sans",
-                "font_body": "Inter",
-                "aesthetic": default_aesthetic
-            }
+            logger.error(f"UI Designer Agent execution failed: {e}")
+            raise RuntimeError(f"UI Designer Agent failed: {e}") from e
 
 
 class FrontendAgent:
@@ -204,35 +193,26 @@ STRICT PRODUCTION REQUIREMENTS:
 """
         try:
             from app.services.ai_service import clean_code_response, repair_truncated_jsx
-            raw = await ai_service._generate_content(frontend_prompt, response_mime_type="text/plain", feature_name="code_assistant")
-            cleaned = clean_code_response(raw, "jsx")
-            if not cleaned or cleaned.strip().startswith("{") or "Dynamic structural synthesis" in cleaned or ("function" not in cleaned and "const " not in cleaned and "export default" not in cleaned):
-                logger.warning("Frontend Agent received invalid or JSON response from AI. Synthesizing rich multi-page template fallback.")
-                return self._generate_fallback_app_jsx(prompt, plan, design, pages_list)
-            return repair_truncated_jsx(cleaned)
+            raw = await ai_service._generate_content(
+                frontend_prompt,
+                response_mime_type="text/plain",
+                feature_name="code_assistant",
+                preferred_provider=getattr(settings, "AGENT_FRONTEND_PROVIDER", "kimi")
+            )
+            is_vue = (framework or "").lower() == "vue"
+            if is_vue:
+                cleaned = clean_code_response(raw, "vue")
+                if not cleaned or "<template>" not in cleaned or "</template>" not in cleaned:
+                    raise RuntimeError("Frontend Agent received invalid Vue response from AI.")
+                return cleaned
+            else:
+                cleaned = clean_code_response(raw, "jsx")
+                if not cleaned or cleaned.strip().startswith("{") or "Dynamic structural synthesis" in cleaned or ("function" not in cleaned and "const " not in cleaned and "export default" not in cleaned):
+                    raise RuntimeError("Frontend Agent received invalid or non-JSX response from AI.")
+                return repair_truncated_jsx(cleaned)
         except Exception as e:
-            logger.error(f"Frontend Agent execution failed: {e}. Generating resilient fallback JSX.")
-            return self._generate_fallback_app_jsx(prompt, plan, design, pages_list)
-
-    def _generate_fallback_app_jsx(self, prompt: str, plan: Dict[str, Any], design: Dict[str, Any], pages_list: List[Dict[str, Any]]) -> str:
-        """Synthesizes a complete, production-ready React multi-page application with full interactive routing."""
-        from app.services.template_synthesizer import analyze_prompt_intent, synthesize_react_application
-        title_hint = plan.get("business_title") or plan.get("domain", "")
-        industry_hint = plan.get("domain", "")
-        profile = analyze_prompt_intent(prompt, industry_hint=industry_hint, business_title_hint=title_hint)
-        if design.get("primary_hex"):
-            profile.primary_hex = design["primary_hex"]
-        if design.get("secondary_hex"):
-            profile.secondary_hex = design["secondary_hex"]
-        if design.get("accent_hex"):
-            profile.accent_hex = design["accent_hex"]
-        if design.get("bg_hex"):
-            profile.bg_hex = design["bg_hex"]
-        if design.get("card_hex"):
-            profile.card_hex = design["card_hex"]
-        if design.get("text_hex"):
-            profile.text_hex = design["text_hex"]
-        return synthesize_react_application(profile)
+            logger.error(f"Frontend Agent execution failed: {e}")
+            raise RuntimeError(f"Frontend Agent failed: {e}") from e
 
 
 class BackendAgent:
@@ -250,7 +230,12 @@ REQUIREMENTS:
 Output valid Python code for `main.py` directly without markdown formatting.
 """
         try:
-            raw = await ai_service._generate_content(backend_prompt, response_mime_type="text/plain", feature_name="code_assistant")
+            raw = await ai_service._generate_content(
+                backend_prompt,
+                response_mime_type="text/plain",
+                feature_name="code_assistant",
+                preferred_provider=getattr(settings, "AGENT_BACKEND_PROVIDER", "kimi")
+            )
             raw = raw.strip()
             if raw.startswith("```python"):
                 raw = raw[9:]
@@ -263,40 +248,8 @@ Output valid Python code for `main.py` directly without markdown formatting.
                 raise ValueError("AI returned non-Python response")
             return raw
         except Exception as e:
-            logger.warning(f"Backend Agent fallback triggered: {e}")
-            return f"""# Dedicated FastAPI Backend for '{title}'
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-import sqlite3
-
-app = FastAPI(title="{title} API", version="1.0.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-def init_db():
-    conn = sqlite3.connect("app.db")
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS contact_submissions (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, email TEXT, message TEXT)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS newsletter_subscribers (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE)''')
-    conn.commit()
-    conn.close()
-
-init_db()
-
-@app.get("/")
-def root():
-    return {{"status": "online", "project": "{title}", "database": "app.db (Isolated SQLite)"}}
-
-@app.get("/api/health")
-def health():
-    return {{"status": "healthy"}}
-"""
+            logger.error(f"Backend Agent execution failed: {e}")
+            raise RuntimeError(f"Backend Agent failed: {e}") from e
 
 
 class DatabaseAgent:
@@ -310,7 +263,12 @@ Include domain-specific tables and insert realistic seed records.
 Return valid Python script code for `seed.py`.
 """
         try:
-            raw = await ai_service._generate_content(db_prompt, response_mime_type="text/plain", feature_name="code_assistant")
+            raw = await ai_service._generate_content(
+                db_prompt,
+                response_mime_type="text/plain",
+                feature_name="code_assistant",
+                preferred_provider=getattr(settings, "AGENT_DATABASE_PROVIDER", "kimi")
+            )
             raw = raw.strip()
             if raw.startswith("```python"):
                 raw = raw[9:]
@@ -323,17 +281,8 @@ Return valid Python script code for `seed.py`.
                 raise ValueError("AI returned non-Python seed script")
             return raw
         except Exception as e:
-            logger.warning(f"Database Agent fallback triggered: {e}")
-            return f"""import sqlite3
-
-conn = sqlite3.connect("app.db")
-cursor = conn.cursor()
-cursor.execute('''CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, desc TEXT)''')
-cursor.execute('''INSERT OR IGNORE INTO items (name, desc) VALUES ('Sample Item', 'Domain seed data record')''')
-conn.commit()
-conn.close()
-print("Database app.db initialized and seeded successfully.")
-"""
+            logger.error(f"Database Agent execution failed: {e}")
+            raise RuntimeError(f"Database Agent failed: {e}") from e
 
 
 class SEOAgent:
@@ -379,62 +328,92 @@ class DeploymentAgent:
         seo_data: Dict[str, Any],
         design: Optional[Dict[str, Any]] = None
     ) -> bytes:
-        package_json = {
-            "name": "ai-generated-template",
-            "private": True,
-            "version": "1.0.0",
-            "type": "module",
-            "scripts": {
-                "dev": "vite",
-                "build": "vite build",
-                "preview": "vite preview"
-            },
-            "dependencies": {
-                "react": "^18.2.0",
-                "react-dom": "^18.2.0",
-                "lucide-react": "^0.344.0"
-            },
-            "devDependencies": {
-                "@types/react": "^18.2.66",
-                "@types/react-dom": "^18.2.22",
-                "@vitejs/plugin-react": "^4.2.1",
-                "vite": "^5.1.6"
+        from app.services.template_synthesizer import (
+            analyze_prompt_intent,
+            synthesize_react_application,
+            synthesize_vue_application,
+            synthesize_standalone_html
+        )
+
+        is_vue = (framework or "").lower() == "vue"
+        profile = analyze_prompt_intent(prompt=title, industry_hint=title, business_title_hint=title)
+        if isinstance(design, dict):
+            if design.get("primary_hex"): profile.primary_hex = design["primary_hex"]
+            if design.get("secondary_hex"): profile.secondary_hex = design["secondary_hex"]
+            if design.get("accent_hex"): profile.accent_hex = design["accent_hex"]
+            if design.get("bg_hex"): profile.bg_hex = design["bg_hex"]
+            if design.get("card_hex"): profile.card_hex = design["card_hex"]
+            if design.get("text_hex"): profile.text_hex = design["text_hex"]
+
+        if is_vue:
+            package_json = {
+                "name": "ai-generated-template",
+                "private": True,
+                "version": "1.0.0",
+                "type": "module",
+                "scripts": {
+                    "dev": "vite",
+                    "build": "vite build",
+                    "preview": "vite preview"
+                },
+                "dependencies": {
+                    "vue": "^3.4.21"
+                },
+                "devDependencies": {
+                    "@vitejs/plugin-vue": "^5.0.4",
+                    "vite": "^5.1.6"
+                }
             }
-        }
-        
-        vite_config = """import { defineConfig } from 'vite'
+            vite_config = """import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+
+export default defineConfig({
+  base: './',
+  plugins: [vue()],
+})
+"""
+            main_code = """import { createApp } from 'vue'
+import App from './App.vue'
+import './index.css'
+
+createApp(App).mount('#root')
+"""
+            main_rel = "src/main.js"
+            app_rel = "src/App.vue"
+            app_content = frontend_code if ("<template>" in frontend_code and "</template>" in frontend_code) else synthesize_vue_application(profile)
+            index_html = synthesize_standalone_html(profile, framework="vue")
+        else:
+            package_json = {
+                "name": "ai-generated-template",
+                "private": True,
+                "version": "1.0.0",
+                "type": "module",
+                "scripts": {
+                    "dev": "vite",
+                    "build": "vite build",
+                    "preview": "vite preview"
+                },
+                "dependencies": {
+                    "react": "^18.2.0",
+                    "react-dom": "^18.2.0",
+                    "lucide-react": "^0.344.0"
+                },
+                "devDependencies": {
+                    "@types/react": "^18.2.66",
+                    "@types/react-dom": "^18.2.22",
+                    "@vitejs/plugin-react": "^4.2.1",
+                    "vite": "^5.1.6"
+                }
+            }
+            vite_config = """import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
+  base: './',
   plugins: [react()],
 })
 """
-
-        title_str = str(seo_data.get('meta_tags', {}).get('title', title)).replace('"', '&quot;').replace('\n', ' ')
-        desc_str = str(seo_data.get('meta_tags', {}).get('description', '')).replace('"', '&quot;').replace('\n', ' ')
-        bg_hex = design.get("bg_hex", "#0f172a") if isinstance(design, dict) else "#0f172a"
-        text_hex = design.get("text_hex", "#f8fafc") if isinstance(design, dict) else "#f8fafc"
-
-        index_html = f"""<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>{title_str}</title>
-    <meta name="description" content="{desc_str}" />
-    <script type="application/ld+json">
-      {json.dumps(seo_data.get('schema_json_ld', {}))}
-    </script>
-    <script src="https://cdn.tailwindcss.com"></script>
-  </head>
-  <body style="background-color: {bg_hex}; color: {text_hex}; margin: 0;">
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
-</html>
-"""
-
-        main_jsx = """import React from 'react'
+            main_code = """import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
@@ -445,20 +424,36 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   </React.StrictMode>,
 )
 """
+            main_rel = "src/main.jsx"
+            app_rel = "src/App.jsx"
+            app_content = frontend_code if ("export default" in frontend_code and ("function" in frontend_code or "const" in frontend_code)) else synthesize_react_application(profile)
+            index_html = synthesize_standalone_html(profile, framework="react")
 
-        index_css = f"""body {{ margin: 0; background-color: {bg_hex}; color: {text_hex}; }}"""
+        index_css = f"""body {{ margin: 0; background-color: {profile.bg_hex}; color: {profile.text_hex}; }}"""
 
-        readme = f"""# {title} — Multi-Agent Generated Full-Stack Package
+        readme = f"""# {title} — Multi-Agent Generated {framework.upper()} Package
 
 Synthesized by 8 Specialized AI Agents (Planning, Designer, Frontend, Backend, Database, SEO, Testing, Deployment).
 
-## Components Included
-- `frontend/` — {framework.upper()} application styled with {css_engine.upper()}.
-- `backend/` — Standalone FastAPI REST API server + isolated SQLite `app.db`.
+## 🚀 How to Run
 
-## Instructions
-1. Run Backend: `cd backend && python main.py`
-2. Run Frontend: `cd frontend && npm install && npm run dev`
+### Method 1: Instant Preview (Zero Installation)
+Simply double-click `index.html` to open it in any modern browser (Chrome, Edge, Firefox, Safari).
+The full multi-page project with navigation, images, and interactive tabs will run immediately without any setup!
+
+### Method 2: Modern Framework Development ({framework.upper()} + Vite)
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+2. Run development server:
+   ```bash
+   npm run dev
+   ```
+3. Build for production:
+   ```bash
+   npm run build
+   ```
 """
 
         from app.services.backend_generator import generate_standalone_backend
@@ -470,8 +465,8 @@ Synthesized by 8 Specialized AI Agents (Planning, Designer, Frontend, Backend, D
                 zip_file.writestr("frontend/package.json", json.dumps(package_json, indent=2))
                 zip_file.writestr("frontend/vite.config.js", vite_config)
                 zip_file.writestr("frontend/index.html", index_html)
-                zip_file.writestr("frontend/src/main.jsx", main_jsx)
-                zip_file.writestr("frontend/src/App.jsx", frontend_code)
+                zip_file.writestr(f"frontend/{main_rel}", main_code)
+                zip_file.writestr(f"frontend/{app_rel}", app_content)
                 zip_file.writestr("frontend/src/index.css", index_css)
                 
                 # Write full-fledged backend files (main.py, models.py, schemas.py, config.py, .env.example, requirements.txt, README.md)
@@ -483,8 +478,8 @@ Synthesized by 8 Specialized AI Agents (Planning, Designer, Frontend, Backend, D
                 zip_file.writestr("package.json", json.dumps(package_json, indent=2))
                 zip_file.writestr("vite.config.js", vite_config)
                 zip_file.writestr("index.html", index_html)
-                zip_file.writestr("src/main.jsx", main_jsx)
-                zip_file.writestr("src/App.jsx", frontend_code)
+                zip_file.writestr(main_rel, main_code)
+                zip_file.writestr(app_rel, app_content)
                 zip_file.writestr("src/index.css", index_css)
                 zip_file.writestr("README.md", readme)
 
@@ -516,21 +511,29 @@ class MultiAgentOrchestrator:
     ) -> Dict[str, Any]:
         start_time = time.time()
         
-        primary_model = settings.GEMINI_MODEL_WEBSITE_CONTENT_GENERATION or settings.GEMINI_MODEL or "gemini-2.5-flash"
-        alt_model = settings.ALT_MODEL_WEBSITE_CONTENT_GENERATION or "gpt-4o"
+        primary_model = getattr(settings, "KIMI_MODEL", "moonshot-v1-32k")
+        alt_model = getattr(settings, "ALT_MODEL_WEBSITE_CONTENT_GENERATION", "gpt-4o")
 
         safe_print("\n" + "="*80)
-        safe_print("🚀 MULTI-AGENT SWARM PIPELINE INITIALIZED (8 SEQUENTIAL AGENTS)")
+        safe_print("🚀 MULTI-AGENT SWARM PIPELINE INITIALIZED (8 SPECIALIZED AGENTS)")
         safe_print("="*80)
         safe_print(f"📋 Prompt         : \"{prompt}\"")
         safe_print(f"🏢 Target Industry : \"{industry}\"")
         safe_print(f"🎨 Tech Stack      : {framework.upper()} + {css_engine.upper()} ({project_scope.upper()})")
-        safe_print(f"⚙️ Configured AI   : Gemini ({primary_model}) | Alt ({alt_model})")
+        safe_print("🤖 Multi-Model Swarm Architecture (Kimi Moonshot Engine):")
+        safe_print(f"   ├── [1/8] Planning Agent     : {getattr(settings, 'AGENT_PLANNING_PROVIDER', 'kimi').upper()}")
+        safe_print(f"   ├── [2/8] UI Designer Agent  : {getattr(settings, 'AGENT_DESIGNER_PROVIDER', 'kimi').upper()}")
+        safe_print(f"   ├── [3/8] Frontend Dev Agent : {getattr(settings, 'AGENT_FRONTEND_PROVIDER', 'kimi').upper()}")
+        safe_print(f"   ├── [4/8] Backend Dev Agent  : {getattr(settings, 'AGENT_BACKEND_PROVIDER', 'kimi').upper()}")
+        safe_print(f"   ├── [5/8] Database Architect : {getattr(settings, 'AGENT_DATABASE_PROVIDER', 'kimi').upper()}")
+        safe_print(f"   ├── [6/8] SEO & A11y Agent   : {getattr(settings, 'AGENT_SEO_PROVIDER', 'kimi').upper()}")
+        safe_print(f"   └── [7/8] Testing & Audit    : {getattr(settings, 'AGENT_TESTING_PROVIDER', 'kimi').upper()}")
         safe_print("-" * 80)
 
         # Step 1: Planning Agent
         t0 = time.time()
-        safe_print(f"\n[1/8] 📋 PLANNING AGENT (Feature: planning_agent | Model: {settings.GEMINI_MODEL_WEBSITE_CONTENT_GENERATION})")
+        plan_provider = getattr(settings, 'AGENT_PLANNING_PROVIDER', 'kimi').upper()
+        safe_print(f"\n[1/8] 📋 PLANNING AGENT (Feature: planning_agent | Provider: {plan_provider})")
         safe_print("     Status: Analyzing prompt architecture & ordering multi-page breakdown...")
         plan = await self.planning_agent.execute(prompt, framework, industry)
         t1 = time.time()
@@ -543,7 +546,7 @@ class MultiAgentOrchestrator:
 
         # Step 2: UI Designer Agent
         t0 = time.time()
-        safe_print(f"\n[2/8] 🎨 UI DESIGNER AGENT (Feature: designer_agent | Model: {settings.GEMINI_MODEL_WEBSITE_CONTENT_GENERATION})")
+        safe_print(f"\n[2/8] 🎨 UI DESIGNER AGENT (Feature: designer_agent | Model: {getattr(settings, 'KIMI_MODEL', 'moonshot-v1-32k')})")
         safe_print("     Status: Establishing visual design tokens & Google Fonts typography...")
         design = await self.designer_agent.execute(plan, color_scheme)
         t1 = time.time()
@@ -584,7 +587,7 @@ class MultiAgentOrchestrator:
         )
 
         # Step 7: Testing Agent
-        safe_print(f"\n[7/8] 🧪 TESTING & AUDIT AGENT (Feature: code_debugging_agent | Model: {settings.GEMINI_MODEL_CODE_DEBUGGING_AGENT})")
+        safe_print(f"\n[7/8] 🧪 TESTING & AUDIT AGENT (Feature: code_debugging_agent | Model: {getattr(settings, 'KIMI_MODEL', 'moonshot-v1-32k')})")
         safe_print("     Status: Performing automated syntax validation & tech stack audit...")
         test_audit = await self.testing_agent.execute(zip_bytes)
         t1 = time.time()
@@ -597,7 +600,7 @@ class MultiAgentOrchestrator:
             await progress_callback({"step": 7, "agent": "Testing & Audit Agent", "status": "completed", "details": f"Audit: {test_audit.get('status', 'passed').upper()}"})
 
         t0_dep = time.time()
-        safe_print(f"\n[8/8] 📦 DEPLOYMENT AGENT (Feature: project_zip_analysis | Model: {settings.GEMINI_MODEL_PROJECT_ZIP_ANALYSIS})")
+        safe_print(f"\n[8/8] 📦 DEPLOYMENT AGENT (Feature: project_zip_analysis | Model: {getattr(settings, 'KIMI_MODEL', 'moonshot-v1-32k')})")
         safe_print("     Status: Packaging full-stack ZIP archive (frontend/ + backend/ + README.md)...")
         t1_dep = time.time()
         safe_print(f"     -> Full-Stack ZIP Package Created: {len(zip_bytes)} bytes")

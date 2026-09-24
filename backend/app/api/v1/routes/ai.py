@@ -51,7 +51,12 @@ async def enhance_prompt(
     """Enhance a template prompt into detailed architectural specifications using Gemini Pro."""
     if not request.prompt or len(request.prompt.strip()) < 5:
         raise HTTPException(status_code=400, detail="Prompt must be at least 5 characters long.")
-    return await ai_service.enhance_template_prompt(request.prompt)
+    try:
+        return await ai_service.enhance_template_prompt(request.prompt)
+    except (RuntimeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI Service error: {str(e)}")
 
 
 @router.post("/generate-content")
@@ -60,13 +65,18 @@ async def generate_content(
     current_user: User = Depends(get_current_user),
 ):
     """Generate website content for a business using GPT."""
-    result = await ai_service.generate_business_content(
-        business_name=request.business_name,
-        industry=request.industry,
-        template_type=request.template_type,
-        additional_context=request.additional_context,
-    )
-    return result
+    try:
+        result = await ai_service.generate_business_content(
+            business_name=request.business_name,
+            industry=request.industry,
+            template_type=request.template_type,
+            additional_context=request.additional_context,
+        )
+        return result
+    except (RuntimeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI Service error: {str(e)}")
 
 
 @router.post("/generate-seo")
@@ -75,12 +85,17 @@ async def generate_seo(
     current_user: User = Depends(get_current_user),
 ):
     """Generate SEO meta tags and keywords."""
-    return await ai_service.generate_seo(
-        business_name=request.business_name,
-        industry=request.industry,
-        services=request.services,
-        location=request.location,
-    )
+    try:
+        return await ai_service.generate_seo(
+            business_name=request.business_name,
+            industry=request.industry,
+            services=request.services,
+            location=request.location,
+        )
+    except (RuntimeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI Service error: {str(e)}")
 
 
 @router.post("/color-palette")
@@ -89,10 +104,15 @@ async def generate_color_palette(
     current_user: User = Depends(get_current_user),
 ):
     """Generate a color palette for a business."""
-    return await ai_service.generate_color_palette(
-        industry=request.industry,
-        mood=request.mood,
-    )
+    try:
+        return await ai_service.generate_color_palette(
+            industry=request.industry,
+            mood=request.mood,
+        )
+    except (RuntimeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI Service error: {str(e)}")
 
 
 @router.post("/recommend")
@@ -101,10 +121,15 @@ async def recommend_templates(
     current_user: User = Depends(get_current_user),
 ):
     """Get AI-powered template category recommendations based on business description."""
-    return await ai_service.recommend_templates(
-        user_description=request.description,
-        available_categories=request.available_categories,
-    )
+    try:
+        return await ai_service.recommend_templates(
+            user_description=request.description,
+            available_categories=request.available_categories,
+        )
+    except (RuntimeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI Service error: {str(e)}")
 
 
 class ChatRequest(BaseModel):

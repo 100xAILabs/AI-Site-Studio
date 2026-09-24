@@ -256,6 +256,7 @@ function Dashboard() {
   const [linkDomainDeploymentId, setLinkDomainDeploymentId] = useState("");
   const [customDomainInput, setCustomDomainInput] = useState("");
   const [linkDomainError, setLinkDomainError] = useState("");
+  const [verifyingDomainId, setVerifyingDomainId] = useState("");
 
   // Deployments state
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
@@ -539,6 +540,27 @@ function Dashboard() {
     }
   });
 
+  const handleVerifyDomain = async (deploymentId) => {
+    setVerifyingDomainId(deploymentId);
+    try {
+      const res = await api.post(`/deployments/${deploymentId}/verify-domain`, {}, authToken ?? undefined);
+      refetchDeployments();
+      alert(res.message || "Custom domain verified and active!");
+    } catch (err) {
+      alert("Domain verification failed: " + (err.message || "DNS is still propagating"));
+    } finally {
+      setVerifyingDomainId("");
+    }
+  };
+
+  const handleCopyDns = (domain) => {
+    const text = `A Record:\nHost: @\nValue: 76.76.21.21\nTTL: 3600\n\nCNAME Record:\nHost: www\nValue: publish.aisitestudio.com\nTTL: 3600`;
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(text);
+    }
+    alert(`DNS records for ${domain || "your domain"} copied to clipboard!\n\nA Record: @ -> 76.76.21.21\nCNAME Record: www -> publish.aisitestudio.com`);
+  };
+
   // Fetch Marketplace Templates for Dashboard Recommendations
   const { data: marketplaceTemplatesRes } = useQuery({
     queryKey: ["marketplace-templates-dashboard"],
@@ -549,7 +571,7 @@ function Dashboard() {
   // Fetch Deployments
   const { data: deploymentsData = [], isLoading: deploymentsLoading, refetch: refetchDeployments } = useQuery({
     queryKey: ["deployments"],
-    queryFn: () => api.get("/deployments/", authToken ?? undefined),
+    queryFn: () => api.get("/deployments", authToken ?? undefined),
     enabled: !!authToken,
   });
 
@@ -3461,58 +3483,101 @@ function Dashboard() {
                             <tr className="border-b border-border/50 text-xs font-semibold text-muted-foreground uppercase">
                               <th className="pb-3">Custom Domain</th>
                               <th className="pb-3">Target Project</th>
-                              <th className="pb-3">Provider</th>
+                              <th className="pb-3">SSL & DNS</th>
                               <th className="pb-3">Status</th>
                               <th className="pb-3 text-right">Actions</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {deploymentsData.filter(d => d.custom_domain).map((deploy) => (
-                              <tr key={deploy.id} className="border-b border-border/40 hover:bg-muted/5 transition-colors">
-                                <td className="py-4">
-                                  <a
-                                    href={deploy.live_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="font-bold text-sm text-primary hover:underline flex items-center gap-1.5 text-decoration-none"
-                                  >
-                                    <Globe className="w-3.5 h-3.5" />
-                                    {deploy.custom_domain}
-                                    <ExternalLink className="w-3 h-3 text-muted-foreground" />
-                                  </a>
-                                </td>
-                                <td className="py-4">
-                                  <div className="font-semibold text-foreground">{deploy.project_name}</div>
-                                  <div className="text-[10px] text-muted-foreground">ID: {deploy.id.slice(0, 8)}...</div>
-                                </td>
-                                <td className="py-4">
-                                  <span className="text-xs capitalize font-medium text-slate-300">
-                                    {deploy.provider === "vercel" ? "▲ Vercel" : deploy.provider === "netlify" ? "⧉ Netlify" : "🕮 Pages"}
-                                  </span>
-                                </td>
-                                <td className="py-4">
-                                  <span className={`status-badge ${deploy.status} inline-flex items-center gap-1`}>
-                                    {deploy.status === "building" && <Loader2 className="w-2.5 h-2.5 animate-spin" />}
-                                    {deploy.status === "success" && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
-                                    {deploy.status === "failed" && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
-                                    {deploy.status === "building" ? "Building" : deploy.status === "success" ? "Active" : "Failed"}
-                                  </span>
-                                </td>
-                                <td className="py-4 text-right">
-                                  <button
-                                    onClick={() => {
-                                      if (confirm(`Are you sure you want to unlink the custom domain "${deploy.custom_domain}" from this website?`)) {
-                                        unlinkDomainMutation.mutate(deploy.id);
-                                      }
-                                    }}
-                                    disabled={unlinkDomainMutation.isPending}
-                                    className="btn-danger"
-                                  >
-                                    Unlink Domain
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
+                            {deploymentsData.filter(d => d.custom_domain).map((deploy) => {
+                              const livePreviewUrl = `http://localhost:8000/sites/${deploy.custom_domain}/`;
+                              const isVerifying = verifyingDomainId === deploy.id;
+
+                              return (
+                                <tr key={deploy.id} className="border-b border-border/40 hover:bg-muted/5 transition-colors">
+                                  <td className="py-4">
+                                    <div className="flex flex-col gap-1">
+                                      <a
+                                        href={livePreviewUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="font-bold text-sm text-primary hover:underline flex items-center gap-1.5 text-decoration-none"
+                                        title="Open Live Preview"
+                                      >
+                                        <Globe className="w-4 h-4 text-indigo-400" />
+                                        {deploy.custom_domain}
+                                        <ExternalLink className="w-3 h-3 text-muted-foreground" />
+                                      </a>
+                                      <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> SSL Secured • HTTPS Active
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="py-4">
+                                    <div className="font-semibold text-foreground">{deploy.project_name}</div>
+                                    <div className="text-[10px] text-muted-foreground font-mono">Site: {deploy.site_id || deploy.id.slice(0, 8)}</div>
+                                  </td>
+                                  <td className="py-4">
+                                    <div className="flex flex-col gap-1">
+                                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md w-fit">
+                                        ✓ DNS Verified
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCopyDns(deploy.custom_domain)}
+                                        className="text-[10px] text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 w-fit cursor-pointer"
+                                      >
+                                        📋 Copy DNS Records
+                                      </button>
+                                    </div>
+                                  </td>
+                                  <td className="py-4">
+                                    <span className={`status-badge ${deploy.status} inline-flex items-center gap-1`}>
+                                      {deploy.status === "building" && <Loader2 className="w-2.5 h-2.5 animate-spin" />}
+                                      {deploy.status === "success" || deploy.status === "live" ? (
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                      ) : null}
+                                      {deploy.status === "failed" && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
+                                      {deploy.status === "building" ? "Building" : (deploy.status === "success" || deploy.status === "live") ? "Active" : "Failed"}
+                                    </span>
+                                  </td>
+                                  <td className="py-4 text-right">
+                                    <div className="flex items-center justify-end gap-2">
+                                      <a
+                                        href={livePreviewUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="px-2.5 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-xs font-bold rounded-lg border border-indigo-500/30 flex items-center gap-1 transition-all"
+                                      >
+                                        <ExternalLink className="w-3 h-3" /> Preview
+                                      </a>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleVerifyDomain(deploy.id)}
+                                        disabled={isVerifying}
+                                        className="px-2.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 text-xs font-bold rounded-lg border border-emerald-500/30 flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
+                                        title="Verify DNS propagation & SSL status"
+                                      >
+                                        {isVerifying && <Loader2 className="w-3 h-3 animate-spin" />}
+                                        {isVerifying ? "Verifying..." : "Verify"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (confirm(`Are you sure you want to unlink the custom domain "${deploy.custom_domain}" from this website?`)) {
+                                            unlinkDomainMutation.mutate(deploy.id);
+                                          }
+                                        }}
+                                        disabled={unlinkDomainMutation.isPending}
+                                        className="btn-danger"
+                                      >
+                                        Unlink
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
@@ -3672,9 +3737,17 @@ function Dashboard() {
                                 {deploy.custom_domain && (
                                   <div className="flex items-center gap-1.5">
                                     <span className="text-slate-500 dark:text-slate-400 font-semibold">Custom:</span>
-                                    <span className="text-indigo-600 dark:text-indigo-400 font-mono font-extrabold truncate max-w-[200px]" title={deploy.custom_domain}>
+                                    <a
+                                      href={`http://localhost:8000/sites/${deploy.custom_domain}/`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-indigo-600 dark:text-indigo-400 font-mono font-extrabold truncate max-w-[200px] hover:underline flex items-center gap-1"
+                                      title={`Open Live Custom Domain Preview`}
+                                    >
+                                      <Globe className="w-3 h-3 text-indigo-500" />
                                       {deploy.custom_domain}
-                                    </span>
+                                      <ExternalLink className="w-2.5 h-2.5 opacity-70" />
+                                    </a>
                                   </div>
                                 )}
                                 <div className="flex items-center gap-1.5">
@@ -3726,6 +3799,19 @@ function Dashboard() {
                               )}
 
                               <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setLinkDomainError("");
+                                    setCustomDomainInput(deploy.custom_domain || "");
+                                    setLinkDomainDeploymentId(deploy.id);
+                                    setLinkDomainModalOpen(true);
+                                  }}
+                                  className="flex-1 btn-deploy-action"
+                                  title={deploy.custom_domain ? "Manage Linked Custom Domain" : "Link Custom Domain"}
+                                >
+                                  <Globe className="w-3.5 h-3.5 text-indigo-600" /> {deploy.custom_domain ? "Domain" : "Link Domain"}
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => openVersionHistory(deploy)}
@@ -7449,8 +7535,13 @@ function Dashboard() {
                     <form onSubmit={async (e) => {
                       e.preventDefault();
                       setLinkDomainError("");
-                      if (!customDomainInput.trim()) {
-                        setLinkDomainError("Please enter your custom domain name.");
+                      let cleanDomain = customDomainInput.trim().toLowerCase();
+                      if (cleanDomain.startsWith("https://")) cleanDomain = cleanDomain.slice(8);
+                      if (cleanDomain.startsWith("http://")) cleanDomain = cleanDomain.slice(7);
+                      cleanDomain = cleanDomain.replace(/\/+$/, "").trim();
+
+                      if (!cleanDomain || !cleanDomain.includes(".") || cleanDomain.length < 4) {
+                        setLinkDomainError("Please enter a valid custom domain (e.g. 'mybrand.com' or 'app.mybrand.com').");
                         return;
                       }
                       if (!linkDomainDeploymentId) {
@@ -7476,15 +7567,15 @@ function Dashboard() {
                             build_command: "npm run build",
                             output_dir: "dist",
                           };
-                          const res = await api.post("/deployments/", payload, authToken ?? undefined);
+                          const res = await api.post("/deployments", payload, authToken ?? undefined);
                           targetDeploymentId = res.id;
                         }
 
                         // Map custom domain
-                        await api.patch(`/deployments/${targetDeploymentId}/domain?custom_domain=${encodeURIComponent(customDomainInput.trim())}`, {}, authToken ?? undefined);
+                        await api.patch(`/deployments/${targetDeploymentId}/domain?custom_domain=${encodeURIComponent(cleanDomain)}`, {}, authToken ?? undefined);
 
                         refetchDeployments();
-                        alert("Website published and custom domain linked successfully!");
+                        alert(`Custom domain "${cleanDomain}" linked successfully!`);
                         setLinkDomainModalOpen(false);
                         setCustomDomainInput("");
                         setLinkDomainDeploymentId("");

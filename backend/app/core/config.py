@@ -62,45 +62,73 @@ class Settings(BaseSettings):
 
     # ── OpenAI ────────────────────────────────────────────────────────────────
     OPENAI_API_KEY: str = ""
+    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     OPENAI_MODEL: str = "gpt-4o"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
 
     # ── Gemini ────────────────────────────────────────────────────────────────
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-1.5-flash"
-    GEMINI_EMBEDDING_MODEL: str = "text-embedding-004"
+    GEMINI_MODEL: str = "gemini-flash-lite-latest"
+    GEMINI_EMBEDDING_MODEL: str = "gemini-embedding-2"
 
-    # Separate Gemini models per feature (Official Production Models)
-    GEMINI_MODEL_AI_CHAT_ASSISTANT: str = "gemini-1.5-flash"
-    GEMINI_MODEL_WEBSITE_CONTENT_GENERATION: str = "gemini-1.5-pro"
-    GEMINI_MODEL_SEO_GENERATOR: str = "gemini-1.5-flash"
-    GEMINI_MODEL_SEMANTIC_SEARCH: str = "text-embedding-004"
-    GEMINI_MODEL_TEMPLATE_RECOMMENDATION: str = "text-embedding-004"
-    GEMINI_MODEL_ACCESSIBILITY_REVIEW: str = "gemini-1.5-pro"
-    GEMINI_MODEL_CODE_ASSISTANT: str = "gemini-1.5-pro"
-    GEMINI_MODEL_CODE_DEBUGGING_AGENT: str = "gemini-1.5-pro"
-    GEMINI_MODEL_PROJECT_ZIP_ANALYSIS: str = "gemini-1.5-pro"
-    GEMINI_MODEL_TRANSLATION: str = "gemini-1.5-flash"
-    GEMINI_MODEL_BUSINESS_ANALYSIS: str = "gemini-1.5-pro"
-    GEMINI_MODEL_LOGO_IDEAS: str = "gemini-1.5-flash"
+    # Separate Gemini models per feature (Tuned to high-quota active Flash models to avoid quota exhaustion)
+    GEMINI_MODEL_AI_CHAT_ASSISTANT: str = "gemini-flash-lite-latest"
+    GEMINI_MODEL_WEBSITE_CONTENT_GENERATION: str = "gemini-flash-lite-latest"
+    GEMINI_MODEL_SEO_GENERATOR: str = "gemini-flash-lite-latest"
+    GEMINI_MODEL_SEMANTIC_SEARCH: str = "gemini-embedding-2"
+    GEMINI_MODEL_TEMPLATE_RECOMMENDATION: str = "gemini-embedding-2"
+    GEMINI_MODEL_ACCESSIBILITY_REVIEW: str = "gemini-flash-lite-latest"
+    GEMINI_MODEL_CODE_ASSISTANT: str = "gemini-flash-lite-latest"
+    GEMINI_MODEL_CODE_DEBUGGING_AGENT: str = "gemini-flash-lite-latest"
+    GEMINI_MODEL_PROJECT_ZIP_ANALYSIS: str = "gemini-flash-lite-latest"
+    GEMINI_MODEL_TRANSLATION: str = "gemini-flash-lite-latest"
+    GEMINI_MODEL_BUSINESS_ANALYSIS: str = "gemini-flash-lite-latest"
+    GEMINI_MODEL_LOGO_IDEAS: str = "gemini-flash-lite-latest"
     GEMINI_MODEL_IMAGE_GENERATION: str = "flux"
-    GEMINI_MODEL_OCR_DOCUMENT_UNDERSTANDING: str = "gemini-1.5-pro"
+    GEMINI_MODEL_OCR_DOCUMENT_UNDERSTANDING: str = "gemini-flash-lite-latest"
 
-    # Alternative models per feature (Highest Flagship Tiers)
-    ALT_MODEL_AI_CHAT_ASSISTANT: str = "gpt-4o"
+    # Alternative models per feature
+    ALT_MODEL_AI_CHAT_ASSISTANT: str = "gpt-4o-mini"
     ALT_MODEL_WEBSITE_CONTENT_GENERATION: str = "gpt-4o"
-    ALT_MODEL_SEO_GENERATOR: str = "gpt-4o"
+    ALT_MODEL_SEO_GENERATOR: str = "gpt-4o-mini"
     ALT_MODEL_SEMANTIC_SEARCH: str = "text-embedding-3-large"
     ALT_MODEL_TEMPLATE_RECOMMENDATION: str = "text-embedding-3-large"
-    ALT_MODEL_ACCESSIBILITY_REVIEW: str = "gpt-4o"
+    ALT_MODEL_ACCESSIBILITY_REVIEW: str = "gpt-4o-mini"
     ALT_MODEL_CODE_ASSISTANT: str = "gpt-4o"
     ALT_MODEL_CODE_DEBUGGING_AGENT: str = "gpt-4o"
     ALT_MODEL_PROJECT_ZIP_ANALYSIS: str = "gpt-4o"
-    ALT_MODEL_TRANSLATION: str = "gpt-4o"
+    ALT_MODEL_TRANSLATION: str = "gpt-4o-mini"
     ALT_MODEL_BUSINESS_ANALYSIS: str = "gpt-4o"
-    ALT_MODEL_LOGO_IDEAS: str = "gpt-4o"
+    ALT_MODEL_LOGO_IDEAS: str = "gpt-4o-mini"
     ALT_MODEL_IMAGE_GENERATION: str = "dall-e-3"
     ALT_MODEL_OCR_DOCUMENT_UNDERSTANDING: str = "gpt-4o"
+
+    # ── Kimi (Moonshot AI) ────────────────────────────────────────────────────
+    KIMI_API_KEY: str = ""
+    KIMI_BASE_URL: str = "https://api.moonshot.ai/v1"
+    KIMI_MODEL: str = "kimi-k2.6"
+
+    # ── Multi-Model Swarm Provider Assignments ────────────────────────────────
+    # Primary AI provider across all features & agents:
+    # Set to 'kimi' for full Kimi (Moonshot) pipeline execution
+    AI_PRIMARY_PROVIDER: str = "kimi"
+    AGENT_PLANNING_PROVIDER: str = "kimi"
+    AGENT_DESIGNER_PROVIDER: str = "kimi"
+    AGENT_FRONTEND_PROVIDER: str = "kimi"
+    AGENT_BACKEND_PROVIDER: str = "kimi"
+    AGENT_DATABASE_PROVIDER: str = "kimi"
+    AGENT_SEO_PROVIDER: str = "kimi"
+    AGENT_TESTING_PROVIDER: str = "kimi"
+
+    # ── OpenRouter (Free and Paid community & flagship models) ────────────────
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    OPENROUTER_MODEL: str = "deepseek/deepseek-chat:free"
+
+    # ── Groq (Ultra-fast inference) ───────────────────────────────────────────
+    GROQ_API_KEY: str = ""
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
 
     # ── Azure OpenAI ──────────────────────────────────────────────────────────
     AZURE_OPENAI_API_KEY: str = ""

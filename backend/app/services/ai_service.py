@@ -16,12 +16,31 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+def safe_print(*args, **kwargs):
+    """Safely print text containing Unicode emojis on Windows console without UnicodeEncodeError."""
+    kwargs.setdefault("flush", True)
+    try:
+        print(*args, **kwargs)
+    except UnicodeEncodeError:
+        text = " ".join(str(a) for a in args)
+        safe_text = text.encode("ascii", errors="replace").decode("ascii")
+        print(safe_text, **kwargs)
+
+
 class GeminiAPIError(Exception):
     def __init__(self, status_code: int, message: str, model: str):
         self.status_code = status_code
         self.message = message
         self.model = model
         super().__init__(f"Gemini API returned status {status_code} for model {model}: {message}")
+
+
+class KimiAPIError(Exception):
+    def __init__(self, status_code: int, message: str, model: str):
+        self.status_code = status_code
+        self.message = message
+        self.model = model
+        super().__init__(f"Moonshot Kimi API returned status {status_code} for model {model}: {message}")
 
 
 def fix_truncated_json(text: str) -> str:
@@ -144,59 +163,59 @@ def robust_json_loads(text: str) -> Any:
 # Best Model (Gemini Pro / Flagship) is used as primary. Alternate is configured for future switches.
 FEATURE_MODELS = {
     "ai_chat_assistant": {
-        "gemini": "gemini-1.5-pro-latest",
-        "alternative": "gpt-4o",
+        "gemini": "gemini-flash-lite-latest",
+        "alternative": "gpt-4o-mini",
     },
     "website_content_generation": {
-        "gemini": "gemini-1.5-pro-latest",
+        "gemini": "gemini-flash-lite-latest",
         "alternative": "gpt-4o",
     },
     "seo_generator": {
-        "gemini": "gemini-1.5-pro-latest",
-        "alternative": "gpt-4o",
+        "gemini": "gemini-flash-lite-latest",
+        "alternative": "gpt-4o-mini",
     },
     "semantic_search": {
-        "gemini": "text-embedding-004",
+        "gemini": "gemini-embedding-2",
         "alternative": "text-embedding-3-large",
     },
     "template_recommendation": {
-        "gemini": "text-embedding-004",
+        "gemini": "gemini-embedding-2",
         "alternative": "text-embedding-3-large",
     },
     "accessibility_review": {
-        "gemini": "gemini-1.5-pro-latest",
-        "alternative": "gpt-4o",
+        "gemini": "gemini-flash-lite-latest",
+        "alternative": "gpt-4o-mini",
     },
     "code_assistant": {
-        "gemini": "gemini-1.5-pro-latest",
+        "gemini": "gemini-flash-lite-latest",
         "alternative": "gpt-4o",
     },
     "code_debugging_agent": {
-        "gemini": "gemini-1.5-pro-latest",
+        "gemini": "gemini-flash-lite-latest",
         "alternative": "gpt-4o",
     },
     "project_zip_analysis": {
-        "gemini": "gemini-1.5-pro-latest",
+        "gemini": "gemini-flash-lite-latest",
         "alternative": "gpt-4o",
     },
     "translation": {
-        "gemini": "gemini-1.5-pro-latest",
-        "alternative": "gpt-4o",
+        "gemini": "gemini-flash-lite-latest",
+        "alternative": "gpt-4o-mini",
     },
     "business_analysis": {
-        "gemini": "gemini-1.5-pro-latest",
+        "gemini": "gemini-flash-lite-latest",
         "alternative": "gpt-4o",
     },
     "logo_ideas": {
-        "gemini": "gemini-1.5-pro-latest",
-        "alternative": "gpt-4o",
+        "gemini": "gemini-flash-lite-latest",
+        "alternative": "gpt-4o-mini",
     },
     "image_generation": {
         "gemini": "flux",
         "alternative": "dall-e-3",
     },
     "ocr_document_understanding": {
-        "gemini": "gemini-1.5-pro-latest",
+        "gemini": "gemini-flash-lite-latest",
         "alternative": "gpt-4o",
     },
 }
@@ -233,9 +252,17 @@ class AIService:
     def client(self):
         """
         Boolean-like indicator for route check compatibility (request.ai_fill and ai_service.client).
-        Returns True if either Gemini or Azure OpenAI credentials are configured.
+        Returns True if any supported LLM provider credentials are configured.
         """
-        if settings.GEMINI_API_KEY:
+        if getattr(settings, "KIMI_API_KEY", ""):
+            return settings.KIMI_API_KEY
+        if getattr(settings, "GROQ_API_KEY", ""):
+            return settings.GROQ_API_KEY
+        if getattr(settings, "OPENROUTER_API_KEY", ""):
+            return settings.OPENROUTER_API_KEY
+        if getattr(settings, "OPENAI_API_KEY", "") and settings.OPENAI_API_KEY != "your-openai-api-key":
+            return settings.OPENAI_API_KEY
+        if getattr(settings, "GEMINI_API_KEY", ""):
             return settings.GEMINI_API_KEY
         if settings.AZURE_OPENAI_API_KEY and settings.AZURE_OPENAI_ENDPOINT:
             return True
@@ -330,189 +357,226 @@ class AIService:
                 await asyncio.sleep(2 ** attempt)  # Exponential backoff
         return None
 
+    async def _call_openai_compatible_api(
+        self,
+        prompt: str,
+        base_url: str,
+        api_key: str,
+        model_name: str,
+        response_mime_type: str = "application/json",
+        provider_label: str = "LLM"
+    ) -> Optional[str]:
+        """
+        Generic OpenAI-compatible caller for Kimi (Moonshot), OpenRouter, Groq, DeepSeek, or OpenAI.
+        """
+        import asyncio
+        endpoint = base_url.rstrip("/") + "/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        if "openrouter.ai" in base_url:
+            headers["HTTP-Referer"] = "https://ai-site-studio.local"
+            headers["X-Title"] = "AI Site Studio"
+
+        payload = {
+            "model": model_name,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.7,
+        }
+        if response_mime_type == "application/json":
+            payload["response_format"] = {"type": "json_object"}
+
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(endpoint, json=payload, headers=headers, timeout=120.0)
+                    if response.status_code == 200:
+                        data = response.json()
+                        try:
+                            return data["choices"][0]["message"]["content"].strip()
+                        except (KeyError, IndexError) as e:
+                            logger.warning(f"Unexpected response from {provider_label} ({model_name}): {data}")
+                            return None
+                    elif response.status_code == 400 and response_mime_type == "application/json":
+                        # If provider does not support response_format: {"type": "json_object"}, retry once without it
+                        payload.pop("response_format", None)
+                        continue
+                    else:
+                        try:
+                            err_data = response.json()
+                            err_msg = err_data.get("error", {}).get("message", response.text)
+                        except Exception:
+                            err_msg = response.text
+                        logger.warning(f"{provider_label} API ({model_name}) returned status {response.status_code}: {err_msg}")
+                        if "kimi" in provider_label.lower() or "moonshot" in provider_label.lower():
+                            raise KimiAPIError(response.status_code, err_msg, model_name)
+                        return None
+            except KimiAPIError:
+                raise
+            except Exception as e:
+                logger.warning(f"{provider_label} API call failed on attempt {attempt+1}: {e}")
+                if attempt == 0:
+                    await asyncio.sleep(1.0)
+        return None
+
     async def _generate_content(
         self,
         prompt: str,
         response_mime_type: str = "application/json",
         feature_name: str = "website_content_generation",
-        fallback_azure: bool = True
+        fallback_azure: bool = True,
+        preferred_provider: Optional[str] = None
     ) -> str:
         """
         Call LLM to generate content.
-        Uses Gemini as primary with automatic model failover. Fallbacks to Azure OpenAI if configured.
+        Supports multi-model provider routing (Kimi, Groq, OpenRouter, OpenAI, Azure).
+        When Kimi is primary or requested, strictly routes to Kimi Moonshot models.
         """
-        # 1. Try Gemini
-        if settings.GEMINI_API_KEY:
-            model_name = self.get_model_for_feature(feature_name, provider="gemini")
-            
-            # Comprehensive Priority order for failover models across all generations
-            models_to_try = [
-                model_name,
-                "gemini-1.5-flash",
-                "gemini-2.0-flash",
-                "gemini-1.5-pro",
-                "gemini-2.5-flash",
-            ]
-                    
-            seen = set()
-            unique_models = []
-            for m in models_to_try:
-                if m not in seen and m:
-                    seen.add(m)
-                    unique_models.append(m)
+        # Determine trial order based on preferred_provider, agent-specific setting, or AI_PRIMARY_PROVIDER
+        agent_setting_key = f"AGENT_{feature_name.upper()}_PROVIDER"
+        agent_choice = getattr(settings, agent_setting_key, None)
+        primary_choice = (preferred_provider or agent_choice or getattr(settings, "AI_PRIMARY_PROVIDER", "kimi")).lower().strip()
 
-            last_errors = []
-            for target_model in unique_models:
-                try:
-                    logger.info(f"Attempting Gemini content generation for '{feature_name}' with model: {target_model}")
-                    print(f"[AI Service] Invoking model '{target_model}' for feature '{feature_name}'...", flush=True)
-                    result = await self._call_gemini_api(prompt, target_model, response_mime_type)
-                    if result:
-                        print(f"   [OK] Model '{target_model}' generated output successfully ({len(result)} chars).", flush=True)
-                        return result
-                    else:
-                        last_errors.append(f"Model {target_model} returned empty response.")
-                except GeminiAPIError as e:
-                    err_msg = f"Model {target_model} failed (status {e.status_code}): {e.message}"
-                    logger.warning(f"[WARN] Model {target_model} failed (status {e.status_code}).")
-                    print(f"   [WARN] Model '{target_model}' failed (status {e.status_code}).", flush=True)
-                    last_errors.append(err_msg)
-                    if e.status_code == 429:
-                        print(f"   [429] Quota/Rate Limit (429) hit on API key. Transitioning directly to fallback provider...", flush=True)
-                        break  # Stop trying other Gemini models on the same rate-limited key
-                except Exception as e:
-                    err_msg = f"Model {target_model} failed ({type(e).__name__}): {e}"
-                    logger.warning(f"[WARN] Model {target_model} encountered an issue.")
-                    print(f"   [WARN] Model '{target_model}' error ({type(e).__name__}).", flush=True)
-                    last_errors.append(err_msg)
-
-            # If we attempted Gemini and all models failed
-            gemini_error_summary = "; ".join(last_errors) if last_errors else "No valid models found in chain."
+        # If Kimi is chosen as primary or preferred provider, restrict execution to Kimi exclusively
+        if primary_choice == "kimi":
+            provider_order = ["kimi"]
         else:
-            gemini_error_summary = "GEMINI_API_KEY is not configured."
-
-        # 2. Try Azure OpenAI Fallback
-        if fallback_azure and settings.AZURE_OPENAI_API_KEY and settings.AZURE_OPENAI_ENDPOINT:
-            try:
-                logger.info(f"Attempting Azure OpenAI fallback for feature '{feature_name}'")
-                print(f"🤖 [AI Service] Attempting Azure OpenAI fallback for feature '{feature_name}'...", flush=True)
-                res = await self._generate_azure_content(prompt, feature_name, response_mime_type)
-                print(f"   └─ ✅ Azure OpenAI fallback generated output successfully.", flush=True)
-                return res
-            except Exception as e:
-                logger.error(f"Azure OpenAI fallback failed for feature '{feature_name}': {e}")
-                print(f"   [FAIL] Azure OpenAI fallback failed: {e}", flush=True)
-
-        # 3. Dynamic Prompt-Aware Structural Fallback Generator (Guarantees 100% Uptime even on 429 Quota Exceeded)
-        print(f"[AI Service] Activating Dynamic Prompt-Aware Structural Synthesis for '{feature_name}'...", flush=True)
-        
-        # Dynamically infer brand title & domain from user prompt
-        prompt_words = prompt.strip().split()
-        clean_title = " ".join([w.capitalize() for w in prompt_words[:4]]) if prompt_words else "Custom AI Project"
-        if not clean_title or len(clean_title) < 3:
-            clean_title = "Custom Site Studio"
-
-        # Check for industry keywords in prompt
-        prompt_lower = prompt.lower()
-        if any(k in prompt_lower for k in ["bakery", "cake", "sweet", "pastry", "coffee"]):
-            domain_name = "Bakery & Culinary Studio"
-            colors = {"primary": "#d97706", "secondary": "#78350f", "accent": "#f59e0b", "bg": "#fffbeb", "card": "#ffffff", "text": "#451a03"}
-            pages_list = ["Home", "About Us", "Our Menu", "Specialties", "Contact Us"]
-        elif any(k in prompt_lower for k in ["real estate", "property", "house", "villa"]):
-            domain_name = "Real Estate & Architecture"
-            colors = {"primary": "#059669", "secondary": "#064e3b", "accent": "#34d399", "bg": "#0f172a", "card": "#1e293b", "text": "#f8fafc"}
-            pages_list = ["Home", "About Us", "Properties", "Agents", "Contact Us"]
-        elif any(k in prompt_lower for k in ["portfolio", "agency", "creative", "designer"]):
-            domain_name = "Creative Portfolio & Agency"
-            colors = {"primary": "#6366f1", "secondary": "#4338ca", "accent": "#ec4899", "bg": "#090d16", "card": "#131b2e", "text": "#f8fafc"}
-            pages_list = ["Home", "About Me", "Portfolio", "Services", "Contact"]
-        elif any(k in prompt_lower for k in ["restaurant", "food", "dining"]):
-            domain_name = "Gourmet Restaurant & Bar"
-            colors = {"primary": "#dc2626", "secondary": "#991b1b", "accent": "#fbbf24", "bg": "#18181b", "card": "#27272a", "text": "#fafafa"}
-            pages_list = ["Home", "Story", "Menu", "Reservations", "Contact"]
-        else:
-            domain_name = "Modern Business Platform"
-            colors = {"primary": "#2563eb", "secondary": "#1e40af", "accent": "#38bdf8", "bg": "#0f172a", "card": "#1e293b", "text": "#f8fafc"}
-            pages_list = ["Home Page", "About Us", "Services", "Features", "Contact Us"]
-
-        # Dynamic Keyword Page Detection
-        extra_keywords_map = [
-            ("blog", "Blog & Insights"),
-            ("pricing", "Pricing Plans"),
-            ("faq", "FAQ & Support"),
-            ("team", "Our Team"),
-            ("testimonial", "Client Reviews"),
-            ("career", "Careers"),
-            ("privacy", "Privacy Policy")
-        ]
-        for kw, page_title in extra_keywords_map:
-            if kw in prompt_lower and page_title not in pages_list:
-                pages_list.append(page_title)
-
-        # Code generation features should never return JSON status objects
-        if feature_name not in ("code_assistant", "frontend_agent", "backend_agent") and response_mime_type == "application/json":
-            if feature_name in ("website_content_generation", "templates"):
-                return json.dumps({
-                    "title": f"{clean_title} — Official Website Package",
-                    "short_description": f"High-fidelity custom template designed for {domain_name} with multi-page navigation and API integration.",
-                    "description": f"Comprehensive design system for {clean_title}. Includes responsive component suites, customizable color palettes, and full-stack REST API.",
-                    "price": 49.00,
-                    "category_id": "fallback-category-uuid",
-                    "tags": [domain_name.split()[0].lower(), "responsive", "multi-page", "modern"],
-                    "industry": domain_name,
-                    "color_scheme": f"Custom Palette — primary {colors['primary']}, secondary {colors['secondary']}, accent {colors['accent']}",
-                    "pages_count": len(pages_list),
-                    "has_dark_mode": True,
-                    "included_pages": pages_list,
-                    "seo_keywords": [clean_title.lower(), domain_name.split()[0].lower(), "website"],
-                    "logo_prompt": f"Minimalist logo emblem for {clean_title}",
-                    "thumbnail_prompt": f"Landing page hero section screenshot of {clean_title}",
-                    "gallery_prompts": [
-                        f"Features showcase grid screenshot for {clean_title}",
-                        f"Contact section mockup screenshot for {clean_title}"
-                    ]
-                })
-            elif feature_name == "planning_agent":
-                return json.dumps({
-                    "domain": domain_name,
-                    "audience": "Target Customers & Clients",
-                    "value_prop": prompt,
-                    "pages": [
-                        {"name": p, "filename": f"{'index' if idx == 0 else p.lower().replace(' ', '-')}.html", "summary": f"Key sections and content for {p}."}
-                        for idx, p in enumerate(pages_list)
-                    ]
-                })
-            elif feature_name == "designer_agent":
-                return json.dumps({
-                    "primary_hex": colors["primary"],
-                    "secondary_hex": colors["secondary"],
-                    "accent_hex": colors["accent"],
-                    "bg_hex": colors["bg"],
-                    "card_hex": colors["card"],
-                    "text_hex": colors["text"],
-                    "font_display": "Plus Jakarta Sans",
-                    "font_body": "Inter",
-                    "aesthetic": "Modern Glassmorphism"
-                })
-            elif feature_name == "code_debugging_agent":
-                return json.dumps({
-                    "diagnosis": "Automated code diagnosis complete. Inspected website files and error logs.",
-                    "root_cause": "Script runtime anomaly or missing element handler detected.",
-                    "patch_summary": "Auto-stabilized website assets and verified responsive entry points.",
-                    "fixed_files": []
-                })
+            all_providers = ["kimi", "groq", "openrouter", "openai", "azure"]
+            if primary_choice in all_providers:
+                provider_order = [primary_choice] + [p for p in all_providers if p != primary_choice]
             else:
-                return json.dumps({
-                    "status": "passed",
-                    "tech_stack": ["HTML5", "FastAPI", "SQLite"],
-                    "summary": f"Analyzed project package for {clean_title}.",
-                    "score": 98
-                })
+                provider_order = all_providers
 
-        # Structural Code Generator Fallback (Guaranteed 100% syntactically valid & domain-tailored)
-        from app.services.template_synthesizer import analyze_prompt_intent, synthesize_react_application
-        profile = analyze_prompt_intent(prompt)
-        return synthesize_react_application(profile)
+        for provider in provider_order:
+            # 1. Kimi (Moonshot AI)
+            if provider == "kimi" and getattr(settings, "KIMI_API_KEY", ""):
+                try:
+                    safe_print(f"[AI Service] Invoking Kimi (Moonshot) ({settings.KIMI_MODEL}) for '{feature_name}'...")
+                    res = await self._call_openai_compatible_api(
+                        prompt=prompt,
+                        base_url=settings.KIMI_BASE_URL,
+                        api_key=settings.KIMI_API_KEY,
+                        model_name=settings.KIMI_MODEL,
+                        response_mime_type=response_mime_type,
+                        provider_label="Kimi (Moonshot)"
+                    )
+                    if res:
+                        safe_print(f"   └─ ✅ Kimi ({settings.KIMI_MODEL}) generated output successfully ({len(res)} chars).")
+                        return res
+                except KimiAPIError as e:
+                    # If status is 401, automatically attempt the alternate Moonshot domain (moonshot.ai vs moonshot.cn)
+                    if e.status_code == 401:
+                        alt_url = "https://api.moonshot.ai/v1" if "moonshot.cn" in settings.KIMI_BASE_URL else "https://api.moonshot.cn/v1"
+                        alt_model = "kimi-k2.6" if "moonshot.ai" in alt_url else "moonshot-v1-32k"
+                        try:
+                            safe_print(f"   └─ 🔄 Auth 401 on primary domain, retrying Moonshot alternate endpoint ({alt_url}, model {alt_model})...")
+                            res = await self._call_openai_compatible_api(
+                                prompt=prompt,
+                                base_url=alt_url,
+                                api_key=settings.KIMI_API_KEY,
+                                model_name=alt_model,
+                                response_mime_type=response_mime_type,
+                                provider_label="Kimi (Moonshot)"
+                            )
+                            if res:
+                                safe_print(f"   └─ ✅ Kimi ({alt_model}) generated output successfully via alternate endpoint ({alt_url}).")
+                                return res
+                        except KimiAPIError as alt_e:
+                            e = alt_e
+                        except Exception:
+                            pass
+
+                    logger.error(f"Kimi API Error: {e}")
+                    safe_print(f"   └─ ❌ Kimi API error (status {e.status_code}): {e.message}")
+                    if e.status_code == 401:
+                        hint = "Invalid API Key. Please verify your KIMI_API_KEY from https://platform.moonshot.ai/console/api-keys (International) or https://platform.moonshot.cn/console/api-keys (China)."
+                    elif e.status_code == 429:
+                        hint = "Your account is suspended due to insufficient balance ($0) or quota exceeded. Please recharge your account at https://platform.moonshot.ai/console/billing (or https://platform.moonshot.cn/console/billing)."
+                    else:
+                        hint = "Please check your account at https://platform.moonshot.ai/console/billing."
+                    raise RuntimeError(
+                        f"Moonshot (Kimi) API Error (status {e.status_code}): {e.message}. {hint}"
+                    ) from e
+                except Exception as e:
+                    logger.error(f"Kimi attempt failed: {e}")
+                    if primary_choice == "kimi":
+                        raise e
+
+            # 2. Groq
+            elif provider == "groq" and getattr(settings, "GROQ_API_KEY", ""):
+                try:
+                    safe_print(f"[AI Service] Invoking Groq ({settings.GROQ_MODEL}) for '{feature_name}'...")
+                    res = await self._call_openai_compatible_api(
+                        prompt=prompt,
+                        base_url=settings.GROQ_BASE_URL,
+                        api_key=settings.GROQ_API_KEY,
+                        model_name=settings.GROQ_MODEL,
+                        response_mime_type=response_mime_type,
+                        provider_label="Groq"
+                    )
+                    if res:
+                        safe_print(f"   └─ ✅ Groq ({settings.GROQ_MODEL}) generated output successfully.")
+                        return res
+                except Exception as e:
+                    logger.error(f"Groq attempt failed: {e}")
+
+            # 3. OpenRouter
+            elif provider == "openrouter" and getattr(settings, "OPENROUTER_API_KEY", ""):
+                try:
+                    safe_print(f"[AI Service] Invoking OpenRouter ({settings.OPENROUTER_MODEL}) for '{feature_name}'...")
+                    res = await self._call_openai_compatible_api(
+                        prompt=prompt,
+                        base_url=settings.OPENROUTER_BASE_URL,
+                        api_key=settings.OPENROUTER_API_KEY,
+                        model_name=settings.OPENROUTER_MODEL,
+                        response_mime_type=response_mime_type,
+                        provider_label="OpenRouter"
+                    )
+                    if res:
+                        safe_print(f"   └─ ✅ OpenRouter ({settings.OPENROUTER_MODEL}) generated output successfully.")
+                        return res
+                except Exception as e:
+                    logger.error(f"OpenRouter attempt failed: {e}")
+
+            # 4. Official OpenAI
+            elif provider == "openai" and getattr(settings, "OPENAI_API_KEY", "") and settings.OPENAI_API_KEY != "your-openai-api-key":
+                try:
+                    safe_print(f"[AI Service] Invoking OpenAI ({settings.OPENAI_MODEL}) for '{feature_name}'...")
+                    res = await self._call_openai_compatible_api(
+                        prompt=prompt,
+                        base_url=settings.OPENAI_BASE_URL,
+                        api_key=settings.OPENAI_API_KEY,
+                        model_name=settings.OPENAI_MODEL,
+                        response_mime_type=response_mime_type,
+                        provider_label="OpenAI"
+                    )
+                    if res:
+                        safe_print(f"   └─ ✅ OpenAI ({settings.OPENAI_MODEL}) generated output successfully.")
+                        return res
+                except Exception as e:
+                    logger.error(f"OpenAI attempt failed: {e}")
+
+            # 5. Azure OpenAI
+            elif provider == "azure" and fallback_azure and settings.AZURE_OPENAI_API_KEY and settings.AZURE_OPENAI_ENDPOINT:
+                try:
+                    safe_print(f"🤖 [AI Service] Invoking Azure OpenAI for feature '{feature_name}'...")
+                    res = await self._generate_azure_content(prompt, feature_name, response_mime_type)
+                    safe_print(f"   └─ ✅ Azure OpenAI generated output successfully.")
+                    return res
+                except Exception as e:
+                    logger.error(f"Azure OpenAI attempt failed for feature '{feature_name}': {e}")
+                    safe_print(f"   [FAIL] Azure OpenAI attempt failed: {e}")
+
+        # No random/fallback templates allowed when AI calls fail.
+        # Report the exact error so the customer knows why it failed instead of receiving a random template.
+        error_details = f"AI Provider '{primary_choice}' (model: {getattr(settings, 'KIMI_MODEL', 'moonshot-v1-32k')}) failed to respond or encountered an error."
+        if primary_choice == "kimi":
+            error_details = (
+                f"Kimi (Moonshot) model '{getattr(settings, 'KIMI_MODEL', 'moonshot-v1-32k')}' encountered an error or insufficient account balance. "
+                "Please verify your account and recharge credits at https://platform.moonshot.cn/console/billing."
+            )
+        raise RuntimeError(f"AI Generation Failed: {error_details}")
 
     async def stream_ai_content(
         self,
@@ -533,9 +597,11 @@ class AIService:
 
         models_to_try = [
             self.get_model_for_feature(feature_name, provider="gemini"),
-            "gemini-1.5-flash",
-            "gemini-2.0-flash",
-            "gemini-1.5-pro",
+            "gemini-flash-lite-latest",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
+            "gemini-flash-latest",
+            "gemini-pro-latest",
         ]
         
         seen = set()
@@ -619,7 +685,7 @@ class AIService:
         # 1. Try Gemini
         if settings.GEMINI_API_KEY:
             primary_model = self.get_model_for_feature(feature_name, provider="gemini")
-            models_to_try = [primary_model, "text-embedding-004", "embedding-001"]
+            models_to_try = [primary_model, "gemini-embedding-2", "gemini-embedding-001"]
             seen = set()
             for model_name in models_to_try:
                 if model_name in seen:
@@ -1107,6 +1173,10 @@ def repair_truncated_jsx(code: str) -> str:
         profile = analyze_prompt_intent("Professional Website Template")
         return synthesize_react_application(profile)
 
+    # Guard: If this is clearly a config file or pure module without JSX, do not mutate exports or inject JSX tags!
+    if "defineConfig" in code or "module.exports" in code or ("<" not in code and ">" not in code):
+        return code
+
     import re
 
     # 0. Clean premature `);` before closing JSX tags
@@ -1252,7 +1322,7 @@ def repair_truncated_jsx(code: str) -> str:
                     repaired = repaired.strip() + f"\n\nexport default {func_name.group(1)};\n"
                 else:
                     repaired = repaired.strip() + "\n\nexport default App;\n"
-            else:
+            elif "<" in repaired and ">" in repaired:
                 repaired = repaired.strip() + "\n\nexport default App;\n"
 
         # Safely strip conversational trailing comments after the final standalone export default

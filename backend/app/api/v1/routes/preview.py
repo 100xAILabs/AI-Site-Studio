@@ -2863,12 +2863,18 @@ async def serve_live_preview(
                     npm_cmd = "npm.cmd" if platform.system() == "Windows" else "npm"
                     loop = asyncio.get_running_loop()
 
-                    # 1. Verify that node_modules and Vite/framework binaries are present and functional
+                    # 1. Verify that node_modules are present and populated
                     node_modules_dir = os.path.join(project_root, "node_modules")
-                    vite_bin = os.path.join(node_modules_dir, "vite", "dist", "node", "cli.js")
-                    vite_pkg = os.path.join(node_modules_dir, "vite", "package.json")
-                    next_pkg = os.path.join(node_modules_dir, "next", "package.json")
-                    is_modules_ready = (os.path.isfile(vite_bin) or os.path.isfile(vite_pkg) or os.path.isfile(next_pkg))
+                    is_modules_ready = os.path.isdir(node_modules_dir) and (
+                        os.path.exists(os.path.join(node_modules_dir, "vite")) or
+                        os.path.exists(os.path.join(node_modules_dir, "next")) or
+                        os.path.exists(os.path.join(node_modules_dir, "vue")) or
+                        os.path.exists(os.path.join(node_modules_dir, "svelte")) or
+                        os.path.exists(os.path.join(node_modules_dir, "astro")) or
+                        os.path.exists(os.path.join(node_modules_dir, "nuxt")) or
+                        os.path.exists(os.path.join(node_modules_dir, "react")) or
+                        (os.path.isdir(node_modules_dir) and len(os.listdir(node_modules_dir)) > 5)
+                    )
 
                     if not is_modules_ready:
                         logger.info(f"[Preview Runner] Clean node_modules install required for {template_id}...")
@@ -2891,19 +2897,50 @@ async def serve_live_preview(
                     # Detect framework characteristics
                     is_next = False
                     is_nuxt = False
+                    is_vue = False
+                    is_svelte = False
+                    is_astro = False
+                    is_react = False
+                    is_angular = False
                     has_generate_script = False
                     has_export_script = False
+                    all_deps = {}
 
                     try:
                         with open(package_json_path, "r", encoding="utf-8") as f:
                             pkg_data = json.load(f)
+                            scripts = pkg_data.get("scripts", {})
                             all_deps = {**pkg_data.get("dependencies", {}), **pkg_data.get("devDependencies", {})}
-                            is_next = "next" in all_deps
-                            is_nuxt = "nuxt" in all_deps
-                            has_generate_script = "generate" in pkg_data.get("scripts", {})
-                            has_export_script = "export" in pkg_data.get("scripts", {})
+                            is_next = "next" in all_deps or "next" in scripts.get("build", "")
+                            is_nuxt = "nuxt" in all_deps or "nuxt" in scripts.get("build", "")
+                            is_vue = "vue" in all_deps or "@vitejs/plugin-vue" in all_deps
+                            is_svelte = "svelte" in all_deps or "@sveltejs/vite-plugin-svelte" in all_deps
+                            is_astro = "astro" in all_deps
+                            is_angular = "@angular/core" in all_deps
+                            is_react = "react" in all_deps or "@vitejs/plugin-react" in all_deps
+                            has_generate_script = "generate" in scripts
+                            has_export_script = "export" in scripts
                     except Exception:
                         pass
+
+                    # Determine canonical framework label
+                    template_fw_str = (template.framework.value if template.framework else "").lower()
+                    if is_vue or template_fw_str == "vue":
+                        detected_framework = "vue"
+                    elif is_svelte or template_fw_str == "svelte":
+                        detected_framework = "svelte"
+                    elif is_astro or template_fw_str == "astro":
+                        detected_framework = "astro"
+                    elif is_next or template_fw_str == "nextjs":
+                        detected_framework = "nextjs"
+                    elif is_nuxt or template_fw_str == "nuxt":
+                        detected_framework = "nuxt"
+                    elif is_angular or template_fw_str == "angular":
+                        detected_framework = "angular"
+                    elif is_react or template_fw_str == "react":
+                        detected_framework = "react"
+                    else:
+                        detected_framework = template_fw_str or "html"
 
                     # Framework-specific configuration tuning (e.g., forcing static export for Next.js)
                     if is_next:
@@ -2930,11 +2967,29 @@ async def serve_live_preview(
                             except Exception:
                                 pass
 
-                    # Vite config base path adjustment to enable relative assets inside subfolders
+                    # Vite config handling (base path adjustment & auto-creation)
                     vite_cfg_js = os.path.join(project_root, "vite.config.js")
                     vite_cfg_ts = os.path.join(project_root, "vite.config.ts")
-                    cfg_file = vite_cfg_js if os.path.exists(vite_cfg_js) else (vite_cfg_ts if os.path.exists(vite_cfg_ts) else None)
-                    if cfg_file:
+                    vite_cfg_mjs = os.path.join(project_root, "vite.config.mjs")
+                    cfg_file = vite_cfg_js if os.path.exists(vite_cfg_js) else (vite_cfg_ts if os.path.exists(vite_cfg_ts) else (vite_cfg_mjs if os.path.exists(vite_cfg_mjs) else None))
+
+                    # Auto-create vite.config if missing for Vite-based projects
+                    if not cfg_file and ("vite" in all_deps or "vite" in pkg_data.get("scripts", {}).get("build", "")):
+                        try:
+                            if is_vue:
+                                v_content = "import { defineConfig } from 'vite'\nimport vue from '@vitejs/plugin-vue'\n\nexport default defineConfig({\n  base: './',\n  plugins: [vue()],\n})\n"
+                            elif is_svelte:
+                                v_content = "import { defineConfig } from 'vite'\nimport { svelte } from '@sveltejs/vite-plugin-svelte'\n\nexport default defineConfig({\n  base: './',\n  plugins: [svelte()],\n})\n"
+                            elif is_react:
+                                v_content = "import { defineConfig } from 'vite'\nimport react from '@vitejs/plugin-react'\n\nexport default defineConfig({\n  base: './',\n  plugins: [react()],\n})\n"
+                            else:
+                                v_content = "import { defineConfig } from 'vite'\n\nexport default defineConfig({\n  base: './',\n})\n"
+                            with open(vite_cfg_js, "w", encoding="utf-8") as f:
+                                f.write(v_content)
+                            cfg_file = vite_cfg_js
+                        except Exception as e_vcfg:
+                            logger.warning(f"Could not auto-generate vite.config.js: {e_vcfg}")
+                    elif cfg_file:
                         try:
                             with open(cfg_file, "r", encoding="utf-8", errors="ignore") as f:
                                 cfg_content = f.read()
@@ -2957,15 +3012,35 @@ async def serve_live_preview(
                             npx_cmd = "npx.cmd" if platform.system() == "Windows" else "npx"
                             build_cmd = [npx_cmd, "nuxt", "generate"]
 
-                    # Pre-build self-healing: sanitize all JSX/TSX/JS/HTML files in project to fix truncated code or syntax errors
+                    # Pre-build self-healing: safely sanitize files without touching configs or non-JSX files
                     try:
                         from app.services.ai_service import repair_truncated_jsx, repair_truncated_html
+                        CONFIG_AND_ENTRY_FILES = {
+                            "vite.config.js", "vite.config.ts", "vite.config.mjs",
+                            "next.config.js", "next.config.mjs", "next.config.ts",
+                            "nuxt.config.js", "nuxt.config.ts",
+                            "svelte.config.js", "svelte.config.ts",
+                            "astro.config.mjs", "astro.config.ts", "astro.config.js",
+                            "tailwind.config.js", "tailwind.config.ts", "tailwind.config.cjs", "tailwind.config.mjs",
+                            "postcss.config.js", "postcss.config.cjs", "postcss.config.mjs",
+                            "webpack.config.js", "webpack.config.ts",
+                            "package.json", "package-lock.json", "tsconfig.json", "jsconfig.json",
+                            "main.js", "main.ts", "index.js", "index.ts"
+                        }
+
                         for s_root, _, s_files in os.walk(project_root):
-                            if any(d in s_root.replace("\\", "/").split("/") for d in ["dist", "node_modules", "build", "out", ".output"]):
+                            norm_s_root = s_root.replace("\\", "/").lower()
+                            if any(d in norm_s_root.split("/") for d in ["dist", "node_modules", "build", "out", ".output", ".git", ".cache", ".next", ".nuxt"]):
                                 continue
                             for s_fname in s_files:
+                                if s_fname.lower() in CONFIG_AND_ENTRY_FILES:
+                                    continue
+
                                 s_path = os.path.join(s_root, s_fname)
-                                if s_fname.endswith(".jsx") or s_fname.endswith(".tsx") or s_fname.endswith(".js") or s_fname.endswith(".ts"):
+                                ext = os.path.splitext(s_fname)[1].lower()
+
+                                # ONLY run repair_truncated_jsx on actual JSX / TSX files!
+                                if ext in [".jsx", ".tsx"]:
                                     try:
                                         with open(s_path, "r", encoding="utf-8", errors="ignore") as sf:
                                             raw_c = sf.read()
@@ -2974,26 +3049,36 @@ async def serve_live_preview(
                                             with open(s_path, "w", encoding="utf-8") as sf:
                                                 sf.write(repaired_c)
                                     except Exception as e_heal:
-                                        print(f"[Pre-Build Heal] Could not heal {s_fname}: {e_heal}")
-                                elif s_fname.endswith(".html"):
+                                        logger.warning(f"[Pre-Build Heal] Could not heal {s_fname}: {e_heal}")
+
+                                elif ext in [".html", ".htm"]:
                                     try:
                                         with open(s_path, "r", encoding="utf-8", errors="ignore") as sf:
                                             raw_c = sf.read()
                                         h_c = raw_c
                                         if "</html>" in h_c:
                                             h_c = h_c.split("</html>")[0] + "</html>\n"
-                                        if "/src/main.tsx" in h_c and not os.path.exists(os.path.join(project_root, "src", "main.tsx")) and os.path.exists(os.path.join(project_root, "src", "main.jsx")):
-                                            h_c = h_c.replace("/src/main.tsx", "/src/main.jsx")
-                                        elif "/src/main.jsx" in h_c and not os.path.exists(os.path.join(project_root, "src", "main.jsx")) and os.path.exists(os.path.join(project_root, "src", "main.tsx")):
-                                            h_c = h_c.replace("/src/main.jsx", "/src/main.tsx")
+
+                                        # Match index.html entry script to actual file in src/
+                                        src_dir = os.path.join(project_root, "src")
+                                        if os.path.isdir(src_dir):
+                                            src_files = os.listdir(src_dir)
+                                            for entry_cand in ["main.js", "main.jsx", "main.ts", "main.tsx", "index.js", "index.jsx", "index.ts", "index.tsx"]:
+                                                if entry_cand in src_files:
+                                                    for other_cand in ["main.js", "main.jsx", "main.ts", "main.tsx"]:
+                                                        if f"/src/{other_cand}" in h_c and other_cand != entry_cand and other_cand not in src_files:
+                                                            h_c = h_c.replace(f"/src/{other_cand}", f"/src/{entry_cand}")
+                                                            break
+                                                    break
+
                                         repaired_c = repair_truncated_html(h_c)
                                         if repaired_c and repaired_c != raw_c:
                                             with open(s_path, "w", encoding="utf-8") as sf:
                                                 sf.write(repaired_c)
                                     except Exception as e_heal:
-                                        print(f"[Pre-Build Heal] Could not heal {s_fname}: {e_heal}")
+                                        logger.warning(f"[Pre-Build Heal] Could not heal {s_fname}: {e_heal}")
                     except Exception as e_pre_heal:
-                        print(f"[Pre-Build Heal Pass Failed]: {e_pre_heal}")
+                        logger.warning(f"[Pre-Build Heal Pass Failed]: {e_pre_heal}")
 
                     # 2. Compile/build template project
                     def run_npm_build():
@@ -3020,12 +3105,13 @@ async def serve_live_preview(
                         # 🤖 Trigger Autonomous AI Debugger Agent to inspect and repair syntax/compile errors
                         try:
                             from app.services.debugger_service import ai_debugger
-                            print(f"[Autonomous AI Debugger] Activating compiler repair agent for template {template_id}...")
+                            print(f"[Autonomous AI Debugger] Activating compiler repair agent for {detected_framework.upper()} template {template_id}...")
                             is_fixed, fix_log, repaired_map = await ai_debugger.debug_project_build(
                                 project_root=project_root,
                                 build_cmd=build_cmd,
                                 initial_error_log=error_out,
-                                max_attempts=3
+                                max_attempts=3,
+                                framework=detected_framework
                             )
                             if is_fixed:
                                 print(f"[Autonomous AI Debugger] Successfully resolved build errors for {template_id}!")

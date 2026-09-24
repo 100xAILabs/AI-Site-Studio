@@ -773,7 +773,7 @@ export default function GenerateTemplatePage() {
       setStep("questions");
     } catch (err) {
       console.error(err);
-      setError("Something error happens please try again later");
+      setError(err?.message || "Prompt analysis failed. Please check your settings and try again.");
     } finally {
       setIsPreparing(false);
     }
@@ -897,7 +897,7 @@ export default function GenerateTemplatePage() {
       setCurrentStep(GENERATION_STEPS.length);
     } catch (err) {
       console.error(err);
-      setError("Something error happens please try again later");
+      setError(err?.message || "Template generation failed. Please check your AI provider configuration and try again.");
       setIsGenerating(false);
     }
   };
