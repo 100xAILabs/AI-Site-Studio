@@ -125,6 +125,84 @@ const DASHBOARD_SUB_CATEGORIES = {
   documentation: ["API Docs", "Product Docs", "Knowledge Base", "Help Center", "Wiki"],
 };
 
+function StoreOrderAlerts({ identifier, token }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [providers, setProviders] = useState(null);
+  const [notice, setNotice] = useState("");
+  const endpoint = `/storefront/${encodeURIComponent(identifier)}/notification-settings`;
+
+  const load = async () => {
+    setOpen(true);
+    setLoading(true);
+    setNotice("");
+    try {
+      const settings = await api.get(endpoint, token ?? undefined);
+      setEmail(settings.email || "");
+      setPhone(settings.phone || "");
+      setProviders(settings);
+    } catch (error) {
+      setNotice(error.message || "Could not load order alert settings.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const save = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    setNotice("");
+    try {
+      const settings = await api.put(endpoint, {
+        email: email.trim() || null,
+        phone: phone.trim() || null,
+      }, token ?? undefined);
+      setProviders(settings);
+      setNotice("Order alert destinations saved.");
+    } catch (error) {
+      setNotice(error.message || "Could not save order alert settings.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-slate-200 dark:border-slate-800 pt-3">
+      <button type="button" onClick={open ? () => setOpen(false) : load}
+        className="w-full text-left text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:underline">
+        {open ? "Hide order alerts" : "Configure order email & SMS alerts"}
+      </button>
+      {open && <div className="mt-3 rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-3">
+        {loading ? <p className="text-xs text-slate-500">Loading settings…</p> : <>
+          <form onSubmit={save} className="space-y-2.5">
+            <label className="block text-xs font-semibold">Alert email
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                placeholder="orders@yourbusiness.com" className="mt-1 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2" />
+            </label>
+            <label className="block text-xs font-semibold">Alert mobile (international format)
+              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)}
+                placeholder="+14155550123" pattern="\\+[1-9][0-9]{7,14}"
+                className="mt-1 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent px-3 py-2" />
+            </label>
+            <button disabled={saving || (!email.trim() && !phone.trim())}
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
+              {saving ? "Saving…" : "Save destinations"}
+            </button>
+          </form>
+          {providers && <div className="text-[11px] text-slate-600 dark:text-slate-400 space-y-1">
+            <p>Email provider: {providers.email_provider_configured ? "configured" : "awaiting Studio SMTP or Resend setup"}</p>
+            <p>SMS provider: {providers.sms_provider_configured ? "configured" : "awaiting Studio Twilio setup"}</p>
+          </div>}
+        </>}
+        {notice && <p role="status" className="text-xs text-slate-600 dark:text-slate-300">{notice}</p>}
+      </div>}
+    </div>
+  );
+}
+
 function Dashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { getToken } = useAppAuth();
@@ -264,6 +342,15 @@ function Dashboard() {
   const [customDomainInput, setCustomDomainInput] = useState("");
   const [linkDomainError, setLinkDomainError] = useState("");
   const [verifyingDomainId, setVerifyingDomainId] = useState("");
+  const [domainQuote, setDomainQuote] = useState(null);
+  const [domainQuoteLoading, setDomainQuoteLoading] = useState(false);
+  const [acceptedDomainTerms, setAcceptedDomainTerms] = useState(false);
+  const [acceptedRegistrarAgreements, setAcceptedRegistrarAgreements] = useState([]);
+  const [agreementAcceptedAt, setAgreementAcceptedAt] = useState(null);
+  const [registrantProfile, setRegistrantProfile] = useState({
+    nameFirst: "", nameLast: "", email: "", phone: { countryCode: "+1", nationalNumber: "" },
+    address: { address1: "", address2: "", city: "", state: "", postalCode: "", country: "US" },
+  });
 
   // Deployments state
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
@@ -280,11 +367,14 @@ function Dashboard() {
   // Wizard form state
   const [deployProjectName, setDeployProjectName] = useState("");
   const [deployTemplateId, setDeployTemplateId] = useState("");
-  const [deployProvider, setDeployProvider] = useState("story");
+  const [deployProvider, setDeployProvider] = useState("local");
   const [deployBranch, setDeployBranch] = useState("main");
   const [deployBuildCommand, setDeployBuildCommand] = useState("npm run build");
   const [deployOutputDir, setDeployOutputDir] = useState("dist");
   const [deploying, setDeploying] = useState(false);
+  const [hostingPrice, setHostingPrice] = useState(null);
+  const [acceptedHostingTerms, setAcceptedHostingTerms] = useState(false);
+  const [hostingActionId, setHostingActionId] = useState("");
   const consoleEndRef = useRef(null);
 
   // Multi-Version History & Rollback state
@@ -391,6 +481,38 @@ function Dashboard() {
   useEffect(() => {
     getToken().then(setAuthToken);
   }, [getToken]);
+
+  useEffect(() => {
+    const purchasedDomainId = searchParams.get("domain_id");
+    if (!authToken || !purchasedDomainId) return;
+    let stopped = false;
+    let interval = null;
+    const checkDomain = async () => {
+      try {
+        const status = await api.get(`/deployments/domains/${purchasedDomainId}/status`, authToken);
+        if (stopped) return;
+        if (status.verification_status === "verified") {
+          stopped = true;
+          if (interval) clearInterval(interval);
+          qc.invalidateQueries(["deployments"]);
+          const expiry = status.expires_at ? ` It expires on ${new Date(status.expires_at).toLocaleDateString()}; auto-renew is off, so contact Studio to arrange renewal or transfer before then.` : " Auto-renew is off, so contact Studio to arrange renewal or transfer before the domain expires.";
+          const tls = status.ssl_status === "managed"
+            ? " Studio manages HTTPS certificates; the first secure visit can take a short time while DNS and certificate issuance complete."
+            : " HTTPS is not configured on this hosting server yet, so the domain is not ready for a secure public launch.";
+          alert(`Domain ${status.domain} is registered and its DNS is configured.${expiry} DNS propagation may take time.${tls}`);
+        } else if (["failed", "registration_failed", "refunded_registration_failed", "payment_failed", "checkout_expired"].includes(status.status)) {
+          stopped = true;
+          if (interval) clearInterval(interval);
+          alert(`Domain purchase for ${status.domain} did not complete. Check the payment status or contact support if a charge was made.`);
+        }
+      } catch (error) {
+        // Keep checking while GoDaddy's async registration operation is running.
+      }
+    };
+    checkDomain();
+    interval = setInterval(checkDomain, 5000);
+    return () => { stopped = true; clearInterval(interval); };
+  }, [authToken, searchParams, qc]);
 
   // Fetch actual admin users from backend when admin tab is active
   useEffect(() => {
@@ -580,14 +702,6 @@ function Dashboard() {
     }
   };
 
-  const handleCopyDns = (domain) => {
-    const text = `A Record:\nHost: @\nValue: 76.76.21.21\nTTL: 3600\n\nCNAME Record:\nHost: www\nValue: publish.aisitestudio.com\nTTL: 3600`;
-    if (navigator?.clipboard?.writeText) {
-      navigator.clipboard.writeText(text);
-    }
-    alert(`DNS records for ${domain || "your domain"} copied to clipboard!\n\nA Record: @ -> 76.76.21.21\nCNAME Record: www -> publish.aisitestudio.com`);
-  };
-
   // Fetch Marketplace Templates for Dashboard Recommendations
   const { data: marketplaceTemplatesRes } = useQuery({
     queryKey: ["marketplace-templates-dashboard"],
@@ -603,6 +717,28 @@ function Dashboard() {
     staleTime: 1000 * 60 * 5,
     placeholderData: (prev) => prev,
   });
+
+  const { data: deploymentProviderData } = useQuery({
+    queryKey: ["deployment-providers"],
+    queryFn: () => api.get("/deployments/providers", authToken ?? undefined),
+    enabled: !!authToken,
+  });
+
+  useEffect(() => {
+    if (isDeployModalOpen && authToken) {
+      api.get("/deployments/hosting-price", authToken)
+        .then(setHostingPrice)
+        .catch(() => setHostingPrice({ configured: false }));
+    }
+  }, [isDeployModalOpen, authToken]);
+
+  useEffect(() => {
+    const providers = deploymentProviderData?.providers || [];
+    if (providers.some((provider) => provider.id === deployProvider && provider.enabled)) return;
+    const enabledProvider = providers.find((provider) => provider.id === deploymentProviderData?.default_provider && provider.enabled)
+      || providers.find((provider) => provider.enabled);
+    if (enabledProvider) setDeployProvider(enabledProvider.id);
+  }, [deploymentProviderData, deployProvider]);
 
   // Strip ANSI escape codes from terminal output
   const stripAnsi = (str) => str.replace(/\x1B\[[0-9;]*[mGKHFJABCDETSTNHR]/g, "").replace(/\x1B[()][AB012]/g, "");
@@ -640,8 +776,10 @@ function Dashboard() {
     }
   }, [activeConsoleLogs, isConsoleOpen, isConsoleStreamPaused]);
 
-  // Calculated stats for seller
-  const sellerTemplatesList = Array.isArray(templateResponse) ? templateResponse : [];
+  // Published seller listings are kept separate from private Studio Project drafts.
+  const sellerTemplatesList = Array.isArray(templateResponse)
+    ? templateResponse.filter(t => t.status === "published")
+    : [];
 
   // 1. Downloaded & Purchased Templates (from completed orders)
   const purchasedTemplatesList = orders
@@ -665,7 +803,7 @@ function Dashboard() {
 
   // 3. AI Studio & Custom Draft Projects
   const studioProjectsList = (templateResponse || [])
-    .filter(t => t.is_ai_ready || t.status === "draft")
+    .filter(t => t.status === "draft")
     .map(t => ({
       id: t.id,
       title: t.title || "AI Studio Project",
@@ -3442,7 +3580,7 @@ function Dashboard() {
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-border/20 pb-4">
                     <div>
                       <h3 className="font-bold text-lg text-foreground">Live Websites & Domains</h3>
-                      <p className="text-sm text-muted-foreground">Directly publish your template deployments to your own custom domain.</p>
+                      <p className="text-sm text-muted-foreground">Custom-domain routing and certificate provisioning are not configured here. Add domains in your deployment provider after publishing.</p>
                     </div>
                     <button
                       onClick={() => {
@@ -3457,7 +3595,8 @@ function Dashboard() {
                         }
                         setLinkDomainModalOpen(true);
                       }}
-                      className="btn-primary border-none"
+                      disabled
+                      className="btn-primary border-none opacity-50 cursor-not-allowed"
                     >
                       <Plus className="w-4 h-4" /> Link Custom Domain
                     </button>
@@ -3473,7 +3612,7 @@ function Dashboard() {
                       <Globe className="w-8 h-8 text-primary mx-auto mb-3 opacity-60 animate-pulse" />
                       <p className="text-sm font-semibold text-foreground">No custom domains mapped yet</p>
                       <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto leading-relaxed">
-                        Publish your website directly under your custom brand. Enter your domain, point your DNS records to our server, and we will handle the deployment SSL certificates and hosting routing.
+                        Custom-domain linking is not configured for this hosting setup. Vercel deployments can use Vercel's Domains settings after deployment.
                       </p>
                       <button
                         onClick={() => {
@@ -3487,7 +3626,8 @@ function Dashboard() {
                           }
                           setLinkDomainModalOpen(true);
                         }}
-                        className="mt-4 px-3.5 py-1.5 bg-muted border border-border/40 hover:bg-muted/80 text-foreground text-xs font-semibold rounded-lg transition-all cursor-pointer"
+                        disabled
+                        className="mt-4 px-3.5 py-1.5 bg-muted border border-border/40 text-foreground text-xs font-semibold rounded-lg opacity-50 cursor-not-allowed"
                       >
                         Link a Custom Domain Now
                       </button>
@@ -3507,7 +3647,7 @@ function Dashboard() {
                           </thead>
                           <tbody>
                             {deploymentsData.filter(d => d.custom_domain).map((deploy) => {
-                              const livePreviewUrl = `${BACKEND_BASE}/sites/${deploy.custom_domain}/`;
+                              const livePreviewUrl = deploy.live_url;
                               const isVerifying = verifyingDomainId === deploy.id;
 
                               return (
@@ -3526,7 +3666,7 @@ function Dashboard() {
                                         <ExternalLink className="w-3 h-3 text-muted-foreground" />
                                       </a>
                                       <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> SSL Secured • HTTPS Active
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span> HTTPS status not verified
                                       </span>
                                     </div>
                                   </td>
@@ -3537,15 +3677,8 @@ function Dashboard() {
                                   <td className="py-4">
                                     <div className="flex flex-col gap-1">
                                       <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md w-fit">
-                                        ✓ DNS Verified
+                                        Domain setup pending
                                       </span>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleCopyDns(deploy.custom_domain)}
-                                        className="text-[10px] text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 w-fit cursor-pointer"
-                                      >
-                                        📋 Copy DNS Records
-                                      </button>
                                     </div>
                                   </td>
                                   <td className="py-4">
@@ -3573,7 +3706,7 @@ function Dashboard() {
                                         onClick={() => handleVerifyDomain(deploy.id)}
                                         disabled={isVerifying}
                                         className="px-2.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 text-xs font-bold rounded-lg border border-emerald-500/30 flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
-                                        title="Verify DNS propagation & SSL status"
+                                        title="Check domain setup"
                                       >
                                         {isVerifying && <Loader2 className="w-3 h-3 animate-spin" />}
                                         {isVerifying ? "Verifying..." : "Verify"}
@@ -3599,32 +3732,14 @@ function Dashboard() {
                         </table>
                       </div>
 
-                      {/* DNS Records Guide */}
+                      {/* Provider-specific domain setup notice */}
                       <div className="p-5 border border-primary/20 bg-primary/5 rounded-xl space-y-3">
                         <h4 className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
-                          <Info className="w-4 h-4" /> DNS Configuration Guide
+                          <Info className="w-4 h-4" /> Domain and HTTPS setup
                         </h4>
                         <p className="text-xs text-slate-300 leading-relaxed">
-                          To complete linking your custom domains, log into your domain registrar dashboard (e.g. GoDaddy, Namecheap) and create the following DNS records:
+                          AI Site Studio does not currently provision DNS records or TLS certificates. Do not point a domain here until your deployment host or reverse proxy provides the correct target and HTTPS certificate.
                         </p>
-                        <div className="grid sm:grid-cols-2 gap-4 text-xs">
-                          <div className="p-3 bg-slate-900/60 rounded-lg border border-border/40">
-                            <span className="font-bold text-foreground block mb-1">A Record (for root domain, e.g. mybrand.com)</span>
-                            <div className="space-y-1 font-mono text-[11px] text-slate-300">
-                              <div>Host: <span className="text-primary">@</span></div>
-                              <div>Value / Points to: <span className="text-primary">76.76.21.21</span></div>
-                              <div>TTL: <span className="text-muted-foreground">Automatic / 3600</span></div>
-                            </div>
-                          </div>
-                          <div className="p-3 bg-slate-900/60 rounded-lg border border-border/40">
-                            <span className="font-bold text-foreground block mb-1">CNAME Record (for www subdomain, e.g. www.mybrand.com)</span>
-                            <div className="space-y-1 font-mono text-[11px] text-slate-300">
-                              <div>Host: <span className="text-primary">www</span></div>
-                              <div>Value / Points to: <span className="text-primary">publish.aisitestudio.com</span></div>
-                              <div>TTL: <span className="text-muted-foreground">Automatic / 3600</span></div>
-                            </div>
-                          </div>
-                        </div>
                       </div>
                     </div>
                   )}
@@ -3638,13 +3753,13 @@ function Dashboard() {
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-lg text-foreground">Continuous Deployments</h3>
+                        <h3 className="font-bold text-lg text-foreground">Deployments</h3>
                         <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-semibold border border-emerald-500/30 uppercase tracking-wider flex items-center gap-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                          Isolated Workloads
+                          Local hosting + Vercel
                         </span>
                       </div>
-                      <p className="text-sm text-muted-foreground">Publish your websites and studio templates to Vercel, Netlify, or GitHub Pages.</p>
+                      <p className="text-sm text-muted-foreground">Build static sites on this server or publish them to a configured Vercel account.</p>
                     </div>
                     <div className="flex items-center gap-2.5">
                       <button
@@ -3779,11 +3894,17 @@ function Dashboard() {
                                     setActiveConsoleStatus(deploy.status);
                                     setIsConsoleOpen(true);
                                   }}
-                                  className="flex-1 btn-deploy-action"
+                                  disabled
+                                  className="flex-1 btn-deploy-action opacity-50 cursor-not-allowed"
                                 >
                                   <Terminal className="w-3.5 h-3.5 text-indigo-600" /> {isBuilding ? "View Build" : "Logs"}
                                 </button>
                               </div>
+
+                              <StoreOrderAlerts
+                                identifier={deploy.site_id || deploy.subdomain || deploy.custom_domain}
+                                token={authToken}
+                              />
 
                               {(deploy.health_status === "degraded" || deploy.health_status === "down" || deploy.status === "failed") && (
                                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs">
@@ -3805,14 +3926,17 @@ function Dashboard() {
                                   type="button"
                                   onClick={() => {
                                     setLinkDomainError("");
-                                    setCustomDomainInput(deploy.custom_domain || "");
+                                    setCustomDomainInput("");
+                                    setDomainQuote(null);
+                                    setAcceptedDomainTerms(false);
+                                    setAcceptedRegistrarAgreements([]);
                                     setLinkDomainDeploymentId(deploy.id);
                                     setLinkDomainModalOpen(true);
                                   }}
                                   className="flex-1 btn-deploy-action"
-                                  title={deploy.custom_domain ? "Manage Linked Custom Domain" : "Link Custom Domain"}
+                                  title="Buy and register a domain through GoDaddy"
                                 >
-                                  <Globe className="w-3.5 h-3.5 text-indigo-600" /> {deploy.custom_domain ? "Domain" : "Link Domain"}
+                                  <Globe className="w-3.5 h-3.5 text-indigo-600" /> {deploy.custom_domain ? "Buy Another Domain" : "Buy Domain"}
                                 </button>
                                 <button
                                   type="button"
@@ -3848,7 +3972,7 @@ function Dashboard() {
                                 <button
                                   type="button"
                                   onClick={async () => {
-                                    if (confirm(`Are you sure you want to permanently remove deployment "${deploy.project_name}"?`)) {
+                                    if (confirm(`Permanently remove "${deploy.project_name}"? Any active monthly hosting subscription will be canceled immediately with no prorated refund. Registered domains cannot be deleted with the site; transfer or release them with Studio support first.`)) {
                                       try {
                                         await api.delete(`/deployments/${deploy.id}`, authToken ?? undefined);
                                         refetchDeployments();
@@ -3884,6 +4008,54 @@ function Dashboard() {
                                   </button>
                                 )}
                               </div>
+
+                              {deploy.provider === "local" && (
+                                <div className="mt-3 p-3 rounded-xl border border-indigo-200 bg-indigo-50/70 space-y-2">
+                                  <div className="flex items-center justify-between text-xs">
+                                    <span className="font-bold text-slate-800">Managed hosting</span>
+                                    <span className={`font-semibold ${["active", "trialing"].includes(deploy.hosting_subscription_status) ? "text-emerald-700" : deploy.hosting_subscription_status === "past_due" ? "text-amber-800" : "text-slate-600"}`}>
+                                      {(deploy.hosting_subscription_status || "not_subscribed").replaceAll("_", " ")}
+                                    </span>
+                                  </div>
+                                  {deploy.hosting_subscription_period_end && <p className="text-[11px] text-slate-600">Paid through {new Date(deploy.hosting_subscription_period_end).toLocaleDateString()}{deploy.hosting_subscription_cancel_at_period_end ? " (cancelling at period end)" : ""}</p>}
+                                  <div className="flex gap-2">
+                                    {!["active", "trialing", "past_due"].includes(deploy.hosting_subscription_status) ? (
+                                      <button type="button" disabled={hostingActionId === deploy.id} onClick={async () => {
+                                        setHostingActionId(deploy.id);
+                                        try {
+                                          const result = await api.post(`/deployments/${deploy.id}/hosting-checkout`, {}, authToken ?? undefined);
+                                          window.location.assign(result.checkout_url);
+                                        } catch (error) { alert(error.message || "Could not start hosting checkout."); }
+                                        finally { setHostingActionId(""); }
+                                      }} className="flex-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-lg disabled:opacity-50">
+                                        {hostingActionId === deploy.id ? "Opening checkout…" : "Start Monthly Hosting"}
+                                      </button>
+                                    ) : (
+                                      <button type="button" disabled={hostingActionId === deploy.id} onClick={async () => {
+                                        setHostingActionId(deploy.id);
+                                        try {
+                                          const result = await api.post(`/deployments/${deploy.id}/hosting-subscription/portal`, {}, authToken ?? undefined);
+                                          window.location.assign(result.url);
+                                        } catch (error) { alert(error.message || "Could not open billing settings."); }
+                                        finally { setHostingActionId(""); }
+                                      }} className="flex-1 px-3 py-2 bg-white border border-indigo-300 text-indigo-800 text-[11px] font-bold rounded-lg disabled:opacity-50">
+                                        {deploy.hosting_subscription_status === "past_due" ? "Update payment" : "Manage billing"}
+                                      </button>
+                                    )}
+                                    {["active", "trialing"].includes(deploy.hosting_subscription_status) && !deploy.hosting_subscription_cancel_at_period_end && (
+                                      <button type="button" disabled={hostingActionId === deploy.id} onClick={async () => {
+                                        if (!confirm("Cancel monthly hosting at the end of the paid period? Domain registration and renewals will continue separately, and unused hosting time is not refunded where law permits.")) return;
+                                        setHostingActionId(deploy.id);
+                                        try {
+                                          await api.post(`/deployments/${deploy.id}/hosting-subscription/cancel`, {}, authToken ?? undefined);
+                                          refetchDeployments();
+                                        } catch (error) { alert(error.message || "Could not cancel hosting."); }
+                                        finally { setHostingActionId(""); }
+                                      }} className="px-3 py-2 bg-white border border-rose-200 text-rose-700 text-[11px] font-bold rounded-lg disabled:opacity-50">Cancel</button>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
                         );
@@ -6336,15 +6508,11 @@ function Dashboard() {
                     <h3 className="font-bold text-lg">Category Mapping Configuration</h3>
                     <p className="text-sm text-muted-foreground">Define catalog filters for the marketplace.</p>
                   </div>
-                  <div className="grid sm:grid-cols-3 gap-4 items-end">
-                    <input
-                      type="text"
-                      placeholder="New Category Name (e.g. E-Commerce)"
-                      className="sm:col-span-2 px-3 py-2 rounded-lg glass border border-border/50 text-xs focus:outline-none bg-card"
-                    />
-                    <button onClick={() => alert("Category added successfully!")} className="py-2.5 bg-primary text-white text-xs font-semibold rounded-lg flex items-center justify-center gap-1">
-                      <Plus className="w-3.5 h-3.5" /> Add Category
-                    </button>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-xs text-muted-foreground">Create and edit marketplace categories in the admin console.</p>
+                    <a href="/admin" className="py-2.5 px-4 bg-primary text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1">
+                      <Plus className="w-3.5 h-3.5" /> Open Category Manager
+                    </a>
                   </div>
                   <div className="border-t border-border/50 pt-4">
                     <div className="flex flex-wrap gap-2">
@@ -6640,29 +6808,29 @@ function Dashboard() {
                         try {
                           const payload = {
                             project_name: deployProjectName,
-                            provider: "local",
+                            provider: deployProvider,
                             template_id: deployTemplateId === "mock-project-id" ? null : deployTemplateId,
                             branch: deployBranch,
                             build_command: deployBuildCommand,
                             output_dir: deployOutputDir,
+                          accepted_hosting_terms: acceptedHostingTerms,
                           };
                           const res = await api.post("/deployments/", payload, authToken ?? undefined);
 
-                          // If custom domain entered, link it immediately
-                          if (customDomainInput.trim()) {
-                            try {
-                              await api.patch(`/deployments/${res.id}/domain?custom_domain=${encodeURIComponent(customDomainInput.trim())}`, {}, authToken ?? undefined);
-                            } catch (domErr) {
-                              console.warn("Domain linking error:", domErr);
-                            }
+                          if (deployProvider === "local" && hostingPrice?.configured) {
+                            const checkout = await api.post(`/deployments/${res.id}/hosting-checkout`, {}, authToken ?? undefined);
+                            window.location.assign(checkout.checkout_url);
+                            return;
                           }
 
+                          // If custom domain entered, link it immediately
                           refetchDeployments();
                           setIsDeployModalOpen(false);
                           setDeploying(false);
                           // Reset wizard state
                           setDeployProjectName("");
                           setCustomDomainInput("");
+                          setAcceptedHostingTerms(false);
                           setDeployBranch("main");
                           setDeployBuildCommand("npm run build");
                           setDeployOutputDir("dist");
@@ -6745,6 +6913,40 @@ function Dashboard() {
                         )}
                       </div>
 
+                      {deployProvider === "local" && (
+                        <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-2xl space-y-3">
+                          <div className="text-xs font-bold text-indigo-950 uppercase tracking-wider">Managed hosting subscription</div>
+                          {hostingPrice?.configured ? (
+                            <>
+                              <p className="text-sm text-slate-900 font-semibold">
+                                {hostingPrice.currency} {(Number(hostingPrice.amount_minor || 0) / 100).toFixed(2)} every {hostingPrice.interval_count > 1 ? `${hostingPrice.interval_count} ` : ""}{hostingPrice.interval || "month"}.
+                              </p>
+                              <label className="flex items-start gap-2 text-xs text-slate-800 leading-relaxed">
+                                <input type="checkbox" required checked={acceptedHostingTerms} onChange={(e) => setAcceptedHostingTerms(e.target.checked)} />
+                                <span>I authorize recurring hosting charges until I cancel. If payment remains unpaid after Stripe’s configured retry period, hosting will be suspended. Cancelling takes effect at the end of the paid period; unused time is not refunded, subject to applicable law. Domain registration and renewals are separate and are not cancelled by stopping hosting.</span>
+                              </label>
+                            </>
+                          ) : (
+                            <p className="text-xs text-amber-900 leading-relaxed">Monthly billing is not configured yet. A platform administrator must set the Stripe hosting price before paid hosting can be activated.</p>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <label className="modal-label-solid" htmlFor="deployment-provider">Hosting provider</label>
+                        <select id="deployment-provider" value={deployProvider} onChange={(e) => setDeployProvider(e.target.value)} className="modal-select-solid">
+                          {(deploymentProviderData?.providers || []).map((provider) => (
+                            <option key={provider.id} value={provider.id} disabled={!provider.enabled}>{provider.label}{provider.enabled ? "" : " (not configured)"}</option>
+                          ))}
+                        </select>
+                        <span className="text-xs text-slate-600 block leading-relaxed font-medium">
+                          {deployProvider === "vercel" ? "Uploads your project source to the configured Vercel account for a remote build and deployment." : "Runs the project build on this backend and serves files from its local storage. Enable only on a trusted, persistent server."}
+                        </span>
+                        {deploymentProviderData && !deploymentProviderData.providers?.some((provider) => provider.enabled) && (
+                          <span className="text-xs text-red-700 block font-semibold">No deployment provider is configured. Ask the platform administrator to configure Vercel or trusted local hosting.</span>
+                        )}
+                      </div>
+
                       <div className="space-y-2">
                         <label className="modal-label-solid">Project Display Name *</label>
                         <input
@@ -6758,23 +6960,33 @@ function Dashboard() {
                       </div>
 
                       <div className="space-y-2">
-                        <label className="modal-label-solid">Custom Domain Name (Optional)</label>
+                        <label className="modal-label-solid">Custom Domain</label>
                         <input
                           type="text"
                           value={customDomainInput}
                           onChange={(e) => setCustomDomainInput(e.target.value)}
                           placeholder="e.g. www.mybrand.com"
                           className="modal-input-solid"
+                          disabled
                         />
-                        <span className="text-xs text-slate-600 block leading-relaxed font-medium">Leave blank to use free *.aisitestudio.com subdomain.</span>
+                        <span className="text-xs text-slate-600 block leading-relaxed font-medium">
+                          {deployProvider === "vercel" ? "Connect a custom domain from the Vercel dashboard after deployment." : "Custom-domain routing is not configured for AI Site Studio hosting yet."}
+                        </span>
                       </div>
 
                       <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
                         <div className="flex items-center gap-2 text-xs font-bold text-slate-900 uppercase tracking-wider">
-                          <Globe className="w-4 h-4 text-indigo-600" /> AI Site Studio Cloud Platform
+                          <Globe className="w-4 h-4 text-indigo-600" /> Hosting details
                         </div>
                         <p className="text-xs text-slate-600 leading-relaxed">
-                          High-speed Edge Infrastructure with automated SSL certificates, global CDN caching, and domain routing.
+                          {deployProvider === "vercel" ? "Vercel installs dependencies, builds the project, and supplies the deployment URL." : "The site is stored and served by this backend instance; availability depends on its persistent storage and hosting setup."}
+                        </p>
+                      </div>
+
+                      <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl space-y-2" role="note">
+                        <div className="text-xs font-bold text-amber-900 uppercase tracking-wider">Domain and cancellation terms</div>
+                        <p className="text-xs text-amber-900 leading-relaxed">
+                          A domain registration leases the name for a fixed term and renews separately; it is not a permanent purchase. If you later cancel hosting, that does not cancel or refund a registered domain. Domain charges are non-refundable after registration, subject to any rights required by applicable law. The registrant remains responsible for renewal charges and keeping their contact details accurate.
                         </p>
                       </div>
 
@@ -6788,7 +7000,7 @@ function Dashboard() {
                         </button>
                         <button
                           type="submit"
-                          disabled={deploying}
+                          disabled={deploying || !deploymentProviderData?.providers?.some((provider) => provider.id === deployProvider && provider.enabled)}
                           className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold rounded-2xl transition-all disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-indigo-600/30 border border-indigo-500 cursor-pointer"
                         >
                           {deploying && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -7642,41 +7854,52 @@ function Dashboard() {
                         setLinkDomainError("Please select a target deployment project or template.");
                         return;
                       }
-
-                      setDeploying(true);
+                      if (linkDomainDeploymentId.startsWith("NEW_DEPLOY:")) {
+                        setLinkDomainError("Publish this website first, then return here to buy and connect its domain.");
+                        return;
+                      }
+                      setDomainQuoteLoading(true);
                       try {
-                        let targetDeploymentId = linkDomainDeploymentId;
-
-                        // Check if user selected a template to deploy on-the-fly
-                        if (linkDomainDeploymentId.startsWith("NEW_DEPLOY:")) {
-                          const selectedTplId = linkDomainDeploymentId.replace("NEW_DEPLOY:", "");
-                          const matchedTpl = sellerTemplatesList.find(t => t.id === selectedTplId) || buyerTemplates.find(t => t.id === selectedTplId);
-                          const projName = matchedTpl ? matchedTpl.title : "Custom Website";
-
-                          const payload = {
-                            project_name: projName,
-                            provider: "local",
-                            template_id: selectedTplId === "mock-project-id" ? null : selectedTplId,
-                            branch: "main",
-                            build_command: "npm run build",
-                            output_dir: "dist",
-                          };
-                          const res = await api.post("/deployments", payload, authToken ?? undefined);
-                          targetDeploymentId = res.id;
+                        if (!domainQuote || domainQuote.domain?.toLowerCase() !== cleanDomain) {
+                          const quote = await api.post("/deployments/domains/quote", {
+                            domain: cleanDomain,
+                            period: 1,
+                            profile: registrantProfile,
+                          }, authToken ?? undefined);
+                          if (!quote.available || !quote.quoteToken) {
+                            setLinkDomainError("This domain is not available to register. Try another name.");
+                            setDomainQuote(null);
+                          } else {
+                            setDomainQuote(quote);
+                            setAcceptedRegistrarAgreements([]);
+                            setAcceptedDomainTerms(false);
+                          }
+                          return;
                         }
-
-                        // Map custom domain
-                        await api.patch(`/deployments/${targetDeploymentId}/domain?custom_domain=${encodeURIComponent(cleanDomain)}`, {}, authToken ?? undefined);
-
-                        refetchDeployments();
-                        alert(`Custom domain "${cleanDomain}" linked successfully!`);
-                        setLinkDomainModalOpen(false);
-                        setCustomDomainInput("");
-                        setLinkDomainDeploymentId("");
+                        const requiredAgreements = (domainQuote.requiredAgreements || []).map((agreement) => agreement.agreementType).filter(Boolean);
+                        const fees = domainQuote.fees || [];
+                        if (!acceptedDomainTerms || requiredAgreements.some((agreement) => !acceptedRegistrarAgreements.includes(agreement))) {
+                          setLinkDomainError("Accept the domain purchase terms and every required registry agreement before continuing.");
+                          return;
+                        }
+                        const purchase = await api.post("/deployments/domains/purchase", {
+                          deployment_id: linkDomainDeploymentId,
+                          domain: cleanDomain,
+                          period: domainQuote.period || 1,
+                          profile: registrantProfile,
+                          accepted_no_refund_terms: acceptedDomainTerms,
+                          accepted_agreements: acceptedRegistrarAgreements,
+                          accepted_fees: fees,
+                            agreement_accepted_at: agreementAcceptedAt || new Date().toISOString(),
+                            quoted_total_minor: Number(domainQuote.price?.value || 0) + fees.reduce((sum, fee) => sum + Number(fee.fee?.value || 0), 0),
+                            quoted_currency: domainQuote.price?.currencyCode,
+                            quoted_renewal_price_minor: domainQuote.renewalPrice?.value ?? null,
+                        }, authToken ?? undefined);
+                        window.location.assign(purchase.checkout_url);
                       } catch (err) {
-                        setLinkDomainError(err.message || "Failed to publish website & connect domain");
+                        setLinkDomainError(err.message || "Could not prepare this domain purchase.");
                       } finally {
-                        setDeploying(false);
+                        setDomainQuoteLoading(false);
                       }
                     }} className="space-y-5">
                       {linkDomainError && (
@@ -7745,20 +7968,57 @@ function Dashboard() {
 
                       <div className="space-y-2">
                         <label className="modal-label-solid">
-                          Custom Domain Name *
+                          Domain name to register *
                         </label>
                         <input
                           type="text"
                           required
                           value={customDomainInput}
-                          onChange={(e) => setCustomDomainInput(e.target.value)}
-                          placeholder="e.g. www.mybrand.com or app.mybrand.com"
+                          onChange={(e) => { setCustomDomainInput(e.target.value); setDomainQuote(null); }}
+                          placeholder="e.g. mybrand.com"
                           className="modal-input-solid"
                         />
                         <span className="text-xs text-slate-600 block mt-1.5 leading-relaxed font-medium">
-                          Input the full domain name (including www or custom subdomains). Point your A/CNAME record to our server.
+                          We will check live availability and price through GoDaddy before taking payment.
                         </span>
                       </div>
+
+                      <div className="space-y-3 border border-slate-200 rounded-2xl p-4">
+                        <p className="text-xs font-bold text-slate-900 uppercase tracking-wider">Domain registrant details</p>
+                        <p className="text-xs text-slate-600 leading-relaxed">Use accurate legal contact details. The person or organization entered here will be listed as the domain registrant. The domain is initially managed in Studio's GoDaddy account; contact Studio to arrange renewal or transfer it to your own registrar account.</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <input required aria-label="Registrant first name" placeholder="First name" className="modal-input-solid" value={registrantProfile.nameFirst} onChange={(e) => { setDomainQuote(null); setRegistrantProfile(p => ({ ...p, nameFirst: e.target.value })); }} />
+                          <input required aria-label="Registrant last name" placeholder="Last name" className="modal-input-solid" value={registrantProfile.nameLast} onChange={(e) => { setDomainQuote(null); setRegistrantProfile(p => ({ ...p, nameLast: e.target.value })); }} />
+                          <input required type="email" aria-label="Registrant email" placeholder="Email address" className="modal-input-solid col-span-2" value={registrantProfile.email} onChange={(e) => { setDomainQuote(null); setRegistrantProfile(p => ({ ...p, email: e.target.value })); }} />
+                          <input required aria-label="Phone country code" placeholder="Phone country code, e.g. +1" className="modal-input-solid" value={registrantProfile.phone.countryCode} onChange={(e) => { setDomainQuote(null); setRegistrantProfile(p => ({ ...p, phone: { ...p.phone, countryCode: e.target.value } })); }} />
+                          <input required type="tel" aria-label="Registrant phone number" placeholder="Phone number" className="modal-input-solid" value={registrantProfile.phone.nationalNumber} onChange={(e) => { setDomainQuote(null); setRegistrantProfile(p => ({ ...p, phone: { ...p.phone, nationalNumber: e.target.value } })); }} />
+                          <input required aria-label="Street address" placeholder="Street address" className="modal-input-solid col-span-2" value={registrantProfile.address.address1} onChange={(e) => { setDomainQuote(null); setRegistrantProfile(p => ({ ...p, address: { ...p.address, address1: e.target.value } })); }} />
+                          <input aria-label="Address line 2" placeholder="Address line 2 (optional)" className="modal-input-solid col-span-2" value={registrantProfile.address.address2} onChange={(e) => { setDomainQuote(null); setRegistrantProfile(p => ({ ...p, address: { ...p.address, address2: e.target.value } })); }} />
+                          <input required aria-label="City" placeholder="City" className="modal-input-solid" value={registrantProfile.address.city} onChange={(e) => { setDomainQuote(null); setRegistrantProfile(p => ({ ...p, address: { ...p.address, city: e.target.value } })); }} />
+                          <input aria-label="State or province" placeholder="State / province" className="modal-input-solid" value={registrantProfile.address.state} onChange={(e) => { setDomainQuote(null); setRegistrantProfile(p => ({ ...p, address: { ...p.address, state: e.target.value } })); }} />
+                          <input required aria-label="Postal code" placeholder="Postal code" className="modal-input-solid" value={registrantProfile.address.postalCode} onChange={(e) => { setDomainQuote(null); setRegistrantProfile(p => ({ ...p, address: { ...p.address, postalCode: e.target.value } })); }} />
+                          <input required aria-label="Country code" maxLength={2} placeholder="Country code (US)" className="modal-input-solid" value={registrantProfile.address.country} onChange={(e) => { setDomainQuote(null); setRegistrantProfile(p => ({ ...p, address: { ...p.address, country: e.target.value.toUpperCase() } })); }} />
+                        </div>
+                      </div>
+
+                      {domainQuote && (
+                        <div className="space-y-3 p-4 bg-indigo-50 border border-indigo-200 rounded-2xl">
+                          <div className="text-xs font-bold text-indigo-950 uppercase tracking-wider">Live GoDaddy quote for {domainQuote.domain}</div>
+                          <div className="text-sm text-slate-900">Registration total: <strong>{domainQuote.price?.currencyCode} {((Number(domainQuote.price?.value || 0) + (domainQuote.fees || []).reduce((sum, f) => sum + Number(f.fee?.value || 0), 0)) / 100).toFixed(2)}</strong> for {domainQuote.period} year(s), including listed fees</div>
+                          <div className="text-xs text-slate-700">Renewal: {domainQuote.renewalPrice?.currencyCode} {(Number(domainQuote.renewalPrice?.value || 0) / 100).toFixed(2)} per renewal term. Auto-renew will be turned off after registration. Contact Studio to arrange renewal or transfer the domain before it expires.</div>
+                          {!!domainQuote.fees?.length && <div className="text-xs text-amber-800">Additional quoted fees: {domainQuote.fees.map((f) => `${f.type}: ${f.fee?.currencyCode} ${(Number(f.fee?.value || 0) / 100).toFixed(2)}`).join(", ")}</div>}
+                          {(domainQuote.requiredAgreements || []).map((agreement) => (
+                            <label key={agreement.agreementType} className="flex items-start gap-2 text-xs text-slate-800">
+                              <input type="checkbox" checked={acceptedRegistrarAgreements.includes(agreement.agreementType)} onChange={(e) => { setAgreementAcceptedAt(new Date().toISOString()); setAcceptedRegistrarAgreements((current) => e.target.checked ? [...current, agreement.agreementType] : current.filter((item) => item !== agreement.agreementType)); }} />
+                              <span>I accept <a className="underline" href={agreement.url} target="_blank" rel="noreferrer">{agreement.title || agreement.agreementType}</a>.</span>
+                            </label>
+                          ))}
+                          <label className="flex items-start gap-2 text-xs text-slate-800">
+                            <input type="checkbox" checked={acceptedDomainTerms} onChange={(e) => { setAgreementAcceptedAt(new Date().toISOString()); setAcceptedDomainTerms(e.target.checked); }} />
+                            <span>I authorize registration at this quoted price. Domain registration is for a fixed term, renews separately, and is not refunded if I later cancel hosting; applicable statutory rights still apply. The domain is initially managed in the Studio GoDaddy account, auto-renew will be off, and I must contact Studio to arrange renewal or transfer. I understand GoDaddy charges the Studio’s billing account and the Studio charges me for this purchase.</span>
+                          </label>
+                        </div>
+                      )}
 
                       <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
                         <button
@@ -7770,11 +8030,11 @@ function Dashboard() {
                         </button>
                         <button
                           type="submit"
-                          disabled={deploying}
+                          disabled={domainQuoteLoading || deploying}
                           className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold rounded-2xl transition-all disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-indigo-600/30 border border-indigo-500 cursor-pointer"
                         >
-                          {deploying && <Loader2 className="w-4 h-4 animate-spin" />}
-                          {deploying ? "Publishing & Linking..." : "Publish & Connect Domain"}
+                          {domainQuoteLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                          {domainQuoteLoading ? (domainQuote ? "Starting Checkout..." : "Checking domain...") : (domainQuote ? "Pay & Register Domain" : "Check Availability & Price")}
                         </button>
                       </div>
                     </form>

@@ -292,12 +292,13 @@ class TemplatePageItem(BaseModel):
 
 class TemplatePrepareRequest(BaseModel):
     prompt: str
-    model_tier: Optional[str] = "pro"  # "pro" | "flash"
+    content_language: str = Field("English (en)", min_length=2, max_length=80)
     business_name: Optional[str] = None
     business_type: Optional[str] = None
     brand_colors: Optional[Dict[str, Any]] = None
     logo_info: Optional[Dict[str, Any]] = None
     contact_details: Optional[Dict[str, Any]] = None
+    architecture_preference: Optional[str] = None
 
 
 class TemplatePrepareResponse(BaseModel):
@@ -310,15 +311,15 @@ class TemplatePrepareResponse(BaseModel):
 
 class TemplateGenerateRequest(BaseModel):
     prompt: str
+    content_language: str = Field("English (en)", min_length=2, max_length=80)
     framework: Optional[str] = "html"
     backend_framework: Optional[str] = "fastapi"
     css_engine: Optional[str] = "tailwind"
-    project_scope: Optional[str] = "fullstack"  # "frontend" | "fullstack"
+    project_scope: Optional[str] = "frontend"
     answers: Optional[Dict[str, Any]] = None
     pages: Optional[List[Dict[str, Any]]] = None
-    architecture_type: Optional[str] = "multi_page"
-    is_multipage: Optional[bool] = True
-    model_tier: Optional[str] = "pro"  # "pro" | "flash"
+    architecture_type: Optional[str] = None
+    is_multipage: Optional[bool] = None
     business_name: Optional[str] = None
     business_type: Optional[str] = None
     brand_colors: Optional[Dict[str, Any]] = None

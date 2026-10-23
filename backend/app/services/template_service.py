@@ -3,12 +3,13 @@ Template service — business logic layer.
 """
 
 import uuid
+import os
 from typing import List, Optional, Tuple
 from math import ceil
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.template import Template
+from app.models.template import Template, TemplateStatus
 from app.models.user import User
 from app.repositories.template_repo import TemplateRepository
 from app.repositories.favorite_repo import FavoriteRepository, WishlistRepository
@@ -131,6 +132,14 @@ class TemplateService:
             except ValueError:
                 pass
         if not template:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+
+        template_status = getattr(template.status, "value", str(template.status)).lower()
+        user_role = getattr(getattr(current_user, "role", None), "value", str(getattr(current_user, "role", ""))).lower()
+        is_owner = current_user is not None and str(template.seller_id) == str(current_user.id)
+        is_admin = user_role in {"admin", "super_admin"}
+        if template_status != TemplateStatus.PUBLISHED.value and not (is_owner or is_admin):
+            # AI Studio drafts are private projects and must never be publicly browsable.
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
 
         # Record unique account view — if 1 account opens 5 times, it only counts as 1.

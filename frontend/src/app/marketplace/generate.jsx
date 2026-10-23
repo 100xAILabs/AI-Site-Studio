@@ -4,106 +4,56 @@ import {
   Sparkles, ArrowLeft, ArrowRight, Loader2, CheckCircle2, Image as ImageIcon,
   Globe, Layers, FileText, LayoutGrid, Plus, Trash2, Info, Building2, Palette,
   Phone, Mail, MapPin, Share2, Wand2, Edit3, Check, RefreshCw, Eye, Upload, Link as LinkIcon, ShoppingBag, X, Zap,
-  Download, ShoppingCart, Folder
+  Folder
 } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { api } from "@/lib/api";
+import { api, API_URL } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
-import { useCartStore } from "@/store";
 import Navbar from "@/components/layout/Navbar";
 import "./Page.css";
 
 const GENERATION_STEPS = [
-  {
-    id: 1,
-    agent: "Agent 1/8 (Planning Agent)",
-    icon: "📋",
-    name: "Planning Agent",
-    title: "Analyzing domain requirements & architectural site breakdown...",
-    detail: "Synthesizing page hierarchy, multi-page routes, and business specifications.",
-    duration: 2400,
-  },
-  {
-    id: 2,
-    agent: "Agent 2/8 (UI Designer Agent)",
-    icon: "🎨",
-    name: "UI Designer Agent",
-    title: "Establishing typography, color palette & design tokens...",
-    detail: "Configuring tailored HSL tokens, dark theme contrast, and font styling.",
-    duration: 2400,
-  },
-  {
-    id: 3,
-    agent: "Agent 3/8 (Frontend Agent)",
-    icon: "💻",
-    name: "Frontend Agent",
-    title: "Synthesizing multi-page React components & responsive layouts...",
-    detail: "Engineering clean React 18 + Tailwind layout with interactive navigation.",
-    duration: 4200,
-  },
-  {
-    id: 4,
-    agent: "Agent 4/8 (Backend Agent)",
-    icon: "⚙️",
-    name: "Backend Agent",
-    title: "Synthesizing dedicated standalone REST API endpoints...",
-    detail: "Generating endpoints: /api/contact, /api/leads, /api/health.",
-    duration: 2500,
-  },
-  {
-    id: 5,
-    agent: "Agent 5/8 (Database Agent)",
-    icon: "🗄️",
-    name: "Database Agent",
-    title: "Initializing isolated SQLite database & seed fixtures...",
-    detail: "Scaffolding data tables, indexes, and initial demo data models.",
-    duration: 2200,
-  },
-  {
-    id: 6,
-    agent: "Agent 6/8 (SEO Agent)",
-    icon: "🔍",
-    name: "SEO Agent",
-    title: "Synthesizing Schema.org JSON-LD & OpenGraph meta tags...",
-    detail: "Configuring structured data, semantic headers, and robots.txt rules.",
-    duration: 2000,
-  },
-  {
-    id: 7,
-    agent: "Agent 7/8 (Testing Agent)",
-    icon: "🧪",
-    name: "Testing Agent",
-    title: "Running AST syntax repair & autonomous AI compiler audit...",
-    detail: "Validating JSX balancing, resolving imports, and checking build integrity.",
-    duration: 2400,
-  },
-  {
-    id: 8,
-    agent: "Agent 8/8 (Deployment Agent)",
-    icon: "📦",
-    name: "Deployment Agent",
-    title: "Packaging full-stack ZIP & registering Studio Project...",
-    detail: "Persisting standalone archive in database and initializing live preview.",
-    duration: 2000,
-  },
+  { id: 1, agent: "Agent 1/6 (Planning Agent)", icon: "📋", name: "Planning Agent", title: "Analyzing the website requirements...", detail: "Planning the pages, navigation, and business content.", duration: 2400 },
+  { id: 2, agent: "Agent 2/6 (UI Designer Agent)", icon: "🎨", name: "UI Designer Agent", title: "Establishing typography, color palette & design tokens...", detail: "Configuring colors, fonts, and visual styling.", duration: 2400 },
+  { id: 3, agent: "Agent 3/6 (Frontend Agent)", icon: "💻", name: "Frontend Agent", title: "Building the selected pages and responsive layouts...", detail: "Creating the website frontend for your chosen framework.", duration: 4200 },
+  { id: 4, agent: "Agent 4/6 (SEO Agent)", icon: "🔍", name: "SEO Agent", title: "Adding SEO and accessibility metadata...", detail: "Configuring structured data, semantic headings, and page metadata.", duration: 2000 },
+  { id: 5, agent: "Agent 5/6 (Testing Agent)", icon: "🧪", name: "Testing Agent", title: "Checking the generated frontend package...", detail: "Checking planned pages, local links, and frontend files.", duration: 2400 },
+  { id: 6, agent: "Agent 6/6 (Packaging Agent)", icon: "📦", name: "Packaging Agent", title: "Packaging your static website...", detail: "Saving the generated website project in Studio.", duration: 2000 },
 ];
 
 const PRESET_COLOR_PALETTES = [
-  { id: "emerald_slate", name: "Emerald & Slate", primary: "#10b981", secondary: "#0f172a", accent: "#38bdf8", bgGradient: "linear-gradient(135deg, #0f172a 0%, #064e3b 100%)" },
-  { id: "cyber_neon", name: "Cyberpunk Neon", primary: "#8b5cf6", secondary: "#090d16", accent: "#f43f5e", bgGradient: "linear-gradient(135deg, #090d16 0%, #4c1d95 100%)" },
-  { id: "electric_blue", name: "Electric Blue & Indigo", primary: "#3b82f6", secondary: "#030712", accent: "#6366f1", bgGradient: "linear-gradient(135deg, #030712 0%, #1e3a8a 100%)" },
-  { id: "parisian_bakery", name: "Warm Parisian Bakery", primary: "#d97706", secondary: "#1c1917", accent: "#f59e0b", bgGradient: "linear-gradient(135deg, #1c1917 0%, #78350f 100%)" },
-  { id: "gold_obsidian", name: "Luxury Gold & Obsidian", primary: "#eab308", secondary: "#09090b", accent: "#fde047", bgGradient: "linear-gradient(135deg, #09090b 0%, #422006 100%)" },
-  { id: "oceanic_azure", name: "Oceanic Azure & Teal", primary: "#06b6d4", secondary: "#0f172a", accent: "#3b82f6", bgGradient: "linear-gradient(135deg, #0f172a 0%, #164e63 100%)" },
-  { id: "sage_forest", name: "Sage Forest Green", primary: "#059669", secondary: "#064e3b", accent: "#10b981", bgGradient: "linear-gradient(135deg, #064e3b 0%, #022c22 100%)" },
-  { id: "crimson_cyber", name: "Crimson Cyber Red", primary: "#dc2626", secondary: "#0f172a", accent: "#f87171", bgGradient: "linear-gradient(135deg, #0f172a 0%, #7f1d1d 100%)" },
-  { id: "pastel_lavender", name: "Pastel Lavender & Pink", primary: "#a855f7", secondary: "#111827", accent: "#ec4899", bgGradient: "linear-gradient(135deg, #111827 0%, #581c87 100%)" },
-  { id: "royal_purple", name: "Royal Purple & Amber", primary: "#7e22ce", secondary: "#0f172a", accent: "#f59e0b", bgGradient: "linear-gradient(135deg, #0f172a 0%, #3b0764 100%)" },
-  { id: "sunset_citrus", name: "Sunset Citrus Orange", primary: "#f97316", secondary: "#18181b", accent: "#fbbf24", bgGradient: "linear-gradient(135deg, #18181b 0%, #7c2d12 100%)" },
-  { id: "custom", name: "Custom Studio Mode", primary: "#10b981", secondary: "#0f172a", accent: "#38bdf8", bgGradient: "linear-gradient(135deg, #0f172a 0%, #10b981 100%)" },
+  { id: "auto", name: "AI Match to Website", primary: "#64748b", secondary: "#ffffff", accent: "#334155", bgGradient: "linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)", theme: "light" },
+  { id: "clean_white_mint", name: "Clean White & Fresh Mint", primary: "#10b981", secondary: "#ffffff", accent: "#0f172a", bgGradient: "linear-gradient(135deg, #f8fafc 0%, #ecfdf5 100%)", theme: "light" },
+  { id: "pure_white_indigo", name: "Modern White & Indigo", primary: "#4f46e5", secondary: "#ffffff", accent: "#0f172a", bgGradient: "linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%)", theme: "light" },
+  { id: "fresh_market_white", name: "Fresh Market Pure White", primary: "#16a34a", secondary: "#ffffff", accent: "#1e293b", bgGradient: "linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%)", theme: "light" },
+  { id: "editorial_cream_coral", name: "Warm White & Coral", primary: "#f43f5e", secondary: "#fafafa", accent: "#1c1917", bgGradient: "linear-gradient(135deg, #fff1f2 0%, #ffffff 100%)", theme: "light" },
+  { id: "emerald_slate", name: "Emerald & Slate", primary: "#10b981", secondary: "#0f172a", accent: "#38bdf8", bgGradient: "linear-gradient(135deg, #0f172a 0%, #064e3b 100%)", theme: "dark" },
+  { id: "cyber_neon", name: "Cyberpunk Neon", primary: "#8b5cf6", secondary: "#090d16", accent: "#f43f5e", bgGradient: "linear-gradient(135deg, #090d16 0%, #4c1d95 100%)", theme: "dark" },
+  { id: "electric_blue", name: "Electric Blue & Indigo", primary: "#3b82f6", secondary: "#030712", accent: "#6366f1", bgGradient: "linear-gradient(135deg, #030712 0%, #1e3a8a 100%)", theme: "dark" },
+  { id: "parisian_bakery", name: "Warm Parisian Bakery", primary: "#d97706", secondary: "#1c1917", accent: "#f59e0b", bgGradient: "linear-gradient(135deg, #1c1917 0%, #78350f 100%)", theme: "dark" },
+  { id: "gold_obsidian", name: "Luxury Gold & Obsidian", primary: "#eab308", secondary: "#09090b", accent: "#fde047", bgGradient: "linear-gradient(135deg, #09090b 0%, #422006 100%)", theme: "dark" },
+  { id: "oceanic_azure", name: "Oceanic Azure & Teal", primary: "#06b6d4", secondary: "#0f172a", accent: "#3b82f6", bgGradient: "linear-gradient(135deg, #0f172a 0%, #164e63 100%)", theme: "dark" },
+  { id: "sage_forest", name: "Sage Forest Green", primary: "#059669", secondary: "#064e3b", accent: "#10b981", bgGradient: "linear-gradient(135deg, #064e3b 0%, #022c22 100%)", theme: "dark" },
+  { id: "crimson_cyber", name: "Crimson Cyber Red", primary: "#dc2626", secondary: "#0f172a", accent: "#f87171", bgGradient: "linear-gradient(135deg, #0f172a 0%, #7f1d1d 100%)", theme: "dark" },
+  { id: "pastel_lavender", name: "Pastel Lavender & Pink", primary: "#a855f7", secondary: "#111827", accent: "#ec4899", bgGradient: "linear-gradient(135deg, #111827 0%, #581c87 100%)", theme: "dark" },
+  { id: "royal_purple", name: "Royal Purple & Amber", primary: "#7e22ce", secondary: "#0f172a", accent: "#f59e0b", bgGradient: "linear-gradient(135deg, #0f172a 0%, #3b0764 100%)", theme: "dark" },
+  { id: "sunset_citrus", name: "Sunset Citrus Orange", primary: "#f97316", secondary: "#18181b", accent: "#fbbf24", bgGradient: "linear-gradient(135deg, #18181b 0%, #7c2d12 100%)", theme: "dark" },
+  { id: "custom", name: "Custom Studio Mode", primary: "#10b981", secondary: "#ffffff", accent: "#0f172a", bgGradient: "linear-gradient(135deg, #ffffff 0%, #10b981 100%)", theme: "light" },
 ];
 
 const POPULAR_INDUSTRIES = [
+  "Auto-Detect from Prompt (Recommended)",
+  "Personal Portfolio / Photography",
+  "Online Store / Product Catalog",
+  "Blog / Editorial Publication",
+  "SaaS Landing Page",
+  "Web App / Dashboard",
+  "Documentation / Knowledge Base",
+  "Event / Conference Website",
+  "Directory / Marketplace Interface",
+  "Education / Course Website",
+  "Booking / Reservation Interface",
+  "Browser Game / Interactive Experience",
   "SaaS & Tech Platform",
   "Creative Studio & Agency",
   "E-Commerce & Retail Store",
@@ -114,6 +64,27 @@ const POPULAR_INDUSTRIES = [
   "Real Estate & Luxury Living",
   "Other (Custom)"
 ];
+
+function toReadableText(value, depth = 0) {
+  if (value == null) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (depth >= 4) return "";
+  if (Array.isArray(value)) {
+    return value.map((item) => toReadableText(item, depth + 1)).filter(Boolean).join("\n");
+  }
+  if (typeof value === "object") {
+    return Object.entries(value)
+      .map(([key, item]) => {
+        const label = key.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+        const text = toReadableText(item, depth + 1);
+        return text ? `${label}: ${text}` : "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return "";
+}
 
 // Helper: Convert HSV to Hex string
 function hsvToHex(h, s, v) {
@@ -399,18 +370,31 @@ export default function GenerateTemplatePage() {
 
   // Structured Business Fields
   const [businessName, setBusinessName] = useState("");
-  const [businessType, setBusinessType] = useState("SaaS & Tech Platform");
+  const [businessType, setBusinessType] = useState("Auto-Detect from Prompt (Recommended)");
   const [customBusinessType, setCustomBusinessType] = useState("");
   const [businessDescription, setBusinessDescription] = useState("");
+  const [contentLanguage, setContentLanguage] = useState("English (en)");
+  const [customContentLanguage, setCustomContentLanguage] = useState("");
+  const requestedContentLanguage = contentLanguage === "custom" ? (customContentLanguage.trim() || "English (en)") : contentLanguage;
 
   // Dynamic Brand Colors List (Supports + Add Color)
-  const [selectedColorPreset, setSelectedColorPreset] = useState("emerald_slate");
-  const [themeMode, setThemeMode] = useState("dark"); // "dark" | "light"
+  const [selectedColorPreset, setSelectedColorPreset] = useState("auto");
+  const [themeMode, setThemeMode] = useState("light"); // "light" | "dark"
   const [brandColorsList, setBrandColorsList] = useState([
     { id: "primary", label: "Primary Accent", hex: "#10b981", isDefault: true },
-    { id: "secondary", label: "Secondary Surface", hex: "#0f172a", isDefault: true },
-    { id: "accent", label: "Highlight Accent", hex: "#38bdf8", isDefault: true },
+    { id: "secondary", label: "Secondary Surface", hex: "#ffffff", isDefault: true },
+    { id: "accent", label: "Highlight Accent", hex: "#0f172a", isDefault: true },
   ]);
+  const brandColorsPayload = selectedColorPreset === "auto"
+    ? { preset: "auto", theme: themeMode, colors_list: [] }
+    : {
+        preset: selectedColorPreset,
+        theme: themeMode,
+        colors_list: brandColorsList,
+        primary: brandColorsList.find((color) => color.id === "primary")?.hex,
+        secondary: brandColorsList.find((color) => color.id === "secondary")?.hex,
+        accent: brandColorsList.find((color) => color.id === "accent")?.hex,
+      };
 
   // Active Picker Modal ID
   const [activePickerColorId, setActivePickerColorId] = useState(null);
@@ -432,12 +416,10 @@ export default function GenerateTemplatePage() {
   const [socialInstagram, setSocialInstagram] = useState("");
 
   // Prompt & Generation States
-  const [prompt, setPrompt] = useState(location.state?.prompt || "");
+  const [prompt, setPrompt] = useState(() => toReadableText(location.state?.prompt));
   const [framework, setFramework] = useState("html");
-  const [backendFramework, setBackendFramework] = useState("fastapi");
   const [cssEngine, setCssEngine] = useState("tailwind");
-  const [techTab, setTechTab] = useState("framework"); // "framework" | "backend" | "css"
-  const [projectScope, setProjectScope] = useState("fullstack"); // "frontend" | "fullstack"
+  const [techTab, setTechTab] = useState("framework"); // "framework" | "css"
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState([]);
@@ -446,7 +428,6 @@ export default function GenerateTemplatePage() {
 
   // Advanced Prompt Analysis and Customization States
   const [step, setStep] = useState("prompt"); // "prompt" | "questions"
-  const [modelTier, setModelTier] = useState("pro"); // "pro" | "flash"
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [enhancedSpecs, setEnhancedSpecs] = useState(null);
   const [architectureType, setArchitectureType] = useState("multi_page"); // "single_page" | "multi_page"
@@ -459,31 +440,10 @@ export default function GenerateTemplatePage() {
   const [newPageName, setNewPageName] = useState("");
   const [isPreparing, setIsPreparing] = useState(false);
   const [isGeneratingPalette, setIsGeneratingPalette] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
-
-  // Cart hooks
-  const addToCart = useCartStore((s) => s.addItem);
-  const isInCart = useCartStore((s) => s.isInCart(generatedTemplate?.id));
-
-  // Download Generated Template ZIP handler
-  const handleDownloadSource = async () => {
-    if (!generatedTemplate?.id) return;
-    setIsDownloading(true);
-    try {
-      const res = await api.post(`/templates/${generatedTemplate.id}/download?format=zip`, {}, token);
-      if (res?.download_url) {
-        window.open(res.download_url, "_blank");
-      }
-    } catch (err) {
-      console.error("Failed to download template:", err);
-      alert("Failed to download template zip. Please try again.");
-    } finally {
-      setIsDownloading(false);
-    }
-  };
 
   // Handle Dynamic Brand Colors
   const handleAddCustomColor = () => {
+    setSelectedColorPreset("custom");
     const newId = `color_${Date.now()}`;
     const newColor = {
       id: newId,
@@ -500,6 +460,7 @@ export default function GenerateTemplatePage() {
   };
 
   const handleUpdateColor = (id, newHex) => {
+    setSelectedColorPreset("custom");
     setBrandColorsList((prev) =>
       prev.map((c) => (c.id === id ? { ...c, hex: newHex } : c))
     );
@@ -511,10 +472,55 @@ export default function GenerateTemplatePage() {
     );
   };
 
+  // Handle Theme Mode Toggle (Light/White vs Dark)
+  const handleThemeChange = (newTheme) => {
+    setThemeMode(newTheme);
+    if (newTheme === "light") {
+      setBrandColorsList((prev) =>
+        prev.map((c) => {
+          if (c.id === "secondary") return { ...c, hex: "#ffffff" };
+          if (c.id === "accent") return { ...c, hex: "#0f172a" };
+          return c;
+        })
+      );
+    } else {
+      setBrandColorsList((prev) =>
+        prev.map((c) => {
+          if (c.id === "secondary") return { ...c, hex: "#0f172a" };
+          if (c.id === "accent") return { ...c, hex: "#38bdf8" };
+          return c;
+        })
+      );
+    }
+  };
+
+  // Auto-detect theme from user text input
+  const checkAndAutoDetectTheme = (text) => {
+    if (!text) return;
+    const lower = text.toLowerCase();
+    const isWhite = /\b(white\s*theme|light\s*theme|white\s*mode|light\s*mode|white\s*background|clean\s*white|pure\s*white|white-theme|light-theme|white\s*palette|white\s*look|white\s*design)\b/i.test(lower)
+      || (lower.includes("white") && (lower.includes("theme") || lower.includes("background") || lower.includes("bg") || lower.includes("mode") || lower.includes("style") || lower.includes("palette")));
+    const isDark = /\b(dark\s*theme|dark\s*mode|dark\s*background|black\s*theme|neon\s*dark|cyberpunk|dark-theme|dark-mode)\b/i.test(lower)
+      || (lower.includes("dark") && (lower.includes("theme") || lower.includes("background") || lower.includes("bg") || lower.includes("mode")));
+
+    if (isWhite && !isDark) {
+      if (themeMode !== "light") {
+        handleThemeChange("light");
+      }
+    } else if (isDark && !isWhite) {
+      if (themeMode !== "dark") {
+        handleThemeChange("dark");
+      }
+    }
+  };
+
   // Handle Preset Palette Selection
   const handleSelectPalettePreset = (preset) => {
     setSelectedColorPreset(preset.id);
-    if (preset.id !== "custom") {
+    if (preset.theme && preset.theme !== themeMode) {
+      setThemeMode(preset.theme);
+    }
+    if (preset.id !== "custom" && preset.id !== "auto") {
       setBrandColorsList((prev) =>
         prev.map((c) => {
           if (c.id === "primary") return { ...c, hex: preset.primary };
@@ -526,38 +532,52 @@ export default function GenerateTemplatePage() {
     }
   };
 
-  // Dynamic Random Palette Generator
+  // Dynamic Random Palette Generator (Light / White vs Dark aware)
   const handleGenerateRandomPalette = () => {
     const hue = Math.floor(Math.random() * 360);
-    const priHex = hsvToHex(hue, 85, 55);
-    const secHex = hsvToHex((hue + 210) % 360, 65, 10);
-    const accHex = hsvToHex((hue + 60) % 360, 90, 60);
-
-    setBrandColorsList((prev) =>
-      prev.map((c) => {
-        if (c.id === "primary") return { ...c, hex: priHex };
-        if (c.id === "secondary") return { ...c, hex: secHex };
-        if (c.id === "accent") return { ...c, hex: accHex };
-        return c;
-      })
-    );
+    if (themeMode === "light") {
+      const priHex = hsvToHex(hue, 85, 60);
+      const secHex = "#ffffff";
+      const accHex = hsvToHex(hue, 80, 20);
+      setBrandColorsList((prev) =>
+        prev.map((c) => {
+          if (c.id === "primary") return { ...c, hex: priHex };
+          if (c.id === "secondary") return { ...c, hex: secHex };
+          if (c.id === "accent") return { ...c, hex: accHex };
+          return c;
+        })
+      );
+    } else {
+      const priHex = hsvToHex(hue, 85, 55);
+      const secHex = hsvToHex((hue + 210) % 360, 65, 10);
+      const accHex = hsvToHex((hue + 60) % 360, 90, 60);
+      setBrandColorsList((prev) =>
+        prev.map((c) => {
+          if (c.id === "primary") return { ...c, hex: priHex };
+          if (c.id === "secondary") return { ...c, hex: secHex };
+          if (c.id === "accent") return { ...c, hex: accHex };
+          return c;
+        })
+      );
+    }
     setSelectedColorPreset("custom");
   };
 
-  // Dynamic Studio Palette Generator (Calls AI API or falls back to harmonic generation)
+  // Dynamic Studio Palette Generator (Calls AI API respecting theme or falls back to harmonic generation)
   const handleGenerateStudioPalette = async () => {
     setIsGeneratingPalette(true);
     try {
       const res = await api.post("/ai/color-palette", {
-        industry: businessType === "Other (Custom)" ? (customBusinessType || "General") : (businessType || "SaaS & Tech Platform"),
-        mood: "professional"
+        industry: businessType === "Other (Custom)" ? (customBusinessType || "General") : (businessType === "Auto-Detect from Prompt (Recommended)" ? "General" : businessType),
+        mood: "professional",
+        theme: themeMode,
       }, token);
       if (res && res.primary) {
         setBrandColorsList((prev) =>
           prev.map((c) => {
             if (c.id === "primary") return { ...c, hex: res.primary || res.primary_color || "#10b981" };
-            if (c.id === "secondary") return { ...c, hex: res.secondary || res.secondary_color || "#0f172a" };
-            if (c.id === "accent") return { ...c, hex: res.accent || res.accent_color || "#38bdf8" };
+            if (c.id === "secondary") return { ...c, hex: res.secondary || res.secondary_color || (themeMode === "light" ? "#ffffff" : "#0f172a") };
+            if (c.id === "accent") return { ...c, hex: res.accent || res.accent_color || (themeMode === "light" ? "#0f172a" : "#38bdf8") };
             return c;
           })
         );
@@ -616,22 +636,25 @@ export default function GenerateTemplatePage() {
 
   // Synthesize creator inputs into prompt string
   const buildSynthesizedPrompt = () => {
-    const activeIndustry = businessType === "Other (Custom)" ? customBusinessType : businessType;
+    const activeIndustry = businessType === "Other (Custom)" ? customBusinessType : businessType === "Auto-Detect from Prompt (Recommended)" ? "" : businessType;
     let parts = [];
     if (businessName.trim()) {
-      parts.push(`Create a high-fidelity website template for "${businessName.trim()}"`);
+      parts.push(`Create an original, complete static website for "${businessName.trim()}"`);
     } else {
-      parts.push("Create a high-fidelity website template");
+      parts.push("Create an original, complete static website tailored to this brief");
     }
     if (activeIndustry.trim()) {
-      parts.push(`Industry/Niche: ${activeIndustry.trim()}`);
+      parts.push(`Website / Product Type: ${activeIndustry.trim()}`);
     }
     if (businessDescription.trim()) {
-      parts.push(`Overview & Vision: ${businessDescription.trim()}`);
+      parts.push(`Project Goals & Audience: ${businessDescription.trim()}`);
     }
+    parts.push("Use a distinctive visual direction and specific natural copy. Do not produce a demo, generic template, filler, fake testimonials, invented metrics, awards, or business claims. Include only interactions that work in a browser; explain when an external service is required.");
 
-    const colorsSummary = brandColorsList.map((c) => `${c.label}: ${c.hex}`).join(", ");
-    parts.push(`Brand Color Specifications (${themeMode} theme): ${colorsSummary}`);
+    if (selectedColorPreset !== "auto") {
+      const colorsSummary = brandColorsList.map((c) => `${c.label}: ${c.hex}`).join(", ");
+      parts.push(`Brand Color Specifications (${themeMode === "light" ? "clean light / white" : "dark"} theme): ${colorsSummary}`);
+    }
 
     if (logoType === "upload" && logoUrl.trim()) {
       parts.push(`Uploaded Brand Logo URL: ${logoUrl.trim()}`);
@@ -675,8 +698,22 @@ export default function GenerateTemplatePage() {
     try {
       const res = await api.post("/ai/enhance-prompt", { prompt: activePrompt }, token);
       if (res?.enhanced_prompt) {
-        setPrompt(res.enhanced_prompt);
-        setEnhancedSpecs(res);
+        // Some model providers return the enhanced prompt as a structured
+        // object despite the requested string schema. Convert it before it
+        // enters controlled inputs or React text nodes.
+        const enhancedPrompt = toReadableText(res.enhanced_prompt) || activePrompt;
+        const normalizedSpecs = {
+          ...res,
+          enhanced_prompt: enhancedPrompt,
+          industry: toReadableText(res.industry),
+          color_scheme: toReadableText(res.color_scheme),
+        };
+        setPrompt(enhancedPrompt);
+        setEnhancedSpecs(normalizedSpecs);
+        checkAndAutoDetectTheme(enhancedPrompt);
+        if (res.color_scheme) {
+          checkAndAutoDetectTheme(normalizedSpecs.color_scheme);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -686,25 +723,10 @@ export default function GenerateTemplatePage() {
     }
   };
 
-  // Handle steps animation during generation
-  useEffect(() => {
-    if (!isGenerating || currentStep >= GENERATION_STEPS.length) return;
-
-    const step = GENERATION_STEPS[currentStep];
-    const timer = setTimeout(() => {
-      setCompletedSteps((prev) => [...prev, step.id]);
-      if (currentStep < GENERATION_STEPS.length - 1) {
-        setCurrentStep((prev) => prev + 1);
-      }
-    }, step.duration);
-
-    return () => clearTimeout(timer);
-  }, [isGenerating, currentStep]);
-
   const handlePrepare = async (e) => {
     e.preventDefault();
 
-    let finalPrompt = prompt.trim();
+    let finalPrompt = toReadableText(prompt).trim();
     if (!finalPrompt && creatorMode === "creator") {
       finalPrompt = buildSynthesizedPrompt();
       setPrompt(finalPrompt);
@@ -718,21 +740,14 @@ export default function GenerateTemplatePage() {
     setError("");
     setIsPreparing(true);
 
-    const activeIndustry = businessType === "Other (Custom)" ? customBusinessType : businessType;
+    const activeIndustry = businessType === "Other (Custom)" ? customBusinessType : businessType === "Auto-Detect from Prompt (Recommended)" ? "" : businessType;
 
     const payload = {
       prompt: finalPrompt,
-      model_tier: modelTier,
+      content_language: requestedContentLanguage,
       business_name: businessName.trim() || undefined,
       business_type: activeIndustry.trim() || undefined,
-      brand_colors: {
-        preset: selectedColorPreset,
-        theme: themeMode,
-        colors_list: brandColorsList,
-        primary: brandColorsList.find((c) => c.id === "primary")?.hex || "#10b981",
-        secondary: brandColorsList.find((c) => c.id === "secondary")?.hex || "#0f172a",
-        accent: brandColorsList.find((c) => c.id === "accent")?.hex || "#38bdf8",
-      },
+      brand_colors: brandColorsPayload,
       logo_info: {
         type: logoType,
         url: (logoType === "url" || logoType === "upload") ? logoUrl.trim() : "",
@@ -749,6 +764,9 @@ export default function GenerateTemplatePage() {
           instagram: socialInstagram.trim(),
         },
       },
+      // The generator starts with the multi-page architecture selected. Users
+      // can still switch to single-page in the next step.
+      architecture_preference: "multi_page",
     };
 
     try {
@@ -756,57 +774,103 @@ export default function GenerateTemplatePage() {
       const arch = res.architecture_type || "multi_page";
       setArchitectureType(arch);
       setIsMultipage(res.is_multipage !== false);
-      setArchitectureReasoning(res.architecture_reasoning || "");
-      setQuestions(res.questions || []);
+      setArchitectureReasoning(toReadableText(res.architecture_reasoning));
+      const normalizedQuestions = Array.isArray(res.questions)
+        ? res.questions.map((question, index) => ({
+            ...question,
+            id: toReadableText(question?.id) || `question-${index + 1}`,
+            question: toReadableText(question?.question),
+            options: Array.isArray(question?.options)
+              ? question.options.map((option) => toReadableText(option)).filter(Boolean)
+              : [],
+          }))
+        : [];
+      setQuestions(normalizedQuestions);
 
       const defaultAnswers = {};
-      res.questions?.forEach((q) => {
+      normalizedQuestions.forEach((q) => {
         if (q.options && q.options.length > 0) {
           defaultAnswers[q.id] = q.options[0];
         }
       });
       setAnswers(defaultAnswers);
 
-      const fetchedPages = res.suggested_pages || [];
+      const fetchedPages = Array.isArray(res.suggested_pages)
+        ? res.suggested_pages.map((page, index) => ({
+            ...page,
+            name: toReadableText(page?.name) || `Page ${index + 1}`,
+            filename: toReadableText(page?.filename) || `page-${index + 1}.html`,
+            content_summary: toReadableText(page?.content_summary ?? page?.summary),
+          }))
+        : [];
       setPages(fetchedPages);
       setMultiPageCache(fetchedPages);
       setStep("questions");
     } catch (err) {
       console.error(err);
-      setError(err?.message || "Prompt analysis failed. Please check your settings and try again.");
+      setError(toReadableText(err?.message) || "Prompt analysis failed. Please check your settings and try again.");
     } finally {
       setIsPreparing(false);
     }
   };
 
-  const handleToggleArchitecture = (targetType) => {
+  const handleToggleArchitecture = async (targetType) => {
     if (targetType === architectureType) return;
-    setArchitectureType(targetType);
 
     if (targetType === "single_page") {
+      const homePage = pages.find((page) => page.filename === "index.html") || pages[0] || {};
+      if (pages.length > 1) setMultiPageCache(pages);
       setIsMultipage(false);
-      if (pages.length > 1) {
-        setMultiPageCache(pages);
-      }
+      setArchitectureType("single_page");
       setPages([
         {
-          name: "Home Landing Page",
+          ...homePage,
+          name: homePage.name || "Home",
           filename: "index.html",
-          content_summary: "Unified single-page layout featuring Hero header, Features grid, Showcase cards, Interactive tabs, Pricing tiers, and Contact section.",
+          content_summary: homePage.content_summary || "A single-page experience built around the requested site's primary audience, content, and interactions.",
           selected: true
         }
       ]);
     } else {
-      setIsMultipage(true);
       if (multiPageCache.length > 1) {
+        setArchitectureType("multi_page");
+        setIsMultipage(true);
         setPages(multiPageCache);
       } else {
-        setPages([
-          { name: "Home Page", filename: "index.html", content_summary: "Hero section, primary features grid, CTA banner, and multi-column footer.", selected: true },
-          { name: "About Details", filename: "about.html", content_summary: "Company mission, vision, team profiles, and story timeline.", selected: true },
-          { name: "Services", filename: "services.html", content_summary: "Service offerings, pricing cards, features list, and inquiry form.", selected: true },
-          { name: "Contact Page", filename: "contact.html", content_summary: "Interactive contact form, location details, map placeholder, and FAQs.", selected: true }
-        ]);
+        setIsPreparing(true);
+        setError("");
+        try {
+          const activeIndustry = businessType === "Other (Custom)"
+            ? customBusinessType
+            : businessType === "Auto-Detect from Prompt (Recommended)" ? "" : businessType;
+          const planned = await api.post("/templates/generate/prepare", {
+            prompt: prompt.trim() || buildSynthesizedPrompt(),
+            content_language: requestedContentLanguage,
+            business_name: businessName.trim() || undefined,
+            business_type: activeIndustry.trim() || undefined,
+            brand_colors: brandColorsPayload,
+            architecture_preference: "multi_page",
+          }, token);
+          const plannedPages = Array.isArray(planned.suggested_pages)
+            ? planned.suggested_pages.map((page, index) => ({
+                ...page,
+                name: toReadableText(page?.name) || `Page ${index + 1}`,
+                filename: toReadableText(page?.filename) || `page-${index + 1}.html`,
+                content_summary: toReadableText(page?.content_summary ?? page?.summary),
+                selected: true,
+              }))
+            : [];
+          if (plannedPages.length < 2) throw new Error("The planner could not create a multi-page outline for this brief. Try again or keep the single-page layout.");
+          setArchitectureType("multi_page");
+          setIsMultipage(true);
+          setArchitectureReasoning(toReadableText(planned.architecture_reasoning));
+          setPages(plannedPages);
+          setMultiPageCache(plannedPages);
+        } catch (err) {
+          setError(toReadableText(err?.message) || "Could not plan pages for this website type.");
+        } finally {
+          setIsPreparing(false);
+        }
       }
     }
   };
@@ -846,32 +910,27 @@ export default function GenerateTemplatePage() {
     setGeneratedTemplate(null);
 
     const selectedPages = pages.filter((p) => p.selected !== false);
-    const activeIndustry = businessType === "Other (Custom)" ? customBusinessType : businessType;
+    if (architectureType === "multi_page" && selectedPages.length < 2) {
+      setError("A multi-page website needs at least two selected pages. Add or select another page to continue.");
+      setIsGenerating(false);
+      return;
+    }
+    const activeIndustry = businessType === "Other (Custom)" ? customBusinessType : businessType === "Auto-Detect from Prompt (Recommended)" ? "" : businessType;
 
     try {
-      const response = await api.post(
-        "/templates/generate",
-        {
-          prompt,
+      const payload = {
+          prompt: toReadableText(prompt),
+          content_language: requestedContentLanguage,
           framework,
-          backend_framework: backendFramework,
           css_engine: cssEngine,
-          project_scope: projectScope,
+          project_scope: "frontend",
           answers,
           pages: selectedPages,
           architecture_type: architectureType,
           is_multipage: isMultipage,
-          model_tier: modelTier,
           business_name: businessName.trim() || undefined,
           business_type: activeIndustry.trim() || undefined,
-          brand_colors: {
-            preset: selectedColorPreset,
-            theme: themeMode,
-            colors_list: brandColorsList,
-            primary: brandColorsList.find((c) => c.id === "primary")?.hex || "#10b981",
-            secondary: brandColorsList.find((c) => c.id === "secondary")?.hex || "#0f172a",
-            accent: brandColorsList.find((c) => c.id === "accent")?.hex || "#38bdf8",
-          },
+          brand_colors: brandColorsPayload,
           logo_info: {
             type: logoType,
             url: (logoType === "url" || logoType === "upload") ? logoUrl.trim() : "",
@@ -888,16 +947,52 @@ export default function GenerateTemplatePage() {
               instagram: socialInstagram.trim(),
             },
           },
+        };
+      const response = await fetch(`${API_URL}/templates/stream-generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        token
-      );
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok || !response.body) {
+        const errorBody = await response.json().catch(() => ({}));
+        throw new Error(toReadableText(errorBody.detail) || "Could not start template generation.");
+      }
 
-      setGeneratedTemplate(response);
-      setCompletedSteps([1, 2, 3, 4, 5, 6, 7, 8]);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let generatedResult = null;
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() || "";
+        for (const eventText of events) {
+          const dataLine = eventText.split("\n").find((line) => line.startsWith("data: "));
+          if (!dataLine) continue;
+          const eventData = JSON.parse(dataLine.slice(6));
+          if (eventData.status === "error") {
+            throw new Error(toReadableText(eventData.error) || "Template generation failed.");
+          }
+          if (eventData.event === "result") {
+            generatedResult = eventData.template;
+          } else if (eventData.status === "completed" && eventData.step) {
+            setCompletedSteps((prev) => prev.includes(eventData.step) ? prev : [...prev, eventData.step]);
+            setCurrentStep(Math.min(eventData.step, GENERATION_STEPS.length));
+          }
+        }
+        if (done) break;
+      }
+      if (!generatedResult) throw new Error("Generation ended before the template was saved.");
+      setGeneratedTemplate(generatedResult);
+      setCompletedSteps(GENERATION_STEPS.map((step) => step.id));
       setCurrentStep(GENERATION_STEPS.length);
     } catch (err) {
       console.error(err);
-      setError(err?.message || "Template generation failed. Please check your AI provider configuration and try again.");
+      setError(toReadableText(err?.message) || "Template generation failed. Please check your AI provider configuration and try again.");
       setIsGenerating(false);
     }
   };
@@ -942,8 +1037,15 @@ export default function GenerateTemplatePage() {
               <div className="p-4 mb-6 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-300 text-sm flex items-center justify-between animate-fade-in shadow-lg">
                 <span className="font-medium flex items-center gap-2">
                   <span className="inline-block w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-                  {error}
+                  {toReadableText(error)}
                 </span>
+                <Link
+                  to="/dashboard?tab=studio-projects"
+                  className="ml-4 shrink-0 font-semibold underline underline-offset-2"
+                  title="Check whether the project was saved before generation reported an error"
+                >
+                  Check Studio Projects
+                </Link>
                 <button
                   type="button"
                   onClick={() => setError("")}
@@ -984,7 +1086,7 @@ export default function GenerateTemplatePage() {
                     <div className="business-section-header">
                       <div className="business-section-title">
                         <Building2 className="w-5 h-5 text-primary" />
-                        <span>Business & Brand Specification</span>
+                        <span>Website & Brand Specification</span>
                       </div>
                       <span className="business-section-subtitle">Values embedded directly in template code</span>
                     </div>
@@ -992,18 +1094,18 @@ export default function GenerateTemplatePage() {
                     {/* Business Name & Type */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="prompt-label text-xs uppercase tracking-wider text-muted-foreground font-semibold">Business Name</label>
+                          <label className="prompt-label text-xs uppercase tracking-wider text-muted-foreground font-semibold">Project / Site Name (optional)</label>
                         <input
                           type="text"
                           value={businessName}
                           onChange={(e) => setBusinessName(e.target.value)}
-                          placeholder="e.g. Acme Cybernetics Inc."
+                          placeholder="e.g. Northstar Photo Journal"
                           className="prompt-textarea !py-2.5"
                         />
                       </div>
 
                       <div>
-                        <label className="prompt-label text-xs uppercase tracking-wider text-muted-foreground font-semibold">Business Type / Industry</label>
+                          <label className="prompt-label text-xs uppercase tracking-wider text-muted-foreground font-semibold">Website / Product Type</label>
                         <select
                           value={businessType}
                           onChange={(e) => setBusinessType(e.target.value)}
@@ -1020,7 +1122,7 @@ export default function GenerateTemplatePage() {
                             type="text"
                             value={customBusinessType}
                             onChange={(e) => setCustomBusinessType(e.target.value)}
-                            placeholder="Specify custom industry..."
+                            placeholder="Describe the website or app type..."
                             className="prompt-textarea !py-2.5 mt-2"
                           />
                         )}
@@ -1029,31 +1131,75 @@ export default function GenerateTemplatePage() {
 
                     {/* Business Description */}
                     <div>
-                      <label className="prompt-label text-xs uppercase tracking-wider text-muted-foreground font-semibold">Business Overview & Vision</label>
+                      <label className="prompt-label text-xs uppercase tracking-wider text-muted-foreground font-semibold">Project Goals & Audience (optional)</label>
                       <textarea
                         value={businessDescription}
-                        onChange={(e) => setBusinessDescription(e.target.value)}
-                        placeholder="Describe key services, target audience, core offerings, unique selling points, and design preferences..."
+                        onChange={(e) => {
+                          setBusinessDescription(e.target.value);
+                          checkAndAutoDetectTheme(e.target.value);
+                        }}
+                        placeholder="Describe what the site or app should do, who it is for, its key screens or interactions, and any visual direction..."
                         className="prompt-textarea"
                         rows={3}
                       />
                     </div>
 
+                    <div>
+                      <label className="prompt-label text-xs uppercase tracking-wider text-muted-foreground font-semibold">Website Content Language</label>
+                      <select value={contentLanguage} onChange={(e) => setContentLanguage(e.target.value)} className="prompt-textarea !py-2.5 cursor-pointer">
+                        {["English (en)", "Spanish (es)", "French (fr)", "German (de)", "Portuguese (pt)", "Italian (it)", "Dutch (nl)", "Hindi (hi)", "Bengali (bn)", "Arabic (ar)", "Japanese (ja)", "Korean (ko)", "Chinese (zh)", "Russian (ru)", "Turkish (tr)", "Indonesian (id)", "Swahili (sw)", "Urdu (ur)", "Thai (th)", "Vietnamese (vi)", "custom"].map((language) => (
+                          <option key={language} value={language}>{language === "custom" ? "Other language…" : language.replace(/ \([^)]+\)$/, "")}</option>
+                        ))}
+                      </select>
+                      {contentLanguage === "custom" && (
+                        <input type="text" value={customContentLanguage} onChange={(e) => setCustomContentLanguage(e.target.value)} placeholder="Enter a language (optionally with code), e.g. Greek (el)" className="prompt-textarea !py-2.5 mt-2" />
+                      )}
+                      <p className="text-xs text-muted-foreground mt-1">Generated website copy follows this language. Model quality varies by language.</p>
+                    </div>
+
                     {/* Brand Colors & Theme (Ultra-Clean Single-Button Multi-Color Selector) */}
                     <div className="space-y-3">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <label className="prompt-label text-xs uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-1.5 mb-0">
                           <Palette className="w-4 h-4 text-primary" />
                           <span>Brand Colors & Theme</span>
                         </label>
 
                         <div className="flex items-center gap-2">
+                          {/* Theme Mode Toggle: Light/White vs Dark */}
+                          <div className="flex items-center bg-muted/80 p-0.5 rounded-xl border border-border shadow-sm">
+                            <button
+                              type="button"
+                              onClick={() => handleThemeChange("light")}
+                              className={`px-3 py-1 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all ${
+                                themeMode === "light"
+                                  ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-900/10 font-extrabold"
+                                  : "text-muted-foreground hover:text-foreground"
+                              }`}
+                              title="Light / Clean White Theme Mode"
+                            >
+                              <span>☀️ Light / White</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleThemeChange("dark")}
+                              className={`px-3 py-1 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all ${
+                                themeMode === "dark"
+                                  ? "bg-slate-950 text-white shadow-sm ring-1 ring-white/20 font-extrabold"
+                                  : "text-muted-foreground hover:text-foreground"
+                              }`}
+                              title="Dark Theme Mode"
+                            >
+                              <span>🌙 Dark</span>
+                            </button>
+                          </div>
+
                           <button
                             type="button"
                             onClick={handleGenerateStudioPalette}
                             disabled={isGeneratingPalette}
                             className="btn-studio-palette"
-                            title="Generate harmonic palette"
+                            title="Generate harmonic palette matching selected theme"
                           >
                             <Sparkles className={`w-3.5 h-3.5 ${isGeneratingPalette ? "animate-spin" : ""}`} />
                             <span>Dynamic Palette</span>
@@ -1113,27 +1259,51 @@ export default function GenerateTemplatePage() {
                       </div>
 
                       {/* Real-time Component Preview Card */}
-                      <div
-                        className="p-3 rounded-xl border border-border/80 flex items-center justify-between gap-3 shadow-inner transition-all"
-                        style={{ backgroundColor: secondaryHex }}
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: primaryHex }} />
-                          <span className="text-xs font-bold text-white">Live Hero Palette Preview</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="px-2.5 py-0.5 rounded text-[10px] font-semibold text-white" style={{ backgroundColor: accentHex }}>
-                            Accent Tag
-                          </span>
-                          <button
-                            type="button"
-                            className="px-3 py-1 rounded-md text-xs font-bold text-white shadow-sm"
-                            style={{ backgroundColor: primaryHex }}
+                      {(() => {
+                        const isLightBg = themeMode === "light" || ["#ffffff", "#f8fafc", "#fafafa", "#f1f5f9", "#e6ebe9", "#9eb4e8"].includes(secondaryHex.toLowerCase());
+                        const isLightPrimary = ["#ffffff", "#f8fafc", "#fafafa", "#e6ebe9"].includes(primaryHex.toLowerCase());
+                        const isLightAccent = ["#ffffff", "#f8fafc", "#fafafa", "#e6ebe9"].includes(accentHex.toLowerCase());
+                        return (
+                          <div
+                            className="p-3.5 rounded-xl border flex items-center justify-between gap-3 shadow-sm transition-all"
+                            style={{
+                              backgroundColor: secondaryHex,
+                              borderColor: isLightBg ? "#cbd5e1" : "rgba(255,255,255,0.15)"
+                            }}
                           >
-                            CTA Button
-                          </button>
-                        </div>
-                      </div>
+                            <div className="flex items-center gap-2">
+                              <div className="w-3.5 h-3.5 rounded-full shadow-inner border border-black/10" style={{ backgroundColor: primaryHex }} />
+                              <span
+                                className="text-xs font-bold tracking-tight"
+                                style={{ color: isLightBg ? "#0f172a" : "#ffffff" }}
+                              >
+                                Live Hero Palette Preview ({themeMode === "light" ? "☀️ Light / White Theme" : "🌙 Dark Theme"})
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="px-2.5 py-1 rounded text-[10px] font-bold shadow-sm"
+                                style={{
+                                  backgroundColor: accentHex,
+                                  color: isLightAccent ? "#0f172a" : "#ffffff"
+                                }}
+                              >
+                                Accent Tag
+                              </span>
+                              <button
+                                type="button"
+                                className="px-3.5 py-1 rounded-md text-xs font-bold shadow-md hover:opacity-90 transition-opacity"
+                                style={{
+                                  backgroundColor: primaryHex,
+                                  color: isLightPrimary ? "#0f172a" : "#ffffff"
+                                }}
+                              >
+                                CTA Button
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* Logo Specification (Upload vs Link URL vs Dynamic Generator) */}
@@ -1356,12 +1526,15 @@ export default function GenerateTemplatePage() {
                   <textarea
                     id="prompt"
                     value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="e.g., 'A premium glassmorphic website for Apex Cybernetics, featuring dark neon-blue styling, interactive terminal blog section, showcase grid, and contact page...'"
+                    onChange={(e) => {
+                      setPrompt(e.target.value);
+                      checkAndAutoDetectTheme(e.target.value);
+                    }}
+                    placeholder="e.g., 'A premium clean white theme website for Fresh Market, featuring organic green accents, product grid, testimonials, and contact page...'"
                     className="prompt-textarea"
                     rows={5}
                   />
-                  {error && <p className="error-text mt-2">{error}</p>}
+                  {error && <p className="error-text mt-2">{toReadableText(error)}</p>}
                 </div>
 
                 {/* Enhanced Prompt Specs Pill Summary */}
@@ -1409,22 +1582,6 @@ export default function GenerateTemplatePage() {
 
                     <button
                       type="button"
-                      onClick={() => setTechTab("backend")}
-                      className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-xs transition-all duration-200 flex items-center justify-center gap-2 select-none ${
-                        techTab === "backend"
-                          ? "bg-indigo-600 text-white shadow-md ring-1 ring-indigo-500/40"
-                          : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
-                      }`}
-                    >
-                      <Building2 className="w-4 h-4" />
-                      <span>Backend Frameworks</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/20 text-current font-mono">
-                        {backendFramework.toUpperCase()}
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
                       onClick={() => setTechTab("css")}
                       className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-xs transition-all duration-200 flex items-center justify-center gap-2 select-none ${
                         techTab === "css"
@@ -1446,7 +1603,7 @@ export default function GenerateTemplatePage() {
                       <div className="flex items-center justify-between mb-3">
                         <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
                           <Layers className="w-3.5 h-3.5 text-primary" />
-                          <span>Select Frontend Framework (8 Options)</span>
+                          <span>Choose a supported frontend (4 generation options)</span>
                         </span>
                         <span className="text-[10px] text-muted-foreground font-mono">
                           Active: {framework.toUpperCase()}
@@ -1455,14 +1612,10 @@ export default function GenerateTemplatePage() {
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                         {[
-                          { id: "react", name: "React 18 & Vite", icon: Layers, badge: "React SPA", color: "from-sky-500/20 to-blue-600/20 text-sky-400 border-sky-500/30", desc: "React 18 SPA with state router & Vite bundle" },
-                          { id: "nextjs", name: "Next.js 14", icon: LayoutGrid, badge: "App Router", color: "from-slate-700/30 to-slate-900/40 text-slate-200 border-slate-600/30", desc: "Next.js 14 App Router layout structure" },
-                          { id: "vue", name: "Vue 3 & Vite", icon: Sparkles, badge: "Vue 3 SFC", color: "from-emerald-500/20 to-teal-600/20 text-emerald-400 border-emerald-500/30", desc: "Vue 3 SFC setup with Lucide Vue & Vite" },
-                          { id: "nuxt", name: "Nuxt 3 Studio", icon: Wand2, badge: "Nuxt 3 SSR", color: "from-green-500/20 to-emerald-700/20 text-emerald-300 border-emerald-500/30", desc: "Nuxt 3 Vue SSR framework with auto-imports" },
-                          { id: "svelte", name: "SvelteKit", icon: Sparkles, badge: "Svelte 4", color: "from-orange-500/20 to-red-600/20 text-orange-400 border-orange-500/30", desc: "Svelte 4 reactive component architecture" },
-                          { id: "astro", name: "Astro 4 Studio", icon: Wand2, badge: "Astro 4", color: "from-purple-500/20 to-indigo-600/20 text-purple-400 border-purple-500/30", desc: "Ultra-fast static site with Astro 4 islands" },
-                          { id: "angular", name: "Angular 17", icon: Layers, badge: "Angular CLI", color: "from-red-500/20 to-rose-700/20 text-rose-400 border-rose-500/30", desc: "Angular 17 enterprise component setup" },
-                          { id: "html", name: "HTML5 Multi-Page", icon: Globe, badge: "Multi-Page", color: "from-amber-500/20 to-yellow-600/20 text-amber-400 border-amber-500/30", desc: "Production HTML5 multi-page site package" },
+                          { id: "react", name: "React 18 & Vite", icon: Layers, badge: "React SPA", color: "from-sky-500/20 to-blue-600/20 text-sky-400 border-sky-500/30", desc: "Separate page components with in-app navigation (single-page app)" },
+                          { id: "next", name: "Next.js App Router", icon: LayoutGrid, badge: "Next.js", color: "from-slate-500/20 to-zinc-600/20 text-slate-300 border-slate-500/30", desc: "Separate App Router URL routes for generated pages" },
+                          { id: "vue", name: "Vue 3 & Vite", icon: Sparkles, badge: "Vue SPA", color: "from-emerald-500/20 to-teal-600/20 text-emerald-400 border-emerald-500/30", desc: "Vue page components with in-app navigation (single-page app)" },
+                          { id: "html", name: "HTML5 Multi-Page", icon: Globe, badge: "Multi-Page", color: "from-amber-500/20 to-yellow-600/20 text-amber-400 border-amber-500/30", desc: "Separate HTML files linked with standard page navigation" },
                         ].map((fw) => {
                           const IconComp = fw.icon;
                           const isSelected = framework === fw.id;
@@ -1511,80 +1664,9 @@ export default function GenerateTemplatePage() {
                           );
                         })}
                       </div>
-                    </div>
-                  )}
-
-                  {/* TAB CONTENT 2: BACKEND FRAMEWORKS */}
-                  {techTab === "backend" && (
-                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-200">
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                          <Building2 className="w-3.5 h-3.5 text-indigo-400" />
-                          <span>Select Dedicated Backend API Framework (8 Options)</span>
-                        </span>
-                        <span className="text-[10px] text-muted-foreground font-mono">
-                          Active: {backendFramework.toUpperCase()}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                        {[
-                          { id: "fastapi", name: "FastAPI (Python 3.12)", icon: Building2, badge: "Async Python", color: "from-emerald-500/20 to-teal-600/20 text-emerald-400 border-emerald-500/30", desc: "Ultra-fast async Python API with Pydantic & OpenAPI docs" },
-                          { id: "express", name: "Express.js (Node.js)", icon: Layers, badge: "Node.js", color: "from-amber-500/20 to-yellow-600/20 text-amber-400 border-amber-500/30", desc: "Lightweight, unopinionated Node.js REST API server" },
-                          { id: "nestjs", name: "NestJS (TypeScript)", icon: Sparkles, badge: "TypeScript", color: "from-rose-500/20 to-pink-600/20 text-rose-400 border-rose-500/30", desc: "Progressive enterprise TypeScript microservices framework" },
-                          { id: "django", name: "Django (Python 5)", icon: Wand2, badge: "Django ORM", color: "from-green-600/20 to-emerald-800/20 text-green-300 border-green-500/30", desc: "High-level Python web framework with built-in ORM & admin" },
-                          { id: "springboot", name: "Spring Boot 3 (Java)", icon: LayoutGrid, badge: "Java 21", color: "from-sky-500/20 to-blue-600/20 text-sky-400 border-sky-500/30", desc: "Production-grade Java 21 REST API server & JPA data layer" },
-                          { id: "rails", name: "Ruby on Rails 7", icon: Layers, badge: "Ruby MVC", color: "from-red-500/20 to-rose-700/20 text-rose-300 border-rose-500/30", desc: "Full-stack Ruby MVC engine with ActiveRecord SQLite" },
-                          { id: "laravel", name: "Laravel 11 (PHP 8.3)", icon: Wand2, badge: "PHP Eloquent", color: "from-red-600/20 to-orange-600/20 text-orange-400 border-orange-500/30", desc: "Elegant PHP 8.3 web framework with Eloquent ORM" },
-                          { id: "actix", name: "Actix Web (Rust)", icon: Globe, badge: "Rust Async", color: "from-orange-500/20 to-amber-700/20 text-orange-300 border-orange-500/30", desc: "Blazing-fast, memory-safe Rust HTTP REST server" },
-                        ].map((be) => {
-                          const IconComp = be.icon;
-                          const isSelected = backendFramework === be.id;
-                          return (
-                            <div
-                              key={be.id}
-                              onClick={() => setBackendFramework(be.id)}
-                              className={`group relative p-3 rounded-xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between overflow-hidden select-none ${
-                                isSelected
-                                  ? "bg-indigo-500/10 border-indigo-500 shadow-lg ring-2 ring-indigo-500/40 -translate-y-0.5"
-                                  : "bg-card/80 backdrop-blur-sm border-border hover:border-indigo-500/40 hover:bg-muted/40 hover:-translate-y-0.5"
-                              }`}
-                            >
-                              {isSelected && (
-                                <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-transparent to-transparent pointer-events-none" />
-                              )}
-
-                              <div className="relative z-10">
-                                <div className="flex items-center justify-between mb-2">
-                                  <div className={`p-1.5 rounded-lg border bg-gradient-to-br ${be.color} shadow-sm group-hover:scale-105 transition-transform`}>
-                                    <IconComp className="w-3.5 h-3.5" />
-                                  </div>
-
-                                  <div className="flex items-center gap-1.5">
-                                    {isSelected ? (
-                                      <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md bg-indigo-600 text-white font-bold shadow-sm">
-                                        <Check className="w-3 h-3" />
-                                        <span>Active</span>
-                                      </span>
-                                    ) : (
-                                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-muted text-muted-foreground font-mono font-medium border border-border/60">
-                                        {be.badge}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-
-                                <h3 className="font-bold text-xs text-foreground mb-0.5 group-hover:text-indigo-400 transition-colors">
-                                  {be.name}
-                                </h3>
-                                <p className="text-[10px] text-muted-foreground leading-snug">
-                                  {be.desc}
-                                </p>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                      <p className="mt-3 text-[10px] text-muted-foreground">
+                        These are the frontend options currently supported by template generation. Angular, Nuxt, Astro, and Svelte are not generation options yet.
+                      </p>
                     </div>
                   )}
 
@@ -1614,11 +1696,21 @@ export default function GenerateTemplatePage() {
                         ].map((styleEngine) => {
                           const IconComp = styleEngine.icon;
                           const isSelected = cssEngine === styleEngine.id;
+                          const cssCompatibility = {
+                            html: ["tailwind"], vanilla: ["tailwind"], static: ["tailwind"],
+                            react: ["tailwind", "vanillacss", "styledcomponents", "bootstrap", "sass", "chakra", "cssgrid", "glassmorphism"],
+                            vue: ["tailwind", "vanillacss", "bootstrap", "sass", "cssgrid", "glassmorphism"],
+                            next: ["tailwind", "vanillacss", "bootstrap", "sass", "cssgrid", "glassmorphism"],
+                            nextjs: ["tailwind", "vanillacss", "bootstrap", "sass", "cssgrid", "glassmorphism"],
+                          };
+                          const isSupported = cssCompatibility[framework]?.includes(styleEngine.id) ?? false;
                           return (
                             <div
                               key={styleEngine.id}
-                              onClick={() => setCssEngine(styleEngine.id)}
-                              className={`group relative p-3 rounded-xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between overflow-hidden select-none ${
+                              onClick={() => isSupported && setCssEngine(styleEngine.id)}
+                              aria-disabled={!isSupported}
+                              title={isSupported ? styleEngine.desc : `Not configured for ${framework.toUpperCase()}`}
+                              className={`group relative p-3 rounded-xl border text-left transition-all duration-200 ${isSupported ? "cursor-pointer" : "cursor-not-allowed opacity-45"} flex flex-col justify-between overflow-hidden select-none ${
                                 isSelected
                                   ? "bg-secondary/10 border-secondary shadow-lg ring-2 ring-secondary/40 -translate-y-0.5"
                                   : "bg-card/80 backdrop-blur-sm border-border hover:border-secondary/40 hover:bg-muted/40 hover:-translate-y-0.5"
@@ -1635,7 +1727,11 @@ export default function GenerateTemplatePage() {
                                   </div>
 
                                   <div className="flex items-center gap-1.5">
-                                    {isSelected ? (
+                                    {!isSupported ? (
+                                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-muted text-muted-foreground font-medium border border-border/60">
+                                        Choose another frontend
+                                      </span>
+                                    ) : isSelected ? (
                                       <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground font-bold shadow-sm">
                                         <Check className="w-3 h-3" />
                                         <span>Active</span>
@@ -1663,97 +1759,10 @@ export default function GenerateTemplatePage() {
                   )}
                 </div>
 
-                {/* BUYER PROJECT ARCHITECTURE SCOPE (FRONTEND vs FULL-STACK BUNDLE) */}
-                <div className="form-group mb-6">
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="prompt-label m-0 text-sm font-bold text-foreground flex items-center gap-2">
-                      <Zap className="w-4 h-4 text-primary" />
-                      <span>Template Architecture & Backend Bundle</span>
-                    </label>
-                    <span className="text-[11px] text-muted-foreground font-mono bg-muted/60 px-2 py-0.5 rounded-md border border-border">
-                      Buyer Option
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    <div
-                      onClick={() => setProjectScope("fullstack")}
-                      className={`group relative p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between overflow-hidden select-none ${
-                        projectScope === "fullstack"
-                          ? "bg-primary/10 border-primary shadow-lg ring-2 ring-primary/40 -translate-y-0.5"
-                          : "bg-card/80 backdrop-blur-sm border-border hover:border-primary/40 hover:bg-muted/40 hover:-translate-y-0.5"
-                      }`}
-                    >
-                      {projectScope === "fullstack" && (
-                        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-transparent pointer-events-none" />
-                      )}
-
-                      <div className="relative z-10">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="p-2 rounded-lg border bg-gradient-to-br from-indigo-500/20 to-purple-600/20 text-indigo-400 border-indigo-500/30 shadow-sm group-hover:scale-105 transition-transform">
-                            <Zap className="w-4 h-4" />
-                          </div>
-                          {projectScope === "fullstack" ? (
-                            <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md bg-primary text-primary-foreground font-bold shadow-sm">
-                              <Check className="w-3 h-3" />
-                              <span>Selected</span>
-                            </span>
-                          ) : (
-                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-muted text-muted-foreground font-mono font-medium border border-border/60">
-                              RECOMMENDED
-                            </span>
-                          )}
-                        </div>
-
-                        <h3 className="font-bold text-xs text-foreground mb-1 group-hover:text-primary transition-colors">
-                          🚀 Full-Stack App (Frontend + Dedicated API + Isolated DB)
-                        </h3>
-                        <p className="text-[11px] text-muted-foreground leading-relaxed">
-                          Includes standalone Frontend app + dedicated backend API server (`backend/main.py`) + isolated local database (`app.db`).
-                        </p>
-                      </div>
-                    </div>
-
-                    <div
-                      onClick={() => setProjectScope("frontend")}
-                      className={`group relative p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between overflow-hidden select-none ${
-                        projectScope === "frontend"
-                          ? "bg-secondary/10 border-secondary shadow-lg ring-2 ring-secondary/40 -translate-y-0.5"
-                          : "bg-card/80 backdrop-blur-sm border-border hover:border-secondary/40 hover:bg-muted/40 hover:-translate-y-0.5"
-                      }`}
-                    >
-                      {projectScope === "frontend" && (
-                        <div className="absolute inset-0 bg-gradient-to-br from-secondary/10 via-transparent to-transparent pointer-events-none" />
-                      )}
-
-                      <div className="relative z-10">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="p-2 rounded-lg border bg-gradient-to-br from-sky-500/20 to-blue-600/20 text-sky-400 border-sky-500/30 shadow-sm group-hover:scale-105 transition-transform">
-                            <Layers className="w-4 h-4" />
-                          </div>
-                          {projectScope === "frontend" ? (
-                            <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground font-bold shadow-sm">
-                              <Check className="w-3 h-3" />
-                              <span>Selected</span>
-                            </span>
-                          ) : (
-                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-muted text-muted-foreground font-mono font-medium border border-border/60">
-                              UI ONLY
-                            </span>
-                          )}
-                        </div>
-
-                        <h3 className="font-bold text-xs text-foreground mb-1 group-hover:text-secondary transition-colors">
-                          🎨 Frontend UI Only (Standalone Component Package)
-                        </h3>
-                        <p className="text-[11px] text-muted-foreground leading-relaxed">
-                          Clean UI website codebase package (`package.json`, responsive components, styling engine, and Vite configuration).
-                        </p>
-                      </div>
-                    </div>
-                  </div>
+                <div className="form-group mb-6 rounded-xl border border-secondary/30 bg-secondary/5 p-4 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-2 font-semibold text-foreground"><Globe className="w-4 h-4 text-secondary" /> Static frontend website</div>
+                  <p className="mt-1 text-xs leading-relaxed">Generated downloads contain frontend files only. They don’t include an API server or database.</p>
                 </div>
-
                 <button type="submit" disabled={isPreparing} className="submit-btn group">
                   {isPreparing ? (
                     <>
@@ -1782,14 +1791,14 @@ export default function GenerateTemplatePage() {
                       <span>Prompt & Architecture Analysis</span>
                     </div>
                     <span className="arch-recommendation-tag">
-                      Recommended: {architectureType === "single_page" ? "Single Page (SPA)" : "Multi-Page Site"}
+                      Selected Architecture: {architectureType === "single_page" ? "Single Page" : "Multi-Page Site"}
                     </span>
                   </div>
 
                   {architectureReasoning && (
                     <p className="ai-reasoning-text">
                       <Info className="w-4 h-4 text-secondary shrink-0 inline-block mr-1.5 -mt-0.5" />
-                      {architectureReasoning}
+                      {toReadableText(architectureReasoning)}
                     </p>
                   )}
 
@@ -1799,16 +1808,18 @@ export default function GenerateTemplatePage() {
                     <div className="arch-toggle-buttons">
                       <button
                         type="button"
+                        disabled={isPreparing}
                         onClick={() => handleToggleArchitecture("single_page")}
-                        className={`arch-toggle-btn ${architectureType === "single_page" ? "active" : ""}`}
+                        className={`arch-toggle-btn ${architectureType === "single_page" ? "active" : ""} ${isPreparing ? "opacity-60 cursor-wait" : ""}`}
                       >
                         <FileText className="w-4 h-4 mr-1.5" />
                         <span>Single Page</span>
                       </button>
                       <button
                         type="button"
+                        disabled={isPreparing}
                         onClick={() => handleToggleArchitecture("multi_page")}
-                        className={`arch-toggle-btn ${architectureType === "multi_page" ? "active" : ""}`}
+                        className={`arch-toggle-btn ${architectureType === "multi_page" ? "active" : ""} ${isPreparing ? "opacity-60 cursor-wait" : ""}`}
                       >
                         <Layers className="w-4 h-4 mr-1.5" />
                         <span>Multi-Page ({pages.length > 1 ? pages.length : multiPageCache.length} Pages)</span>
@@ -1817,7 +1828,7 @@ export default function GenerateTemplatePage() {
                   </div>
                 </div>
 
-                {error && <p className="error-text mb-4">{error}</p>}
+                {error && <p className="error-text mb-4">{toReadableText(error)}</p>}
 
                 {/* Questions */}
                 {questions.length > 0 && (
@@ -1825,7 +1836,7 @@ export default function GenerateTemplatePage() {
                     <h3 className="section-subtitle">Styling & Design Preferences</h3>
                     {questions.map((q) => (
                       <div key={q.id} className="question-group">
-                        <label className="prompt-label">{q.question}</label>
+                        <label className="prompt-label">{toReadableText(q.question)}</label>
                         <div className="options-grid">
                           {q.options.map((opt) => (
                             <button
@@ -1949,7 +1960,7 @@ export default function GenerateTemplatePage() {
                     <div>
                       <h2 className="text-xl font-bold text-foreground">Autonomous Multi-Agent Synthesis</h2>
                       <p className="text-xs text-muted-foreground">
-                        Coordinated 8-Agent pipeline is engineering, auditing, and packaging your full-stack project in real time.
+                        The Studio is planning, building, checking, and packaging your static frontend website.
                       </p>
                     </div>
                   </div>
@@ -2046,7 +2057,7 @@ export default function GenerateTemplatePage() {
                 <div className="success-header">
                   <CheckCircle2 className="success-icon text-emerald-500 animate-bounce" />
                   <h2>Project Successfully Created!</h2>
-                  <p>Your custom website project has been generated and saved in your Dashboard under Studio Projects. You can preview and edit it in the live canvas editor, or add it to cart to unlock full source code download and deployment.</p>
+                  <p>Your website project is saved privately in Studio Projects. It is not a marketplace listing or a purchasable template. Preview it here or open your dashboard to continue editing.</p>
                 </div>
 
                 <div
@@ -2065,7 +2076,6 @@ export default function GenerateTemplatePage() {
                   <div className="card-info">
                     <div className="card-meta">
                       <span className="category-tag">{generatedTemplate.industry}</span>
-                      <span className="price-tag">${generatedTemplate.price || 49}</span>
                     </div>
                     <h3 className="card-title flex items-center justify-between">
                       <span>{generatedTemplate.title}</span>
@@ -2081,27 +2091,6 @@ export default function GenerateTemplatePage() {
                 </div>
 
                 <div className="success-actions flex flex-wrap items-center justify-center gap-3 mt-6">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      addToCart({
-                        templateId: generatedTemplate.id,
-                        title: generatedTemplate.title,
-                        price: generatedTemplate.price || 49,
-                        thumbnail: generatedTemplate.thumbnail_url,
-                        licenseType: "regular",
-                      });
-                    }}
-                    className={`px-5 py-3 font-bold rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-md ${
-                      isInCart
-                        ? "bg-emerald-500/20 text-emerald-500 border border-emerald-500/40"
-                        : "bg-primary text-primary-foreground hover:opacity-90 shadow-primary/20"
-                    }`}
-                  >
-                    <ShoppingCart className="w-4 h-4" />
-                    <span>{isInCart ? "In Cart (Proceed to Checkout)" : "Add to Cart ($" + (generatedTemplate.price || 49) + ")"}</span>
-                  </button>
-
                   <Link
                     to="/dashboard?tab=studio-projects"
                     className="secondary-action-btn border border-border bg-card text-foreground hover:bg-muted font-semibold py-3 px-4 rounded-xl flex items-center gap-2"
