@@ -463,12 +463,19 @@ def analyze_prompt_intent(
         ]
 
     # Colors: prefer UI Designer Agent's tokens if provided
+    is_light_request = any(k in p_lower for k in ["white", "light theme", "light mode", "clean white", "cream"]) or (design and any(k in str(design.get("aesthetic", "")).lower() for k in ["light", "white"]))
+
     c_primary = (design.get("primary_hex") if design else "") or config["colors"]["primary"]
-    c_secondary = (design.get("secondary_hex") if design else "") or config["colors"]["secondary"]
-    c_accent = (design.get("accent_hex") if design else "") or config["colors"]["accent"]
-    c_bg = (design.get("bg_hex") if design else "") or config["colors"]["bg"]
-    c_card = (design.get("card_hex") if design else "") or config["colors"]["card"]
-    c_text = (design.get("text_hex") if design else "") or config["colors"]["text"]
+    c_secondary = (design.get("secondary_hex") if design else "") or ("#ffffff" if is_light_request else config["colors"]["secondary"])
+    c_accent = (design.get("accent_hex") if design else "") or ("#0f172a" if is_light_request else config["colors"]["accent"])
+    c_bg = (design.get("bg_hex") if design else "") or ("#ffffff" if is_light_request else config["colors"]["bg"])
+    c_card = (design.get("card_hex") if design else "") or ("#f8fafc" if is_light_request else config["colors"]["card"])
+    c_text = (design.get("text_hex") if design else "") or ("#0f172a" if is_light_request else config["colors"]["text"])
+
+    if is_light_request and c_bg.lower() in ["#0f172a", "#000000", "#111827", "#090d16", "#1e293b", "#09090b", "#0f0f11", "#040405"]:
+        c_bg = "#ffffff"
+        c_card = "#f8fafc"
+        c_text = "#0f172a"
 
     return DomainProfile(
         industry_key=matched_key,
@@ -503,6 +510,25 @@ def synthesize_react_application(profile: DomainProfile) -> str:
     Generates a 100% syntactically valid, production-ready, beautiful multi-page React application
     tailored with real-world copy, verified photography, Lucide React icons, and state navigation.
     """
+    is_light = any(k in profile.bg_hex.lower() for k in ['#fff', '#f8', '#fa', '#f1', 'white', '#e6e']) or profile.text_hex.lower() in ['#0f172a', '#1e293b', '#000000', '#111827']
+    h_class = "text-slate-900" if is_light else "text-white"
+    p_class = "text-slate-600" if is_light else "text-slate-400"
+    quote_class = "text-slate-700 italic" if is_light else "text-slate-300 italic"
+    card_border = "border border-slate-200/90 shadow-sm" if is_light else "border border-white/10"
+    card_hover = "hover:border-slate-300 hover:shadow-md" if is_light else "hover:border-white/25"
+    hdr_bg = "bg-white/95 border-b border-slate-200/90 shadow-sm" if is_light else "bg-black/50 border-b border-white/10"
+    hdr_text = "text-slate-900" if is_light else "text-white"
+    nav_box = "bg-slate-100/90 border border-slate-200" if is_light else "bg-white/5 border border-white/10"
+    nav_active_btn = "text-slate-900 bg-white border border-slate-200 shadow-sm font-bold" if is_light else "text-white bg-white/10 border border-white/20 font-bold"
+    nav_inactive_btn = "text-slate-600 hover:text-slate-900" if is_light else "text-slate-400 hover:text-white"
+    mobile_drawer = "bg-white/98 border-b border-slate-200 shadow-xl" if is_light else "bg-slate-950/95 border-b border-white/10"
+    pill_badge = "border-slate-200 bg-slate-100" if is_light else "border-white/10 bg-white/5"
+    btn_story = "bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200" if is_light else "bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10"
+    inquire_btn = "border border-slate-200 text-slate-800 hover:bg-slate-100" if is_light else "border border-white/10 text-white hover:bg-white/5"
+    input_box = "bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-slate-500 shadow-sm" if is_light else "bg-black/40 border-white/10 text-white focus:border-white/30"
+    label_txt = "text-slate-700 font-semibold" if is_light else "text-slate-300 font-semibold"
+    ftr_cls = "border-t border-slate-200 text-slate-500 bg-slate-50/50" if is_light else "border-t border-white/10 text-slate-500"
+
     # Pre-render Nav Buttons
     nav_buttons = []
     for p in profile.pages:
@@ -510,7 +536,7 @@ def synthesize_react_application(profile: DomainProfile) -> str:
         nav_buttons.append(f"""          <button
             onClick={{() => setCurrentPage('{key}')}}
             className={{`px-3.5 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-all ${{
-              currentPage === '{key}' ? 'text-white bg-white/10 border border-white/20 font-bold' : 'text-slate-400 hover:text-white'
+              currentPage === '{key}' ? '{nav_active_btn}' : '{nav_inactive_btn}'
             }}`}}
           >
             {p['name']}
@@ -521,29 +547,29 @@ def synthesize_react_application(profile: DomainProfile) -> str:
     features_html = []
     for idx, f in enumerate(profile.features):
         icon_name = "Zap" if idx == 0 else ("Shield" if idx == 1 else "Star")
-        features_html.append(f"""              <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="p-7 rounded-2xl border border-white/10 hover:border-white/25 transition-all">
+        features_html.append(f"""              <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="p-7 rounded-2xl {card_border} {card_hover} transition-all">
                 <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white mb-5 shadow-lg" style={{{{ backgroundColor: '{profile.primary_hex}' }}}}>
                   <{icon_name} className="w-6 h-6" />
                 </div>
-                <h3 className="text-xl font-bold text-white mb-2.5">{f['title']}</h3>
-                <p className="text-sm text-slate-400 leading-relaxed">{f['desc']}</p>
+                <h3 className="text-xl font-bold {h_class} mb-2.5">{f['title']}</h3>
+                <p className="text-sm {p_class} leading-relaxed">{f['desc']}</p>
               </div>""")
     features_str = "\n".join(features_html)
 
     # Pre-render Offerings / Pricing
     offerings_html = []
     for o in profile.offerings:
-        offerings_html.append(f"""              <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="p-7 rounded-2xl border border-white/10 hover:border-white/25 transition-all flex flex-col justify-between">
+        offerings_html.append(f"""              <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="p-7 rounded-2xl {card_border} {card_hover} transition-all flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-3">
-                    <h3 className="text-lg font-bold text-white">{o['title']}</h3>
+                    <h3 className="text-lg font-bold {h_class}">{o['title']}</h3>
                     <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold" style={{{{ backgroundColor: '{profile.primary_hex}22', color: '{profile.primary_hex}' }}}}>{o['price']}</span>
                   </div>
-                  <p className="text-xs text-slate-400 leading-relaxed mb-6">{o['desc']}</p>
+                  <p className="text-xs {p_class} leading-relaxed mb-6">{o['desc']}</p>
                 </div>
                 <button
                   onClick={{() => setCurrentPage('contact')}}
-                  className="w-full py-2.5 rounded-xl border border-white/10 text-xs font-bold text-white hover:bg-white/5 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                  className="w-full py-2.5 rounded-xl {inquire_btn} text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
                 >
                   <span>Select & Inquire</span>
                   <ArrowRight className="w-3.5 h-3.5" />
@@ -554,7 +580,8 @@ def synthesize_react_application(profile: DomainProfile) -> str:
     # Pre-render Gallery
     gallery_html = []
     for idx, img in enumerate(profile.gallery_images):
-        gallery_html.append(f"""              <div className="group overflow-hidden rounded-2xl border border-white/10 bg-slate-900">
+        gallery_border = "border border-slate-200 bg-slate-100" if is_light else "border border-white/10 bg-slate-900"
+        gallery_html.append(f"""              <div className="group overflow-hidden rounded-2xl {gallery_border}">
                 <img src="{img}" alt="{profile.business_title} showcase {idx + 1}" className="w-full h-64 object-cover group-hover:scale-105 transition-transform duration-500" />
               </div>""")
     gallery_str = "\n".join(gallery_html)
@@ -562,20 +589,20 @@ def synthesize_react_application(profile: DomainProfile) -> str:
     # Pre-render Team
     team_html = []
     for t in profile.team:
-        team_html.append(f"""              <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="p-6 rounded-2xl border border-white/10 text-center">
+        team_html.append(f"""              <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="p-6 rounded-2xl {card_border} text-center">
                 <div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center text-white font-bold text-lg" style={{{{ backgroundColor: '{profile.primary_hex}' }}}}>
                   {t['name'][0]}
                 </div>
-                <h4 className="text-base font-bold text-white mb-1">{t['name']}</h4>
+                <h4 className="text-base font-bold {h_class} mb-1">{t['name']}</h4>
                 <p className="text-xs font-mono mb-2" style={{{{ color: '{profile.accent_hex}' }}}}>{t['role']}</p>
-                <p className="text-xs text-slate-400 leading-relaxed">{t['desc']}</p>
+                <p className="text-xs {p_class} leading-relaxed">{t['desc']}</p>
               </div>""")
     team_str = "\n".join(team_html)
 
     # Pre-render Testimonials
     testi_html = []
     for t in profile.testimonials:
-        testi_html.append(f"""              <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="p-6 rounded-2xl border border-white/10">
+        testi_html.append(f"""              <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="p-6 rounded-2xl {card_border}">
                 <div className="flex gap-1 text-amber-400 mb-3">
                   <Star className="w-4 h-4 fill-amber-400" />
                   <Star className="w-4 h-4 fill-amber-400" />
@@ -583,10 +610,10 @@ def synthesize_react_application(profile: DomainProfile) -> str:
                   <Star className="w-4 h-4 fill-amber-400" />
                   <Star className="w-4 h-4 fill-amber-400" />
                 </div>
-                <p className="text-sm text-slate-300 italic mb-4 leading-relaxed">"{t['quote']}"</p>
+                <p className="text-sm {quote_class} mb-4 leading-relaxed">"{t['quote']}"</p>
                 <div className="text-xs">
-                  <span className="font-bold text-white block">{t['name']}</span>
-                  <span className="text-slate-400">{t['role']}</span>
+                  <span className="font-bold {h_class} block">{t['name']}</span>
+                  <span className="{p_class}">{t['role']}</span>
                 </div>
               </div>""")
     testi_str = "\n".join(testi_html)
@@ -601,18 +628,18 @@ export default function App() {{
 
   return (
     <div style={{{{ backgroundColor: '{profile.bg_hex}', color: '{profile.text_hex}' }}}} className="min-h-screen flex flex-col font-sans selection:bg-[{profile.primary_hex}] selection:text-white">
-      <header className="sticky top-0 z-50 backdrop-blur-xl bg-black/50 border-b border-white/10 px-4 sm:px-8 py-3.5 flex items-center justify-between">
+      <header className="sticky top-0 z-50 backdrop-blur-xl {hdr_bg} px-4 sm:px-8 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-3 cursor-pointer" onClick={{() => setCurrentPage('home')}}>
           <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-black text-sm shadow-lg" style={{{{ backgroundColor: '{profile.primary_hex}' }}}}>
             <Sparkles className="w-5 h-5 text-white" />
           </div>
           <div>
-            <span className="font-extrabold text-base tracking-tight text-white block">{profile.business_title}</span>
-            <span className="text-[10px] text-slate-400 block -mt-0.5">{profile.domain_name}</span>
+            <span className="font-extrabold text-base tracking-tight {hdr_text} block">{profile.business_title}</span>
+            <span className="text-[10px] {p_class} block -mt-0.5">{profile.domain_name}</span>
           </div>
         </div>
 
-        <nav className="hidden md:flex items-center gap-1.5 bg-white/5 px-2.5 py-1.5 rounded-xl border border-white/10">
+        <nav className="hidden md:flex items-center gap-1.5 {nav_box} px-2.5 py-1.5 rounded-xl">
 {nav_buttons_str}
         </nav>
 
@@ -627,13 +654,13 @@ export default function App() {{
           </button>
         </div>
 
-        <button onClick={{() => setMobileMenuOpen(!mobileMenuOpen)}} className="md:hidden p-2 text-slate-300 hover:text-white">
+        <button onClick={{() => setMobileMenuOpen(!mobileMenuOpen)}} className="md:hidden p-2 {nav_inactive_btn}">
           {{mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}}
         </button>
       </header>
 
       {{mobileMenuOpen && (
-        <div className="md:hidden bg-slate-950/95 border-b border-white/10 px-6 py-4 space-y-2">
+        <div className="md:hidden {mobile_drawer} px-6 py-4 space-y-2">
 {nav_buttons_str}
         </div>
       )}}
@@ -643,14 +670,14 @@ export default function App() {{
           <section className="space-y-20 animate-fade-in">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center pt-4">
               <div>
-                <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-mono mb-6" style={{{{ color: '{profile.accent_hex}' }}}}>
+                <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border {pill_badge} text-xs font-mono mb-6" style={{{{ color: '{profile.accent_hex}' }}}}>
                   <Sparkles className="w-3.5 h-3.5" />
                   <span>{profile.domain_name}</span>
                 </div>
-                <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-white mb-6 leading-tight">
+                <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight {h_class} mb-6 leading-tight">
                   {profile.tagline}
                 </h1>
-                <p className="text-base sm:text-lg text-slate-400 mb-8 leading-relaxed">
+                <p className="text-base sm:text-lg {p_class} mb-8 leading-relaxed">
                   {profile.value_prop}
                 </p>
                 <div className="flex flex-wrap items-center gap-4">
@@ -664,7 +691,7 @@ export default function App() {{
                   </button>
                   <button
                     onClick={{() => setCurrentPage('about')}}
-                    className="px-6 py-3.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 font-bold text-sm transition-all cursor-pointer"
+                    className="px-6 py-3.5 rounded-xl {btn_story} font-bold text-sm transition-all cursor-pointer"
                   >
                     Our Story
                   </button>
@@ -675,13 +702,13 @@ export default function App() {{
                 <div className="overflow-hidden rounded-3xl border border-white/15 shadow-2xl shadow-black/50">
                   <img src="{profile.hero_image}" alt="{profile.business_title} showcase" className="w-full h-96 sm:h-[450px] object-cover hover:scale-105 transition-transform duration-700" />
                 </div>
-                <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="absolute -bottom-6 -left-6 p-4 rounded-2xl border border-white/15 shadow-2xl hidden sm:flex items-center gap-3">
+                <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="absolute -bottom-6 -left-6 p-4 rounded-2xl {card_border} shadow-2xl hidden sm:flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white" style={{{{ backgroundColor: '{profile.primary_hex}' }}}}>
                     <Star className="w-5 h-5 fill-white" />
                   </div>
                   <div>
-                    <span className="font-extrabold text-sm text-white block">4.9 / 5.0 Rating</span>
-                    <span className="text-[11px] text-slate-400">Over 500+ Verified Reviews</span>
+                    <span className="font-extrabold text-sm {h_class} block">4.9 / 5.0 Rating</span>
+                    <span className="text-[11px] {p_class}">Over 500+ Verified Reviews</span>
                   </div>
                 </div>
               </div>
@@ -692,7 +719,7 @@ export default function App() {{
             </div>
 
             <div className="pt-8">
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-white text-center mb-8">What Our Clients Say</h2>
+              <h2 className="text-2xl sm:text-3xl font-extrabold {h_class} text-center mb-8">What Our Clients Say</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
 {testi_str}
               </div>
@@ -704,25 +731,25 @@ export default function App() {{
           <section className="space-y-16 animate-fade-in max-w-4xl mx-auto py-8">
             <div className="text-center">
               <span className="text-xs font-mono uppercase tracking-wider block mb-2" style={{{{ color: '{profile.primary_hex}' }}}}>Heritage & Mission</span>
-              <h2 className="text-3xl sm:text-5xl font-extrabold text-white mb-4">About {profile.business_title}</h2>
-              <p className="text-slate-400 leading-relaxed text-sm sm:text-base max-w-2xl mx-auto">
+              <h2 className="text-3xl sm:text-5xl font-extrabold {h_class} mb-4">About {profile.business_title}</h2>
+              <p className="{p_class} leading-relaxed text-sm sm:text-base max-w-2xl mx-auto">
                 {profile.value_prop}
               </p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-              <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="p-7 rounded-2xl border border-white/10">
-                <h3 className="text-lg font-bold text-white mb-2">Our Standard of Excellence</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">Every detail is carefully calibrated to provide unmatched reliability, refined aesthetics, and transparent client experiences.</p>
+              <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="p-7 rounded-2xl {card_border}">
+                <h3 className="text-lg font-bold {h_class} mb-2">Our Standard of Excellence</h3>
+                <p className="text-xs {p_class} leading-relaxed">Every detail is carefully calibrated to provide unmatched reliability, refined aesthetics, and transparent client experiences.</p>
               </div>
-              <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="p-7 rounded-2xl border border-white/10">
-                <h3 className="text-lg font-bold text-white mb-2">Sustainable & Modern</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">Embracing the latest industry standards, continuous technological optimization, and sustainable community practices.</p>
+              <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="p-7 rounded-2xl {card_border}">
+                <h3 className="text-lg font-bold {h_class} mb-2">Sustainable & Modern</h3>
+                <p className="text-xs {p_class} leading-relaxed">Embracing the latest industry standards, continuous technological optimization, and sustainable community practices.</p>
               </div>
             </div>
 
             <div>
-              <h3 className="text-2xl font-bold text-white text-center mb-8">Leadership Team</h3>
+              <h3 className="text-2xl font-bold {h_class} text-center mb-8">Leadership Team</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
 {team_str}
               </div>
@@ -734,8 +761,8 @@ export default function App() {{
           <section className="space-y-12 animate-fade-in py-8">
             <div className="text-center max-w-2xl mx-auto">
               <span className="text-xs font-mono uppercase tracking-wider block mb-2" style={{{{ color: '{profile.primary_hex}' }}}}>Our Menu & Services</span>
-              <h2 className="text-3xl sm:text-5xl font-extrabold text-white mb-4">Curated Offerings</h2>
-              <p className="text-slate-400 text-sm">Engineered with precision, passion, and uncompromising quality.</p>
+              <h2 className="text-3xl sm:text-5xl font-extrabold {h_class} mb-4">Curated Offerings</h2>
+              <p className="{p_class} text-sm">Engineered with precision, passion, and uncompromising quality.</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -748,8 +775,8 @@ export default function App() {{
           <section className="space-y-12 animate-fade-in py-8">
             <div className="text-center max-w-2xl mx-auto">
               <span className="text-xs font-mono uppercase tracking-wider block mb-2" style={{{{ color: '{profile.primary_hex}' }}}}>Visual Portfolio</span>
-              <h2 className="text-3xl sm:text-5xl font-extrabold text-white mb-4">Work & Atmosphere</h2>
-              <p className="text-slate-400 text-sm">A glimpse into our daily craft, creations, and welcoming environment.</p>
+              <h2 className="text-3xl sm:text-5xl font-extrabold {h_class} mb-4">Work & Atmosphere</h2>
+              <p className="{p_class} text-sm">A glimpse into our daily craft, creations, and welcoming environment.</p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
@@ -762,67 +789,67 @@ export default function App() {{
           <section className="animate-fade-in max-w-4xl mx-auto py-8">
             <div className="text-center mb-10">
               <span className="text-xs font-mono uppercase tracking-wider block mb-2" style={{{{ color: '{profile.primary_hex}' }}}}>Connect With Us</span>
-              <h2 className="text-3xl sm:text-5xl font-extrabold text-white mb-3">Book & Inquire</h2>
-              <p className="text-slate-400 text-xs sm:text-sm">Reach out directly and our team will get back to you within 24 hours.</p>
+              <h2 className="text-3xl sm:text-5xl font-extrabold {h_class} mb-3">Book & Inquire</h2>
+              <p className="{p_class} text-xs sm:text-sm">Reach out directly and our team will get back to you within 24 hours.</p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div className="lg:col-span-1 space-y-4">
-                <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="p-5 rounded-2xl border border-white/10 flex items-start gap-3.5">
+                <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="p-5 rounded-2xl {card_border} flex items-start gap-3.5">
                   <Mail className="w-5 h-5 shrink-0" style={{{{ color: '{profile.primary_hex}' }}}} />
                   <div>
-                    <h4 className="text-xs font-bold text-white">Direct Email</h4>
-                    <p className="text-xs text-slate-400 mt-0.5">{profile.contact_info['email']}</p>
+                    <h4 className="text-xs font-bold {h_class}">Direct Email</h4>
+                    <p className="text-xs {p_class} mt-0.5">{profile.contact_info['email']}</p>
                   </div>
                 </div>
-                <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="p-5 rounded-2xl border border-white/10 flex items-start gap-3.5">
+                <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="p-5 rounded-2xl {card_border} flex items-start gap-3.5">
                   <Phone className="w-5 h-5 shrink-0" style={{{{ color: '{profile.primary_hex}' }}}} />
                   <div>
-                    <h4 className="text-xs font-bold text-white">Phone Support</h4>
-                    <p className="text-xs text-slate-400 mt-0.5">{profile.contact_info['phone']}</p>
+                    <h4 className="text-xs font-bold {h_class}">Phone Support</h4>
+                    <p className="text-xs {p_class} mt-0.5">{profile.contact_info['phone']}</p>
                   </div>
                 </div>
-                <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="p-5 rounded-2xl border border-white/10 flex items-start gap-3.5">
+                <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="p-5 rounded-2xl {card_border} flex items-start gap-3.5">
                   <MapPin className="w-5 h-5 shrink-0" style={{{{ color: '{profile.primary_hex}' }}}} />
                   <div>
-                    <h4 className="text-xs font-bold text-white">Headquarters</h4>
-                    <p className="text-xs text-slate-400 mt-0.5">{profile.contact_info['address']}</p>
+                    <h4 className="text-xs font-bold {h_class}">Headquarters</h4>
+                    <p className="text-xs {p_class} mt-0.5">{profile.contact_info['address']}</p>
                   </div>
                 </div>
               </div>
 
-              <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="lg:col-span-2 p-8 rounded-3xl border border-white/10 shadow-2xl">
+              <div style={{{{ backgroundColor: '{profile.card_hex}' }}}} className="lg:col-span-2 p-8 rounded-3xl {card_border} shadow-2xl">
                 {{contactSubmitted ? (
                   <div className="text-center py-10 space-y-3">
                     <div className="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto">
                       <Check className="w-7 h-7" />
                     </div>
-                    <h3 className="text-xl font-bold text-white">Message Dispatched</h3>
-                    <p className="text-xs text-slate-400 max-w-sm mx-auto">Thank you for contacting {profile.business_title}. Our team is reviewing your inquiry and will respond shortly.</p>
+                    <h3 className="text-xl font-bold {h_class}">Static Form Preview</h3>
+                    <p className="text-xs {p_class} max-w-sm mx-auto">This static website does not send or save messages. Connect a form service to receive submissions.</p>
                     <button onClick={{() => setContactSubmitted(false)}} className="text-xs text-cyan-400 underline pt-2 cursor-pointer">Submit another inquiry</button>
                   </div>
                 ) : (
                   <form onSubmit={{(e) => {{ e.preventDefault(); setContactSubmitted(true); }}}} className="space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-semibold text-slate-300 mb-1.5">Your Name</label>
-                        <input required placeholder="Alex Rivera" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/30" />
+                        <label className="block text-xs {label_txt} mb-1.5">Your Name</label>
+                        <input required placeholder="Alex Rivera" className="w-full {input_box} rounded-xl px-4 py-3 text-sm focus:outline-none" />
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-slate-300 mb-1.5">Email Address</label>
-                        <input required type="email" placeholder="alex@company.com" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/30" />
+                        <label className="block text-xs {label_txt} mb-1.5">Email Address</label>
+                        <input required type="email" placeholder="alex@company.com" className="w-full {input_box} rounded-xl px-4 py-3 text-sm focus:outline-none" />
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1.5">Inquiry Details</label>
-                      <textarea required rows={{4}} placeholder="Tell us how we can help you..." className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/30"></textarea>
+                      <label className="block text-xs {label_txt} mb-1.5">Inquiry Details</label>
+                      <textarea required rows={{4}} placeholder="Tell us how we can help you..." className="w-full {input_box} rounded-xl px-4 py-3 text-sm focus:outline-none"></textarea>
                     </div>
                     <button
                       type="submit"
                       style={{{{ backgroundColor: '{profile.primary_hex}' }}}}
                       className="w-full py-3.5 rounded-xl text-white font-bold text-sm shadow-xl hover:opacity-90 transition-all cursor-pointer"
                     >
-                      Send Message &rarr;
+                      Message Service Required
                     </button>
                   </form>
                 )}}
@@ -832,7 +859,7 @@ export default function App() {{
         )}}
       </main>
 
-      <footer className="border-t border-white/10 py-8 px-6 text-center text-xs text-slate-500">
+      <footer className="{ftr_cls} py-8 px-6 text-center text-xs">
         &copy; {{new Date().getFullYear()}} {profile.business_title}. Engineered with AI Site Studio.
       </footer>
     </div>
@@ -846,28 +873,45 @@ def synthesize_vue_application(profile: DomainProfile) -> str:
     Synthesizes a production-ready Vue 3 Single File Component (App.vue)
     with <template>, <script setup>, and <style scoped>.
     """
+    is_light = any(k in profile.bg_hex.lower() for k in ['#fff', '#f8', '#fa', '#f1', 'white', '#e6e']) or profile.text_hex.lower() in ['#0f172a', '#1e293b', '#000000', '#111827']
+    h_class = "text-slate-900" if is_light else "text-white"
+    p_class = "text-slate-600" if is_light else "text-slate-400"
+    quote_class = "text-slate-700 italic" if is_light else "text-slate-300 italic"
+    card_border = "border border-slate-200/90 shadow-sm" if is_light else "border border-white/10"
+    card_hover = "hover:border-slate-300 hover:shadow-md" if is_light else "hover:border-white/20"
+    hdr_bg = "bg-white/95 border-b border-slate-200/90 shadow-sm" if is_light else "bg-slate-950/80 border-b border-white/10"
+    hdr_text = "text-slate-900" if is_light else "text-white"
+    nav_btn_inactive = "text-slate-600 hover:text-slate-900" if is_light else "text-slate-300 hover:text-white"
+    mobile_drawer = "bg-white/98 border-b border-slate-200 shadow-xl" if is_light else "bg-slate-950/95 border-b border-white/10"
+    pill_badge = "border-slate-200 bg-slate-100" if is_light else "border-white/10 bg-white/5"
+    btn_story = "bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200" if is_light else "bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10"
+    input_box = "bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-slate-500 shadow-sm" if is_light else "bg-black/40 border-white/10 text-white focus:border-white/30"
+    label_txt = "text-slate-700 font-semibold" if is_light else "text-slate-300 font-semibold"
+    ftr_cls = "border-t border-slate-200 py-8 px-6 text-center text-xs text-slate-500 bg-slate-50/50" if is_light else "border-t border-white/10 py-8 px-6 text-center text-xs text-slate-500"
+    border_divider = "border-t border-slate-200" if is_light else "border-t border-white/10"
+
     features_html = ""
     for f in profile.features:
         features_html += f"""
-              <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl border border-white/10 hover:border-white/20 transition-all">
+              <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl {card_border} {card_hover} transition-all">
                 <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white mb-4" style="background-color: {profile.primary_hex};">
                   <span class="text-lg">✦</span>
                 </div>
-                <h3 class="text-lg font-bold text-white mb-2">{f['title']}</h3>
-                <p class="text-xs text-slate-400 leading-relaxed">{f['desc']}</p>
+                <h3 class="text-lg font-bold {h_class} mb-2">{f['title']}</h3>
+                <p class="text-xs {p_class} leading-relaxed">{f['desc']}</p>
               </div>"""
 
     offerings_html = ""
     for o in profile.offerings:
         badge = f"""<span class="text-[11px] font-mono font-bold px-2.5 py-1 rounded-full text-white" style="background-color: {profile.primary_hex};">{o['price']}</span>""" if o.get('price') else ""
         offerings_html += f"""
-              <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl border border-white/10 hover:border-white/20 transition-all flex flex-col justify-between">
+              <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl {card_border} {card_hover} transition-all flex flex-col justify-between">
                 <div>
                   <div class="flex items-center justify-between gap-4 mb-3">
-                    <h3 class="text-base font-bold text-white">{o['title']}</h3>
+                    <h3 class="text-base font-bold {h_class}">{o['title']}</h3>
                     {badge}
                   </div>
-                  <p class="text-xs text-slate-400 leading-relaxed">{o['desc']}</p>
+                  <p class="text-xs {p_class} leading-relaxed">{o['desc']}</p>
                 </div>
                 <button @click="setPage('contact')" class="mt-6 w-full py-2.5 rounded-xl text-white font-bold text-xs shadow-md transition-all hover:opacity-90" style="background-color: {profile.primary_hex};">
                   Inquire Now &rarr;
@@ -877,28 +921,30 @@ def synthesize_vue_application(profile: DomainProfile) -> str:
     team_html = ""
     for tm in profile.team:
         team_html += f"""
-              <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl border border-white/10">
+              <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl {card_border}">
                 <div class="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-base mb-4" style="background-color: {profile.primary_hex};">
                   {tm['name'][:2].upper()}
                 </div>
-                <h4 class="text-base font-bold text-white">{tm['name']}</h4>
+                <h4 class="text-base font-bold {h_class}">{tm['name']}</h4>
                 <p class="text-xs font-semibold mb-2" style="color: {profile.accent_hex};">{tm['role']}</p>
-                <p class="text-xs text-slate-400">{tm['desc']}</p>
+                <p class="text-xs {p_class}">{tm['desc']}</p>
               </div>"""
 
     testimonials_html = ""
     for t in profile.testimonials:
         testimonials_html += f"""
-              <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl border border-white/10">
+              <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl {card_border}">
                 <div class="flex items-center gap-1 text-amber-400 mb-3 text-sm">
                   <span>★</span><span>★</span><span>★</span><span>★</span><span>★</span>
                 </div>
-                <p class="text-xs text-slate-300 italic mb-4">"{t['quote']}"</p>
-                <div class="border-t border-white/10 pt-3">
-                  <p class="text-xs font-bold text-white">{t['name']}</p>
-                  <p class="text-[11px] text-slate-400">{t['role']}</p>
+                <p class="text-xs {quote_class} mb-4">"{t['quote']}"</p>
+                <div class="{border_divider} pt-3">
+                  <p class="text-xs font-bold {h_class}">{t['name']}</p>
+                  <p class="text-[11px] {p_class}">{t['role']}</p>
                 </div>
               </div>"""
+
+    nav_active_expr = "background-color: rgba(0,0,0,0.06); color: #0f172a; font-weight: 700;' : 'color: #64748b;" if is_light else "background-color: rgba(255,255,255,0.1); color: #ffffff;' : 'color: #94a3b8;"
 
     return f"""<script setup>
 import {{ ref }} from 'vue'
@@ -922,14 +968,14 @@ function setPage(pageId) {{
 </script>
 
 <template>
-  <div class="min-h-screen font-sans text-slate-100 flex flex-col" style="background-color: {profile.bg_hex}; color: {profile.text_hex};">
+  <div class="min-h-screen font-sans flex flex-col" style="background-color: {profile.bg_hex}; color: {profile.text_hex};">
     <!-- Header -->
-    <header class="sticky top-0 z-50 backdrop-blur-md bg-slate-950/80 border-b border-white/10 px-4 sm:px-8 py-3.5 flex items-center justify-between">
+    <header class="sticky top-0 z-50 backdrop-blur-md {hdr_bg} px-4 sm:px-8 py-3.5 flex items-center justify-between">
       <div class="flex items-center gap-2 cursor-pointer" @click="setPage('home')">
         <div class="w-8 h-8 rounded-xl flex items-center justify-center text-white font-black text-sm" style="background-color: {profile.primary_hex};">
           ✦
         </div>
-        <span class="font-extrabold text-base tracking-tight text-white">{profile.business_title}</span>
+        <span class="font-extrabold text-base tracking-tight {hdr_text}">{profile.business_title}</span>
       </div>
 
       <nav class="hidden md:flex items-center gap-1">
@@ -938,7 +984,7 @@ function setPage(pageId) {{
           :key="p.id"
           @click="setPage(p.id)"
           class="px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer"
-          :style="currentPage === p.id ? 'background-color: rgba(255,255,255,0.1); color: #ffffff;' : 'color: #94a3b8;'"
+          :style="currentPage === p.id ? '{nav_active_expr}'"
         >
           {{{{ p.name }}}}
         </button>
@@ -954,12 +1000,12 @@ function setPage(pageId) {{
         </button>
       </div>
 
-      <button @click="mobileMenuOpen = !mobileMenuOpen" class="md:hidden p-2 text-slate-300 hover:text-white">
+      <button @click="mobileMenuOpen = !mobileMenuOpen" class="md:hidden p-2 {nav_btn_inactive}">
         ☰
       </button>
     </header>
 
-    <div v-if="mobileMenuOpen" class="md:hidden bg-slate-950/95 border-b border-white/10 px-6 py-4 space-y-2">
+    <div v-if="mobileMenuOpen" class="md:hidden {mobile_drawer} px-6 py-4 space-y-2">
       <button
         v-for="p in navPages"
         :key="p.id"
@@ -977,13 +1023,13 @@ function setPage(pageId) {{
       <section v-if="currentPage === 'home'" class="space-y-16">
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center pt-4">
           <div>
-            <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-mono mb-6" style="color: {profile.accent_hex};">
+            <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border {pill_badge} text-xs font-mono mb-6" style="color: {profile.accent_hex};">
               <span>✦ {profile.domain_name}</span>
             </div>
-            <h1 class="text-4xl sm:text-6xl font-extrabold tracking-tight text-white mb-6 leading-tight">
+            <h1 class="text-4xl sm:text-6xl font-extrabold tracking-tight {h_class} mb-6 leading-tight">
               {profile.tagline}
             </h1>
-            <p class="text-base sm:text-lg text-slate-400 mb-8 leading-relaxed">
+            <p class="text-base sm:text-lg {p_class} mb-8 leading-relaxed">
               {profile.value_prop}
             </p>
             <div class="flex flex-wrap items-center gap-4">
@@ -996,7 +1042,7 @@ function setPage(pageId) {{
               </button>
               <button
                 @click="setPage('about')"
-                class="px-6 py-3.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 font-bold text-sm transition-all cursor-pointer"
+                class="px-6 py-3.5 rounded-xl {btn_story} font-bold text-sm transition-all cursor-pointer"
               >
                 Our Story
               </button>
@@ -1007,13 +1053,13 @@ function setPage(pageId) {{
             <div class="overflow-hidden rounded-3xl border border-white/15 shadow-2xl">
               <img src="{profile.hero_image}" alt="{profile.business_title}" class="w-full h-96 sm:h-[450px] object-cover hover:scale-105 transition-transform duration-700" />
             </div>
-            <div style="background-color: {profile.card_hex};" class="absolute -bottom-6 -left-6 p-4 rounded-2xl border border-white/15 shadow-2xl hidden sm:flex items-center gap-3">
+            <div style="background-color: {profile.card_hex};" class="absolute -bottom-6 -left-6 p-4 rounded-2xl {card_border} shadow-2xl hidden sm:flex items-center gap-3">
               <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white" style="background-color: {profile.primary_hex};">
                 ★
               </div>
               <div>
-                <span class="font-extrabold text-sm text-white block">4.9 / 5.0 Rating</span>
-                <span class="text-[11px] text-slate-400">Over 500+ Verified Reviews</span>
+                <span class="font-extrabold text-sm {h_class} block">4.9 / 5.0 Rating</span>
+                <span class="text-[11px] {p_class}">Over 500+ Verified Reviews</span>
               </div>
             </div>
           </div>
@@ -1024,7 +1070,7 @@ function setPage(pageId) {{
         </div>
 
         <div class="pt-8">
-          <h2 class="text-2xl sm:text-3xl font-extrabold text-white text-center mb-8">What Our Clients Say</h2>
+          <h2 class="text-2xl sm:text-3xl font-extrabold {h_class} text-center mb-8">What Our Clients Say</h2>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
             {testimonials_html}
           </div>
@@ -1035,14 +1081,14 @@ function setPage(pageId) {{
       <section v-if="currentPage === 'about'" class="space-y-16 max-w-4xl mx-auto py-4">
         <div class="text-center">
           <span class="text-xs font-mono uppercase tracking-wider block mb-2" style="color: {profile.primary_hex};">Heritage & Mission</span>
-          <h2 class="text-3xl sm:text-5xl font-extrabold text-white mb-4">About {profile.business_title}</h2>
-          <p class="text-slate-400 leading-relaxed text-sm sm:text-base max-w-2xl mx-auto">
+          <h2 class="text-3xl sm:text-5xl font-extrabold {h_class} mb-4">About {profile.business_title}</h2>
+          <p class="{p_class} leading-relaxed text-sm sm:text-base max-w-2xl mx-auto">
             {profile.value_prop}
           </p>
         </div>
 
         <div>
-          <h3 class="text-2xl font-bold text-white text-center mb-8">Leadership Team</h3>
+          <h3 class="text-2xl font-bold {h_class} text-center mb-8">Leadership Team</h3>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
             {team_html}
           </div>
@@ -1053,8 +1099,8 @@ function setPage(pageId) {{
       <section v-if="currentPage === 'services'" class="space-y-12 py-4">
         <div class="text-center max-w-2xl mx-auto">
           <span class="text-xs font-mono uppercase tracking-wider block mb-2" style="color: {profile.primary_hex};">Our Catalog & Offerings</span>
-          <h2 class="text-3xl sm:text-5xl font-extrabold text-white mb-4">Curated Offerings</h2>
-          <p class="text-slate-400 text-sm">Crafted with precision, passion, and uncompromising quality.</p>
+          <h2 class="text-3xl sm:text-5xl font-extrabold {h_class} mb-4">Curated Offerings</h2>
+          <p class="{p_class} text-sm">Crafted with precision, passion, and uncompromising quality.</p>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -1066,58 +1112,60 @@ function setPage(pageId) {{
       <section v-if="currentPage === 'contact'" class="max-w-4xl mx-auto py-4">
         <div class="text-center mb-10">
           <span class="text-xs font-mono uppercase tracking-wider block mb-2" style="color: {profile.primary_hex};">Connect With Us</span>
-          <h2 class="text-3xl sm:text-5xl font-extrabold text-white mb-3">Book & Inquire</h2>
-          <p class="text-slate-400 text-xs sm:text-sm">Reach out directly and our team will get back to you within 24 hours.</p>
+          <h2 class="text-3xl sm:text-5xl font-extrabold {h_class} mb-3">Book & Inquire</h2>
+          <p class="{p_class} text-xs sm:text-sm">Reach out directly and our team will get back to you within 24 hours.</p>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div class="lg:col-span-1 space-y-4">
-            <div style="background-color: {profile.card_hex};" class="p-5 rounded-2xl border border-white/10">
-              <h4 class="text-xs font-bold text-white">Direct Email</h4>
-              <p class="text-xs text-slate-400 mt-1">{profile.contact_info['email']}</p>
+            <div style="background-color: {profile.card_hex};" class="p-5 rounded-2xl {card_border}">
+              <h4 class="text-xs font-bold {h_class}">Direct Email</h4>
+              <p class="text-xs {p_class} mt-1">{profile.contact_info['email']}</p>
             </div>
-            <div style="background-color: {profile.card_hex};" class="p-5 rounded-2xl border border-white/10">
-              <h4 class="text-xs font-bold text-white">Phone Support</h4>
-              <p class="text-xs text-slate-400 mt-1">{profile.contact_info['phone']}</p>
+            <div style="background-color: {profile.card_hex};" class="p-5 rounded-2xl {card_border}">
+              <h4 class="text-xs font-bold {h_class}">Phone Support</h4>
+              <p class="text-xs {p_class} mt-1">{profile.contact_info['phone']}</p>
             </div>
-            <div style="background-color: {profile.card_hex};" class="p-5 rounded-2xl border border-white/10">
-              <h4 class="text-xs font-bold text-white">Headquarters</h4>
-              <p class="text-xs text-slate-400 mt-1">{profile.contact_info['address']}</p>
+            <div style="background-color: {profile.card_hex};" class="p-5 rounded-2xl {card_border}">
+              <h4 class="text-xs font-bold {h_class}">Headquarters</h4>
+              <p class="text-xs {p_class} mt-1">{profile.contact_info['address']}</p>
             </div>
           </div>
 
-          <div style="background-color: {profile.card_hex};" class="lg:col-span-2 p-8 rounded-3xl border border-white/10 shadow-2xl">
+          <div style="background-color: {profile.card_hex};" class="lg:col-span-2 p-8 rounded-3xl {card_border} shadow-2xl">
             <div v-if="contactSubmitted" class="text-center py-10 space-y-3">
               <div class="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto text-2xl font-bold">
                 ✓
               </div>
-              <h3 class="text-xl font-bold text-white">Message Dispatched</h3>
-              <p class="text-xs text-slate-400 max-w-sm mx-auto">Thank you for contacting {profile.business_title}. We will respond shortly.</p>
+              <h3 class="text-xl font-bold {h_class}">Static Form Preview</h3>
+              <p class="text-xs {p_class} max-w-sm mx-auto">This static website does not send or save messages. Connect a form service to receive submissions.</p>
               <button @click="contactSubmitted = false" class="text-xs text-cyan-400 underline pt-2 cursor-pointer">Submit another inquiry</button>
             </div>
 
             <form v-else @submit.prevent="contactSubmitted = true" class="space-y-4">
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label class="block text-xs font-semibold text-slate-300 mb-1.5">Your Name</label>
-                  <input required placeholder="Alex Rivera" class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/30" />
+                  <label class="block text-xs {label_txt} mb-1.5">Your Name</label>
+                  <input required placeholder="Alex Rivera" class="w-full {input_box} rounded-xl px-4 py-3 text-sm focus:outline-none" />
                 </div>
                 <div>
-                  <label class="block text-xs font-semibold text-slate-300 mb-1.5">Email Address</label>
-                  <input required type="email" placeholder="alex@company.com" class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/30" />
+                  <label class="block text-xs {label_txt} mb-1.5">Email Address</label>
+                  <input required type="email" placeholder="alex@company.com" class="w-full {input_box} rounded-xl px-4 py-3 text-sm focus:outline-none" />
                 </div>
               </div>
               <div>
-                <label class="block text-xs font-semibold text-slate-300 mb-1.5">Inquiry Details</label>
-                <textarea required rows="4" placeholder="Tell us how we can help you..." class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/30"></textarea>
+                <label class="block text-xs {label_txt} mb-1.5">Inquiry Details</label>
+                <textarea required rows="4" placeholder="Tell us how we can help you..." class="w-full {input_box} rounded-xl px-4 py-3 text-sm focus:outline-none"></textarea>
               </div>
               <button
-                type="submit"
+                type="button"
+                onclick="document.getElementById('site-contact-status').textContent = 'No message service is connected. This form will not send or save your message.';"
                 style="background-color: {profile.primary_hex};"
                 class="w-full py-3.5 rounded-xl text-white font-bold text-sm shadow-xl hover:opacity-90 transition-all cursor-pointer"
               >
-                Send Message &rarr;
+                Message Service Required
               </button>
+              <p id="site-contact-status" role="status" class="text-xs text-slate-400" aria-live="polite">This static form does not send or save messages.</p>
             </form>
           </div>
         </div>
@@ -1125,7 +1173,7 @@ function setPage(pageId) {{
     </main>
 
     <!-- Footer -->
-    <footer class="border-t border-white/10 py-8 px-6 text-center text-xs text-slate-500">
+    <footer class="{ftr_cls}">
       &copy; {{{{ new Date().getFullYear() }}}} {profile.business_title}. Powered by AI Site Studio.
     </footer>
   </div>
@@ -1144,28 +1192,45 @@ def synthesize_standalone_html(profile: DomainProfile, framework: str = "react",
     while also seamlessly mounting the Vite React / Vue framework app when running `npm run dev`.
     Injects full-fidelity SEO metadata, OpenGraph tags, Twitter cards, and Schema.org JSON-LD.
     """
+    is_light = any(k in profile.bg_hex.lower() for k in ['#fff', '#f8', '#fa', '#f1', 'white', '#e6e']) or profile.text_hex.lower() in ['#0f172a', '#1e293b', '#000000', '#111827']
+    h_class = "text-slate-900" if is_light else "text-white"
+    p_class = "text-slate-600" if is_light else "text-slate-400"
+    quote_class = "text-slate-700 italic" if is_light else "text-slate-300 italic"
+    card_border = "border border-slate-200/90 shadow-sm" if is_light else "border border-white/10"
+    card_hover = "hover:border-slate-300 hover:shadow-md" if is_light else "hover:border-white/20"
+    hdr_bg = "bg-white/95 border-b border-slate-200/90 shadow-sm" if is_light else "bg-slate-950/80 border-b border-white/10"
+    hdr_text = "text-slate-900" if is_light else "text-white"
+    border_divider = "border-t border-slate-200" if is_light else "border-t border-white/10"
+    pill_badge = "border-slate-200 bg-slate-100" if is_light else "border-white/10 bg-white/5"
+    btn_story = "bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200" if is_light else "bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10"
+    input_box = "bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-slate-500 shadow-sm" if is_light else "bg-black/40 border-white/10 text-white focus:border-white/30"
+    label_txt = "text-slate-700 font-semibold" if is_light else "text-slate-300 font-semibold"
+    ftr_cls = "border-t border-slate-200 py-8 px-6 text-center text-xs text-slate-500 bg-slate-50/50" if is_light else "border-t border-white/10 py-8 px-6 text-center text-xs text-slate-500"
+    tab_active_color = "#0f172a" if is_light else "#ffffff"
+    tab_inactive_color = "#64748b" if is_light else "#94a3b8"
+
     features_html = ""
     for f in profile.features:
         features_html += f"""
-          <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl border border-white/10 hover:border-white/20 transition-all">
+          <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl {card_border} {card_hover} transition-all">
             <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white mb-4" style="background-color: {profile.primary_hex};">
               <span class="text-lg">✦</span>
             </div>
-            <h3 class="text-lg font-bold text-white mb-2">{f['title']}</h3>
-            <p class="text-xs text-slate-400 leading-relaxed">{f['desc']}</p>
+            <h3 class="text-lg font-bold {h_class} mb-2">{f['title']}</h3>
+            <p class="text-xs {p_class} leading-relaxed">{f['desc']}</p>
           </div>"""
 
     offerings_html = ""
     for o in profile.offerings:
         badge = f"""<span class="text-[11px] font-mono font-bold px-2.5 py-1 rounded-full text-white" style="background-color: {profile.primary_hex};">{o['price']}</span>""" if o.get('price') else ""
         offerings_html += f"""
-          <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl border border-white/10 hover:border-white/20 transition-all flex flex-col justify-between">
+          <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl {card_border} {card_hover} transition-all flex flex-col justify-between">
             <div>
               <div class="flex items-center justify-between gap-4 mb-3">
-                <h3 class="text-base font-bold text-white">{o['title']}</h3>
+                <h3 class="text-base font-bold {h_class}">{o['title']}</h3>
                 {badge}
               </div>
-              <p class="text-xs text-slate-400 leading-relaxed">{o['desc']}</p>
+              <p class="text-xs {p_class} leading-relaxed">{o['desc']}</p>
             </div>
             <button onclick="switchTab('contact')" class="mt-6 w-full py-2.5 rounded-xl text-white font-bold text-xs shadow-md transition-all hover:opacity-90 cursor-pointer" style="background-color: {profile.primary_hex};">
               Inquire Now &rarr;
@@ -1175,26 +1240,26 @@ def synthesize_standalone_html(profile: DomainProfile, framework: str = "react",
     team_html = ""
     for tm in profile.team:
         team_html += f"""
-          <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl border border-white/10">
+          <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl {card_border}">
             <div class="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-base mb-4" style="background-color: {profile.primary_hex};">
               {tm['name'][:2].upper()}
             </div>
-            <h4 class="text-base font-bold text-white">{tm['name']}</h4>
+            <h4 class="text-base font-bold {h_class}">{tm['name']}</h4>
             <p class="text-xs font-semibold mb-2" style="color: {profile.accent_hex};">{tm['role']}</p>
-            <p class="text-xs text-slate-400">{tm['desc']}</p>
+            <p class="text-xs {p_class}">{tm['desc']}</p>
           </div>"""
 
     testimonials_html = ""
     for t in profile.testimonials:
         testimonials_html += f"""
-          <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl border border-white/10">
+          <div style="background-color: {profile.card_hex};" class="p-6 rounded-2xl {card_border}">
             <div class="flex items-center gap-1 text-amber-400 mb-3 text-sm">
               <span>★</span><span>★</span><span>★</span><span>★</span><span>★</span>
             </div>
-            <p class="text-xs text-slate-300 italic mb-4">"{t['quote']}"</p>
-            <div class="border-t border-white/10 pt-3">
-              <p class="text-xs font-bold text-white">{t['name']}</p>
-              <p class="text-[11px] text-slate-400">{t['role']}</p>
+            <p class="text-xs {quote_class} mb-4">"{t['quote']}"</p>
+            <div class="{border_divider} pt-3">
+              <p class="text-xs font-bold {h_class}">{t['name']}</p>
+              <p class="text-[11px] {p_class}">{t['role']}</p>
             </div>
           </div>"""
 
@@ -1278,25 +1343,25 @@ def synthesize_standalone_html(profile: DomainProfile, framework: str = "react",
     <div id="root">
       <div class="min-h-screen flex flex-col justify-between">
         <!-- Header / Navbar -->
-        <header class="sticky top-0 z-50 backdrop-blur-md bg-slate-950/80 border-b border-white/10 px-4 sm:px-8 py-3.5 flex items-center justify-between">
+        <header class="sticky top-0 z-50 backdrop-blur-md {hdr_bg} px-4 sm:px-8 py-3.5 flex items-center justify-between">
           <div class="flex items-center gap-2 cursor-pointer" onclick="switchTab('home')">
             <div class="w-8 h-8 rounded-xl flex items-center justify-center text-white font-black text-sm" style="background-color: {profile.primary_hex};">
               ✦
             </div>
-            <span class="font-extrabold text-base tracking-tight text-white">{profile.business_title}</span>
+            <span class="font-extrabold text-base tracking-tight {hdr_text}">{profile.business_title}</span>
           </div>
 
           <nav class="hidden md:flex items-center gap-1">
-            <button onclick="switchTab('home')" class="nav-btn px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-white" data-tab="home" style="border-bottom: 2px solid {profile.primary_hex};">
+            <button onclick="switchTab('home')" class="nav-btn px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer" data-tab="home" style="border-bottom: 2px solid {profile.primary_hex}; color: {tab_active_color};">
               Home
             </button>
-            <button onclick="switchTab('about')" class="nav-btn px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-slate-400" data-tab="about" style="border-bottom: 2px solid transparent;">
+            <button onclick="switchTab('about')" class="nav-btn px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer" data-tab="about" style="border-bottom: 2px solid transparent; color: {tab_inactive_color};">
               About
             </button>
-            <button onclick="switchTab('services')" class="nav-btn px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-slate-400" data-tab="services" style="border-bottom: 2px solid transparent;">
+            <button onclick="switchTab('services')" class="nav-btn px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer" data-tab="services" style="border-bottom: 2px solid transparent; color: {tab_inactive_color};">
               Offerings
             </button>
-            <button onclick="switchTab('contact')" class="nav-btn px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-slate-400" data-tab="contact" style="border-bottom: 2px solid transparent;">
+            <button onclick="switchTab('contact')" class="nav-btn px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer" data-tab="contact" style="border-bottom: 2px solid transparent; color: {tab_inactive_color};">
               Contact
             </button>
           </nav>
@@ -1314,20 +1379,20 @@ def synthesize_standalone_html(profile: DomainProfile, framework: str = "react",
           <div id="view-home" class="page-tab active space-y-16">
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center pt-4">
               <div>
-                <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-white/10 bg-white/5 text-xs font-mono mb-6" style="color: {profile.accent_hex};">
+                <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border {pill_badge} text-xs font-mono mb-6" style="color: {profile.accent_hex};">
                   <span>✦ {profile.domain_name}</span>
                 </div>
-                <h1 class="text-4xl sm:text-6xl font-extrabold tracking-tight text-white mb-6 leading-tight">
+                <h1 class="text-4xl sm:text-6xl font-extrabold tracking-tight {h_class} mb-6 leading-tight">
                   {profile.tagline}
                 </h1>
-                <p class="text-base sm:text-lg text-slate-400 mb-8 leading-relaxed">
+                <p class="text-base sm:text-lg {p_class} mb-8 leading-relaxed">
                   {profile.value_prop}
                 </p>
                 <div class="flex flex-wrap items-center gap-4">
                   <button onclick="switchTab('services')" style="background-color: {profile.primary_hex};" class="px-6 py-3.5 rounded-xl text-white font-bold text-sm shadow-xl hover:opacity-90 transition-all cursor-pointer">
                     View Offerings &rarr;
                   </button>
-                  <button onclick="switchTab('about')" class="px-6 py-3.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 font-bold text-sm transition-all cursor-pointer">
+                  <button onclick="switchTab('about')" class="px-6 py-3.5 rounded-xl {btn_story} font-bold text-sm transition-all cursor-pointer">
                     Our Story
                   </button>
                 </div>
@@ -1337,13 +1402,13 @@ def synthesize_standalone_html(profile: DomainProfile, framework: str = "react",
                 <div class="overflow-hidden rounded-3xl border border-white/15 shadow-2xl">
                   <img src="{profile.hero_image}" alt="{profile.business_title}" class="w-full h-96 sm:h-[450px] object-cover hover:scale-105 transition-transform duration-700" />
                 </div>
-                <div style="background-color: {profile.card_hex};" class="absolute -bottom-6 -left-6 p-4 rounded-2xl border border-white/15 shadow-2xl hidden sm:flex items-center gap-3">
+                <div style="background-color: {profile.card_hex};" class="absolute -bottom-6 -left-6 p-4 rounded-2xl {card_border} shadow-2xl hidden sm:flex items-center gap-3">
                   <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm" style="background-color: {profile.primary_hex};">
                     ★
                   </div>
                   <div>
-                    <span class="font-extrabold text-sm text-white block">4.9 / 5.0 Rating</span>
-                    <span class="text-[11px] text-slate-400">Over 500+ Verified Reviews</span>
+                    <span class="font-extrabold text-sm {h_class} block">4.9 / 5.0 Rating</span>
+                    <span class="text-[11px] {p_class}">Over 500+ Verified Reviews</span>
                   </div>
                 </div>
               </div>
@@ -1354,7 +1419,7 @@ def synthesize_standalone_html(profile: DomainProfile, framework: str = "react",
             </div>
 
             <div class="pt-8">
-              <h2 class="text-2xl sm:text-3xl font-extrabold text-white text-center mb-8">What Our Clients Say</h2>
+              <h2 class="text-2xl sm:text-3xl font-extrabold {h_class} text-center mb-8">What Our Clients Say</h2>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 {testimonials_html}
               </div>
@@ -1365,25 +1430,25 @@ def synthesize_standalone_html(profile: DomainProfile, framework: str = "react",
           <div id="view-about" class="page-tab space-y-16 max-w-4xl mx-auto py-4">
             <div class="text-center">
               <span class="text-xs font-mono uppercase tracking-wider block mb-2" style="color: {profile.primary_hex};">Heritage & Mission</span>
-              <h2 class="text-3xl sm:text-5xl font-extrabold text-white mb-4">About {profile.business_title}</h2>
-              <p class="text-slate-400 leading-relaxed text-sm sm:text-base max-w-2xl mx-auto">
+              <h2 class="text-3xl sm:text-5xl font-extrabold {h_class} mb-4">About {profile.business_title}</h2>
+              <p class="{p_class} leading-relaxed text-sm sm:text-base max-w-2xl mx-auto">
                 {profile.value_prop}
               </p>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
-              <div style="background-color: {profile.card_hex};" class="p-7 rounded-2xl border border-white/10">
-                <h3 class="text-lg font-bold text-white mb-2">Our Standard of Excellence</h3>
-                <p class="text-xs text-slate-400 leading-relaxed">Every detail is calibrated to provide unmatched reliability, refined aesthetics, and transparent client experiences.</p>
+              <div style="background-color: {profile.card_hex};" class="p-7 rounded-2xl {card_border}">
+                <h3 class="text-lg font-bold {h_class} mb-2">Our Standard of Excellence</h3>
+                <p class="text-xs {p_class} leading-relaxed">Every detail is calibrated to provide unmatched reliability, refined aesthetics, and transparent client experiences.</p>
               </div>
-              <div style="background-color: {profile.card_hex};" class="p-7 rounded-2xl border border-white/10">
-                <h3 class="text-lg font-bold text-white mb-2">Sustainable & Modern</h3>
-                <p class="text-xs text-slate-400 leading-relaxed">Embracing the latest industry standards, continuous technological optimization, and sustainable community practices.</p>
+              <div style="background-color: {profile.card_hex};" class="p-7 rounded-2xl {card_border}">
+                <h3 class="text-lg font-bold {h_class} mb-2">Sustainable & Modern</h3>
+                <p class="text-xs {p_class} leading-relaxed">Embracing the latest industry standards, continuous technological optimization, and sustainable community practices.</p>
               </div>
             </div>
 
             <div>
-              <h3 class="text-2xl font-bold text-white text-center mb-8">Leadership Team</h3>
+              <h3 class="text-2xl font-bold {h_class} text-center mb-8">Leadership Team</h3>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 {team_html}
               </div>
@@ -1394,8 +1459,8 @@ def synthesize_standalone_html(profile: DomainProfile, framework: str = "react",
           <div id="view-services" class="page-tab space-y-12 py-4">
             <div class="text-center max-w-2xl mx-auto">
               <span class="text-xs font-mono uppercase tracking-wider block mb-2" style="color: {profile.primary_hex};">Our Catalog & Offerings</span>
-              <h2 class="text-3xl sm:text-5xl font-extrabold text-white mb-4">Curated Offerings</h2>
-              <p class="text-slate-400 text-sm">Engineered with precision, passion, and uncompromising quality.</p>
+              <h2 class="text-3xl sm:text-5xl font-extrabold {h_class} mb-4">Curated Offerings</h2>
+              <p class="{p_class} text-sm">Engineered with precision, passion, and uncompromising quality.</p>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -1407,59 +1472,60 @@ def synthesize_standalone_html(profile: DomainProfile, framework: str = "react",
           <div id="view-contact" class="page-tab max-w-4xl mx-auto py-4">
             <div class="text-center mb-10">
               <span class="text-xs font-mono uppercase tracking-wider block mb-2" style="color: {profile.primary_hex};">Connect With Us</span>
-              <h2 class="text-3xl sm:text-5xl font-extrabold text-white mb-3">Book & Inquire</h2>
-              <p class="text-slate-400 text-xs sm:text-sm">Reach out directly and our team will get back to you within 24 hours.</p>
+              <h2 class="text-3xl sm:text-5xl font-extrabold {h_class} mb-3">Book & Inquire</h2>
+              <p class="{p_class} text-xs sm:text-sm">Reach out directly and our team will get back to you within 24 hours.</p>
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div class="lg:col-span-1 space-y-4">
-                <div style="background-color: {profile.card_hex};" class="p-5 rounded-2xl border border-white/10">
-                  <h4 class="text-xs font-bold text-white">Direct Email</h4>
-                  <p class="text-xs text-slate-400 mt-1">{profile.contact_info['email']}</p>
+                <div style="background-color: {profile.card_hex};" class="p-5 rounded-2xl {card_border}">
+                  <h4 class="text-xs font-bold {h_class}">Direct Email</h4>
+                  <p class="text-xs {p_class} mt-1">{profile.contact_info['email']}</p>
                 </div>
-                <div style="background-color: {profile.card_hex};" class="p-5 rounded-2xl border border-white/10">
-                  <h4 class="text-xs font-bold text-white">Phone Support</h4>
-                  <p class="text-xs text-slate-400 mt-1">{profile.contact_info['phone']}</p>
+                <div style="background-color: {profile.card_hex};" class="p-5 rounded-2xl {card_border}">
+                  <h4 class="text-xs font-bold {h_class}">Phone Support</h4>
+                  <p class="text-xs {p_class} mt-1">{profile.contact_info['phone']}</p>
                 </div>
-                <div style="background-color: {profile.card_hex};" class="p-5 rounded-2xl border border-white/10">
-                  <h4 class="text-xs font-bold text-white">Headquarters</h4>
-                  <p class="text-xs text-slate-400 mt-1">{profile.contact_info['address']}</p>
+                <div style="background-color: {profile.card_hex};" class="p-5 rounded-2xl {card_border}">
+                  <h4 class="text-xs font-bold {h_class}">Headquarters</h4>
+                  <p class="text-xs {p_class} mt-1">{profile.contact_info['address']}</p>
                 </div>
               </div>
 
-              <div style="background-color: {profile.card_hex};" class="lg:col-span-2 p-8 rounded-3xl border border-white/10 shadow-2xl">
+              <div style="background-color: {profile.card_hex};" class="lg:col-span-2 p-8 rounded-3xl {card_border} shadow-2xl">
                 <div id="contact-success-card" class="hidden text-center py-10 space-y-3">
                   <div class="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto text-2xl font-bold">
                     ✓
                   </div>
-                  <h3 class="text-xl font-bold text-white">Message Dispatched</h3>
-                  <p class="text-xs text-slate-400 max-w-sm mx-auto">Thank you for contacting {profile.business_title}. We will respond shortly.</p>
-                  <button onclick="document.getElementById('contact-success-card').classList.add('hidden'); document.getElementById('contact-form-card').classList.remove('hidden');" class="text-xs text-cyan-400 underline pt-2 cursor-pointer">Submit another inquiry</button>
+                  <h3 class="text-xl font-bold {h_class}">Message not sent</h3>
+                  <p class="text-xs {p_class} max-w-sm mx-auto">This static website has no message service connected. Set up an external form provider before collecting inquiries.</p>
                 </div>
 
                 <div id="contact-form-card">
                   <form id="site-contact-form" class="space-y-4">
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label class="block text-xs font-semibold text-slate-300 mb-1.5">Your Name</label>
-                        <input required placeholder="Alex Rivera" class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/30" />
+                        <label class="block text-xs {label_txt} mb-1.5">Your Name</label>
+                        <input required placeholder="Alex Rivera" class="w-full {input_box} rounded-xl px-4 py-3 text-sm focus:outline-none" />
                       </div>
                       <div>
-                        <label class="block text-xs font-semibold text-slate-300 mb-1.5">Email Address</label>
-                        <input required type="email" placeholder="alex@company.com" class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/30" />
+                        <label class="block text-xs {label_txt} mb-1.5">Email Address</label>
+                        <input required type="email" placeholder="alex@company.com" class="w-full {input_box} rounded-xl px-4 py-3 text-sm focus:outline-none" />
                       </div>
                     </div>
                     <div>
-                      <label class="block text-xs font-semibold text-slate-300 mb-1.5">Inquiry Details</label>
-                      <textarea required rows="4" placeholder="Tell us how we can help you..." class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-white/30"></textarea>
+                      <label class="block text-xs {label_txt} mb-1.5">Inquiry Details</label>
+                      <textarea required rows="4" placeholder="Tell us how we can help you..." class="w-full {input_box} rounded-xl px-4 py-3 text-sm focus:outline-none"></textarea>
                     </div>
                     <button
-                      type="submit"
+                      type="button"
+                      onclick="document.getElementById('contact-form-status').textContent = 'This static website is not connected to a message service. Contact the business directly or connect a form provider.';"
                       style="background-color: {profile.primary_hex};"
                       class="w-full py-3.5 rounded-xl text-white font-bold text-sm shadow-xl hover:opacity-90 transition-all cursor-pointer"
                     >
                       Send Message &rarr;
                     </button>
+                    <p id="contact-form-status" role="status" class="text-xs {p_class}" aria-live="polite"></p>
                   </form>
                 </div>
               </div>
@@ -1468,7 +1534,7 @@ def synthesize_standalone_html(profile: DomainProfile, framework: str = "react",
         </main>
 
         <!-- Footer -->
-        <footer class="border-t border-white/10 py-8 px-6 text-center text-xs text-slate-500">
+        <footer class="{ftr_cls}">
           &copy; 2026 {profile.business_title}. Engineered with AI Site Studio.
         </footer>
       </div>
@@ -1482,36 +1548,20 @@ def synthesize_standalone_html(profile: DomainProfile, framework: str = "react",
         if (target) target.classList.add('active');
         document.querySelectorAll('.nav-btn').forEach(function(btn) {{
           if (btn.dataset.tab === pageId) {{
-            btn.style.color = '#ffffff';
+            btn.style.color = '{tab_active_color}';
             btn.style.borderBottom = '2px solid {profile.primary_hex}';
           }} else {{
-            btn.style.color = '#94a3b8';
+            btn.style.color = '{tab_inactive_color}';
             btn.style.borderBottom = '2px solid transparent';
           }}
         }});
         window.scrollTo({{ top: 0, behavior: 'smooth' }});
       }}
 
-      document.addEventListener('DOMContentLoaded', function() {{
-        var form = document.getElementById('site-contact-form');
-        if (form) {{
-          form.addEventListener('submit', function(e) {{
-            e.preventDefault();
-            var successCard = document.getElementById('contact-success-card');
-            var formCard = document.getElementById('contact-form-card');
-            if (successCard && formCard) {{
-              formCard.classList.add('hidden');
-              successCard.classList.remove('hidden');
-            }}
-          }});
-        }}
-      }});
     </script>
-
-{entry_script_tag}
+    {entry_script_tag}
   </body>
-</html>
-"""
+</html>"""
 
 
 def synthesize_multipage_html_suite(
@@ -1589,7 +1639,7 @@ def synthesize_multipage_html_suite(
                 {"name": "Catalog & Collections", "slug": "catalog", "filename": "catalog.html", "type": "catalog", "summary": "Filterable luxury products with verified materials and instant bag additions."},
                 {"name": "Lookbook & Editorial", "slug": "lookbook", "filename": "lookbook.html", "type": "case-studies", "summary": "High-fashion photography and seasonal style showcases."},
                 {"name": "Customer Acclaim", "slug": "reviews", "filename": "reviews.html", "type": "reviews", "summary": "Verified buyer reviews, community feedback, and quality ratings."},
-                {"name": "Cart & Checkout", "slug": "checkout", "filename": "checkout.html", "type": "pricing", "summary": "Fast express checkout simulator and secure bag review."},
+                {"name": "Cart & Checkout", "slug": "checkout", "filename": "checkout.html", "type": "pricing", "summary": "Product selection and cart preview. A real checkout, order processing, and customer notifications require a connected commerce provider."},
                 {"name": "Client Concierge", "slug": "contact", "filename": "contact.html", "type": "contact", "summary": "Order tracking, custom sizing requests, and direct customer care."}
             ]
         elif any(w in ind for w in ["real-estate", "property", "architecture"]):
@@ -1643,6 +1693,12 @@ def synthesize_multipage_html_suite(
     <link rel="stylesheet" href="css/styles.css" />
   </head>"""
 
+    is_light = any(k in profile.bg_hex.lower() for k in ["#fff", "#f8", "#fa", "#f1", "white"])
+    hdr_bg = "bg-white/95 border-b border-slate-200 shadow-sm" if is_light else "bg-slate-950/90 border-b border-white/10"
+    title_text = "text-slate-900" if is_light else "text-white"
+    drawer_bg = "bg-white/98 border-b border-slate-200 shadow-lg" if is_light else "bg-slate-950/98 border-b border-white/10"
+    inactive_nav_class = "text-slate-600 hover:text-slate-950" if is_light else "text-slate-400 hover:text-white"
+
     # Dynamic Multi-Page Navbar with all planned pages
     def _render_navbar(active_slug: str) -> str:
         links_desktop = []
@@ -1652,22 +1708,24 @@ def synthesize_multipage_html_suite(
             name = p["name"]
             fname = p["filename"]
             if slug == active_slug:
-                links_desktop.append(f'<a href="{fname}" class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all text-white" style="border-bottom: 2px solid {profile.primary_hex}; background-color: rgba(255,255,255,0.08);">{name}</a>')
-                links_mobile.append(f'<a href="{fname}" class="block text-sm font-bold text-white px-2 py-1.5 rounded-lg bg-white/5">{name}</a>')
+                active_style = f'border-bottom: 2px solid {profile.primary_hex}; background-color: rgba(0,0,0,0.06); color: #0f172a;' if is_light else f'border-bottom: 2px solid {profile.primary_hex}; background-color: rgba(255,255,255,0.08); color: #ffffff;'
+                active_mobile = 'bg-slate-100 text-slate-900' if is_light else 'bg-white/5 text-white'
+                links_desktop.append(f'<a href="{fname}" class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all" style="{active_style}">{name}</a>')
+                links_mobile.append(f'<a href="{fname}" class="block text-sm font-bold {active_mobile} px-2 py-1.5 rounded-lg">{name}</a>')
             else:
-                links_desktop.append(f'<a href="{fname}" class="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all text-slate-400 hover:text-white" style="border-bottom: 2px solid transparent;">{name}</a>')
-                links_mobile.append(f'<a href="{fname}" class="block text-sm font-medium text-slate-400 hover:text-white px-2 py-1.5">{name}</a>')
+                links_desktop.append(f'<a href="{fname}" class="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all {inactive_nav_class}" style="border-bottom: 2px solid transparent;">{name}</a>')
+                links_mobile.append(f'<a href="{fname}" class="block text-sm font-medium {inactive_nav_class} px-2 py-1.5">{name}</a>')
 
         cta_page = planned_pages[-1]
         cta_href = cta_page["filename"]
         cta_label = cta_page["name"]
 
-        return f"""    <header class="sticky top-0 z-50 backdrop-blur-md bg-slate-950/90 border-b border-white/10 px-4 sm:px-8 py-3 flex items-center justify-between">
+        return f"""    <header class="sticky top-0 z-50 backdrop-blur-md {hdr_bg} px-4 sm:px-8 py-3 flex items-center justify-between">
       <a href="index.html" class="flex items-center gap-2.5 text-decoration-none">
         <div class="w-8 h-8 rounded-xl flex items-center justify-center text-white font-black text-sm shadow-md" style="background-color: {profile.primary_hex};">
           ✦
         </div>
-        <span class="font-extrabold text-base tracking-tight text-white">{profile.business_title}</span>
+        <span class="font-extrabold text-base tracking-tight {title_text}">{profile.business_title}</span>
       </a>
 
       <nav class="hidden lg:flex items-center gap-1.5">
@@ -1680,15 +1738,15 @@ def synthesize_multipage_html_suite(
         </a>
       </div>
 
-      <button id="mobile-menu-btn" class="lg:hidden text-slate-300 hover:text-white p-2 text-xl" onclick="toggleMobileMenu()">
+      <button id="mobile-menu-btn" class="lg:hidden {inactive_nav_class} p-2 text-xl" onclick="toggleMobileMenu()">
         ☰
       </button>
     </header>
 
     <!-- Mobile Drawer -->
-    <div id="mobile-drawer" class="hidden lg:hidden bg-slate-950/98 border-b border-white/10 px-6 py-4 space-y-2">
+    <div id="mobile-drawer" class="hidden lg:hidden {drawer_bg} px-6 py-4 space-y-2">
       {"".join(links_mobile)}
-      <div class="pt-3 border-t border-white/10">
+      <div class="pt-3 border-t border-slate-200/50">
         <a href="{cta_href}" style="background-color: {profile.primary_hex};" class="block w-full py-2.5 text-center text-white font-bold text-xs rounded-xl">
           {cta_label} &rarr;
         </a>
@@ -1697,26 +1755,28 @@ def synthesize_multipage_html_suite(
 
     # Dynamic Multi-Page Footer
     def _render_footer() -> str:
-        footer_nav = "".join(f'<li><a href="{p["filename"]}" class="hover:text-white transition-colors">{p["name"]}</a></li>' for p in planned_pages)
-        return f"""    <footer class="border-t border-white/10 bg-slate-950/90 py-12 px-4 sm:px-8 text-slate-400">
+        ftr_bg = "border-t border-slate-200 bg-slate-50/95 text-slate-600" if is_light else "border-t border-white/10 bg-slate-950/90 text-slate-400"
+        ftr_heading = "text-slate-900" if is_light else "text-white"
+        footer_nav = "".join(f'<li><a href="{p["filename"]}" class="hover:text-primary transition-colors">{p["name"]}</a></li>' for p in planned_pages)
+        return f"""    <footer class="{ftr_bg} py-12 px-4 sm:px-8">
       <div class="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
         <div class="space-y-3">
           <div class="flex items-center gap-2">
             <div class="w-7 h-7 rounded-lg flex items-center justify-center text-white font-bold text-xs" style="background-color: {profile.primary_hex};">✦</div>
-            <span class="font-extrabold text-white text-sm">{profile.business_title}</span>
+            <span class="font-extrabold {ftr_heading} text-sm">{profile.business_title}</span>
           </div>
-          <p class="text-xs text-slate-400 leading-relaxed">{profile.value_prop[:150]}...</p>
+          <p class="text-xs leading-relaxed">{profile.value_prop[:150]}...</p>
         </div>
 
         <div>
-          <h4 class="text-xs font-bold text-white uppercase tracking-wider mb-3">Navigation</h4>
+          <h4 class="text-xs font-bold {ftr_heading} uppercase tracking-wider mb-3">Navigation</h4>
           <ul class="space-y-2 text-xs">
             {footer_nav}
           </ul>
         </div>
 
         <div>
-          <h4 class="text-xs font-bold text-white uppercase tracking-wider mb-3">Direct Connect</h4>
+          <h4 class="text-xs font-bold {ftr_heading} uppercase tracking-wider mb-3">Direct Connect</h4>
           <ul class="space-y-2 text-xs">
             <li>Email: {profile.contact_info.get('email', 'contact@domain.com')}</li>
             <li>Phone: {profile.contact_info.get('phone', '+1 (555) 234-5678')}</li>
@@ -1725,15 +1785,15 @@ def synthesize_multipage_html_suite(
         </div>
 
         <div>
-          <h4 class="text-xs font-bold text-white uppercase tracking-wider mb-3">Newsletter</h4>
-          <p class="text-xs text-slate-400 mb-2">Subscribe for private announcements & technical releases.</p>
+          <h4 class="text-xs font-bold {ftr_heading} uppercase tracking-wider mb-3">Newsletter</h4>
+          <p class="text-xs mb-2">Subscribe for private announcements & updates.</p>
           <div class="flex gap-2">
-            <input type="email" placeholder="Your email..." class="bg-black/50 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none w-full" />
+            <input type="email" placeholder="Your email..." class="{'bg-white border-slate-300 text-slate-900' if is_light else 'bg-black/50 border-white/10 text-white'} border rounded-lg px-3 py-1.5 text-xs focus:outline-none w-full" />
             <button style="background-color: {profile.primary_hex};" class="px-3 py-1.5 rounded-lg text-white font-bold text-xs hover:opacity-90 transition-all">Join</button>
           </div>
         </div>
       </div>
-      <div class="max-w-7xl mx-auto border-t border-white/5 pt-6 text-center text-xs text-slate-500">
+      <div class="max-w-7xl mx-auto border-t {'border-slate-200' if is_light else 'border-white/5'} pt-6 text-center text-xs text-slate-500">
         &copy; 2026 {profile.business_title}. All rights reserved. Powered by AI Site Studio.
       </div>
     </footer>"""
@@ -2253,9 +2313,8 @@ def synthesize_multipage_html_suite(
             <div class="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto text-2xl font-bold">
               ✓
             </div>
-            <h3 class="text-xl font-bold text-white">Inquiry Transmitted</h3>
-            <p class="text-xs text-slate-400 max-w-sm mx-auto">Thank you for contacting {profile.business_title}. Our engineering and operations team will respond promptly.</p>
-            <button onclick="resetContactForm()" class="text-xs text-cyan-400 underline pt-2 cursor-pointer">Submit another inquiry</button>
+            <h3 class="text-xl font-bold text-white">Message not sent</h3>
+            <p class="text-xs text-slate-400 max-w-sm mx-auto">This static website has no message service connected. Set up an external form provider before collecting inquiries.</p>
           </div>
 
           <div id="contact-form-card">
@@ -2279,12 +2338,14 @@ def synthesize_multipage_html_suite(
                 <textarea required name="message" rows="4" placeholder="How can our team collaborate with you?" class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none"></textarea>
               </div>
               <button
-                type="submit"
+                type="button"
+                onclick="document.getElementById('site-contact-status').textContent = 'No message service is connected. This form will not send or save your message.';"
                 style="background-color: {profile.primary_hex};"
                 class="w-full py-3.5 rounded-xl text-white font-bold text-sm shadow-xl hover:opacity-90 transition-all cursor-pointer"
               >
-                Send Message &rarr;
+                Message Service Required
               </button>
+              <p id="site-contact-status" role="status" class="text-xs text-slate-400" aria-live="polite">This static form does not send or save messages.</p>
             </form>
           </div>
         </div>
@@ -2381,35 +2442,6 @@ function resetContactForm() {{
 }}
 
 document.addEventListener('DOMContentLoaded', function() {{
-  var contactForm = document.getElementById('site-contact-form');
-  if (contactForm) {{
-    contactForm.addEventListener('submit', function(e) {{
-      e.preventDefault();
-      var successCard = document.getElementById('contact-success-card');
-      var formCard = document.getElementById('contact-form-card');
-      
-      var formData = new FormData(contactForm);
-      var payload = {{
-        name: formData.get('name'),
-        email: formData.get('email'),
-        subject: formData.get('subject'),
-        message: formData.get('message')
-      }};
-      
-      fetch('/api/contact', {{
-        method: 'POST',
-        headers: {{ 'Content-Type': 'application/json' }},
-        body: JSON.stringify(payload)
-      }}).catch(function(err) {{
-        console.log('Offline submission registered locally:', err);
-      }}).finally(function() {{
-        if (formCard && successCard) {{
-          formCard.classList.add('hidden');
-          successCard.classList.remove('hidden');
-        }}
-      }});
-    }});
-  }}
 }});
 """
     results["css/styles.css"] = styles_css

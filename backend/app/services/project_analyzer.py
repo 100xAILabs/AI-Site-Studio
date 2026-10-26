@@ -213,7 +213,9 @@ class ProjectAnalyzer:
                 return subprocess.run(
                     cmd,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
+                    stderr=subprocess.PIPE,
+                    timeout=45,
+                    env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1"},
                 )
             
             res = await asyncio.to_thread(run_clone)

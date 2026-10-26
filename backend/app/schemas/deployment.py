@@ -4,18 +4,38 @@ Pydantic schemas for Deployment, Version, Domain, and Log entities.
 
 import uuid
 from datetime import datetime
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any, Literal
+from pathlib import PurePosixPath, PureWindowsPath
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
 class DeploymentBase(BaseModel):
-    project_name: str
-    provider: str = "local"  # local, vercel, netlify, docker
+    project_name: str = Field(min_length=1, max_length=100)
+    provider: Literal["local", "vercel"] = "local"
     template_id: Optional[uuid.UUID] = None
     branch: str = "main"
     build_command: str = "npm run build"
     output_dir: str = "dist"
     env_vars: Optional[Dict[str, str]] = None
+    accepted_hosting_terms: bool = False
+
+    @field_validator("project_name")
+    @classmethod
+    def validate_project_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Project name cannot be blank.")
+        return value
+
+    @field_validator("output_dir")
+    @classmethod
+    def validate_output_dir(cls, value: str) -> str:
+        value = value.strip()
+        posix_path = PurePosixPath(value)
+        windows_path = PureWindowsPath(value)
+        if not value or posix_path.is_absolute() or windows_path.is_absolute() or ".." in posix_path.parts or ".." in windows_path.parts:
+            raise ValueError("Output directory must be a safe relative path inside the project.")
+        return value
 
 
 class DeploymentCreate(DeploymentBase):
@@ -77,6 +97,9 @@ class DeploymentResponse(DeploymentBase):
     logs: Optional[str] = None
     env_vars: Optional[Dict[str, Any]] = None
     is_suspended: bool = False
+    hosting_subscription_status: str = "not_subscribed"
+    hosting_subscription_cancel_at_period_end: bool = False
+    hosting_subscription_period_end: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
@@ -98,10 +121,11 @@ class EnvironmentVariableUpdate(BaseModel):
 
 
 class ClientTelemetryPayload(BaseModel):
-    level: str = "INFO"  # INFO, WARN, ERROR, SUCCESS
-    message: str
-    url: Optional[str] = None
-    pathname: Optional[str] = None
-    timestamp: Optional[str] = None
-    meta: Optional[Dict[str, Any]] = None
+    level: str = Field(default="INFO", max_length=16)  # INFO, WARN, ERROR, SUCCESS
+    model_config = ConfigDict(extra="forbid")
+    message: str = Field(min_length=1, max_length=1000)
+    url: Optional[str] = Field(default=None, max_length=2048)
+    pathname: Optional[str] = Field(default=None, max_length=512)
+    timestamp: Optional[str] = Field(default=None, max_length=64)
+    meta: Optional[Dict[str, Any]] = Field(default=None, max_length=20)
 

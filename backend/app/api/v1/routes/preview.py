@@ -10,12 +10,11 @@ import uuid
 import shutil
 import asyncio
 import zipfile
-import platform
-import subprocess
 import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +24,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.dependencies import get_current_user_optional
+from app.core.dependencies import get_current_user, get_current_user_optional
 from app.models.user import User
 from app.models.template import Template, TemplateStatus
 from app.models.stored_file import StoredFile
+from app.models.order import Order, OrderItem, OrderStatus
 from app.services.preview_service import PreviewService
 from app.services.ai_service import ai_service
+from app.services.security_scanner import security_scanner
 from app.repositories.template_repo import TemplateRepository
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 router = APIRouter()
 
@@ -69,7 +70,7 @@ class ManualEditRequest(BaseModel):
 
 
 class AIEditRequest(BaseModel):
-    prompt: str
+    prompt: str = Field(min_length=1, max_length=4000)
 
 
 
@@ -1209,7 +1210,7 @@ async def get_live_preview_extracted_data(
 async def edit_live_preview_manual(
     template_id: str,
     request: ManualEditRequest,
-    current_user: Optional[User] = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     import zipfile
@@ -1223,6 +1224,23 @@ async def edit_live_preview_manual(
     template = await template_repo.get_by_id(template_id)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
+
+    owns_template = template.seller_id == current_user.id
+    is_admin = getattr(current_user.role, "value", current_user.role) == "admin"
+    has_purchase = template.is_free
+    if not owns_template and not is_admin and not has_purchase:
+        purchase_result = await db.execute(
+            select(OrderItem.id).join(Order, Order.id == OrderItem.order_id).where(
+                OrderItem.template_id == template.id,
+                Order.user_id == current_user.id,
+                Order.status == OrderStatus.COMPLETED,
+            ).limit(1)
+        )
+        has_purchase = purchase_result.scalar_one_or_none() is not None
+    if not (owns_template or is_admin or has_purchase):
+        raise HTTPException(status_code=403, detail="Purchase this template before customizing it.")
+    if template.status == TemplateStatus.DRAFT and not (owns_template or is_admin):
+        raise HTTPException(status_code=403, detail="Only the draft owner can customize this project.")
         
     original_template_id = str(template.id)
     is_new_clone = False
@@ -1304,7 +1322,10 @@ async def edit_live_preview_manual(
     if not stored_file:
         raise HTTPException(status_code=404, detail="Source template archive file not found")
         
-    zip_data = stored_file.data
+    stored_file_data = await storage.get_file(db, file_id)
+    if not stored_file_data:
+        raise HTTPException(status_code=404, detail="Source template archive data not found")
+    zip_data = stored_file_data[0]
     
     # 1. Read all editable files in the ZIP (HTML, JS, JSX, CSS)
     files_dict = {}
@@ -1718,8 +1739,8 @@ Here are the codebase files:
     preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
     shutil.rmtree(preview_dir, ignore_errors=True)
     os.makedirs(preview_dir, exist_ok=True)
-    with zipfile.ZipFile(io.BytesIO(new_zip_bytes), "r") as z_refresh:
-        z_refresh.extractall(preview_dir)
+    from app.services.security_scanner import security_scanner
+    security_scanner.sanitize_extract_zip(new_zip_bytes, Path(preview_dir))
             
     # Commit session changes
     await db.commit()
@@ -1728,15 +1749,15 @@ Here are the codebase files:
 
 
 class FindReplaceRequest(BaseModel):
-    find_text: str
-    replace_text: str
+    find_text: str = Field(min_length=1, max_length=2000)
+    replace_text: str = Field(max_length=2000)
 
 
 @router.post("/live/{template_id}/find-replace")
 async def edit_live_preview_find_replace(
     template_id: str,
     request: FindReplaceRequest,
-    current_user: Optional[User] = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     import zipfile
@@ -1750,6 +1771,8 @@ async def edit_live_preview_find_replace(
     template = await template_repo.get_by_id(template_id)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
+    if template.status != TemplateStatus.DRAFT or template.seller_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the owner of a draft can edit its source files.")
         
     # If the template is PUBLISHED, clone it so the user modifies their own private DRAFT copy
     if template.status == TemplateStatus.PUBLISHED:
@@ -1804,7 +1827,10 @@ async def edit_live_preview_find_replace(
     if not stored_file:
         raise HTTPException(status_code=404, detail="Source template archive file not found")
         
-    zip_data = stored_file.data
+    stored_file_data = await storage.get_file(db, file_id)
+    if not stored_file_data:
+        raise HTTPException(status_code=404, detail="Source template archive data not found")
+    zip_data = stored_file_data[0]
     
     # 1. Read files and do find-and-replace
     updated_filenames = set()
@@ -1841,9 +1867,15 @@ async def edit_live_preview_find_replace(
     new_zip_bytes = new_zip_buffer.getvalue()
     
     # 2. Save the updated ZIP back to the database
-    stored_file.data = new_zip_bytes
-    stored_file.size = len(new_zip_bytes)
-    db.add(stored_file)
+    new_zip_url = await storage.upload_file(
+        db=db,
+        file_content=new_zip_bytes,
+        folder="templates/customized",
+        original_filename=stored_file.original_filename or "template.zip",
+        content_type="application/zip",
+    )
+    template.download_assets = {**download_assets, "zip": new_zip_url}
+    db.add(template)
     await db.flush()
     
     # 3. Clear local preview directory cache
@@ -1861,7 +1893,7 @@ async def edit_live_preview_ai(
     template_id: str,
     request: AIEditRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
 ):
     import zipfile
     import io
@@ -1873,6 +1905,10 @@ async def edit_live_preview_ai(
     template = await template_repo.get_by_id(template_id)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
+    if template.status != TemplateStatus.DRAFT or template.seller_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the owner of a draft can edit its source files.")
+    from app.core.request_limits import enforce_user_limit
+    await enforce_user_limit(str(current_user.id), "template-ai-edit")
         
     # If the template is PUBLISHED or belongs to another user, clone/fork it so the user modifies their own private DRAFT copy
     is_user_owned_draft = (
@@ -1949,7 +1985,10 @@ async def edit_live_preview_ai(
     if not stored_file:
         raise HTTPException(status_code=404, detail="Source template archive file not found")
         
-    zip_data = stored_file.data
+    stored_file_data = await storage.get_file(db, file_id)
+    if not stored_file_data:
+        raise HTTPException(status_code=404, detail="Source template archive data not found")
+    zip_data = stored_file_data[0]
     
     # 1. Read all editable files in the ZIP (HTML, JS, JSX, CSS)
     files_dict = {}
@@ -2050,6 +2089,8 @@ Here are the codebase files:
                     print(f"Saved AI edited file to ZIP: {item.filename}")
                 z_out.writestr(item, content)
                 
+    new_zip_bytes = new_zip_buffer.getvalue()
+
     # 4. Save the updated ZIP back to the database as an isolated StoredFile
     new_stored_file = StoredFile(
         storage_key=f"templates/{uuid.uuid4().hex}/customized_ai.zip",
@@ -2070,8 +2111,8 @@ Here are the codebase files:
     preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
     shutil.rmtree(preview_dir, ignore_errors=True)
     os.makedirs(preview_dir, exist_ok=True)
-    with zipfile.ZipFile(io.BytesIO(new_zip_bytes), "r") as z_refresh:
-        z_refresh.extractall(preview_dir)
+    from app.services.security_scanner import security_scanner
+    security_scanner.sanitize_extract_zip(new_zip_bytes, Path(preview_dir))
     
     # Commit session changes
     await db.commit()
@@ -2101,8 +2142,6 @@ async def serve_live_preview(
     import io
     import mimetypes
     import asyncio
-    import platform
-    import subprocess
     import tempfile
     from fastapi.responses import Response
     from sqlalchemy import select
@@ -2113,6 +2152,11 @@ async def serve_live_preview(
     template = await template_repo.get_by_id_or_slug(template_id)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
+
+    # Live previews serve static assets only. A template API path must never
+    # dispatch uploaded Python code into the Studio API process.
+    if filepath and (filepath == "api" or filepath.startswith("api/")):
+        raise HTTPException(status_code=404, detail="Template previews only serve static website files")
         
     target_slug = template.slug if (template and template.slug) else str(template_id)
     purchase_url = f"{settings.FRONTEND_URL}/marketplace/{target_slug}?buy=1"
@@ -2392,7 +2436,7 @@ async def serve_live_preview(
                     f"      reactRoot.render(React.createElement({comp_name}));\n"
                     "    } catch (e) {\n"
                     "      console.error('React mount error:', e);\n"
-                    "      document.getElementById('root').innerHTML = '<div style=\"display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0f172a;color:#f8fafc;font-family:system-ui;padding:2rem;\"><div style=\"text-align:center;\"><h2 style=\"color:#f87171;\">Preview Error</h2><p>' + e.message + '</p></div></div>';\n"
+                    "      const root = document.getElementById('root'); root.replaceChildren(); const msg = document.createElement('p'); msg.textContent = String(e && e.message || 'Unknown preview error'); root.appendChild(msg);\n"
                     "    }\n"
                     "  </script>\n"
                     "</body>\n</html>"
@@ -2788,16 +2832,25 @@ async def serve_live_preview(
         if not zip_url:
             raise HTTPException(status_code=400, detail="Template does not have source ZIP assets")
             
-        is_external = False
-        file_id = None
-        uuid_match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
-        if uuid_match:
-            try:
-                file_id = uuid.UUID(uuid_match.group(1))
-            except ValueError:
-                is_external = True
-        else:
-            is_external = True
+        from app.core.storage import storage
+        storage_base = urlsplit(storage.public_url)
+        asset_url = urlsplit(str(zip_url))
+        file_id = storage._parse_file_id(str(zip_url))
+        expected_asset_path = f"{storage_base.path.rstrip('/')}/{file_id}" if file_id else None
+        is_external = not (
+            file_id
+            and asset_url.scheme == storage_base.scheme
+            and asset_url.netloc.lower() == storage_base.netloc.lower()
+            and asset_url.path == expected_asset_path
+        )
+
+        # Do not fetch seller-controlled URLs from the API process. Templates
+        # must use an archive uploaded to Studio storage to prevent SSRF.
+        if is_external:
+            raise HTTPException(
+                status_code=400,
+                detail="Preview archives must be uploaded to Studio storage; external archive URLs are not supported.",
+            )
             
         preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
         os.makedirs(preview_dir, exist_ok=True)
@@ -2857,23 +2910,16 @@ async def serve_live_preview(
                     shutil.rmtree(preview_dir, ignore_errors=True)
                 os.makedirs(preview_dir, exist_ok=True)
 
-                if is_external:
-                    import httpx
-                    try:
-                        async with httpx.AsyncClient() as client:
-                            response = await client.get(zip_url, follow_redirects=True, timeout=30.0)
-                            if response.status_code != 200:
-                                raise HTTPException(status_code=400, detail=f"Failed to fetch external ZIP assets: status {response.status_code}")
-                            zip_data = response.content
-                    except Exception as e:
-                        raise HTTPException(status_code=500, detail=f"Failed to download external template ZIP: {str(e)}")
-                else:
-                    from app.models import StoredFile
-                    result = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
-                    stored_file = result.scalar_one_or_none()
-                    if not stored_file:
-                        raise HTTPException(status_code=404, detail="Source template archive file not found")
-                    zip_data = stored_file.data
+                from app.models import StoredFile
+                result = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
+                stored_file = result.scalar_one_or_none()
+                if not stored_file:
+                    raise HTTPException(status_code=404, detail="Source template archive file not found")
+                from app.core.storage import storage
+                stored_file_data = await storage.get_file(db, file_id)
+                if not stored_file_data:
+                    raise HTTPException(status_code=404, detail="Source template archive data not found")
+                zip_data = stored_file_data[0]
 
                 # Extract ZIP or write raw HTML file
                 from app.services.security_scanner import security_scanner
@@ -2933,298 +2979,14 @@ async def serve_live_preview(
                         if build_dir:
                             break
 
-                # If not compiled, trigger compilation
+                # Never execute uploaded package scripts inside the API process.
                 if not build_dir:
-                    npm_cmd = "npm.cmd" if platform.system() == "Windows" else "npm"
-                    loop = asyncio.get_running_loop()
-
-                    # 1. Verify that node_modules are present and populated
-                    node_modules_dir = os.path.join(project_root, "node_modules")
-                    is_modules_ready = os.path.isdir(node_modules_dir) and (
-                        os.path.exists(os.path.join(node_modules_dir, "vite")) or
-                        os.path.exists(os.path.join(node_modules_dir, "next")) or
-                        os.path.exists(os.path.join(node_modules_dir, "vue")) or
-                        os.path.exists(os.path.join(node_modules_dir, "svelte")) or
-                        os.path.exists(os.path.join(node_modules_dir, "astro")) or
-                        os.path.exists(os.path.join(node_modules_dir, "nuxt")) or
-                        os.path.exists(os.path.join(node_modules_dir, "react")) or
-                        (os.path.isdir(node_modules_dir) and len(os.listdir(node_modules_dir)) > 5)
+                    return Response(
+                        content='<!doctype html><html><body><main><h1>Preview unavailable</h1><p>This project needs a compiled static build. Build it in an isolated provider and upload the output.</p></main></body></html>',
+                        status_code=503,
+                        media_type='text/html',
+                        headers=security_scanner.get_secure_preview_headers(),
                     )
-
-                    if not is_modules_ready:
-                        logger.info(f"[Preview Runner] Clean node_modules install required for {template_id}...")
-                        shutil.rmtree(node_modules_dir, ignore_errors=True)
-                        try:
-                            os.remove(os.path.join(project_root, "package-lock.json"))
-                        except OSError:
-                            pass
-                        def run_npm_install():
-                            return subprocess.run(
-                                [npm_cmd, "install", "--no-audit", "--no-fund"],
-                                cwd=project_root,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE
-                            )
-                        install_res = await loop.run_in_executor(None, run_npm_install)
-                        if install_res.returncode != 0:
-                            print(f"npm install failed for {template_id}: {install_res.stderr.decode('utf-8', errors='ignore')}")
-
-                    # Detect framework characteristics
-                    is_next = False
-                    is_nuxt = False
-                    is_vue = False
-                    is_svelte = False
-                    is_astro = False
-                    is_react = False
-                    is_angular = False
-                    has_generate_script = False
-                    has_export_script = False
-                    all_deps = {}
-
-                    try:
-                        with open(package_json_path, "r", encoding="utf-8") as f:
-                            pkg_data = json.load(f)
-                            scripts = pkg_data.get("scripts", {})
-                            all_deps = {**pkg_data.get("dependencies", {}), **pkg_data.get("devDependencies", {})}
-                            is_next = "next" in all_deps or "next" in scripts.get("build", "")
-                            is_nuxt = "nuxt" in all_deps or "nuxt" in scripts.get("build", "")
-                            is_vue = "vue" in all_deps or "@vitejs/plugin-vue" in all_deps
-                            is_svelte = "svelte" in all_deps or "@sveltejs/vite-plugin-svelte" in all_deps
-                            is_astro = "astro" in all_deps
-                            is_angular = "@angular/core" in all_deps
-                            is_react = "react" in all_deps or "@vitejs/plugin-react" in all_deps
-                            has_generate_script = "generate" in scripts
-                            has_export_script = "export" in scripts
-                    except Exception:
-                        pass
-
-                    # Determine canonical framework label
-                    template_fw_str = (template.framework.value if template.framework else "").lower()
-                    if is_vue or template_fw_str == "vue":
-                        detected_framework = "vue"
-                    elif is_svelte or template_fw_str == "svelte":
-                        detected_framework = "svelte"
-                    elif is_astro or template_fw_str == "astro":
-                        detected_framework = "astro"
-                    elif is_next or template_fw_str == "nextjs":
-                        detected_framework = "nextjs"
-                    elif is_nuxt or template_fw_str == "nuxt":
-                        detected_framework = "nuxt"
-                    elif is_angular or template_fw_str == "angular":
-                        detected_framework = "angular"
-                    elif is_react or template_fw_str == "react":
-                        detected_framework = "react"
-                    else:
-                        detected_framework = template_fw_str or "html"
-
-                    # Framework-specific configuration tuning (e.g., forcing static export for Next.js)
-                    if is_next:
-                        next_cfg_js = os.path.join(project_root, "next.config.js")
-                        next_cfg_mjs = os.path.join(project_root, "next.config.mjs")
-                        if not os.path.exists(next_cfg_js) and not os.path.exists(next_cfg_mjs):
-                            try:
-                                with open(next_cfg_js, "w", encoding="utf-8") as f:
-                                    f.write("module.exports = { output: 'export', images: { unoptimized: true } };\n")
-                            except Exception:
-                                pass
-                        else:
-                            cfg_path = next_cfg_js if os.path.exists(next_cfg_js) else next_cfg_mjs
-                            try:
-                                with open(cfg_path, "r", encoding="utf-8", errors="ignore") as f:
-                                    cfg_content = f.read()
-                                if "output:" not in cfg_content and "output :" not in cfg_content:
-                                    for pattern in ["const nextConfig = {", "module.exports = {", "export default {", "nextConfig = {"]:
-                                        if pattern in cfg_content:
-                                            cfg_content = cfg_content.replace(pattern, f"{pattern}\n  output: 'export',\n  images: {{ unoptimized: true }},", 1)
-                                            break
-                                    with open(cfg_path, "w", encoding="utf-8") as f:
-                                        f.write(cfg_content)
-                            except Exception:
-                                pass
-
-                    # Vite config handling (base path adjustment & auto-creation)
-                    vite_cfg_js = os.path.join(project_root, "vite.config.js")
-                    vite_cfg_ts = os.path.join(project_root, "vite.config.ts")
-                    vite_cfg_mjs = os.path.join(project_root, "vite.config.mjs")
-                    cfg_file = vite_cfg_js if os.path.exists(vite_cfg_js) else (vite_cfg_ts if os.path.exists(vite_cfg_ts) else (vite_cfg_mjs if os.path.exists(vite_cfg_mjs) else None))
-
-                    # Auto-create vite.config if missing for Vite-based projects
-                    if not cfg_file and ("vite" in all_deps or "vite" in pkg_data.get("scripts", {}).get("build", "")):
-                        try:
-                            if is_vue:
-                                v_content = "import { defineConfig } from 'vite'\nimport vue from '@vitejs/plugin-vue'\n\nexport default defineConfig({\n  base: './',\n  plugins: [vue()],\n})\n"
-                            elif is_svelte:
-                                v_content = "import { defineConfig } from 'vite'\nimport { svelte } from '@sveltejs/vite-plugin-svelte'\n\nexport default defineConfig({\n  base: './',\n  plugins: [svelte()],\n})\n"
-                            elif is_react:
-                                v_content = "import { defineConfig } from 'vite'\nimport react from '@vitejs/plugin-react'\n\nexport default defineConfig({\n  base: './',\n  plugins: [react()],\n})\n"
-                            else:
-                                v_content = "import { defineConfig } from 'vite'\n\nexport default defineConfig({\n  base: './',\n})\n"
-                            with open(vite_cfg_js, "w", encoding="utf-8") as f:
-                                f.write(v_content)
-                            cfg_file = vite_cfg_js
-                        except Exception as e_vcfg:
-                            logger.warning(f"Could not auto-generate vite.config.js: {e_vcfg}")
-                    elif cfg_file:
-                        try:
-                            with open(cfg_file, "r", encoding="utf-8", errors="ignore") as f:
-                                cfg_content = f.read()
-                            if "base:" not in cfg_content and "base :" not in cfg_content:
-                                if "defineConfig({" in cfg_content:
-                                    cfg_content = cfg_content.replace("defineConfig({", "defineConfig({\n  base: './',", 1)
-                                elif "export default {" in cfg_content:
-                                    cfg_content = cfg_content.replace("export default {", "export default {\n  base: './',", 1)
-                                with open(cfg_file, "w", encoding="utf-8") as f:
-                                    f.write(cfg_content)
-                        except Exception:
-                            pass
-
-                    # Determine optimal build/generate command
-                    build_cmd = [npm_cmd, "run", "build"]
-                    if is_nuxt:
-                        if has_generate_script:
-                            build_cmd = [npm_cmd, "run", "generate"]
-                        else:
-                            npx_cmd = "npx.cmd" if platform.system() == "Windows" else "npx"
-                            build_cmd = [npx_cmd, "nuxt", "generate"]
-
-                    # Pre-build self-healing: safely sanitize files without touching configs or non-JSX files
-                    try:
-                        from app.services.ai_service import repair_truncated_jsx, repair_truncated_html
-                        CONFIG_AND_ENTRY_FILES = {
-                            "vite.config.js", "vite.config.ts", "vite.config.mjs",
-                            "next.config.js", "next.config.mjs", "next.config.ts",
-                            "nuxt.config.js", "nuxt.config.ts",
-                            "svelte.config.js", "svelte.config.ts",
-                            "astro.config.mjs", "astro.config.ts", "astro.config.js",
-                            "tailwind.config.js", "tailwind.config.ts", "tailwind.config.cjs", "tailwind.config.mjs",
-                            "postcss.config.js", "postcss.config.cjs", "postcss.config.mjs",
-                            "webpack.config.js", "webpack.config.ts",
-                            "package.json", "package-lock.json", "tsconfig.json", "jsconfig.json",
-                            "main.js", "main.ts", "index.js", "index.ts"
-                        }
-
-                        for s_root, _, s_files in os.walk(project_root):
-                            norm_s_root = s_root.replace("\\", "/").lower()
-                            if any(d in norm_s_root.split("/") for d in ["dist", "node_modules", "build", "out", ".output", ".git", ".cache", ".next", ".nuxt"]):
-                                continue
-                            for s_fname in s_files:
-                                if s_fname.lower() in CONFIG_AND_ENTRY_FILES:
-                                    continue
-
-                                s_path = os.path.join(s_root, s_fname)
-                                ext = os.path.splitext(s_fname)[1].lower()
-
-                                # ONLY run repair_truncated_jsx on actual JSX / TSX files!
-                                if ext in [".jsx", ".tsx"]:
-                                    try:
-                                        with open(s_path, "r", encoding="utf-8", errors="ignore") as sf:
-                                            raw_c = sf.read()
-                                        repaired_c = repair_truncated_jsx(raw_c)
-                                        if repaired_c and repaired_c != raw_c:
-                                            with open(s_path, "w", encoding="utf-8") as sf:
-                                                sf.write(repaired_c)
-                                    except Exception as e_heal:
-                                        logger.warning(f"[Pre-Build Heal] Could not heal {s_fname}: {e_heal}")
-
-                                elif ext in [".html", ".htm"]:
-                                    try:
-                                        with open(s_path, "r", encoding="utf-8", errors="ignore") as sf:
-                                            raw_c = sf.read()
-                                        h_c = raw_c
-                                        if "</html>" in h_c:
-                                            h_c = h_c.split("</html>")[0] + "</html>\n"
-
-                                        # Match index.html entry script to actual file in src/
-                                        src_dir = os.path.join(project_root, "src")
-                                        if os.path.isdir(src_dir):
-                                            src_files = os.listdir(src_dir)
-                                            for entry_cand in ["main.jsx", "main.tsx", "main.js", "main.ts", "index.jsx", "index.tsx", "index.js", "index.ts"]:
-                                                if entry_cand in src_files:
-                                                    h_c = re.sub(r'src=["\'](?:\./)?(?:src/)?(?:main|index)\.[a-zA-Z0-9]+["\']', f'src="./src/{entry_cand}"', h_c)
-                                                    break
-
-                                        repaired_c = repair_truncated_html(h_c)
-                                        if repaired_c and repaired_c != raw_c:
-                                            with open(s_path, "w", encoding="utf-8") as sf:
-                                                sf.write(repaired_c)
-                                    except Exception as e_heal:
-                                        logger.warning(f"[Pre-Build Heal] Could not heal {s_fname}: {e_heal}")
-                    except Exception as e_pre_heal:
-                        logger.warning(f"[Pre-Build Heal Pass Failed]: {e_pre_heal}")
-
-                    # 2. Compile/build template project
-                    def run_npm_build():
-                        res = subprocess.run(
-                            build_cmd,
-                            cwd=project_root,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE
-                        )
-                        if res.returncode == 0 and is_next and has_export_script:
-                            subprocess.run(
-                                [npm_cmd, "run", "export"],
-                                cwd=project_root,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE
-                            )
-                        return res
-
-                    build_res = await loop.run_in_executor(None, run_npm_build)
-                    if build_res.returncode != 0:
-                        error_out = (build_res.stderr or build_res.stdout or b"").decode('utf-8', errors='ignore')
-                        print(f"npm run build failed for {template_id}: {error_out}")
-
-                        # 🤖 Trigger Autonomous AI Debugger Agent to inspect and repair syntax/compile errors
-                        try:
-                            from app.services.debugger_service import ai_debugger
-                            print(f"[Autonomous AI Debugger] Activating compiler repair agent for {detected_framework.upper()} template {template_id}...")
-                            is_fixed, fix_log, repaired_map = await ai_debugger.debug_project_build(
-                                project_root=project_root,
-                                build_cmd=build_cmd,
-                                initial_error_log=error_out,
-                                max_attempts=3,
-                                framework=detected_framework
-                            )
-                            if is_fixed:
-                                print(f"[Autonomous AI Debugger] Successfully resolved build errors for {template_id}!")
-                                # Also persist repaired files back into the template stored ZIP in database
-                                if repaired_map and file_id and not is_external:
-                                    try:
-                                        from app.models import StoredFile
-                                        sf_res = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
-                                        stored_rec = sf_res.scalar_one_or_none()
-                                        if stored_rec and stored_rec.data:
-                                            in_mem_zip = io.BytesIO()
-                                            with zipfile.ZipFile(io.BytesIO(stored_rec.data), 'r') as zin:
-                                                with zipfile.ZipFile(in_mem_zip, 'w', zipfile.ZIP_DEFLATED) as zout:
-                                                    for item in zin.infolist():
-                                                        item_content = zin.read(item.filename)
-                                                        # Check if this file was repaired
-                                                        norm_name = os.path.normpath(item.filename).replace("\\", "/")
-                                                        for rep_rel, rep_content in repaired_map.items():
-                                                            norm_rep = os.path.normpath(rep_rel).replace("\\", "/")
-                                                            if norm_name.endswith(norm_rep) or norm_rep.endswith(norm_name):
-                                                                item_content = rep_content.encode("utf-8")
-                                                                break
-                                                        zout.writestr(item, item_content)
-                                            stored_rec.data = in_mem_zip.getvalue()
-                                            await db.commit()
-                                            print(f"[Autonomous AI Debugger] Updated stored ZIP with repaired files in database for {template_id}")
-                                    except Exception as e_zip_up:
-                                        print(f"[Autonomous AI Debugger] Could not update stored ZIP: {e_zip_up}")
-                        except Exception as e_ai_debug:
-                            print(f"[Autonomous AI Debugger] Automated repair pass encountered an error: {e_ai_debug}")
-
-                    # Locate build dir again after build
-                    for d in build_folders:
-                        candidate = os.path.join(project_root, d)
-                        if os.path.isdir(candidate):
-                            for b_root, b_dirs, b_files in os.walk(candidate):
-                                if "index.html" in b_files:
-                                    build_dir = b_root
-                                    break
-                            if build_dir:
-                                break
 
             if build_dir:
                 serve_root = build_dir
@@ -3329,63 +3091,30 @@ async def serve_live_preview(
 </html>"""
                 return Response(content=missing_html_warning.encode("utf-8"), media_type="text/html", headers=security_scanner.get_secure_preview_headers())
     
-        # Intercept and forward API calls to the template's embedded sub-app
-        if filepath and (filepath.startswith("api/") or filepath == "api"):
-            backend_dir = os.path.join(project_root, "backend")
-            main_py = os.path.join(backend_dir, "main.py")
-            if os.path.exists(main_py):
-                import sys
-                import importlib.util
-                if backend_dir not in sys.path:
-                    sys.path.insert(0, backend_dir)
-                try:
-                    spec = importlib.util.spec_from_file_location("template_backend", main_py)
-                    module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(module)
-                    sub_app = module.app
-                    
-                    scope = dict(request.scope)
-                    scope["path"] = "/" + filepath
-                    scope["raw_path"] = ("/" + filepath).encode("ascii")
-                    
-                    response_body = bytearray()
-                    response_status = 200
-                    response_headers = []
-                    
-                    async def send(message):
-                        nonlocal response_status, response_headers
-                        if message["type"] == "http.response.start":
-                            response_status = message["status"]
-                            response_headers = message["headers"]
-                        elif message["type"] == "http.response.body":
-                            response_body.extend(message.get("body", b""))
-                            
-                    await sub_app(scope, request.receive, send)
-                    
-                    headers_dict = {}
-                    for k, v in response_headers:
-                        headers_dict[k.decode("ascii")] = v.decode("ascii")
-                        
-                    return Response(content=bytes(response_body), status_code=response_status, headers=headers_dict)
-                except Exception as e:
-                    print(f"Failed to route sub-app request for {template_id}: {e}")
-
         # Determine file to serve
         if not filepath or filepath == "/":
             full_path = index_file_path
         else:
-            safe_path = os.path.normpath(filepath).replace("..", "")
-            if safe_path.startswith("/") or safe_path.startswith("\\"):
-                safe_path = safe_path[1:]
-            full_path = os.path.join(serve_root, safe_path)
+            preview_root = Path(serve_root).resolve()
+            candidate_path = (preview_root / filepath).resolve()
+            try:
+                candidate_path.relative_to(preview_root)
+            except ValueError:
+                raise HTTPException(status_code=404, detail="Requested file not found in template")
+            full_path = str(candidate_path)
             
             # Fallback for nested layouts if not found directly
             if not os.path.exists(full_path):
                 subdirs = [d for d in os.listdir(serve_root) if os.path.isdir(os.path.join(serve_root, d)) and d not in ["__MACOSX"]]
                 if len(subdirs) == 1:
-                    nested_path = os.path.join(serve_root, subdirs[0], safe_path)
+                    nested_root = (preview_root / subdirs[0]).resolve()
+                    nested_path = (nested_root / candidate_path.relative_to(preview_root)).resolve()
+                    try:
+                        nested_path.relative_to(preview_root)
+                    except ValueError:
+                        raise HTTPException(status_code=404, detail="Requested file not found in template")
                     if os.path.exists(nested_path):
-                        full_path = nested_path
+                        full_path = str(nested_path)
     
         if not os.path.exists(full_path) or os.path.isdir(full_path):
             # Fallback to index.html if file not found (e.g. client side routing)
@@ -3704,13 +3433,13 @@ class ManualEditRequest(BaseModel):
 
 
 class AIEditRequest(BaseModel):
-    prompt: str
+    prompt: str = Field(min_length=1, max_length=4000)
 
 
 @router.post("/live/{template_id}/ai-debug")
 async def ai_debug_template_code(
     template_id: str,
-    current_user: Optional[User] = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -3734,6 +3463,10 @@ async def ai_debug_template_code(
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
+    if template.status != TemplateStatus.DRAFT or template.seller_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the owner of a draft can edit its source files.")
+    from app.core.request_limits import enforce_user_limit
+    await enforce_user_limit(str(current_user.id), "template-ai-debug")
 
     download_assets = template.download_assets or {}
     zip_url = download_assets.get("zip")
@@ -3750,13 +3483,19 @@ async def ai_debug_template_code(
         except Exception:
             pass
 
-    if not stored_file or not stored_file.data:
+    if not stored_file:
         raise HTTPException(status_code=404, detail="Source archive data not found")
+
+    from app.core.storage import storage
+    stored_file_data = await storage.get_file(db, file_id)
+    if not stored_file_data:
+        raise HTTPException(status_code=404, detail="Source archive data not found")
+    zip_bytes = stored_file_data[0]
 
     # 2. Extract to preview_dir
     os.makedirs(preview_dir, exist_ok=True)
-    with zipfile.ZipFile(io.BytesIO(stored_file.data), "r") as z:
-        z.extractall(preview_dir)
+    from app.services.security_scanner import security_scanner
+    security_scanner.sanitize_extract_zip(zip_bytes, Path(preview_dir))
 
     # 3. Locate package.json and scan all source files
     fixed_files_count = 0
@@ -3797,7 +3536,7 @@ async def ai_debug_template_code(
     # 4. If files were fixed, re-package the ZIP and save to DB
     if repaired_map and stored_file:
         in_mem = io.BytesIO()
-        with zipfile.ZipFile(io.BytesIO(stored_file.data), "r") as zin:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zin:
             with zipfile.ZipFile(in_mem, "w", zipfile.ZIP_DEFLATED) as zout:
                 for item in zin.infolist():
                     item_data = zin.read(item.filename)
@@ -3808,7 +3547,16 @@ async def ai_debug_template_code(
                             item_data = rep_content.encode("utf-8")
                             break
                     zout.writestr(item, item_data)
-        stored_file.data = in_mem.getvalue()
+        from app.core.storage import storage
+        replacement_url = await storage.upload_file(
+            db=db,
+            file_content=in_mem.getvalue(),
+            folder="templates/debugged",
+            original_filename=stored_file.original_filename or "template.zip",
+            content_type="application/zip",
+        )
+        template.download_assets = {**download_assets, "zip": replacement_url}
+        db.add(template)
         await db.commit()
 
     # 5. Clear compiled dist/build directories in preview_dir to trigger fresh build

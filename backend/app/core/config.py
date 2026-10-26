@@ -31,6 +31,9 @@ class Settings(BaseSettings):
 
     # ── Database ──────────────────────────────────────────────────────────────
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_site_studio"
+    # Separate data plane for customers, products, and orders belonging to generated shops.
+    # Deliberately has no fallback to DATABASE_URL: shop data must never enter the Studio DB.
+    COMMERCE_DATABASE_URL: str = ""
 
     # ── Redis ─────────────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -60,6 +63,16 @@ class Settings(BaseSettings):
             self.DATABASE_URL = self.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
         return self
 
+    @model_validator(mode="after")
+    def validate_commerce_database_url(self) -> "Settings":
+        if self.COMMERCE_DATABASE_URL.startswith("postgres://"):
+            self.COMMERCE_DATABASE_URL = self.COMMERCE_DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif self.COMMERCE_DATABASE_URL.startswith("postgresql://") and not self.COMMERCE_DATABASE_URL.startswith("postgresql+asyncpg://"):
+            self.COMMERCE_DATABASE_URL = self.COMMERCE_DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+        if self.COMMERCE_DATABASE_URL and self.COMMERCE_DATABASE_URL == self.DATABASE_URL:
+            raise ValueError("COMMERCE_DATABASE_URL must point to a separate database from DATABASE_URL.")
+        return self
+
 
     # ── OAuth (Google / Facebook) ─────────────────────────────────────────────
     GOOGLE_CLIENT_ID: str = ""
@@ -77,24 +90,28 @@ class Settings(BaseSettings):
 
     # ── Gemini ────────────────────────────────────────────────────────────────
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-flash-lite-latest"
+    # Comma/newline-separated Gemini keys, rotated to spread requests and
+    # fail over quickly when a key is quota-limited. Keep keys in .env only.
+    GEMINI_API_KEYS: str = ""
+    AI_GEMINI_TIMEOUT_SECONDS: float = 60.0
+    GEMINI_MODEL: str = "gemini-3.8-flash"
     GEMINI_EMBEDDING_MODEL: str = "gemini-embedding-2"
 
     # Separate Gemini models per feature (Tuned to high-quota active Flash models to avoid quota exhaustion)
-    GEMINI_MODEL_AI_CHAT_ASSISTANT: str = "gemini-flash-lite-latest"
-    GEMINI_MODEL_WEBSITE_CONTENT_GENERATION: str = "gemini-flash-lite-latest"
-    GEMINI_MODEL_SEO_GENERATOR: str = "gemini-flash-lite-latest"
+    GEMINI_MODEL_AI_CHAT_ASSISTANT: str = "gemini-3.8-flash"
+    GEMINI_MODEL_WEBSITE_CONTENT_GENERATION: str = "gemini-3.8-flash"
+    GEMINI_MODEL_SEO_GENERATOR: str = "gemini-3.8-flash"
     GEMINI_MODEL_SEMANTIC_SEARCH: str = "gemini-embedding-2"
     GEMINI_MODEL_TEMPLATE_RECOMMENDATION: str = "gemini-embedding-2"
-    GEMINI_MODEL_ACCESSIBILITY_REVIEW: str = "gemini-flash-lite-latest"
-    GEMINI_MODEL_CODE_ASSISTANT: str = "gemini-flash-lite-latest"
-    GEMINI_MODEL_CODE_DEBUGGING_AGENT: str = "gemini-flash-lite-latest"
-    GEMINI_MODEL_PROJECT_ZIP_ANALYSIS: str = "gemini-flash-lite-latest"
-    GEMINI_MODEL_TRANSLATION: str = "gemini-flash-lite-latest"
-    GEMINI_MODEL_BUSINESS_ANALYSIS: str = "gemini-flash-lite-latest"
-    GEMINI_MODEL_LOGO_IDEAS: str = "gemini-flash-lite-latest"
+    GEMINI_MODEL_ACCESSIBILITY_REVIEW: str = "gemini-3.8-flash"
+    GEMINI_MODEL_CODE_ASSISTANT: str = "gemini-3.8-flash"
+    GEMINI_MODEL_CODE_DEBUGGING_AGENT: str = "gemini-3.8-flash"
+    GEMINI_MODEL_PROJECT_ZIP_ANALYSIS: str = "gemini-3.8-flash"
+    GEMINI_MODEL_TRANSLATION: str = "gemini-3.8-flash"
+    GEMINI_MODEL_BUSINESS_ANALYSIS: str = "gemini-3.8-flash"
+    GEMINI_MODEL_LOGO_IDEAS: str = "gemini-3.8-flash"
     GEMINI_MODEL_IMAGE_GENERATION: str = "flux"
-    GEMINI_MODEL_OCR_DOCUMENT_UNDERSTANDING: str = "gemini-flash-lite-latest"
+    GEMINI_MODEL_OCR_DOCUMENT_UNDERSTANDING: str = "gemini-3.8-flash"
 
     # Alternative models per feature
     ALT_MODEL_AI_CHAT_ASSISTANT: str = "gpt-4o-mini"
@@ -120,22 +137,37 @@ class Settings(BaseSettings):
     # ── Multi-Model Swarm Provider Assignments ────────────────────────────────
     # Primary AI provider across all features & agents:
     # Set to 'kimi', 'gemini', 'ollama', or 'openrouter'
-    AI_PRIMARY_PROVIDER: str = "kimi"
-    AGENT_PLANNING_PROVIDER: str = "gemini"
-    AGENT_DESIGNER_PROVIDER: str = "ollama"
-    AGENT_FRONTEND_PROVIDER: str = "gemini"  # gemini is most reliable for JSX/HTML code gen
-    AGENT_BACKEND_PROVIDER: str = "gemini"   # gemini fallback (cline=Ollama which may be offline)
-    AGENT_DATABASE_PROVIDER: str = "gemini"  # gemini fallback
-    AGENT_SEO_PROVIDER: str = "ollama"
-    AGENT_TESTING_PROVIDER: str = "gemini"
-    AGENT_CODE_DEBUGGING_AGENT_PROVIDER: str = "gemini"
+    # Explicit provider selection is used by default. Hosted fallback must be enabled
+    # deliberately so a local Ollama/Cline request never incurs an unexpected API call.
+    AI_FREE_ONLY: bool = True
+    AI_PROVIDER_FALLBACKS: bool = False
+    AI_LOCAL_FALLBACKS: bool = True
+    AI_WEBSITE_PROVIDER_ORDER: str = "cline,ollama"
+    WEBSITE_PAGE_GENERATION_CONCURRENCY: int = 3
+    AI_PRIMARY_PROVIDER: str = "cline"
+    AGENT_PLANNING_PROVIDER: str = "cline"
+    AGENT_DESIGNER_PROVIDER: str = "cline"
+    AGENT_FRONTEND_PROVIDER: str = "cline"
+    AGENT_BACKEND_PROVIDER: str = "cline"
+    AGENT_DATABASE_PROVIDER: str = "cline"
+    AGENT_SEO_PROVIDER: str = "cline"
+    AGENT_TESTING_PROVIDER: str = "cline"
+    AGENT_DEPLOYMENT_PROVIDER: str = "cline"
+    AGENT_CODE_DEBUGGING_AGENT_PROVIDER: str = "cline"
+    AGENT_WEBSITE_CONTENT_GENERATION_PROVIDER: str = "cline"
 
     # ── Ollama (Local AI Engine - Qwen / DeepSeek) ────────────────────────────
     OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
-    OLLAMA_MODEL: str = "qwen2.5:latest"
-    OLLAMA_MODEL_DESIGNER: str = "qwen2.5:latest"
-    OLLAMA_MODEL_SEO: str = "qwen2.5:latest"
-    OLLAMA_MODEL_CODE: str = "qwen2.5-coder:7b"  # coding-specialized model for better code gen
+    OLLAMA_MODEL: str = "qwen3.5:9b"
+    OLLAMA_MODEL_FALLBACK: str = "qwen2.5-coder:latest,qwen2.5:latest"
+    OLLAMA_MODEL_PLANNING: str = "qwen3.5:9b"
+    OLLAMA_MODEL_PLANNING_FALLBACK: str = "qwen2.5:latest"
+    OLLAMA_MODEL_DESIGNER: str = "qwen3.5:9b"
+    OLLAMA_MODEL_DESIGNER_FALLBACK: str = "qwen2.5:latest"
+    OLLAMA_MODEL_SEO: str = "qwen3.5:9b"
+    OLLAMA_MODEL_SEO_FALLBACK: str = "qwen2.5:latest"
+    OLLAMA_MODEL_CODE: str = "qwen2.5-coder:latest,qwen3.5:9b,qwen2.5-coder:7b"
+    OLLAMA_MODEL_CODE_FALLBACK: str = "qwen2.5:latest,qwen3-coder:30b"
 
     # ── OpenRouter (Free and Paid community & flagship models) ────────────────
     OPENROUTER_API_KEY: str = ""
@@ -201,9 +233,12 @@ class Settings(BaseSettings):
     STRIPE_SECRET_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
     STRIPE_PUBLISHABLE_KEY: str = ""
+    STRIPE_HOSTING_PRICE_ID: str = ""
+    HOSTING_GRACE_PERIOD_DAYS: int = 3
+    DEPLOYMENT_HOST_IP: str = ""
 
     # ── UPI Direct Payment ────────────────────────────────────────────────────
-    UPI_MERCHANT_VPA: str = "aisitestudio@upi"
+    UPI_MERCHANT_VPA: str = ""
     UPI_MERCHANT_NAME: str = "AI Site Studio"
 
     # ── SMTP & Email Provider Settings ─────────────────────────────────────────
@@ -217,10 +252,25 @@ class Settings(BaseSettings):
     RESEND_API_KEY: str = ""
     RESEND_FROM: str = "Site Studio <onboarding@resend.dev>"
     BREVO_API_KEY: str = ""
+    # Order alert SMS. Credentials stay in server environment; stores only provide destinations.
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: str = ""
+    TWILIO_FROM_NUMBER: str = ""
 
     # ── CORS ──────────────────────────────────────────────────────────────────
-    FRONTEND_URL: str = "http://localhost:3000"
-    ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+    DEPLOYMENT_PROVIDER: str = "local"
+    LOCAL_DEPLOYMENT_ENABLED: bool = False
+    VERCEL_TOKEN: str = ""
+    VERCEL_TEAM_ID: str = ""
+    # GoDaddy Domains API v3 Personal Access Token (domains.domain:read,
+    # domains.domain:create, domains.dns:update). Never expose to the frontend.
+    GODADDY_PAT: str = ""
+    GODADDY_API_BASE_URL: str = "https://api.godaddy.com"
+    # Set only when the public reverse proxy provisions TLS for customer domains.
+    CUSTOM_DOMAIN_TLS_ENABLED: bool = False
+
+    FRONTEND_URL: str = "http://localhost:5173"
+    ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     # ── File Uploads ──────────────────────────────────────────────────────────
     MAX_UPLOAD_SIZE_MB: int = 50

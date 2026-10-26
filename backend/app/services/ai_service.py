@@ -7,6 +7,8 @@ Supports separate models per feature and fallback to Azure OpenAI API.
 import json
 import logging
 import re
+import itertools
+import time
 from pathlib import Path
 from typing import Optional, List, Any
 import urllib.parse
@@ -15,6 +17,32 @@ import httpx
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+_gemini_key_cycle = itertools.count()
+_ollama_models_cache: tuple[float, set[str]] = (0.0, set())
+
+# Ordered fallback Gemini generation models (tried in sequence on 503/quota errors)
+_GEMINI_FALLBACK_MODELS = [
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
+    "gemini-3.5-flash",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+    "gemini-pro-latest",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+]
+
+
+def _strip_think_tags(text: str) -> str:
+    """Strip <think>...</think> chain-of-thought blocks emitted by Qwen3 / DeepSeek-R1 before parsing."""
+    if not text:
+        return text
+    # Remove <think>...</think> (possibly multiline, possibly multiple blocks)
+    cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = cleaned.strip()
+    # If stripping think blocks left the response empty, return original
+    return cleaned if cleaned else text
 
 
 def safe_print(*args, **kwargs):
@@ -164,15 +192,15 @@ def robust_json_loads(text: str) -> Any:
 # Best Model (Gemini Pro / Flagship) is used as primary. Alternate is configured for future switches.
 FEATURE_MODELS = {
     "ai_chat_assistant": {
-        "gemini": "gemini-flash-lite-latest",
+        "gemini": "gemini-3.8-flash",
         "alternative": "gpt-4o-mini",
     },
     "website_content_generation": {
-        "gemini": "gemini-flash-lite-latest",
+        "gemini": "gemini-3.8-flash",
         "alternative": "gpt-4o",
     },
     "seo_generator": {
-        "gemini": "gemini-flash-lite-latest",
+        "gemini": "gemini-3.8-flash",
         "alternative": "gpt-4o-mini",
     },
     "semantic_search": {
@@ -184,31 +212,31 @@ FEATURE_MODELS = {
         "alternative": "text-embedding-3-large",
     },
     "accessibility_review": {
-        "gemini": "gemini-flash-lite-latest",
+        "gemini": "gemini-3.8-flash",
         "alternative": "gpt-4o-mini",
     },
     "code_assistant": {
-        "gemini": "gemini-flash-lite-latest",
+        "gemini": "gemini-3.8-flash",
         "alternative": "gpt-4o",
     },
     "code_debugging_agent": {
-        "gemini": "gemini-flash-lite-latest",
+        "gemini": "gemini-3.8-flash",
         "alternative": "gpt-4o",
     },
     "project_zip_analysis": {
-        "gemini": "gemini-flash-lite-latest",
+        "gemini": "gemini-3.8-flash",
         "alternative": "gpt-4o",
     },
     "translation": {
-        "gemini": "gemini-flash-lite-latest",
+        "gemini": "gemini-3.8-flash",
         "alternative": "gpt-4o-mini",
     },
     "business_analysis": {
-        "gemini": "gemini-flash-lite-latest",
+        "gemini": "gemini-3.8-flash",
         "alternative": "gpt-4o",
     },
     "logo_ideas": {
-        "gemini": "gemini-flash-lite-latest",
+        "gemini": "gemini-3.8-flash",
         "alternative": "gpt-4o-mini",
     },
     "image_generation": {
@@ -216,7 +244,7 @@ FEATURE_MODELS = {
         "alternative": "dall-e-3",
     },
     "ocr_document_understanding": {
-        "gemini": "gemini-flash-lite-latest",
+        "gemini": "gemini-3.8-flash",
         "alternative": "gpt-4o",
     },
 }
@@ -231,6 +259,32 @@ class AIService:
         if self._ollama_lock is None:
             self._ollama_lock = asyncio.Lock()
         return self._ollama_lock
+
+    @staticmethod
+    def _get_clinerules_directive() -> str:
+        """Dynamically load .clinerules from project root and construct system directive for all models."""
+        rules_content = ""
+        for possible_root in [
+            Path(__file__).resolve().parents[3],
+            Path(__file__).resolve().parents[2],
+            Path.cwd()
+        ]:
+            rf = possible_root / ".clinerules"
+            if rf.exists():
+                try:
+                    rules_content = rf.read_text(encoding="utf-8")
+                    break
+                except Exception:
+                    pass
+
+        cline_system_directive = (
+            "You are Cline, an elite Senior AI Full-Stack Software Architect and Principal Engineer. "
+            "You build world-class, premium, production-ready web applications with zero placeholders, "
+            "rich interactive components, responsive Tailwind styling, Lucide icons, and authentic domain-specific copy. "
+            "Never generate generic boilerplate, stubs, or truncated files. Provide 100% complete, fully working code."
+        )
+        return f"{rules_content}\n\n{cline_system_directive}" if rules_content else cline_system_directive
+
 
     async def _log_ai_history(self, feature: str, model: str, prompt: str, response: str, user_id=None):
         """Asynchronously log AI call tokens and usage to database for analytics."""
@@ -269,11 +323,17 @@ class AIService:
             return settings.OPENROUTER_API_KEY
         if getattr(settings, "OPENAI_API_KEY", "") and settings.OPENAI_API_KEY != "your-openai-api-key":
             return settings.OPENAI_API_KEY
-        if getattr(settings, "GEMINI_API_KEY", ""):
-            return settings.GEMINI_API_KEY
+        if self._gemini_api_keys():
+            return self._gemini_api_keys()[0]
         if settings.AZURE_OPENAI_API_KEY and settings.AZURE_OPENAI_ENDPOINT:
             return True
         return None
+
+    @staticmethod
+    def _gemini_api_keys() -> List[str]:
+        configured = [getattr(settings, "GEMINI_API_KEY", "")]
+        configured.extend(re.split(r"[,;\s]+", getattr(settings, "GEMINI_API_KEYS", "")))
+        return list(dict.fromkeys(key.strip() for key in configured if key and key.strip()))
 
     def get_model_for_feature(self, feature_name: str, provider: str = "gemini") -> str:
         """
@@ -304,65 +364,95 @@ class AIService:
             return model
 
     async def _call_gemini_api(self, prompt: str, model_name: str, response_mime_type: str) -> Optional[str]:
-        """Perform a single HTTP request to the Gemini API with automatic retries on timeouts."""
-        import asyncio
+        """Rotate across configured Gemini keys AND fallback models on 503/429 quota/availability errors."""
+        import asyncio as _asyncio
         headers = {"Content-Type": "application/json"}
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={settings.GEMINI_API_KEY}"
+        keys = self._gemini_api_keys()
+        if not keys:
+            return None
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
-                "maxOutputTokens": 8192
+                "maxOutputTokens": 16384 if response_mime_type != "application/json" else 8192
             }
         }
         if response_mime_type == "application/json":
             payload["generationConfig"]["responseMimeType"] = "application/json"
 
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                async with httpx.AsyncClient() as client:
-                    response = await client.post(url, json=payload, headers=headers, timeout=180.0)
-                    if response.status_code == 200:
-                        data = response.json()
-                        try:
-                            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                        except (KeyError, IndexError) as e:
-                            logger.warning(f"Unexpected response structure from Gemini for model {model_name}: {data}")
-                            return None
-                    elif response.status_code == 429:
-                        try:
-                            error_data = response.json()
-                            error_msg = error_data.get("error", {}).get("message", response.text)
-                        except Exception:
-                            error_msg = response.text
-                        logger.warning(f"Gemini API rate limit 429 hit for model {model_name}. Immediately rolling over to fallback model...")
-                        raise GeminiAPIError(429, error_msg, model_name)
-                    elif response.status_code == 503:
-                        logger.warning(f"Gemini API returned temporary status 503 for {model_name} (attempt {attempt + 1}/{max_retries}). Retrying in 2s...")
-                        if attempt < max_retries - 1:
-                            await asyncio.sleep(2.0)
-                            continue
-                        else:
+        timeout = max(10.0, float(getattr(settings, "AI_GEMINI_TIMEOUT_SECONDS", 60.0)))
+
+        # Build de-duplicated ordered model list: configured model first, then fallbacks
+        model_sequence = [model_name] + [m for m in _GEMINI_FALLBACK_MODELS if m != model_name]
+        start = next(_gemini_key_cycle) % len(keys)
+        ordered_keys = keys[start:] + keys[:start]
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            for model_idx, try_model in enumerate(model_sequence):
+                model_payload = {**payload}  # fresh copy so model-specific changes don't bleed
+                if response_mime_type == "application/json":
+                    model_payload["generationConfig"] = {**payload["generationConfig"], "responseMimeType": "application/json"}
+                for key_index, api_key in enumerate(ordered_keys):
+                    try:
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{try_model}:generateContent"
+                        key_headers = {**headers, "x-goog-api-key": api_key}
+                        response = await client.post(url, json=model_payload, headers=key_headers)
+                        if response.status_code == 200:
+                            data = response.json()
                             try:
-                                error_data = response.json()
-                                error_msg = error_data.get("error", {}).get("message", response.text)
+                                text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                                if model_idx > 0:
+                                    logger.info("Gemini fallback model '%s' succeeded after primary '%s' failed.", try_model, model_name)
+                                return text
+                            except (KeyError, IndexError, TypeError):
+                                logger.warning("Gemini returned an unexpected response structure for model %s", try_model)
+                                return None
+                        elif response.status_code in (429, 503):
+                            # Quota or overload — try next key, then next model
+                            try:
+                                err_body = response.json()
+                                err_msg = err_body.get("error", {}).get("message", response.text[:200])
                             except Exception:
-                                error_msg = response.text
-                            raise GeminiAPIError(response.status_code, error_msg, model_name)
-                    else:
-                        logger.warning(f"Gemini API returned status {response.status_code} for model {model_name}: {response.text}")
-                        try:
-                            error_data = response.json()
-                            error_msg = error_data.get("error", {}).get("message", response.text)
-                        except Exception:
-                            error_msg = response.text
-                        raise GeminiAPIError(response.status_code, error_msg, model_name)
-            except (httpx.TimeoutException, httpx.NetworkError) as e:
-                logger.warning(f"Gemini API call failed (attempt {attempt + 1}/{max_retries}) due to network issue: {type(e).__name__}")
-                if attempt == max_retries - 1:
-                    raise e
-                await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                                err_msg = response.text[:200]
+                            logger.warning(
+                                "Gemini API key %d/%d returned %d for model '%s': %s. "
+                                "Trying next key/model.",
+                                key_index + 1, len(ordered_keys), response.status_code, try_model, err_msg
+                            )
+                            if response.status_code == 503 and key_index == len(ordered_keys) - 1:
+                                # All keys exhausted for this model; short delay before next model
+                                await _asyncio.sleep(1.0)
+                            raise GeminiAPIError(response.status_code, err_msg, try_model)
+                        else:
+                            logger.warning("Gemini key %d/%d failed with status %d for model %s", key_index + 1, len(keys), response.status_code, try_model)
+                    except GeminiAPIError:
+                        # Let outer loop move to next key / model
+                        continue
+                    except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                        logger.warning("Gemini key %d/%d request failed (%s) for model %s", key_index + 1, len(keys), type(exc).__name__, try_model)
         return None
+
+
+    async def _installed_ollama_models(self) -> set[str]:
+        """Return locally installed Ollama model names, cached briefly to avoid 404 probes."""
+        global _ollama_models_cache
+        cached_at, cached_models = _ollama_models_cache
+        cache_ttl = 30 if cached_models else 5
+        if time.monotonic() - cached_at < cache_ttl:
+            return cached_models
+        try:
+            base_url = settings.OLLAMA_BASE_URL.rstrip("/")
+            if base_url.endswith("/v1"):
+                base_url = base_url[:-3]
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                response = await client.get(f"{base_url}/api/tags")
+            response.raise_for_status()
+            models = {str(item.get("name", "")) for item in response.json().get("models", []) if item.get("name")}
+            _ollama_models_cache = (time.monotonic(), models)
+            return models
+        except Exception as exc:
+            logger.debug("Could not list installed Ollama models: %s", type(exc).__name__)
+            _ollama_models_cache = (time.monotonic(), set())
+            return set()
 
     async def _call_openai_compatible_api(
         self,
@@ -403,7 +493,11 @@ class AIService:
                     if response.status_code == 200:
                         data = response.json()
                         try:
-                            return data["choices"][0]["message"]["content"].strip()
+                            raw_content = data["choices"][0]["message"]["content"].strip()
+                            # Strip <think>...</think> chain-of-thought tags emitted by Qwen3/DeepSeek-R1
+                            if "ollama" in provider_label.lower() or "cline" in provider_label.lower():
+                                raw_content = _strip_think_tags(raw_content)
+                            return raw_content
                         except (KeyError, IndexError) as e:
                             logger.warning(f"Unexpected response from {provider_label} ({model_name}): {data}")
                             return None
@@ -444,13 +538,73 @@ class AIService:
         # Determine trial order based on preferred_provider, agent-specific setting, or AI_PRIMARY_PROVIDER
         agent_setting_key = f"AGENT_{feature_name.upper()}_PROVIDER"
         agent_choice = getattr(settings, agent_setting_key, None)
-        primary_choice = (preferred_provider or agent_choice or getattr(settings, "AI_PRIMARY_PROVIDER", "ollama")).lower().strip()
+        primary_choice = (preferred_provider or agent_choice or getattr(settings, "AI_PRIMARY_PROVIDER", "cline")).lower().strip()
 
-        all_providers = ["cline", "groq", "ollama", "gemini", "openrouter", "openai", "kimi", "azure"]
-        if primary_choice in all_providers:
+        all_providers = ["cline", "ollama", "groq", "openrouter", "openai", "kimi", "azure"]
+        website_features = {
+            "website_content_generation", "planning_agent", "designer_agent",
+            "seo_agent", "seo_generator", "website_frontend_generation",
+            "website_backend_generation", "website_database_generation",
+            "code_assistant", "code_debugging_agent", "testing_agent", "deployment_agent"
+        }
+        if feature_name in website_features:
+            configured_order = [p.strip().lower() for p in getattr(settings, "AI_WEBSITE_PROVIDER_ORDER", "cline,ollama").split(",")]
+            provider_order = [p for p in configured_order if p in ("cline", "ollama")]
+            if preferred_provider and preferred_provider.lower() in ("cline", "ollama"):
+                pref = preferred_provider.lower()
+                provider_order = [pref] + [p for p in provider_order if p != pref]
+            if not provider_order:
+                provider_order = ["cline", "ollama"]
+        elif getattr(settings, "AI_FREE_ONLY", False):
+            # Free-only mode must never silently spill from local inference to
+            # a hosted provider that could incur charges.
+            provider_order = [primary_choice] if primary_choice in ("ollama", "cline") else ["ollama"]
+        elif not getattr(settings, "AI_PROVIDER_FALLBACKS", False):
+            # A provider configured for a feature is authoritative. This makes
+            # Gemini opt-in per feature and prevents silent hosted-provider spend.
+            provider_order = [primary_choice] if primary_choice in all_providers else ["ollama"]
+            if getattr(settings, "AI_LOCAL_FALLBACKS", True) and primary_choice not in ("ollama", "cline"):
+                provider_order.append("ollama")
+        elif primary_choice in all_providers:
             provider_order = [primary_choice] + [p for p in all_providers if p != primary_choice]
         else:
             provider_order = all_providers
+
+        def local_model_candidates(name: str, preferred_model: Optional[str] = None) -> List[str]:
+            fallback_setting = "OLLAMA_MODEL_FALLBACK"
+            if "planning" in name:
+                primary_model = getattr(settings, "OLLAMA_MODEL_PLANNING", settings.OLLAMA_MODEL)
+                fallback_setting = "OLLAMA_MODEL_PLANNING_FALLBACK"
+            elif "designer" in name:
+                primary_model = getattr(settings, "OLLAMA_MODEL_DESIGNER", settings.OLLAMA_MODEL)
+                fallback_setting = "OLLAMA_MODEL_DESIGNER_FALLBACK"
+            elif "seo" in name:
+                primary_model = getattr(settings, "OLLAMA_MODEL_SEO", settings.OLLAMA_MODEL)
+                fallback_setting = "OLLAMA_MODEL_SEO_FALLBACK"
+            elif "code" in name or "debug" in name:
+                primary_model = getattr(settings, "OLLAMA_MODEL_CODE", settings.OLLAMA_MODEL)
+                fallback_setting = "OLLAMA_MODEL_CODE_FALLBACK"
+            else:
+                primary_model = getattr(settings, "OLLAMA_MODEL", "qwen2.5:latest")
+            primary_model = preferred_model or primary_model
+            candidates = []
+            for item in re.split(r"[,;\s]+", str(primary_model or "")):
+                item = item.strip()
+                if item and item not in candidates:
+                    candidates.append(item)
+            if getattr(settings, "AI_LOCAL_FALLBACKS", True):
+                for setting_key in (fallback_setting, "OLLAMA_MODEL_CODE_FALLBACK", "OLLAMA_MODEL_FALLBACK", "OLLAMA_MODEL"):
+                    raw_val = getattr(settings, setting_key, "")
+                    for item in re.split(r"[,;\s]+", str(raw_val or "")):
+                        item = item.strip()
+                        if item and item not in candidates:
+                            candidates.append(item)
+            return candidates
+
+        # Enforce .clinerules across ALL models (Gemini, Cline, Ollama) for zero-placeholder ship-quality output
+        clinerules_directive = self._get_clinerules_directive()
+        if clinerules_directive and "CLINE AGENT RULES" not in prompt and "Senior AI Architect" not in prompt:
+            prompt = f"{clinerules_directive}\n\nTask Specification:\n{prompt}"
 
         for provider in provider_order:
             # 1. Kimi (Moonshot AI)
@@ -575,49 +729,36 @@ class AIService:
             # 6. Cline Autonomous Coding Engine (Ollama Qwen Coder + .clinerules Architecture)
             elif provider == "cline":
                 try:
-                    cline_model = getattr(settings, "OLLAMA_MODEL_CODE", "qwen2.5-coder:7b")
-                    safe_print(f"🤖 [Cline Engine] Invoking Cline Autonomous Coding Engine ({cline_model}) for '{feature_name}'...")
+                    cline_models = local_model_candidates(feature_name, getattr(settings, "OLLAMA_MODEL_CODE", "qwen2.5-coder:7b"))
+                    installed_models = await self._installed_ollama_models()
+                    if installed_models:
+                        available = [model for model in cline_models if model in installed_models]
+                        cline_models = available or cline_models
+                    safe_print(f"🤖 [Cline-compatible Ollama] Trying local coding models {cline_models} for '{feature_name}'...")
                     
-                    # Dynamically load .clinerules from project root
-                    rules_content = ""
-                    for possible_root in [
-                        Path(__file__).resolve().parents[3],
-                        Path(__file__).resolve().parents[2],
-                        Path.cwd()
-                    ]:
-                        rf = possible_root / ".clinerules"
-                        if rf.exists():
-                            try:
-                                rules_content = rf.read_text(encoding="utf-8")
-                                safe_print(f"   [Cline Engine] Active Rules: Loaded {len(rules_content)} chars from {rf.name}")
-                                break
-                            except Exception:
-                                pass
-
-                    cline_system_directive = (
-                        "You are Cline, an elite Senior AI Full-Stack Software Architect and Principal Engineer. "
-                        "You build world-class, premium, production-ready web applications with zero placeholders, "
-                        "rich interactive components, responsive Tailwind styling, Lucide icons, and authentic domain-specific copy. "
-                        "Never generate generic boilerplate, stubs, or truncated files. Provide 100% complete, fully working code."
-                    )
-                    directive_to_use = f"{rules_content}\n\n{cline_system_directive}" if rules_content else cline_system_directive
-                    augmented_prompt = f"{directive_to_use}\n\nTask Specification:\n{prompt}"
+                    augmented_prompt = prompt
                     
-                    async with self._get_ollama_lock():
-                        res = await self._call_openai_compatible_api(
-                            prompt=augmented_prompt,
-                            base_url=settings.OLLAMA_BASE_URL,
-                            api_key="ollama",
-                            model_name=cline_model,
-                            response_mime_type=response_mime_type,
-                            provider_label=f"Cline ({cline_model})",
-                            timeout=180.0
-                        )
-                    if res:
-                        safe_print(f"   └─ ✅ Cline Engine ({cline_model}) generated high-fidelity code successfully.")
-                        return res
+                    res = None
+                    for cline_model in cline_models:
+                        try:
+                            async with self._get_ollama_lock():
+                                res = await self._call_openai_compatible_api(
+                                    prompt=augmented_prompt,
+                                    base_url=settings.OLLAMA_BASE_URL,
+                                    api_key="ollama",
+                                    model_name=cline_model,
+                                    response_mime_type=response_mime_type,
+                                    provider_label=f"Cline-compatible Ollama ({cline_model})",
+                                    timeout=600.0
+                                )
+                            if res:
+                                safe_print(f"   └─ ✅ Local coding model ({cline_model}) generated output successfully.")
+                                return res
+                        except Exception as model_error:
+                            logger.warning(f"Local Cline-compatible model '{cline_model}' failed: {model_error}")
+                            safe_print(f"   [FALLBACK] Local model '{cline_model}' failed; trying the next configured local model.")
                     
-                    if getattr(settings, "GROQ_API_KEY", ""):
+                    if feature_name not in website_features and getattr(settings, "AI_PROVIDER_FALLBACKS", False) and getattr(settings, "GROQ_API_KEY", ""):
                         safe_print(f"   [Cline Engine] Engaging Groq ultra-fast engine ({settings.GROQ_MODEL}) for full-scope completion...")
                         groq_res = await self._call_openai_compatible_api(
                             prompt=augmented_prompt,
@@ -631,47 +772,39 @@ class AIService:
                             safe_print(f"   └─ ✅ Cline Engine (Groq) generated complete output successfully.")
                             return groq_res
 
-                    if getattr(settings, "GEMINI_API_KEY", ""):
-                        safe_print(f"   [Cline Engine] Engaging Gemini reasoning engine for full-scope completion...")
-                        gemini_res = await self._call_gemini_api(augmented_prompt, getattr(settings, "GEMINI_MODEL", "gemini-flash-lite-latest"), response_mime_type)
-                        if gemini_res:
-                            safe_print(f"   └─ ✅ Cline Engine (Gemini Cloud) generated complete multi-page output successfully.")
-                            return gemini_res
                 except Exception as e:
                     logger.warning(f"Cline Engine attempt failed for feature '{feature_name}': {e}")
                     safe_print(f"   [FAIL] Cline Engine attempt failed: {e}")
 
             # 7. Ollama (Local AI Engine e.g. Qwen / DeepSeek)
             elif provider == "ollama":
-                try:
-                    ollama_model = getattr(settings, "OLLAMA_MODEL", "qwen2.5:latest")
-                    if "designer" in feature_name:
-                        ollama_model = getattr(settings, "OLLAMA_MODEL_DESIGNER", ollama_model)
-                    elif "seo" in feature_name:
-                        ollama_model = getattr(settings, "OLLAMA_MODEL_SEO", ollama_model)
-                    elif "code" in feature_name or "debug" in feature_name:
-                        ollama_model = getattr(settings, "OLLAMA_MODEL_CODE", ollama_model)
-                    
-                    safe_print(f"[AI Service] Invoking Ollama ({ollama_model}) for '{feature_name}'...")
-                    res = await self._call_openai_compatible_api(
-                        prompt=prompt,
-                        base_url=settings.OLLAMA_BASE_URL,
-                        api_key="ollama",
-                        model_name=ollama_model,
-                        response_mime_type=response_mime_type,
-                        provider_label=f"Ollama ({ollama_model})"
-                    )
-                    if res:
-                        safe_print(f"   └─ ✅ Ollama ({ollama_model}) generated output successfully.")
-                        return res
-                except Exception as e:
-                    logger.warning(f"Ollama attempt failed for feature '{feature_name}': {e}")
-                    safe_print(f"   [FAIL] Ollama attempt failed: {e}")
+                ollama_models = local_model_candidates(feature_name)
+                installed_models = await self._installed_ollama_models()
+                if installed_models:
+                    available = [model for model in ollama_models if model in installed_models]
+                    ollama_models = available or ollama_models
+                for ollama_model in ollama_models:
+                    try:
+                        safe_print(f"[AI Service] Invoking Ollama ({ollama_model}) for '{feature_name}'...")
+                        res = await self._call_openai_compatible_api(
+                            prompt=prompt,
+                            base_url=settings.OLLAMA_BASE_URL,
+                            api_key="ollama",
+                            model_name=ollama_model,
+                            response_mime_type=response_mime_type,
+                            provider_label=f"Ollama ({ollama_model})"
+                        )
+                        if res:
+                            safe_print(f"   └─ ✅ Ollama ({ollama_model}) generated output successfully.")
+                            return res
+                    except Exception as e:
+                        logger.warning(f"Ollama model '{ollama_model}' failed for '{feature_name}': {e}")
+                        safe_print(f"   [FALLBACK] Ollama model '{ollama_model}' failed; trying the next configured local model.")
 
             # 7. Google Gemini (Active Flash Engine)
-            elif provider == "gemini" and getattr(settings, "GEMINI_API_KEY", ""):
+            elif provider == "gemini" and self._gemini_api_keys():
                 try:
-                    gemini_model = getattr(settings, "GEMINI_MODEL", "gemini-flash-lite-latest")
+                    gemini_model = self.get_model_for_feature(feature_name, provider="gemini")
                     safe_print(f"[AI Service] Invoking Google Gemini ({gemini_model}) for '{feature_name}'...")
                     res = await self._call_gemini_api(prompt, gemini_model, response_mime_type)
                     if res:
@@ -683,7 +816,17 @@ class AIService:
 
         # No random/fallback templates allowed when AI calls fail.
         # Report the exact error so the customer knows why it failed instead of receiving a random template.
-        error_details = f"AI Provider '{primary_choice}' (model: {getattr(settings, 'KIMI_MODEL', 'moonshot-v1-32k')}) failed to respond or encountered an error."
+        if primary_choice == "gemini":
+            gemini_model = self.get_model_for_feature(feature_name, provider="gemini")
+            if not self._gemini_api_keys():
+                error_details = f"Gemini was selected for '{feature_name}', but no Gemini API key is configured."
+            else:
+                error_details = f"Gemini model '{gemini_model}' failed for '{feature_name}'. Check the API key, model access, free-tier quota, and whether the configured local Ollama fallback is available."
+        elif primary_choice in ("cline", "ollama"):
+            local_model = getattr(settings, "OLLAMA_MODEL_CODE", "qwen2.5-coder:7b") if primary_choice == "cline" else getattr(settings, "OLLAMA_MODEL", "qwen2.5:latest")
+            error_details = f"Local Ollama model '{local_model}' failed for '{feature_name}'. Check that Ollama is running and that the model is installed."
+        else:
+            error_details = f"AI Provider '{primary_choice}' failed for '{feature_name}'. Check its credentials and quota."
         if primary_choice == "kimi":
             error_details = (
                 f"Kimi (Moonshot) model '{getattr(settings, 'KIMI_MODEL', 'moonshot-v1-32k')}' encountered an error or insufficient account balance. "
@@ -710,11 +853,11 @@ class AIService:
 
         models_to_try = [
             self.get_model_for_feature(feature_name, provider="gemini"),
-            "gemini-flash-lite-latest",
-            "gemini-3.6-flash",
+            "gemini-3.8-flash",
+            "gemini-3.7-flash",
             "gemini-3.5-flash",
-            "gemini-flash-latest",
-            "gemini-pro-latest",
+            "gemini-3.5-flash-lite",
+            "gemini-3.8-flash",
         ]
         
         seen = set()
@@ -726,7 +869,7 @@ class AIService:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:streamGenerateContent?alt=sse&key={settings.GEMINI_API_KEY}"
                 try:
                     async with httpx.AsyncClient() as client:
-                        async with client.stream("POST", url, json=payload, headers=headers, timeout=120.0) as response:
+                        async with client.stream("POST", url, json=payload, headers=headers, timeout=600.0) as response:
                             if response.status_code == 200:
                                 success = True
                                 async for line in response.aiter_lines():
@@ -1004,9 +1147,20 @@ Return ONLY valid JSON. Do not include markdown code block notation (```json) or
         )
         return robust_json_loads(response_text)
 
-    async def generate_color_palette(self, industry: str, mood: str = "professional") -> dict:
-        """Generate a color palette for a business."""
+    async def generate_color_palette(self, industry: str, mood: str = "professional", theme: str = "light") -> dict:
+        """Generate a color palette for a business respecting requested theme."""
+        is_light = any(w in str(theme).lower() for w in ["light", "white", "clean"])
+        theme_directive = (
+            "THEME REQUIREMENT: Crisp, modern LIGHT / WHITE theme. Background MUST be clean white (#ffffff or #f8fafc), "
+            "secondary MUST be a crisp light card surface or soft clean tint (#ffffff, #f1f5f9, or #f8fafc), "
+            "text MUST be high-contrast dark (#0f172a or #1e293b), and primary MUST be a vibrant harmonious brand color."
+            if is_light else
+            "THEME REQUIREMENT: Sleek DARK theme. Background MUST be dark (#0f172a or #09090b), secondary MUST be dark surface (#1e293b), "
+            "text MUST be light (#f8fafc), and primary MUST be a glowing accent."
+        )
+
         prompt = f"""Generate a professional color palette for a {industry} business with a {mood} mood.
+{theme_directive}
 
 Return JSON:
 {{
@@ -1023,7 +1177,15 @@ Return ONLY valid JSON. Do not include markdown code block notation (```json) or
         response_text = await self._generate_content(
             prompt, response_mime_type="application/json", feature_name="logo_ideas"
         )
-        return robust_json_loads(response_text)
+        data = robust_json_loads(response_text)
+        if isinstance(data, dict) and is_light:
+            if data.get("background", "").lower() in ["#0f172a", "#000000", "#111827", "#090d16", "#1e293b", "#09090b", "#040405"]:
+                data["background"] = "#ffffff"
+            if data.get("secondary", "").lower() in ["#0f172a", "#000000", "#111827", "#090d16", "#1e293b", "#09090b", "#040405"]:
+                data["secondary"] = "#ffffff"
+            if data.get("text", "").lower() in ["#ffffff", "#f8fafc", "#fafafa", "#e2e8f0", "#e6ebe9"]:
+                data["text"] = "#0f172a"
+        return data
 
     async def recommend_templates(
         self,
@@ -1054,21 +1216,35 @@ Return ONLY valid JSON. Do not include markdown code block notation (```json) or
         """
         Enhance a brief template prompt into a high-fidelity design specification using Gemini Pro.
         """
-        prompt = f"""You are a principal digital product designer and frontend architect.
-A user wants to create a website template with this initial brief:
-"{user_prompt}"
+        is_light = any(w in user_prompt.lower() for w in ["white", "light theme", "light mode", "clean white", "cream"])
+        theme_directive = (
+            "CRITICAL THEME DIRECTIVE: The user explicitly specified or requested a WHITE / LIGHT theme. "
+            "You MUST set 'color_scheme' to a Clean Modern Light/White Theme (e.g., 'Fresh Organic White & Emerald Leaf', 'Crisp White Minimalist', 'Sunlit Artisan Cream & Citrus'). "
+            "Under NO circumstances should you output a dark theme."
+            if is_light else
+            "Adhere strictly to any theme preferences specified by the user. If they ask for white/light theme, make it white/light. If dark, make it dark."
+        )
 
-Expand this prompt into a rich, professional design specification.
-Return JSON:
+        prompt = f"""You are a principal digital product designer, brand strategist, and frontend architect.
+Translate this user brief into an original, buildable website direction:
+{user_prompt}
+
+{theme_directive}
+
+Do not turn this into a generic template. Derive a distinctive visual thesis, audience, positioning, information architecture, content voice, and useful interactions from the actual brief. Specify concrete layout and art-direction choices. Avoid default glassmorphism, neon gradients, generic SaaS dashboards, and repeated feature-card patterns unless the brief explicitly calls for them. Do not invent testimonials, metrics, client names, awards, certifications, or other factual claims. The generated site is frontend-only: no API, database, simulated checkout, or false form-success state. Keep the design feasible in the chosen frontend framework.
+
+Return valid JSON with these fields:
 {{
-  "enhanced_prompt": "A detailed 3-4 sentence prompt describing the core concept, target audience, layout architecture, visual aesthetics, typography, color palette, interactive components, and special section requirements.",
-  "suggested_title": "A punchy marketplace title for this template",
-  "industry": "Industry classification (e.g. SaaS & Tech, Portfolio & Agency, E-Commerce, Restaurant)",
-  "color_scheme": "Dominant color scheme description (e.g., Cyberpunk Neon Dark, Glassmorphic Emerald, Warm Editorial Cream)",
-  "recommended_sections": ["Hero Banner with CTA", "Feature Grid", "Interactive Showcase", "Testimonials", "Pricing Tables", "Footer"]
+  "enhanced_prompt": "Specific product and brand direction, audience, unique visual thesis, content voice, page structure, and interactions. Preserve unknown facts as unknown.",
+  "suggested_title": "A concise, business-specific title",
+  "industry": "The closest accurate industry",
+  "color_scheme": "A palette and light/dark direction grounded in the brief",
+  "recommended_sections": ["Only sections that serve this brief"],
+  "visual_signature": "A memorable, concrete design device",
+  "content_rules": ["Claims or facts that must not be invented"]
 }}
 
-Return ONLY valid JSON. Do not include markdown code block notation (```json) or explanations."""
+Return ONLY valid JSON. Do not include markdown code block notation or explanations."""
 
         try:
             response_text = await self._generate_content(
@@ -1083,26 +1259,15 @@ Return ONLY valid JSON. Do not include markdown code block notation (```json) or
         except Exception as e:
             logger.warning(f"enhance_template_prompt AI execution fallback triggered: {e}")
 
-        # High-fidelity domain-aware deterministic fallback
-        from app.services.template_synthesizer import analyze_prompt_intent
-        profile = analyze_prompt_intent(user_prompt)
+        # Preserve the user's brief without inserting a canned site recipe.
         return {
-            "enhanced_prompt": (
-                f"A high-converting, modern {profile.domain_name} website tailored for {profile.business_title}. "
-                f"Features an immersive hero showcase with {profile.tagline}, responsive multi-page architecture, "
-                f"interactive services catalog, dynamic customer testimonials, and an integrated inquiries workflow."
-            ),
-            "suggested_title": profile.business_title,
-            "industry": profile.domain_name,
-            "color_scheme": f"Primary {profile.primary_hex}, Secondary {profile.secondary_hex}, Modern Clean",
-            "recommended_sections": [
-                "Hero Banner with Dynamic CTA",
-                "Core Value Proposition Grid",
-                "Interactive Offerings & Pricing",
-                "Verified Customer Testimonials",
-                "About & Team Showcase",
-                "Contact & Lead Inquiries Form"
-            ]
+            "enhanced_prompt": f"{user_prompt.strip()}\n\nCreate an original, brief-specific frontend. Use only supplied facts. Avoid generic sections, fabricated proof, demo content, and nonfunctional interactions.",
+            "suggested_title": "",
+            "industry": "",
+            "color_scheme": "Respect the user's requested theme.",
+            "recommended_sections": [],
+            "visual_signature": "",
+            "content_rules": ["Do not invent business facts, testimonials, metrics, awards, or credentials."]
         }
 
     async def chat_with_assistant(self, message: str) -> dict:

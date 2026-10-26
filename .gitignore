@@ -90,6 +90,8 @@ uploads/
 static/deployments/
 backend/static/deployments/
 backend/static/thumbnails/
+backend/static/templates/
+backend/backend/
 
 # ==================== Executables / Media ====================
 *.exe

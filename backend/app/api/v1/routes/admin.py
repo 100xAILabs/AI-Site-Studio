@@ -5,7 +5,7 @@ Admin routes — platform-level management.
 from typing import Optional, List
 from math import ceil
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -18,9 +18,88 @@ from app.repositories.user_repo import UserRepository
 from app.schemas.user import UserResponse, UserAdminUpdate
 from app.schemas.common import PaginatedResponse
 from pydantic import BaseModel
+from typing import Literal
 import uuid
 
 router = APIRouter()
+
+
+class UpiPaymentReview(BaseModel):
+    decision: Literal["approve", "reject"]
+
+
+@router.get("/payments/pending-upi")
+async def list_pending_upi_payments(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """List UPI references awaiting manual confirmation against the merchant account."""
+    from app.models.payment import Payment, PaymentGateway, PaymentStatus
+    from sqlalchemy.orm import selectinload
+
+    result = await db.execute(
+        select(Payment)
+        .options(selectinload(Payment.order).selectinload(Order.user))
+        .where(
+            Payment.gateway == PaymentGateway.UPI,
+            Payment.status == PaymentStatus.PENDING,
+            Payment.gateway_payment_id.like("UTR:%"),
+        )
+        .order_by(Payment.created_at.asc())
+    )
+    return [
+        {
+            "id": str(payment.id),
+            "order_id": str(payment.order_id),
+            "order_number": payment.order.order_number if payment.order else None,
+            "buyer_email": payment.order.user.email if payment.order and payment.order.user else None,
+            "utr": payment.gateway_payment_id.removeprefix("UTR:") if payment.gateway_payment_id else None,
+            "amount": float(payment.amount),
+            "currency": payment.currency,
+            "submitted_at": payment.updated_at.isoformat() if payment.updated_at else None,
+        }
+        for payment in result.scalars().all()
+    ]
+
+
+@router.patch("/payments/{payment_id}/upi-review")
+async def review_upi_payment(
+    payment_id: uuid.UUID,
+    review: UpiPaymentReview,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Approve only after checking the UTR against the merchant's bank records."""
+    from app.models.payment import Payment, PaymentGateway, PaymentStatus
+    from app.models.order import OrderStatus
+    from sqlalchemy.orm import selectinload
+
+    result = await db.execute(
+        select(Payment)
+        .options(selectinload(Payment.order).selectinload(Order.user))
+        .where(Payment.id == payment_id)
+        .with_for_update()
+    )
+    payment = result.scalar_one_or_none()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    if payment.gateway != PaymentGateway.UPI or not (payment.gateway_payment_id or "").startswith("UTR:"):
+        raise HTTPException(status_code=400, detail="Payment has no submitted UPI reference")
+    if payment.status != PaymentStatus.PENDING:
+        raise HTTPException(status_code=409, detail="Payment has already been reviewed")
+    if not payment.order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if review.decision == "approve":
+        payment.status = PaymentStatus.CAPTURED
+        payment.order.status = OrderStatus.COMPLETED
+        from app.api.v1.routes.payment import _fulfill_order_licenses
+        await _fulfill_order_licenses(db, payment.order, user_email=payment.order.user.email if payment.order.user else None)
+    else:
+        payment.status = PaymentStatus.FAILED
+
+    await db.commit()
+    return {"payment_id": str(payment.id), "status": payment.status.value, "order_id": str(payment.order_id)}
 
 
 @router.get("/stats")
@@ -54,8 +133,6 @@ async def admin_stats(
     )).scalar_one() or 0.0
     
     gross_revenue = float(revenue_res)
-    commission_revenue = round(gross_revenue * 0.20, 2)
-    net_seller_revenue = round(gross_revenue * 0.80, 2)
 
     return {
         "total_users": total_users,
@@ -63,8 +140,6 @@ async def admin_stats(
         "pending_templates": pending_templates,
         "total_orders": total_orders,
         "gross_revenue": gross_revenue,
-        "commission_revenue": commission_revenue,
-        "net_seller_revenue": net_seller_revenue,
     }
 
 
@@ -402,6 +477,9 @@ async def get_platform_analytics(
     gross_sales = (await db.execute(
         select(func.sum(OrderModel.total)).where(OrderModel.status == OrderStatus.COMPLETED)
     )).scalar_one() or 0.0
+    completed_orders = (await db.execute(
+        select(func.count(OrderModel.id)).where(OrderModel.status == OrderStatus.COMPLETED)
+    )).scalar_one()
 
     return {
         "sellers_count": sellers_count,
@@ -410,7 +488,7 @@ async def get_platform_analytics(
         "total_deployments": total_deployments,
         "active_live_deployments": active_deployments,
         "gross_sales_usd": float(gross_sales),
-        "platform_fee_revenue_usd": round(float(gross_sales) * 0.20, 2),
+        "completed_orders": completed_orders,
     }
 
 

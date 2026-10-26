@@ -32,7 +32,7 @@ if is_sqlite:
 else:
     engine_kwargs.update({
         "pool_pre_ping": True,
-        "pool_recycle": 300,  # Recycle connections every 5 mins to prevent PostgreSQL idle timeouts
+        "pool_recycle": 120,  # Recycle connections every 2 mins to prevent PostgreSQL serverless idle timeouts
         "pool_size": 10,
         "max_overflow": 20,
         "pool_timeout": 30,
@@ -40,6 +40,9 @@ else:
             "statement_cache_size": 0,
             "prepared_statement_cache_size": 0,
             "command_timeout": 60,
+            "server_settings": {
+                "application_name": "ai_site_studio",
+            },
         },
     })
 
@@ -146,6 +149,7 @@ async def init_db() -> None:
             ("deployment_path", "VARCHAR(500)"),
             ("env_vars", "JSON"),
             ("is_suspended", "BOOLEAN DEFAULT FALSE"),
+            ("hosting_checkout_session_id", "VARCHAR(255)"),
         ]
         for col_name, col_type in columns_to_add:
             try:
@@ -153,6 +157,27 @@ async def init_db() -> None:
                     await conn.execute(text(f"ALTER TABLE deployments ADD COLUMN {col_name} {col_type}"))
                 else:
                     await conn.execute(text(f"ALTER TABLE deployments ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
+            except Exception:
+                pass  # Column already exists, safe to ignore
+
+        domain_columns_to_add = [
+            ("registrar_registration_id", "VARCHAR(100)"),
+            ("registrar_status", "VARCHAR(40) DEFAULT 'unregistered' NOT NULL"),
+            ("registrar_data_encrypted", "TEXT"),
+            ("registrar_expires_at", "TIMESTAMP WITH TIME ZONE"),
+            ("registration_price_minor", "INTEGER"),
+            ("renewal_price_minor", "INTEGER"),
+            ("price_currency", "VARCHAR(3)"),
+            ("registration_period_years", "INTEGER"),
+            ("stripe_checkout_session_id", "VARCHAR(255)"),
+            ("auto_renew", "BOOLEAN DEFAULT FALSE NOT NULL"),
+        ]
+        for col_name, col_type in domain_columns_to_add:
+            try:
+                if conn.dialect.name == "sqlite":
+                    await conn.execute(text(f"ALTER TABLE domains ADD COLUMN {col_name} {col_type}"))
+                else:
+                    await conn.execute(text(f"ALTER TABLE domains ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
             except Exception:
                 pass  # Column already exists, safe to ignore
 
@@ -215,7 +240,11 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             yield session
             await session.commit()
         except Exception:
-            await session.rollback()
+            try:
+                await session.rollback()
+            except Exception:
+                # Preserve the route's original exception if its connection was lost.
+                pass
             raise
         finally:
             await session.close()

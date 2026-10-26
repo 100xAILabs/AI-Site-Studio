@@ -2,7 +2,8 @@
 WebSocket Live Session endpoint for real-time multi-account connection monitoring.
 """
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
 from app.core.security import decode_token
 from jose import JWTError
 
@@ -33,19 +34,36 @@ manager = ConnectionManager()
 @router.websocket("/session")
 async def websocket_session_endpoint(
     websocket: WebSocket,
-    token: str = Query(..., description="JWT Bearer Token")
 ):
     try:
+        import asyncio
+        import json
+        await websocket.accept()
+        auth_frame = await asyncio.wait_for(websocket.receive_text(), timeout=10)
+        auth_message = json.loads(auth_frame)
+        token = auth_message.get("token", "") if auth_message.get("type") == "auth" else ""
         payload = decode_token(token)
         user_id = payload.get("sub")
         if not user_id:
-            await websocket.close(code=4001)
+            try:
+                await websocket.close(code=4001)
+            except Exception:
+                pass
             return
+    except WebSocketDisconnect:
+        return
     except Exception:
-        await websocket.close(code=4001)
+        if websocket.application_state == WebSocketState.CONNECTED:
+            try:
+                await websocket.close(code=4001)
+            except (RuntimeError, WebSocketDisconnect, AttributeError, OSError):
+                # Socket already disconnected; AttributeError from stale WebSocketProtocol is harmless
+                pass
         return
 
-    await manager.connect(user_id, websocket)
+    if user_id not in manager.active_connections:
+        manager.active_connections[user_id] = []
+    manager.active_connections[user_id].append(websocket)
     try:
         await manager.send_personal_message(
             {"type": "connected", "user_id": user_id, "status": "authenticated"},

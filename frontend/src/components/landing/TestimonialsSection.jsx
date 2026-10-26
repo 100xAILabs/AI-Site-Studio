@@ -25,7 +25,7 @@ const STEPS = [
     step: "03",
     title: "Download and Deploy",
     description:
-      "Export clean source code as a ZIP, or push directly to Vercel, Netlify, or GitHub Pages. Your site is live in minutes, not weeks.",
+      "Download the generated source as a ZIP, or publish it through a Vercel provider configured by your site administrator.",
   },
 ];
 

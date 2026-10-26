@@ -1,7 +1,7 @@
 # ==============================================================================
 # AI SITE STUDIO — CLINE AGENT RULES (.clinerules)
 # Architecture: 8-Stage Specialized AI Agents Swarm
-# Engines: Ollama (Qwen 2.5:7b, Qwen 2.5-Coder:7b) + Google Gemini
+# Engines: Cline Autonomous Engine (qwen3-coder:30b, qwen3-coder:latest, qwen2.5-coder:latest) + Ollama
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
@@ -27,13 +27,14 @@ All template synthesis and code generation must strictly comply with the 8-stage
 - [8/8] Deployment Agent: Packaging into `frontend/`, `backend/`, and `README.md` archive.
 
 # ------------------------------------------------------------------------------
-# 3. OLLAMA & MODEL ROUTING CONFIGURATION
+# 3. CLINE AUTONOMOUS ENGINE & MODEL ROUTING CONFIGURATION
 # ------------------------------------------------------------------------------
 - Local Engine: Ollama OpenAI-compatible endpoint at `http://localhost:11434/v1`.
-- Designer & UI Tokens: `qwen2.5:7b` (High creative variance, strict JSON compliance).
-- SEO & Structured Data: `qwen2.5:7b` (Schema.org JSON-LD, OpenGraph, high-ranking meta keywords).
-- Code Synthesis & Refactoring: `qwen2.5-coder:7b` or `qwen2.5-coder:14b` via Cline.
-- Planning & Long Context: Google Gemini (`gemini-1.5-flash` / `gemini-2.5-flash`).
+- Primary Coding & Architecture Engine: Cline Engine (`qwen2.5-coder:latest`, `qwen3.5:9b`, `qwen2.5-coder:7b`).
+- Planning & Project Breakdown: Cline Engine (`qwen3.5:9b`, `qwen2.5-coder:latest`).
+- Designer & UI Tokens: Cline Engine (`qwen3.5:9b`, `qwen2.5-coder:latest`, strict JSON compliance).
+- SEO & Structured Data: Cline Engine (`qwen3.5:9b`, `qwen2.5-coder:latest`, Schema.org JSON-LD, OpenGraph).
+- External Cloud Dependencies: None. Google Gemini is disabled. 100% Local & Free Execution.
 
 # ------------------------------------------------------------------------------
 # 4. TEMPLATE QUALITY & FULL-STACK RULES (ZERO FAILS)

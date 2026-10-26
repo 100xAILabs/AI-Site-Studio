@@ -8,7 +8,7 @@ from app.api.v1.routes import (
     auth, templates, categories, search,
     orders, payment, reviews, favorites,
     wishlist, dashboard, admin, preview, ai, files, follows, deployments,
-    payouts, ws, figma, incidents, telemetry,
+    payouts, ws, figma, incidents, telemetry, storefront,
 )
 
 api_router = APIRouter()
@@ -34,4 +34,5 @@ api_router.include_router(ws.router,          prefix="/ws",          tags=["WebS
 api_router.include_router(figma.router,       prefix="/figma",       tags=["Figma"])
 api_router.include_router(incidents.router,   prefix="/incidents",   tags=["Incidents"])
 api_router.include_router(telemetry.router,   prefix="/telemetry",   tags=["Telemetry"])
+api_router.include_router(storefront.router,  prefix="/storefront",  tags=["Storefront"])
 

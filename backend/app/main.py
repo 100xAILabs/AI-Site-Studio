@@ -16,13 +16,15 @@ from typing import AsyncGenerator
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.exceptions import RequestValidationError
+from sqlalchemy import select
 
 from app.core.config import settings
-from app.core.database import init_db
+from app.core.database import AsyncSessionLocal, init_db
 from app.core.redis import get_redis_client
 from app.api.v1.router import api_router
+from app.models.deployment import Deployment, Domain
 
 
 @asynccontextmanager
@@ -30,6 +32,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: startup → yield → shutdown."""
     # Startup
     await init_db()
+    from app.core.commerce_database import commerce_engine, init_commerce_db
+    await init_commerce_db()
     try:
         from app.core.redis import check_redis_health
         health_info = await check_redis_health()
@@ -79,6 +83,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             await app.state.redis.aclose()
         except Exception:
             pass
+    if commerce_engine is not None:
+        await commerce_engine.dispose()
     print("🛑 Site Studio API shutting down")
 
 
@@ -113,7 +119,20 @@ def create_application() -> FastAPI:
     if settings.ENVIRONMENT == "production":
         app.add_middleware(
             TrustedHostMiddleware,
-            allowed_hosts=["*.aisitestudio.com", "*.railway.app", "*.up.railway.app", "localhost", "127.0.0.1", "*"],
+            allowed_hosts=[
+                "aisitestudio.com",
+                "*.aisitestudio.com",
+                "*.railway.app",
+                "*.up.railway.app",
+                "onrender.com",
+                "*.onrender.com",
+                "*.vercel.app",
+                "api",
+                "localhost",
+                "127.0.0.1",
+                "0.0.0.0",
+                "testserver",
+            ],
         )
 
     @app.middleware("http")
@@ -125,6 +144,7 @@ def create_application() -> FastAPI:
         raw_host = request.headers.get("host", "").split(":")[0].strip().lower()
         platform_hosts = {
             "localhost", "127.0.0.1", "0.0.0.0", "testserver",
+            "api",
             # Render.com internal hosts
             "onrender.com",
         }
@@ -136,6 +156,7 @@ def create_application() -> FastAPI:
             or raw_host.endswith(".onrender.com")
             or raw_host.endswith(".vercel.app")
             or path.startswith("/api/")
+            or path.startswith("/internal/")
             or path.startswith("/docs")
             or path.startswith("/openapi")
             or path.startswith("/static")
@@ -149,6 +170,33 @@ def create_application() -> FastAPI:
             return await serve_tenant_workload(site_identifier=raw_host, filepath=path.lstrip("/"), request=request)
         except Exception:
             return await call_next(request)
+
+    @app.get("/internal/tls-authorize", include_in_schema=False)
+    async def authorize_on_demand_tls(domain: str = ""):
+        """Allow Caddy to issue certificates only for platform or verified tenant domains."""
+        try:
+            clean_domain = domain.strip().lower().rstrip(".").encode("idna").decode("ascii")
+        except (UnicodeError, AttributeError):
+            return PlainTextResponse("denied", status_code=403)
+        if not clean_domain or len(clean_domain) > 253:
+            return PlainTextResponse("denied", status_code=403)
+        if clean_domain == "aisitestudio.com" or clean_domain.endswith(".aisitestudio.com"):
+            return PlainTextResponse("ok", status_code=200)
+        base_domain = clean_domain[4:] if clean_domain.startswith("www.") else clean_domain
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(Domain.id)
+                .join(Deployment, Deployment.id == Domain.deployment_id)
+                .where(
+                    Domain.domain == base_domain,
+                    Domain.verification_status == "verified",
+                    Deployment.provider == "local",
+                )
+                .limit(1)
+            )
+            if result.scalar_one_or_none():
+                return PlainTextResponse("ok", status_code=200)
+        return PlainTextResponse("denied", status_code=403)
 
     # ── Exception Handlers ────────────────────────────────────────────────────
     @app.exception_handler(RequestValidationError)

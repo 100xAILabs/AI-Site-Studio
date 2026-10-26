@@ -11,17 +11,17 @@ import { useAppUser } from "@/lib/auth";
 import "./Page.css";
 
 const BUYER_PERKS = [
-  "Browse 500+ premium templates",
-  "Instant brand customization",
-  "Instant one-click deploy",
+  "Browse available website templates",
+  "Preview templates before purchase",
+  "Customize supported template content",
   "Preview before you buy",
 ];
 
 const SELLER_PERKS = [
-  "Sell to 12,000+ active buyers",
-  "Keep up to 80% revenue share",
-  "Automated product listings",
-  "Real-time sales analytics",
+  "Create and manage template listings",
+  "Review orders and sales activity",
+  "Request payouts after sales",
+  "Configure payout details in your account",
 ];
 
 const cardVariants = {

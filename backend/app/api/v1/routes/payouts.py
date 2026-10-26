@@ -3,6 +3,7 @@ Payouts and withdrawals routes.
 """
 
 import uuid
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import List
 
@@ -328,13 +329,32 @@ async def update_withdrawal_status(
     """
     [Admin] Approve, reject, or mark a withdrawal request as completed/paid.
     """
-    stmt = select(WithdrawalRequest).where(WithdrawalRequest.id == withdrawal_id)
+    stmt = select(WithdrawalRequest).where(WithdrawalRequest.id == withdrawal_id).with_for_update()
     res = await db.execute(stmt)
     request = res.scalar_one_or_none()
 
     if not request:
         raise HTTPException(status_code=404, detail="Withdrawal request not found")
 
+    if request.ifsc_code == "STRIPE-CONNECT":
+        if request.status != WithdrawalStatus.PENDING:
+            raise HTTPException(status_code=409, detail="Only unresolved Stripe Connect payout requests can be reconciled.")
+        created_at = request.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - created_at < timedelta(hours=23):
+            raise HTTPException(status_code=409, detail="A recent Stripe Connect payout must be reconciled by retrying its idempotent request.")
+        if data.status not in {WithdrawalStatus.PAID, WithdrawalStatus.REJECTED}:
+            raise HTTPException(status_code=409, detail="An expired Stripe Connect payout can only be reconciled as paid or rejected.")
+
+    allowed_transitions = {
+        WithdrawalStatus.PENDING: {WithdrawalStatus.APPROVED, WithdrawalStatus.REJECTED},
+        WithdrawalStatus.APPROVED: {WithdrawalStatus.PAID, WithdrawalStatus.REJECTED},
+        WithdrawalStatus.REJECTED: set(),
+        WithdrawalStatus.PAID: set(),
+    }
+    if request.ifsc_code != "STRIPE-CONNECT" and data.status not in allowed_transitions[request.status]:
+        raise HTTPException(status_code=409, detail=f"Cannot change a {request.status.value} withdrawal to {data.status.value}.")
     request.status = data.status
     await db.flush()
     await db.commit()
@@ -361,6 +381,8 @@ async def onboard_seller_stripe_connect(
     mock_return_url = f"{frontend_url}/dashboard?tab=earnings&connected=true"
 
     if not settings.STRIPE_SECRET_KEY:
+        if settings.ENVIRONMENT == "production":
+            raise HTTPException(status_code=503, detail="Stripe Connect is not configured for production payouts.")
         # Development fallback mode
         if not current_user.stripe_connect_account_id:
             current_user.stripe_connect_account_id = f"acct_mock_{uuid.uuid4().hex[:12]}"
@@ -403,17 +425,7 @@ async def onboard_seller_stripe_connect(
             "is_mock": False,
         }
     except Exception as e:
-        if not current_user.stripe_connect_account_id:
-            current_user.stripe_connect_account_id = f"acct_mock_{uuid.uuid4().hex[:12]}"
-            current_user.is_payout_setup_completed = True
-            await db.commit()
-
-        return {
-            "account_id": current_user.stripe_connect_account_id,
-            "onboarding_url": mock_return_url,
-            "is_mock": True,
-            "message": f"Stripe Connect Onboarding (Sandbox Mode): {str(e)}",
-        }
+        raise HTTPException(status_code=502, detail=f"Stripe Connect onboarding failed: {type(e).__name__}") from e
 
 
 @router.get("/stripe-connect/status")
@@ -437,6 +449,8 @@ async def get_stripe_connect_status(
     import stripe
 
     if not settings.STRIPE_SECRET_KEY or account_id.startswith("acct_mock_"):
+        if settings.ENVIRONMENT == "production":
+            raise HTTPException(status_code=503, detail="Mock Stripe Connect accounts cannot be used for production payouts.")
         return {
             "is_connected": True,
             "payouts_enabled": True,
@@ -479,33 +493,69 @@ async def transfer_seller_earnings(
     if amount <= Decimal("0.00"):
         raise HTTPException(status_code=400, detail="Transfer amount must be greater than zero.")
 
-    earnings = await calculate_seller_earnings(db, current_user.id)
-    if earnings["available_balance"] < amount:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Insufficient available balance ({earnings['available_balance']}) for requested transfer of {amount}."
-        )
-
+    locked = await db.execute(select(User).where(User.id == current_user.id).with_for_update())
+    if locked.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Seller account not found.")
+    amount = amount.quantize(Decimal("0.01"))
+    if amount <= Decimal("0.00"):
+        raise HTTPException(status_code=400, detail="Transfer amount must be at least one cent.")
     account_id = current_user.stripe_connect_account_id
     if not account_id:
         raise HTTPException(status_code=400, detail="Please complete Stripe Connect onboarding first before requesting payouts.")
 
+    # Reuse an unresolved Stripe transfer record. Stripe's stable idempotency key
+    # means a retry returns the original transfer if the first response was lost.
+    pending_result = await db.execute(
+        select(WithdrawalRequest).where(
+            WithdrawalRequest.seller_id == current_user.id,
+            WithdrawalRequest.status == WithdrawalStatus.PENDING,
+            WithdrawalRequest.ifsc_code == "STRIPE-CONNECT",
+            WithdrawalRequest.account_number == account_id,
+        ).order_by(WithdrawalRequest.created_at.desc()).with_for_update()
+    )
+    w_req = pending_result.scalars().first()
+    if w_req:
+        if w_req.amount != amount:
+            raise HTTPException(
+                status_code=409,
+                detail=f"A Stripe payout of {w_req.amount} is still being confirmed (request {w_req.id}). Retry that amount to safely resume it.",
+            )
+        pending_created_at = w_req.created_at
+        if pending_created_at.tzinfo is None:
+            pending_created_at = pending_created_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - pending_created_at >= timedelta(hours=23):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Payout request {w_req.id} is older than Stripe's safe idempotency retry window. Have an administrator reconcile it before retrying.",
+            )
+    else:
+        earnings = await calculate_seller_earnings(db, current_user.id)
+        if earnings["available_balance"] < amount:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient available balance ({earnings['available_balance']}) for requested transfer of {amount}."
+            )
+
     from app.core.config import settings
     import stripe
 
-    w_req = WithdrawalRequest(
-        seller_id=current_user.id,
-        amount=amount,
-        status=WithdrawalStatus.PENDING,
-        bank_name="Stripe Connect Express Account",
-        account_number=account_id,
-        ifsc_code="STRIPE-CONNECT",
-        account_holder_name=current_user.full_name or current_user.username or "Seller",
-    )
-    db.add(w_req)
-    await db.flush()
+    if w_req is None:
+        w_req = WithdrawalRequest(
+            seller_id=current_user.id,
+            amount=amount,
+            status=WithdrawalStatus.PENDING,
+            bank_name="Stripe Connect Express Account",
+            account_number=account_id,
+            ifsc_code="STRIPE-CONNECT",
+            account_holder_name=current_user.full_name or current_user.username or "Seller",
+        )
+        db.add(w_req)
+        await db.flush()
 
     if not settings.STRIPE_SECRET_KEY or account_id.startswith("acct_mock_"):
+        if settings.ENVIRONMENT == "production":
+            await db.rollback()
+            raise HTTPException(status_code=503, detail="Mock Stripe Connect accounts cannot receive production payouts.")
         w_req.status = WithdrawalStatus.PAID
         await db.commit()
         return {
@@ -515,6 +565,12 @@ async def transfer_seller_earnings(
             "message": "Direct Stripe Transfer completed successfully (Development Mode).",
         }
 
+    # Persist the reservation before making the external transfer. If Stripe or
+    # the database response is uncertain, a retry can resume this same request.
+    await db.commit()
+    await db.refresh(w_req)
+    payout_request_id = str(w_req.id)
+
     stripe.api_key = settings.STRIPE_SECRET_KEY
     try:
         amount_cents = int(amount * 100)
@@ -522,7 +578,8 @@ async def transfer_seller_earnings(
             amount=amount_cents,
             currency="usd",
             destination=account_id,
-            description=f"AI Site Studio Seller Payout #{w_req.id}",
+            description=f"AI Site Studio Seller Payout #{payout_request_id}",
+            idempotency_key=f"seller-payout-{payout_request_id}",
         )
 
         w_req.status = WithdrawalStatus.PAID
@@ -535,6 +592,23 @@ async def transfer_seller_earnings(
             "destination": account_id,
         }
     except Exception as e:
+        definite_failure_types = tuple(
+            error_type for error_type in (
+                getattr(stripe.error, "InvalidRequestError", None),
+                getattr(stripe.error, "AuthenticationError", None),
+                getattr(stripe.error, "PermissionError", None),
+            ) if error_type is not None
+        )
+        if definite_failure_types and isinstance(e, definite_failure_types):
+            w_req.status = WithdrawalStatus.REJECTED
+            await db.commit()
+            raise HTTPException(status_code=400, detail="Stripe rejected this payout request; the reserved balance has been released.") from e
+
         await db.rollback()
-        raise HTTPException(status_code=400, detail=f"Stripe Transfer failed: {str(e)}")
+        # Keep the committed PENDING reservation on every error. The client can
+        # retry the same amount, reusing this request's Stripe idempotency key.
+        raise HTTPException(
+            status_code=502,
+            detail=f"Stripe payout status is not confirmed. Payout request {payout_request_id} remains pending; retry the same amount to safely check it again.",
+        ) from e
 

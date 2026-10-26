@@ -209,9 +209,9 @@ export default function SignInPage({ isRegister = false }) {
         {/* Stats row */}
         <div className="auth-stats-row">
           {[
-            { label: "Templates", value: "500+" },
-            { label: "Customers", value: "12K+" },
-            { label: "Rating", value: "4.9 ★" },
+            { label: "Marketplace", value: "Browse" },
+            { label: "Templates", value: "Preview" },
+            { label: "Source", value: "Export" },
           ].map((s) => (
             <div key={s.label}>
               <p className="auth-stat-value">{s.value}</p>

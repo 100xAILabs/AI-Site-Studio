@@ -1,0 +1,16 @@
+{
+	on_demand_tls {
+		ask http://api:8000/internal/tls-authorize
+	}
+}
+
+http:// {
+	redir https://{host}{uri} permanent
+}
+
+https:// {
+	tls {
+		on_demand
+	}
+	reverse_proxy api:8000
+}

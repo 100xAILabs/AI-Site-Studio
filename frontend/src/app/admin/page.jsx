@@ -7,6 +7,7 @@
 export const dynamic = "force-dynamic";
 
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import "./Page.css";
 import { useAppAuth } from "@/lib/auth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -33,6 +34,7 @@ import "./Page.css";
 
 function AdminPanel() {
   const { getToken } = useAppAuth();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("metrics");
   const [authToken, setAuthToken] = useState(null);
   const qc = useQueryClient();
@@ -88,8 +90,19 @@ function AdminPanel() {
   // Fetch seller withdrawal requests for moderation
   const { data: sellerWithdrawals = [] } = useQuery({
     queryKey: ["admin-withdrawals"],
-    queryFn: () => api.get("/payouts/withdrawals", authToken ?? undefined),
+    queryFn: () => api.get("/payouts/admin/withdrawals", authToken ?? undefined),
     enabled: !!authToken,
+  });
+
+  const { data: pendingUpiPayments = [] } = useQuery({
+    queryKey: ["admin-pending-upi"],
+    queryFn: () => api.get("/admin/payments/pending-upi", authToken ?? undefined),
+    enabled: !!authToken,
+  });
+
+  const reviewUpiPaymentMutation = useMutation({
+    mutationFn: ({ paymentId, decision }) => api.patch(`/admin/payments/${paymentId}/upi-review`, { decision }, authToken ?? undefined),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-pending-upi"] }),
   });
 
   // Fetch customer reviews for moderation
@@ -109,7 +122,7 @@ function AdminPanel() {
 
   // Update Withdrawal Request Status Mutation
   const updateWithdrawalStatusMutation = useMutation({
-    mutationFn: ({ withdrawalId, status }) => api.patch(`/payouts/withdrawals/${withdrawalId}/status`, { status }, authToken ?? undefined),
+    mutationFn: ({ withdrawalId, status }) => api.patch(`/payouts/admin/withdrawals/${withdrawalId}`, { status }, authToken ?? undefined),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-withdrawals"] });
     },
@@ -215,10 +228,10 @@ function AdminPanel() {
                 <Plus className="w-4 h-4" /> Add Category
               </button>
               <button
-                onClick={() => alert("Scaffolding new template form...")}
+                onClick={() => navigate("/marketplace/generate")}
                 className="px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 flex items-center gap-1.5 transition-colors"
               >
-                <Plus className="w-4 h-4" /> Add Template
+                <Plus className="w-4 h-4" /> Generate Template
               </button>
             </div>
           </div>
@@ -256,8 +269,8 @@ function AdminPanel() {
               <div className="space-y-6">
                 <div className="admin-metrics-grid">
                   {[
-                    { label: "Gross Sales (USD)", value: `$${platformAnalytics?.gross_sales_usd || stats?.gross_revenue || 0}`, icon: TrendingUp },
-                    { label: "Platform Fee Revenue (20%)", value: `$${platformAnalytics?.platform_fee_revenue_usd || stats?.commission_revenue || 0}`, icon: Coins },
+                    { label: "Gross Order Totals (currencies mixed)", value: platformAnalytics?.gross_sales_usd ?? stats?.gross_revenue ?? 0, icon: TrendingUp },
+                    { label: "Completed Orders", value: platformAnalytics?.completed_orders ?? stats?.total_orders ?? 0, icon: Coins },
                     { label: "Active Live Deployments", value: platformAnalytics?.active_live_deployments ?? 0, icon: Zap },
                     { label: "Sellers / Creators", value: platformAnalytics?.sellers_count ?? 0, icon: Users },
                     { label: "Buyers / Customers", value: platformAnalytics?.buyers_count ?? 0, icon: Users },
@@ -311,6 +324,29 @@ function AdminPanel() {
             {activeTab === "moderation" && (
               <div className="space-y-6">
                 <div className="glass border border-border/40 rounded-2xl p-6">
+                  <h3 className="font-bold text-base mb-2">UPI References Awaiting Review</h3>
+                  <p className="text-sm text-muted-foreground mb-4">Match each reference and amount against the merchant bank account before approving.</p>
+                  {pendingUpiPayments.length === 0 ? (
+                    <div className="text-center py-6 text-sm text-muted-foreground">No UPI references awaiting review.</div>
+                  ) : (
+                    <div className="overflow-x-auto"><table className="admin-table">
+                      <thead><tr className="admin-tr"><th className="admin-th">Order</th><th className="admin-th">Buyer</th><th className="admin-th">UTR</th><th className="admin-th">Amount</th><th className="admin-th text-right">Actions</th></tr></thead>
+                      <tbody className="divide-y divide-border/50 text-sm">{pendingUpiPayments.map((payment) => (
+                        <tr key={payment.id} className="admin-tr">
+                          <td className="admin-td">{payment.order_number || payment.order_id}</td>
+                          <td className="admin-td">{payment.buyer_email || "—"}</td>
+                          <td className="admin-td font-mono">{payment.utr}</td>
+                          <td className="admin-td">{payment.currency} {payment.amount}</td>
+                          <td className="admin-td text-right space-x-2">
+                            <button disabled={reviewUpiPaymentMutation.isPending} onClick={() => reviewUpiPaymentMutation.mutate({ paymentId: payment.id, decision: "approve" })} className="px-3 py-1 bg-green-600 text-white rounded-lg text-xs font-semibold disabled:opacity-50">Approve</button>
+                            <button disabled={reviewUpiPaymentMutation.isPending} onClick={() => reviewUpiPaymentMutation.mutate({ paymentId: payment.id, decision: "reject" })} className="px-3 py-1 bg-red-600 text-white rounded-lg text-xs font-semibold disabled:opacity-50">Reject</button>
+                          </td>
+                        </tr>
+                      ))}</tbody>
+                    </table></div>
+                  )}
+                </div>
+                <div className="glass border border-border/40 rounded-2xl p-6">
                   <h3 className="font-bold text-base mb-2">Pending Seller Withdrawal Requests</h3>
                   <p className="text-sm text-muted-foreground mb-4">Review and approve manual payout requests from creators.</p>
                   {sellerWithdrawals.length === 0 ? (
@@ -336,19 +372,27 @@ function AdminPanel() {
                               <td className="admin-td">
                                 <span className={cn(
                                   "px-2.5 py-0.5 rounded-full text-xs font-semibold",
-                                  w.status === "completed" ? "bg-green-500/10 text-green-400" : "bg-amber-500/10 text-amber-400"
+                                  ["approved", "paid"].includes(w.status) ? "bg-green-500/10 text-green-400" : w.status === "rejected" ? "bg-red-500/10 text-red-400" : "bg-amber-500/10 text-amber-400"
                                 )}>
                                   {w.status}
                                 </span>
                               </td>
                               <td className="admin-td text-right" style={{ textAlign: "right" }}>
                                 {w.status === "pending" && (
+                                  <>
                                   <button
-                                    onClick={() => updateWithdrawalStatusMutation.mutate({ withdrawalId: w.id, status: "completed" })}
+                                    onClick={() => updateWithdrawalStatusMutation.mutate({ withdrawalId: w.id, status: "approved" })}
                                     className="px-3 py-1 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-500 transition-colors"
                                   >
-                                    Approve Payout
+                                    Approve Request
                                   </button>
+                                  <button
+                                    onClick={() => updateWithdrawalStatusMutation.mutate({ withdrawalId: w.id, status: "rejected" })}
+                                    className="px-3 py-1 bg-red-600 text-white rounded-lg text-xs font-semibold hover:bg-red-500 transition-colors"
+                                  >
+                                    Reject
+                                  </button>
+                                  </>
                                 )}
                               </td>
                             </tr>

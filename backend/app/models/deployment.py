@@ -61,6 +61,7 @@ class Deployment(UUIDMixin, TimestampMixin, Base):
     deployment_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     env_vars: Mapped[Optional[dict]] = mapped_column(JSON, default=dict, nullable=True)
     is_suspended: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    hosting_checkout_session_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
 
     # Relationships
     user: Mapped["User"] = relationship(lazy="select")
@@ -128,6 +129,16 @@ class Domain(UUIDMixin, TimestampMixin, Base):
     verification_status: Mapped[str] = mapped_column(String(50), default="pending_verification", nullable=False)  # verified, pending_verification, failed
     ssl_status: Mapped[str] = mapped_column(String(50), default="active", nullable=False)  # active, pending, self_signed
     verification_token: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    registrar_registration_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+    registrar_status: Mapped[str] = mapped_column(String(40), default="unregistered", nullable=False)
+    registrar_data_encrypted: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    registrar_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    registration_price_minor: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    renewal_price_minor: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    price_currency: Mapped[Optional[str]] = mapped_column(String(3), nullable=True)
+    registration_period_years: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    stripe_checkout_session_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
+    auto_renew: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Relationship
     deployment: Mapped["Deployment"] = relationship("Deployment", back_populates="domains")

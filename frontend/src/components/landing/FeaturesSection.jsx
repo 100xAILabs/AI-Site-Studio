@@ -33,14 +33,14 @@ const FEATURES = [
   },
   {
     icon: Zap,
-    title: "One-Click Deployments",
-    description: "Export clean React or HTML source code, or deploy directly to Vercel, Netlify, and GitHub Pages in seconds.",
+    title: "Export and Deploy",
+    description: "Download your generated source as a ZIP, or deploy it through a Vercel provider configured by your site administrator.",
     gradient: "linear-gradient(135deg, #d946ef 0%, #ec4899 100%)",
   },
   {
     icon: Shield,
-    title: "Accessibility Audit",
-    description: "Automated auditing scans your template for WCAG compliance and suggests improvements for better accessibility.",
+    title: "Accessible Source",
+    description: "Export the source code and review or adapt it against your own accessibility requirements.",
     gradient: "linear-gradient(135deg, #10b981 0%, #14b8a6 100%)",
   }
 ];

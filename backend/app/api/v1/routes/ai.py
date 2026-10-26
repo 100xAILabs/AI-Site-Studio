@@ -6,9 +6,10 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.dependencies import get_current_user
+from app.core.request_limits import enforce_user_limit
 from app.models.user import User
 from app.services.ai_service import ai_service
 
@@ -133,14 +134,16 @@ async def recommend_templates(
 
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(min_length=1, max_length=4000)
 
 
 @router.post("/chat")
 async def chat_assistant(
     request: ChatRequest,
+    current_user: User = Depends(get_current_user),
 ):
     """Chat with the AI Site Studio assistant."""
+    await enforce_user_limit(str(current_user.id), "ai-chat")
     try:
         res = await ai_service.chat_with_assistant(
             message=request.message,
@@ -169,13 +172,14 @@ async def chat_assistant(
 
 
 class TTSRequest(BaseModel):
-    text: str
-    voice: str = "Puck"
+    text: str = Field(min_length=1, max_length=4000)
+    voice: str = Field(default="Puck", max_length=40)
 
 
 @router.post("/text-to-speech")
-async def text_to_speech(request: TTSRequest):
+async def text_to_speech(request: TTSRequest, current_user: User = Depends(get_current_user)):
     """Convert text to speech using Gemini."""
+    await enforce_user_limit(str(current_user.id), "ai-tts")
     try:
         audio_data = await ai_service.generate_speech(
             text=request.text,
@@ -193,17 +197,18 @@ async def text_to_speech(request: TTSRequest):
 
 
 class StreamAIRequest(BaseModel):
-    prompt: str
-    feature_name: Optional[str] = "website_content_generation"
+    prompt: str = Field(min_length=3, max_length=8000)
+    feature_name: Optional[str] = Field(default="website_content_generation", max_length=100)
 
 
 @router.post("/stream")
-async def stream_ai_generation(request: StreamAIRequest):
+async def stream_ai_generation(request: StreamAIRequest, current_user: User = Depends(get_current_user)):
     """
     Stream AI generated content token-by-token using Server-Sent Events (SSE).
     """
     if not request.prompt or len(request.prompt.strip()) < 3:
         raise HTTPException(status_code=400, detail="Prompt must be at least 3 characters long.")
+    await enforce_user_limit(str(current_user.id), "ai-stream")
 
     from fastapi.responses import StreamingResponse
     stream = ai_service.stream_ai_content(

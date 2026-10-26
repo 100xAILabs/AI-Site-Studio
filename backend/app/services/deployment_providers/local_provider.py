@@ -9,7 +9,8 @@ import shutil
 import asyncio
 import platform
 import logging
-from pathlib import Path
+import uuid
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Dict, Any, Tuple, Optional
 import httpx
 
@@ -32,6 +33,22 @@ class LocalDeploymentProvider(DeploymentProvider):
 
     def __init__(self, base_url: Optional[str] = None):
         self.base_url = base_url or getattr(settings, "BACKEND_URL", "http://localhost:8000")
+
+    @staticmethod
+    def _activate_directory(staged_dir: Path, current_dir: Path) -> None:
+        """Swap a complete directory into place and restore the old tree on failure."""
+        backup_dir = current_dir.parent / f".current-backup-{uuid.uuid4().hex}"
+        had_current = current_dir.exists()
+        if had_current:
+            os.replace(current_dir, backup_dir)
+        try:
+            os.replace(staged_dir, current_dir)
+        except Exception:
+            if had_current and backup_dir.exists() and not current_dir.exists():
+                os.replace(backup_dir, current_dir)
+            raise
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir, ignore_errors=True)
 
     async def validate(self, source_path: str) -> Tuple[bool, Optional[str]]:
         """Verifies that project workspace contains a valid runnable entry point."""
@@ -67,6 +84,9 @@ class LocalDeploymentProvider(DeploymentProvider):
         """
         npm_cmd = "npm.cmd" if platform.system() == "Windows" else "npm"
         logs = []
+        output_path = PurePosixPath(output_dir)
+        if output_path.is_absolute() or PureWindowsPath(output_dir).is_absolute() or ".." in output_path.parts or ".." in PureWindowsPath(output_dir).parts:
+            return False, "Output directory must be a safe relative path inside the project.", ""
 
         # 1. Prepare sanitized tenant environment (strictly isolated from platform .env)
         tenant_clean_env = {
@@ -97,6 +117,11 @@ class LocalDeploymentProvider(DeploymentProvider):
         if not os.path.isfile(package_json_path):
             logs.append("ℹ️ Static HTML template detected — skipping compilation step.")
             return True, "\n".join(logs), project_root
+
+        # npm install and package scripts execute arbitrary project-controlled code.
+        # Do not run tenant code inside the API process/container. Use a hosted isolated
+        # build provider (or a separately hardened build worker) for package projects.
+        return False, "Local deployments accept static files only. Package-based projects must use an isolated hosted build provider.", ""
 
         # 3. Clean dependency installation (npm install)
         logs.append(f"📦 Installing tenant project dependencies in isolated sandbox...")
@@ -192,6 +217,9 @@ class LocalDeploymentProvider(DeploymentProvider):
         artifact_path: str,
         site_id: str,
         version: str = "v1.0",
+        build_command: Optional[str] = None,
+        output_dir: Optional[str] = None,
+        env_vars: Optional[Dict[str, str]] = None,
     ) -> Tuple[bool, str]:
         """
         Stores versioned artifact in `static/deployments/{site_id}/{version}/dist/`
@@ -203,16 +231,21 @@ class LocalDeploymentProvider(DeploymentProvider):
             current_dir = site_dir / "current"
 
             os.makedirs(version_dir.parent, exist_ok=True)
+            if version_dir.exists():
+                return False, f"Version '{version}' already exists and is immutable."
 
-            # Copy clean artifact files into version directory
-            if os.path.exists(version_dir):
-                shutil.rmtree(version_dir, ignore_errors=True)
-            shutil.copytree(artifact_path, version_dir)
+            # Build an immutable version snapshot, then stage the live tree before switching.
+            version_stage = version_dir.parent / f".dist-stage-{uuid.uuid4().hex}"
+            shutil.copytree(
+                artifact_path,
+                version_stage,
+                ignore=shutil.ignore_patterns(".env", ".env.*", ".npmrc", ".git", ".gitignore", "node_modules", "__pycache__"),
+            )
+            os.replace(version_stage, version_dir)
 
-            # Atomic copy to `current` active directory
-            if os.path.exists(current_dir):
-                shutil.rmtree(current_dir, ignore_errors=True)
-            shutil.copytree(version_dir, current_dir)
+            current_stage = site_dir / f".current-stage-{uuid.uuid4().hex}"
+            shutil.copytree(version_dir, current_stage)
+            self._activate_directory(current_stage, current_dir)
 
             # Generate canonical live URL through local reverse proxy
             live_url = f"{self.base_url}/sites/{site_id}/"
@@ -235,13 +268,9 @@ class LocalDeploymentProvider(DeploymentProvider):
                 resp = await client.get(live_url)
                 if resp.status_code == 200:
                     return True, resp.status_code, "HTTP 200 OK — Health check passed."
-                elif site_id and (current_index := (_DEPLOYMENTS_ROOT / site_id / "current" / "index.html")).exists():
-                    return True, 200, "Filesystem artifact verified (gateway router reloading)."
                 return False, resp.status_code, f"Unexpected HTTP status {resp.status_code} returned during health check."
-        except Exception:
-            # Fallback for background test runner where live HTTP server is separate
-            if site_id and (_DEPLOYMENTS_ROOT / site_id / "current" / "index.html").exists():
-                return True, 200, "Artifact integrity verified on local filesystem."
+        except Exception as exc:
+            # An existing file does not prove the live endpoint is reachable.
             return False, 500, f"Health check failed to reach endpoint."
 
     async def rollback(self, site_id: str, target_version: str) -> Tuple[bool, str]:
@@ -249,17 +278,27 @@ class LocalDeploymentProvider(DeploymentProvider):
         Performs atomic zero-downtime rollback by switching the `current` active directory
         to the target historical version.
         """
-        site_dir = _DEPLOYMENTS_ROOT / site_id
-        target_version_dir = site_dir / target_version / "dist"
-        current_dir = site_dir / "current"
-
-        if not os.path.exists(target_version_dir):
+        candidate_dirs = [
+            _DEPLOYMENTS_ROOT / site_id / target_version / "dist",
+            _DEPLOYMENTS_ROOT / site_id / target_version,
+            _DEPLOYMENTS_ROOT / site_id.upper() / target_version / "dist",
+            _DEPLOYMENTS_ROOT / site_id.upper() / target_version,
+            _DEPLOYMENTS_ROOT / site_id.lower() / target_version / "dist",
+            _DEPLOYMENTS_ROOT / site_id.lower() / target_version,
+        ]
+        target_version_dir = next((d for d in candidate_dirs if d.is_dir()), None)
+        if not target_version_dir:
             return False, f"Version '{target_version}' does not exist for site {site_id}."
 
+        current_dir = _DEPLOYMENTS_ROOT / site_id / "current"
+        if not current_dir.parent.exists() and (_DEPLOYMENTS_ROOT / site_id.upper()).exists():
+            current_dir = _DEPLOYMENTS_ROOT / site_id.upper() / "current"
+
         try:
-            if os.path.exists(current_dir):
-                shutil.rmtree(current_dir, ignore_errors=True)
-            shutil.copytree(target_version_dir, current_dir)
+            os.makedirs(current_dir.parent, exist_ok=True)
+            current_stage = current_dir.parent / f".current-stage-{uuid.uuid4().hex}"
+            shutil.copytree(target_version_dir, current_stage)
+            self._activate_directory(current_stage, current_dir)
             live_url = f"{self.base_url}/sites/{site_id}/"
             return True, live_url
         except Exception as e:

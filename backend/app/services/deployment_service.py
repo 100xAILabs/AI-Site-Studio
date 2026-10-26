@@ -19,11 +19,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
+from app.core.config import settings
+from app.core.storage import storage
 from app.models.deployment import Deployment, DeploymentVersion, Domain, DeploymentLog
 from app.models.template import Template
-from app.models.stored_file import StoredFile
 from app.models.user import User
-from app.services.deployment_providers import local_deployment_provider
+from app.services.deployment_providers import get_deployment_provider, local_deployment_provider
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +52,9 @@ def mask_sensitive_logs(text: str) -> str:
 class DeploymentService:
     """Core business logic service for multi-tenant website deployments."""
 
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, provider_type: str = "local"):
         self.db = db
-        self.provider = local_deployment_provider
+        self.provider = get_deployment_provider(provider_type)
 
     async def log_event(self, deployment_id: uuid.UUID, level: str, message: str):
         """Appends a structured log event with automated secret masking."""
@@ -84,6 +85,13 @@ class DeploymentService:
         Creates a new tenant deployment record in `QUEUED` state.
         Generates unique stable `site_id` (e.g. `SITE-A8F2E`).
         """
+        provider_type = (provider_type or "local").strip().lower()
+        self.provider = get_deployment_provider(provider_type)
+        local_deployments_enabled = settings.LOCAL_DEPLOYMENT_ENABLED or settings.ENVIRONMENT in {"development", "local", "test"}
+        if provider_type == "local" and not local_deployments_enabled:
+            raise ValueError("Local server deployments are disabled. Configure Vercel or explicitly enable trusted local builds.")
+        if provider_type == "vercel" and not settings.VERCEL_TOKEN:
+            raise ValueError("Vercel deployment is unavailable until VERCEL_TOKEN is configured on the backend.")
         clean_name = "".join(c for c in project_name.lower() if c.isalnum() or c in (" ", "-", "_")).strip()
         subdomain_slug = clean_name.replace(" ", "-")
         rand_suffix = uuid.uuid4().hex[:4].lower()
@@ -121,8 +129,8 @@ class DeploymentService:
                 user_id=user.id,
                 domain=subdomain,
                 domain_type="subdomain",
-                verification_status="verified",
-                ssl_status="active",
+                verification_status="pending_verification",
+                ssl_status="pending",
             )
             self.db.add(domain_record)
             await self.db.commit()
@@ -146,6 +154,7 @@ class DeploymentService:
             deployment = res.scalar_one_or_none()
             if not deployment:
                 return
+            service = DeploymentService(db, deployment.provider)
 
             site_id = deployment.site_id or f"SITE-{deployment.id.hex[:6].upper()}"
             deployment.status = "building"
@@ -192,12 +201,14 @@ class DeploymentService:
 
                         if source_file_uuid:
                             try:
-                                sf_res = await db.execute(select(StoredFile).where(StoredFile.id == source_file_uuid))
-                                stored_file = sf_res.scalar_one_or_none()
-                                if stored_file and stored_file.data:
+                                stored_file = await storage.get_file(db, source_file_uuid)
+                                if stored_file:
+                                    file_bytes = stored_file[0]
                                     from app.services.security_scanner import security_scanner
-                                    security_scanner.sanitize_extract_zip(stored_file.data, source_dir)
-                                    logger.info(f"Successfully extracted template source zip ({len(stored_file.data)} bytes) for {template.title}")
+                                    security_scanner.sanitize_extract_zip(file_bytes, source_dir)
+                                    logger.info(f"Successfully extracted template source zip ({len(file_bytes)} bytes) for {template.title}")
+                                else:
+                                    logger.warning("Template source archive is missing from configured storage")
                             except Exception as zip_err:
                                 logger.warning(f"Failed to extract stored template file: {zip_err}")
 
@@ -226,88 +237,9 @@ class DeploymentService:
                                 except Exception:
                                     pass
 
-                # 2c. If source is still empty, generate a complete, rich, production-grade website
+                # A deployment must contain the user's actual source. Never report a generated placeholder as their live site.
                 if not os.listdir(source_dir):
-                    rich_html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{template_title} — Live Website</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; font-family: 'Plus Jakarta Sans', sans-serif; }}
-        body {{ background: #090d16; color: #f1f5f9; min-height: 100vh; line-height: 1.6; overflow-x: hidden; }}
-        header {{ background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(255, 255, 255, 0.1); position: sticky; top: 0; z-index: 50; padding: 1.25rem 2rem; display: flex; justify-content: space-between; align-items: center; }}
-        .logo {{ font-weight: 800; font-size: 1.35rem; background: linear-gradient(135deg, #6366f1, #a855f7, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-decoration: none; }}
-        nav {{ display: flex; gap: 2rem; align-items: center; }}
-        nav a {{ color: #94a3b8; text-decoration: none; font-size: 0.9rem; font-weight: 600; transition: color 0.2s; }}
-        nav a:hover {{ color: #ffffff; }}
-        .btn-primary {{ background: linear-gradient(135deg, #4f46e5, #7c3aed); color: #fff; padding: 0.65rem 1.4rem; border-radius: 0.75rem; font-weight: 700; text-decoration: none; font-size: 0.875rem; box-shadow: 0 4px 20px rgba(99, 102, 241, 0.3); transition: transform 0.2s, box-shadow 0.2s; border: none; cursor: pointer; }}
-        .btn-primary:hover {{ transform: translateY(-2px); box-shadow: 0 6px 24px rgba(99, 102, 241, 0.45); }}
-        .hero {{ padding: 6rem 2rem 4rem; text-align: center; max-width: 900px; margin: 0 auto; }}
-        .badge {{ display: inline-block; background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.3); color: #a5b4fc; padding: 0.35rem 1rem; border-radius: 2rem; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1.5rem; }}
-        h1 {{ font-size: 3.5rem; font-weight: 800; line-height: 1.15; margin-bottom: 1.25rem; background: linear-gradient(to right, #ffffff, #cbd5e1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
-        .hero p {{ font-size: 1.2rem; color: #94a3b8; margin-bottom: 2.5rem; max-width: 700px; margin-left: auto; margin-right: auto; }}
-        .features {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 2rem; max-width: 1200px; margin: 4rem auto; padding: 0 2rem; }}
-        .card {{ background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 1.25rem; padding: 2rem; transition: transform 0.3s, border-color 0.3s; }}
-        .card:hover {{ transform: translateY(-4px); border-color: rgba(99, 102, 241, 0.4); }}
-        .card-icon {{ width: 48px; height: 48px; background: rgba(99, 102, 241, 0.15); border-radius: 0.75rem; display: flex; align-items: center; justify-content: center; color: #818cf8; font-size: 1.5rem; margin-bottom: 1.25rem; }}
-        .card h3 {{ font-size: 1.25rem; font-weight: 700; margin-bottom: 0.5rem; color: #f8fafc; }}
-        .card p {{ color: #94a3b8; font-size: 0.925rem; }}
-        footer {{ border-top: 1px solid rgba(255, 255, 255, 0.08); padding: 3rem 2rem; text-align: center; color: #64748b; font-size: 0.875rem; margin-top: 6rem; background: rgba(15, 23, 42, 0.4); }}
-    </style>
-</head>
-<body>
-    <header>
-        <a href="#" class="logo">{template_title}</a>
-        <nav>
-            <a href="#features">Features</a>
-            <a href="#about">About</a>
-            <a href="#contact">Contact</a>
-            <a href="#" class="btn-primary">Get Started</a>
-        </nav>
-    </header>
-
-    <main>
-        <section class="hero">
-            <span class="badge">🚀 Live Tenant Deployment</span>
-            <h1>{template_title}</h1>
-            <p>{template_desc}</p>
-            <div style="display: flex; gap: 1rem; justify-content: center;">
-                <a href="#features" class="btn-primary">Explore Platform</a>
-                <a href="#contact" style="background: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.15); padding: 0.65rem 1.4rem; border-radius: 0.75rem; font-weight: 700; text-decoration: none; font-size: 0.875rem;">Contact Support</a>
-            </div>
-        </section>
-
-        <section id="features" class="features">
-            <div class="card">
-                <div class="card-icon">⚡</div>
-                <h3>High-Speed Performance</h3>
-                <p>Engineered for lightning-fast page loads, optimized assets, and instant static site rendering.</p>
-            </div>
-            <div class="card">
-                <div class="card-icon">🛡️</div>
-                <h3>Enterprise Security</h3>
-                <p>Protected by automatic SSL certificates, CORS isolation, and end-to-end encryption.</p>
-            </div>
-            <div class="card">
-                <div class="card-icon">✨</div>
-                <h3>AI-Powered Personalization</h3>
-                <p>Customize layouts, copywriting, and color schemes dynamically with AI Site Studio.</p>
-            </div>
-        </section>
-    </main>
-
-    <footer>
-        <p>&copy; {datetime.now().year} {template_title}. All rights reserved. Hosted live on AI Site Studio.</p>
-    </footer>
-</body>
-</html>"""
-                    with open(source_dir / "index.html", "w", encoding="utf-8") as f:
-                        f.write(rich_html)
+                    raise RuntimeError("No deployable source files were found. Re-upload the template archive or select a project with source files.")
 
                 # 3. Validate source structure
                 is_valid, val_err = await service.provider.validate(str(source_dir))
@@ -337,6 +269,9 @@ class DeploymentService:
                     artifact_path=artifact_path,
                     site_id=site_id,
                     version=version_str,
+                    build_command=deployment.build_command,
+                    output_dir=deployment.output_dir,
+                    env_vars=deployment.env_vars,
                 )
                 if not deploy_success:
                     raise Exception(f"Failed to register artifact: {live_url}")
@@ -392,6 +327,7 @@ class DeploymentService:
         deployment = res.scalar_one_or_none()
         if not deployment:
             raise Exception("Deployment not found or access denied.")
+        self.provider = get_deployment_provider(deployment.provider)
 
         # Calculate next version (e.g. v1.0 -> v1.1)
         curr_ver = deployment.current_version or "v1.0"
@@ -417,6 +353,8 @@ class DeploymentService:
         deployment = res.scalar_one_or_none()
         if not deployment:
             return False, "Deployment not found or access denied."
+
+        self.provider = get_deployment_provider(deployment.provider)
 
         site_id = deployment.site_id
         success, live_url = await self.provider.rollback(site_id, target_version)

@@ -49,30 +49,8 @@ export default function AboutPage() {
             Democratizing Web Design with <span className="gradient-text">Dynamic Studio Tools</span>
           </h1>
           <p className="about-subtitle">
-            We empower creators, developers, and brands to design, customize, and deploy stunning, production-ready websites in seconds using generative intelligence and curated template mechanics.
+            Site Studio helps creators discover website templates, customize supported content, and export or deploy their site through configured providers.
           </p>
-        </section>
-
-        {/* Quick Stats Grid */}
-        <section className="about-stats container-xl">
-          <div className="stats-grid">
-            <div className="stat-card glass">
-              <span className="stat-value">12K+</span>
-              <span className="stat-label">Active Users</span>
-            </div>
-            <div className="stat-card glass">
-              <span className="stat-value">500+</span>
-              <span className="stat-label">Premium Templates</span>
-            </div>
-            <div className="stat-card glass">
-              <span className="stat-value">99.9%</span>
-              <span className="stat-label">Uptime SLA</span>
-            </div>
-            <div className="stat-card glass">
-              <span className="stat-value">1.2M+</span>
-              <span className="stat-label">Lines Generated</span>
-            </div>
-          </div>
         </section>
 
         {/* Vision & Narrative */}
@@ -136,12 +114,12 @@ export default function AboutPage() {
             <div className="value-card glass">
               <Shield className="value-icon text-emerald-400" />
               <h3>Flawless Accessibility</h3>
-              <p>Our platform automatically audits layout contrast, screen reader compatibility, and WCAG rules.</p>
+              <p>Export your source code and adapt it to your accessibility requirements and review process.</p>
             </div>
             <div className="value-card glass">
               <Zap className="value-icon text-amber-400" />
               <h3>Instant Execution</h3>
-              <p>From prompt input to live server hosting on Vercel or Netlify in under 45 seconds.</p>
+              <p>Export a site or deploy it with a provider configured for your installation.</p>
             </div>
           </div>
         </section>
@@ -153,7 +131,7 @@ export default function AboutPage() {
             <Sparkles className="cta-icon" />
             <h2 className="cta-title">Build your dream site today</h2>
             <p className="cta-desc text-muted-foreground max-w-lg mx-auto mb-6 text-sm text-center">
-              Join thousands of makers and agencies building high-converting websites using our template marketplace.
+              Discover templates, customize your project, and export the source code you can build on.
             </p>
             <div className="flex gap-4 justify-center">
               <Link href="/marketplace" className="cta-btn-primary">

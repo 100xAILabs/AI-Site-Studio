@@ -3,6 +3,9 @@ Auth routes — OAuth with Google and Facebook.
 """
 
 from typing import Optional
+import secrets
+import time
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +21,7 @@ from app.repositories.user_repo import UserRepository
 from app.schemas.user import UserResponse, PayoutSetupRequest
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 class VerifyOTPRequest(BaseModel):
     email: str
@@ -90,7 +94,7 @@ def send_smtp_email_sync(to_email: str, subject: str, body: str):
 
     # 3. Check credentials
     if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
-        print(f"\n[SIMULATION] SMTP credentials not configured. Email to {to_email} not sent. Content: {body}\n")
+        print(f"\n[EMAIL NOT SENT] SMTP credentials are not configured; verification email was not delivered to {to_email}.\n")
         return
 
     msg = MIMEText(body, "html")
@@ -113,11 +117,6 @@ def send_smtp_email_sync(to_email: str, subject: str, body: str):
         print(f"\n[EMAIL ERROR] Failed to send email via SMTP to {to_email}: {e}\n")
 
 async def send_otp_email(to_email: str, otp: str):
-    # 1. ALWAYS log OTP prominently so it is immediately visible in Render/local logs
-    print(f"\n=======================================================", flush=True)
-    print(f"🔑 [AUTH OTP CODE] Verification code for {to_email} is: {otp}", flush=True)
-    print(f"=======================================================\n", flush=True)
-
     subject = f"Your OTP Verification Code - Site Studio"
     body = f"""
     <html>
@@ -195,6 +194,29 @@ import hashlib
 from app.core.redis import get_redis
 
 _active_background_tasks = set()
+_login_attempts: dict[str, list[float]] = {}
+
+async def enforce_login_rate_limit(request: Request, email: str) -> None:
+    """Limit password guessing per client and account; Redis is shared across workers."""
+    client_ip = request.client.host if request.client else "unknown"
+    key = f"auth:login:{client_ip}:{email.strip().lower()[:254]}"
+    redis_client = await get_redis()
+    if redis_client:
+        count = await redis_client.incr(key)
+        if count == 1:
+            await redis_client.expire(key, 900)
+        if count > 10:
+            raise HTTPException(status_code=429, detail="Too many sign-in attempts. Try again later.")
+        return
+
+    now = time.monotonic()
+    attempts = [stamp for stamp in _login_attempts.get(key, []) if now - stamp < 900]
+    if len(attempts) >= 10:
+        raise HTTPException(status_code=429, detail="Too many sign-in attempts. Try again later.")
+    attempts.append(now)
+    _login_attempts[key] = attempts
+    if len(_login_attempts) > 10000:
+        _login_attempts.clear()
 
 async def generate_otp(email: str, purpose: str) -> str:
     email_key = email.lower().strip()
@@ -209,7 +231,7 @@ async def generate_otp(email: str, purpose: str) -> str:
         )
 
     # 2. Generate random 6-digit code
-    otp = f"{random.randint(100000, 999999)}"
+    otp = f"{secrets.randbelow(900000) + 100000}"
     hashed_otp = hashlib.sha256(otp.encode("utf-8")).hexdigest()
 
     # 3. Store hashed OTP with 5 minute expiration, and verification attempts counter (max 3)
@@ -272,7 +294,8 @@ async def login(
     request: Request,
     role: str = "buyer",
     redirect: Optional[str] = None,
-    token: Optional[str] = None
+    token: Optional[str] = None,
+    origin: Optional[str] = None
 ):
     """Redirects to the OAuth provider."""
     # github is allowed only when 'token' param is present (connect-to-existing-user flow)
@@ -292,6 +315,17 @@ async def login(
     if redirect:
         request.session['auth_redirect'] = redirect
         
+    candidate_origin = origin or request.headers.get("referer")
+    if candidate_origin:
+        try:
+            from urllib.parse import urlparse
+            cand_p = urlparse(candidate_origin)
+            cand_origin = f"{cand_p.scheme}://{cand_p.netloc}".rstrip("/")
+            if any(cand_origin == allowed.rstrip("/") for allowed in settings.ALLOWED_ORIGINS_LIST):
+                request.session['auth_frontend_url'] = cand_origin
+        except Exception:
+            pass
+            
     if token:
         try:
             from app.core.security import decode_token
@@ -436,7 +470,8 @@ async def auth_callback(provider: str, request: Request, db: AsyncSession = Depe
         redirect_path = "/dashboard" if user_role_str.lower() == "seller" else "/"
 
     from urllib.parse import quote_plus
-    redirect_url = f"{settings.FRONTEND_URL}/?token={access_token}&redirect={quote_plus(redirect_path)}"
+    frontend_base = request.session.pop('auth_frontend_url', None) or settings.FRONTEND_URL
+    redirect_url = f"{str(frontend_base).rstrip('/')}/?token={access_token}&redirect={quote_plus(redirect_path)}"
     return RedirectResponse(url=redirect_url)
 
 
@@ -550,32 +585,16 @@ async def register(
     repo = UserRepository(db)
     existing = await repo.get_by_email(email)
     if existing:
-        if existing.is_email_verified:
-            # Determine HOW this account was originally created
-            if existing.google_id and not existing.hashed_password:
-                signup_method = "google"
-                detail = "An account with this email already exists. It was created using Google Sign-In. Please click 'Continue with Google' to sign in."
-            elif existing.facebook_id and not existing.hashed_password:
-                signup_method = "facebook"
-                detail = "An account with this email already exists. It was created using Facebook. Please sign in with Facebook."
-            elif existing.hashed_password:
-                signup_method = "email"
-                detail = "An account with this email already exists. Please sign in with your email and password."
-            else:
-                signup_method = "oauth"
-                detail = "An account with this email already exists. Please sign in using the method you originally used."
-            raise HTTPException(
-                status_code=409,
-                detail=detail,
-                headers={"X-Signup-Method": signup_method}
-            )
-        else:
-            await generate_otp(email, "verify_email")
-            return {
-                "status": "otp_required",
-                "email": email,
-                "message": "This email has already registered but is not verified. A new OTP has been sent."
-            }
+        if not existing.is_email_verified:
+            try:
+                await generate_otp(email, "verify_email")
+            except HTTPException as exc:
+                if exc.status_code != status.HTTP_429_TOO_MANY_REQUESTS:
+                    raise
+        return {
+            "status": "registration_received",
+            "message": "If this address can be registered, check your email for next steps.",
+        }
         
     from app.core.security import hash_password
     from app.models.user import UserRole
@@ -594,9 +613,8 @@ async def register(
     
     await generate_otp(email, "verify_email")
     return {
-        "status": "otp_required",
-        "email": email,
-        "message": "Registration successful! An OTP has been sent to your email."
+        "status": "registration_received",
+        "message": "If this address can be registered, check your email for next steps.",
     }
 
 
@@ -613,6 +631,10 @@ async def login_email(
         
         if not email or not password:
             raise HTTPException(status_code=400, detail="Email and password required")
+
+        if not isinstance(email, str) or not isinstance(password, str) or len(email) > 254 or len(password) > 1024:
+            raise HTTPException(status_code=400, detail="Invalid sign-in request")
+        await enforce_login_rate_limit(request, email)
 
         repo = UserRepository(db)
         user = await repo.get_by_email(email)
@@ -653,15 +675,8 @@ async def login_email(
     except HTTPException:
         raise
     except Exception as exc:
-        import traceback
-        tb = traceback.format_exc()
-        try:
-            with open("login_error.log", "w", encoding="utf-8") as f:
-                f.write(tb)
-        except Exception:
-            pass
-        print(f"[LOGIN ERROR] {tb}", flush=True)
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.exception("Unexpected email login failure")
+        raise HTTPException(status_code=500, detail="Unable to sign in right now.") from exc
 
 
 @router.post("/verify-otp")
@@ -742,13 +757,12 @@ async def resend_otp(
     
     repo = UserRepository(db)
     user = await repo.get_by_email(email)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found.")
-        
-    if user.is_email_verified:
-        raise HTTPException(status_code=400, detail="Email is already verified. Please sign in.")
-        
-    await generate_otp(email, "verify_email")
+    if user and not user.is_email_verified:
+        try:
+            await generate_otp(email, "verify_email")
+        except HTTPException as exc:
+            if exc.status_code != status.HTTP_429_TOO_MANY_REQUESTS:
+                raise
     return {"message": "A new OTP has been sent."}
 
 
@@ -766,20 +780,12 @@ async def forgot_password(
     
     repo = UserRepository(db)
     user = await repo.get_by_email(email)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No account found with this email address."
-        )
-    
-    if not user.hashed_password:
-        # This user signed up via OAuth only — can't reset a password they never set
-        raise HTTPException(
-            status_code=400,
-            detail="This account was created using social login (Google). Please sign in with Google instead."
-        )
-    
-    await generate_otp(email, "reset_password")
+    if user and user.hashed_password:
+        try:
+            await generate_otp(email, "reset_password")
+        except HTTPException as exc:
+            if exc.status_code != status.HTTP_429_TOO_MANY_REQUESTS:
+                raise
     return {"message": "A password reset code has been sent to your email."}
 
 

@@ -21,13 +21,30 @@ class TemplateRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    async def _safe_execute(self, stmt):
+        """Execute a query, retrying once after a stale pooled connection is dropped."""
+        try:
+            return await self.db.execute(stmt)
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "closed" in err_msg or "interfaceerror" in err_msg or "connection" in err_msg:
+                # Roll back the failed transaction so AsyncSession checks out a
+                # fresh pooled connection for the retry. Do not replace/leak the
+                # request-owned session with an untracked session.
+                try:
+                    await self.db.rollback()
+                except Exception:
+                    pass
+                return await self.db.execute(stmt)
+            raise
+
     async def get_by_id(self, template_id: uuid.UUID | str) -> Optional[Template]:
         if isinstance(template_id, str):
             try:
                 template_id = uuid.UUID(template_id)
             except ValueError:
                 return await self.get_by_slug(template_id)
-        result = await self.db.execute(
+        result = await self._safe_execute(
             select(Template)
             .options(selectinload(Template.category).selectinload(Category.children))
             .where(Template.id == template_id)
@@ -35,7 +52,7 @@ class TemplateRepository:
         return result.scalar_one_or_none()
 
     async def get_by_slug(self, slug: str) -> Optional[Template]:
-        result = await self.db.execute(
+        result = await self._safe_execute(
             select(Template)
             .options(selectinload(Template.category).selectinload(Category.children))
             .where(Template.slug == slug)
@@ -67,7 +84,7 @@ class TemplateRepository:
         slug = base_slug
         counter = 1
         while True:
-            result = await self.db.execute(select(Template).where(Template.slug == slug))
+            result = await self._safe_execute(select(Template).where(Template.slug == slug))
             existing = result.scalar_one_or_none()
             if not existing:
                 break
@@ -97,6 +114,16 @@ class TemplateRepository:
         current_user: Optional[User] = None,
     ) -> Tuple[List[Template], int]:
         """Return paginated, filtered, sorted templates + total count."""
+        def array_overlap(column, values):
+            values = [value for value in values if value]
+            if not values:
+                return None
+            if self.db.bind.dialect.name == "postgresql":
+                return cast(column, ARRAY(String)).overlap(values)
+            # SQLite stores these fields as JSON arrays. Match a quoted array
+            # element so e.g. "js" does not match "json".
+            return or_(*(cast(column, String).ilike(f'%"{value.replace("%", "\\%").replace("_", "\\_")}"%') for value in values))
+
         query = (
             select(Template)
             .options(selectinload(Template.category))
@@ -150,9 +177,7 @@ class TemplateRepository:
 
             # Match tags: ARRAY overlap + cast-to-text fallback (works with both PG ARRAY and JSON)
             tag_conds = [
-                cast(Template.tags, ARRAY(String)).overlap(
-                    [sub_lower, sub_spaced, sub_slug, sub_raw]
-                ),
+                array_overlap(Template.tags, [sub_lower, sub_spaced, sub_slug, sub_raw]),
                 cast(Template.tags, String).ilike(f"%{sub_spaced}%"),
                 cast(Template.tags, String).ilike(f"%{sub_slug}%"),
             ]
@@ -244,16 +269,14 @@ class TemplateRepository:
 
         # ── Compatibility ─────────────────────────────────────────────────────
         if filters.compatibility:
-            query = query.where(
-                cast(Template.compatibility, ARRAY(String)).overlap([filters.compatibility])
-            )
+            query = query.where(array_overlap(Template.compatibility, [filters.compatibility]))
 
         # ── Language (tags/framework overlap) ─────────────────────────────────
         if filters.language:
             query = query.where(or_(
                 Template.framework == filters.language,
-                cast(Template.tags, ARRAY(String)).overlap([filters.language]),
-                cast(Template.seo_keywords, ARRAY(String)).overlap([filters.language])
+                array_overlap(Template.tags, [filters.language]),
+                array_overlap(Template.seo_keywords, [filters.language]),
             ))
 
         # ── Date added ────────────────────────────────────────────────────────
@@ -275,7 +298,7 @@ class TemplateRepository:
 
         # ── Tag list ──────────────────────────────────────────────────────────
         if filters.tags:
-            query = query.where(cast(Template.tags, ARRAY(String)).overlap(filters.tags))
+            query = query.where(array_overlap(Template.tags, filters.tags))
 
         # ── Keyword / Semantic Search ──────────────────────────────────────────
         if filters.q:

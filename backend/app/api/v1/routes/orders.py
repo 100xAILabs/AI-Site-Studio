@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
+from app.models.template import TemplateStatus
 from app.models.order import Order, OrderItem, OrderStatus
 from app.repositories.template_repo import TemplateRepository
 from app.schemas.order import OrderCreate, OrderResponse
@@ -46,12 +47,20 @@ async def create_order(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Template {item_data.template_id} not found",
             )
+        if template.status != TemplateStatus.PUBLISHED:
+            raise HTTPException(status_code=404, detail="This template is not available for purchase.")
+        if template.seller_id == current_user.id:
+            raise HTTPException(status_code=400, detail="You cannot purchase your own template.")
         subtotal += template.price
-        order_items.append((template, item_data.license_type))
+        # The listing defines the entitlement. Never let a buyer promote a regular
+        # checkout to an extended license by editing the request payload.
+        order_items.append((template, template.license_type.value))
 
     # Detect primary template currency (e.g. INR for ₹5 template)
     currencies = [str(getattr(t, "price_currency", "USD") or "USD").upper() for t, _ in order_items]
-    primary_currency = "INR" if (currencies and all(c == "INR" for c in currencies)) else "USD"
+    if len(set(currencies)) != 1 or currencies[0] not in {"USD", "INR"}:
+        raise HTTPException(status_code=400, detail="All items in an order must use the same supported currency (USD or INR).")
+    primary_currency = currencies[0]
 
     order = Order(
         user_id=current_user.id,

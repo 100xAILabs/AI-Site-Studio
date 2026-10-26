@@ -39,6 +39,9 @@ class DeploymentProvider(ABC):
         artifact_path: str,
         site_id: str,
         version: str,
+        build_command: Optional[str] = None,
+        output_dir: Optional[str] = None,
+        env_vars: Optional[Dict[str, str]] = None,
     ) -> Tuple[bool, str]:
         """
         Deploys the compiled artifact to the tenant's isolated workload storage.

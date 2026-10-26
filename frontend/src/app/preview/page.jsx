@@ -495,6 +495,7 @@ export default function PreviewPage() {
 
   // 2 Top Mode Buttons State: "manual" | "ai"
   const [editorMode, setEditorMode] = useState("manual");
+  const [mobilePanel, setMobilePanel] = useState("preview");
 
   // Center Stage Viewport & Theme State
   const [viewMode, setViewMode] = useState("designed"); // "designed" (real styled component) | "live" (backend iframe)
@@ -529,8 +530,16 @@ export default function PreviewPage() {
 
   const handleConfirmAddPage = () => {
     if (!newPageName.trim()) return;
-    const cleanSlug = newPageName.trim().toLowerCase().replace(/[^a-z0-9]/g, "-");
+    const cleanSlug = newPageName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    if (!cleanSlug) {
+      setNotice("Use at least one letter or number in the page title.");
+      return;
+    }
     const pageFileName = `${cleanSlug}.html`;
+    if (pages.some((page) => page.id.toLowerCase() === pageFileName.toLowerCase())) {
+      setNotice("A page with that name already exists.");
+      return;
+    }
     const newPageObj = {
       id: pageFileName,
       title: newPageName.trim(),
@@ -570,7 +579,7 @@ export default function PreviewPage() {
     setSelectedSectionId(cleanSlug);
     setShowAddPageModal(false);
     setNewPageName("");
-    setNotice(`✓ Subpage "${newPageName.trim()}" added to workspace!`);
+    setNotice(`Added "${newPageName.trim()}" to this editor session. A source page file is not created yet.`);
     setTimeout(() => setNotice(""), 4000);
   };
 
@@ -677,6 +686,8 @@ export default function PreviewPage() {
       themeColor: "#4f46e5"
     }
   });
+  const defaultSectionPropsRef = useRef(sectionProps);
+  const initialSectionPropsRef = useRef(sectionProps);
 
   // Dynamic Section List State
   const [sections, setSections] = useState([]);
@@ -688,8 +699,12 @@ export default function PreviewPage() {
 
   // Fetch Template Details on mount and lively detect template sections
   useEffect(() => {
+    let cancelled = false;
     if (activeTemplateId && activeTemplateId !== "default") {
       setLoadingTemplate(true);
+      setTemplateData(null);
+      setSectionProps(defaultSectionPropsRef.current);
+      setSections([]);
 
       // Fetch template details AND real extracted template sections in parallel
       Promise.all([
@@ -713,6 +728,9 @@ export default function PreviewPage() {
             console.warn("Frontend DOM extraction fallback error:", e);
           }
         }
+
+        if (cancelled) return;
+        let initialProps = { ...defaultSectionPropsRef.current };
 
         if (data) {
           setTemplateData(data);
@@ -743,6 +761,13 @@ export default function PreviewPage() {
             about: { ...prev.about, title: `About ${bName}`, story: data.description || prev.about.story, themeColor: primaryColor },
             footer: { ...prev.footer, brandName: bName, themeColor: primaryColor }
           }));
+          initialProps = {
+            ...initialProps,
+            navbar: { ...initialProps.navbar, brandName: bName, logoText: lText, themeColor: primaryColor },
+            hero: { ...initialProps.hero, headline: `Welcome to ${bName}`, subheadline: data.short_description || data.description || initialProps.hero.subheadline, themeColor: primaryColor },
+            about: { ...initialProps.about, title: `About ${bName}`, story: data.description || initialProps.about.story, themeColor: primaryColor },
+            footer: { ...initialProps.footer, brandName: bName, themeColor: primaryColor },
+          };
         }
 
         // Apply extracted brand & section props directly from template source files
@@ -760,7 +785,9 @@ export default function PreviewPage() {
               ...prev,
               ...extracted.sections
             }));
+            initialProps = { ...initialProps, ...extracted.sections };
           }
+          initialSectionPropsRef.current = initialProps;
           if (extracted.sections_list && extracted.sections_list.length > 0) {
             const realDetected = extracted.sections_list.map((s) => ({
               ...s,
@@ -774,18 +801,24 @@ export default function PreviewPage() {
 
         // Fallback detection using extracted sections or template data
         const detected = detectTemplateSections(data, extracted?.sections || null);
+        initialSectionPropsRef.current = initialProps;
         setSections(detected);
         if (detected.length > 0) {
           setSelectedSectionId((prev) => detected.some((s) => s.id === prev) ? prev : detected[0].id);
         }
       }).finally(() => {
-        setLoadingTemplate(false);
+        if (!cancelled) setLoadingTemplate(false);
       });
     } else {
       // Default demo mode: inspect lively
       const detected = detectTemplateSections(null, null);
+      setTemplateData(null);
+      setSectionProps(defaultSectionPropsRef.current);
+      initialSectionPropsRef.current = defaultSectionPropsRef.current;
       setSections(detected);
+      setLoadingTemplate(false);
     }
+    return () => { cancelled = true; };
   }, [activeTemplateId]);
 
   // Active section item
@@ -827,7 +860,7 @@ export default function PreviewPage() {
     }
     setSections((prev) => prev.map((s) => (s.id === secId ? { ...s, name: renameInput.trim() } : s)));
     setEditingSectionId(null);
-    setNotice(`✓ Renamed section to "${renameInput.trim()}"`);
+    setNotice(`Renamed this editor section to "${renameInput.trim()}". The source template label is unchanged.`);
     setTimeout(() => setNotice(""), 3000);
   };
 
@@ -856,12 +889,16 @@ export default function PreviewPage() {
     if (e) e.stopPropagation();
     const target = sections.find((s) => s.id === secId);
     if (!target) return;
+    if (sections.length === 1) {
+      setNotice("Keep at least one section in the editor.");
+      return;
+    }
     const remaining = sections.filter((s) => s.id !== secId);
     setSections(remaining);
     if (selectedSectionId === secId && remaining.length > 0) {
       setSelectedSectionId(remaining[0].id);
     }
-    setNotice(`🗑️ Permanently removed "${target.name}" from website!`);
+    setNotice(`Removed "${target.name}" from this editor session. The source template is unchanged.`);
     setTimeout(() => setNotice(""), 3500);
   };
 
@@ -871,7 +908,7 @@ export default function PreviewPage() {
     setSections(updated);
     setSelectedSectionId(sec.id);
     setShowAddMenu(false);
-    setNotice(`✓ Added "${sec.name}" back to your website!`);
+    setNotice(`Added "${sec.name}" to this editor session. The source template is unchanged.`);
     setTimeout(() => setNotice(""), 3000);
   };
 
@@ -891,7 +928,14 @@ export default function PreviewPage() {
   };
 
   const handleResetSection = () => {
-    setNotice(`✓ Reset "${currentSection.name}" to default.`);
+    const resetValue = initialSectionPropsRef.current?.[currentSection.id]
+      || defaultSectionPropsRef.current?.[currentSection.id];
+    if (!resetValue) {
+      setNotice(`No saved starting values are available for ${currentSection.name}.`);
+      return;
+    }
+    setSectionProps((prev) => ({ ...prev, [currentSection.id]: { ...resetValue } }));
+    setNotice(`Reset ${currentSection.name} to its original values.`);
     setTimeout(() => setNotice(""), 3000);
   };
 
@@ -953,22 +997,20 @@ export default function PreviewPage() {
           contact_phone: sectionProps.contact?.phone || brand.contact_phone,
           page_edits
         });
-        
         const newDraftId = res?.template_id || res?.data?.template_id;
-        if (newDraftId) {
-          setCustomDraftId(newDraftId);
-          navigate(`/preview?template=${newDraftId}&mode=live`, { replace: true });
-        }
+        if (!newDraftId) throw new Error("The save endpoint did not return a draft ID.");
+        setCustomDraftId(newDraftId);
+        navigate(`/preview?template=${newDraftId}&mode=live`, { replace: true });
         setViewMode("live");
         setIframeKey((prev) => prev + 1);
         setShowSaveSuccess(true);
         setNotice("✓ Saved to your private project draft! Viewable in Buyer Dashboard.");
       } else {
-        setNotice("✓ Preview state updated!");
+        setNotice("Preview changes are local to this session. Select a template to save a draft.");
       }
     } catch (e) {
       console.warn(e);
-      setNotice("✓ Preview state updated locally.");
+      setNotice(`Could not save changes: ${e?.message || "Please try again."}`);
     } finally {
       setSavingManual(false);
       setTimeout(() => setNotice(""), 6000);
@@ -1001,60 +1043,63 @@ export default function PreviewPage() {
     ]);
     setAiInput("");
     setIsAiProcessing(true);
-    setAiLogs([]);
-
-    const steps = [
-      "Analyzing user prompt & template AST...",
-      "Generating tailored copywriting & color tokens...",
-      "Refactoring React components & styling...",
-      "Compiling live assets & updating canvas..."
-    ];
-
-    for (let i = 0; i < steps.length; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      setAiLogs((prev) => [...prev, steps[i]]);
-    }
+    setAiLogs(["Sending your request to the editor..."]);
 
     const targetId = customDraftId || activeTemplateId;
-    if (targetId !== "default") {
-      try {
+    try {
+      if (targetId !== "default") {
         const res = await api.post(`/preview/live/${targetId}/edit-ai`, { prompt: promptToRun });
         const newDraftId = res?.template_id || res?.data?.template_id;
-        if (newDraftId) {
-          setCustomDraftId(newDraftId);
-          navigate(`/preview?template=${newDraftId}&mode=live`, { replace: true });
-        }
+        if (!newDraftId) throw new Error("The editor did not return a saved draft.");
+        setCustomDraftId(newDraftId);
+        navigate(`/preview?template=${newDraftId}&mode=live`, { replace: true });
         setViewMode("live");
         setIframeKey((k) => k + 1);
-      } catch (err) {
-        console.warn("AI Backend refactor:", err);
+        setAiHistory((prev) => [...prev, {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          text: "Your AI edit was saved to a draft. The live preview is refreshing.",
+          timestamp: "Just now"
+        }]);
+        return;
       }
-    }
 
-    // Update local state fallback
-    const qLower = promptToRun.toLowerCase();
-    if (qLower.includes("dark") || qLower.includes("glassmorphism")) {
-      handleFieldChange("themeColor", "#8b5cf6");
-      setCanvasBg("dark");
-    } else if (qLower.includes("paris") || qLower.includes("bakery")) {
-      handleApplyBusinessPreset(BUSINESS_PRESETS.find((p) => p.id === "bakery"));
-    } else if (qLower.includes("saas") || qLower.includes("tech")) {
-      handleApplyBusinessPreset(BUSINESS_PRESETS.find((p) => p.id === "saas"));
-    } else if (qLower.includes("clinic") || qLower.includes("dental") || qLower.includes("medical")) {
-      handleApplyBusinessPreset(BUSINESS_PRESETS.find((p) => p.id === "medical"));
-    }
-
-    setIsAiProcessing(false);
-    setAiLogs([]);
-    setAiHistory((prev) => [
-      ...prev,
-      {
+      // The built-in demo has no source archive or AI backend target. Support only the local presets here.
+      const qLower = promptToRun.toLowerCase();
+      const preset = qLower.includes("paris") || qLower.includes("bakery")
+        ? BUSINESS_PRESETS.find((p) => p.id === "bakery")
+        : qLower.includes("saas") || qLower.includes("tech")
+          ? BUSINESS_PRESETS.find((p) => p.id === "saas")
+          : qLower.includes("clinic") || qLower.includes("dental") || qLower.includes("medical")
+            ? BUSINESS_PRESETS.find((p) => p.id === "medical")
+            : null;
+      if (preset) {
+        handleApplyBusinessPreset(preset);
+      } else if (qLower.includes("dark") || qLower.includes("glassmorphism")) {
+        handleFieldChange("themeColor", "#8b5cf6");
+        setCanvasBg("dark");
+      } else {
+        throw new Error("AI editing needs a real template draft. In demo mode, try a listed business or theme preset.");
+      }
+      setAiHistory((prev) => [...prev, {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        text: `I have refactored the template based on: "${promptToRun}". Live output reloaded.`,
+        text: "Applied a matching local demo preset. This did not call the AI service or save a draft.",
         timestamp: "Just now"
-      }
-    ]);
+      }]);
+    } catch (err) {
+      console.warn("AI editor request failed:", err);
+      setNotice(`AI edit failed: ${err?.message || "Please try again."}`);
+      setAiHistory((prev) => [...prev, {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        text: `The edit was not completed: ${err?.message || "Please try again."}`,
+        timestamp: "Just now"
+      }]);
+    } finally {
+      setIsAiProcessing(false);
+      setAiLogs([]);
+    }
   };
 
   const handleRunAIDebugger = async () => {
@@ -1231,6 +1276,25 @@ export default function PreviewPage() {
         </div>
       </header>
 
+      <nav className="sb-mobile-panel-switcher" aria-label="Editor panels">
+        {[
+          { id: "sections", label: "Sections", icon: Layers },
+          { id: "preview", label: "Preview", icon: Eye },
+          { id: "edit", label: "Edit", icon: Sliders },
+        ].map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setMobilePanel(id)}
+            className={cn("sb-mobile-panel-tab", mobilePanel === id && "active")}
+            aria-pressed={mobilePanel === id}
+          >
+            <Icon className="w-4 h-4" />
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
+
       {/* ═══════════════════════════════════════════════════════════════════════
          MAIN 3-COLUMN STUDIO LAYOUT
       ═════════════════════════════════════════════════════════════════════════ */}
@@ -1240,7 +1304,7 @@ export default function PreviewPage() {
            LEFT COLUMN: Lively Filter Sections
            Inspects template code and only shows what is actually in this template!
         ───────────────────────────────────────────────────────────────────── */}
-        <aside className="sb-sidebar-left">
+        <aside className={cn("sb-sidebar-left", mobilePanel !== "sections" && "sb-mobile-hidden")}>
           {/* Search Input */}
           <div className="sb-sidebar-search relative">
             <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -1256,11 +1320,16 @@ export default function PreviewPage() {
           {/* Section Count Header */}
           <div className="px-4 py-2 flex items-center justify-between border-b border-border/40 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
             <span>Template Sections ({sections.length})</span>
-            <span className="text-[10px] text-pink-500 font-semibold">Lively Checked</span>
+            <span className="text-[10px] text-pink-500 font-semibold">Detected</span>
           </div>
 
           {/* Section List (Only Sections In This Template!) */}
           <div className="sb-sidebar-tree">
+            {loadingTemplate && (
+              <p className="px-3 py-4 text-xs text-muted-foreground" role="status">
+                Loading template sections…
+              </p>
+            )}
             <div className="space-y-1">
               {filteredSections.map((sec) => {
                 const Icon = sec.icon || Globe;
@@ -1422,7 +1491,7 @@ export default function PreviewPage() {
            CENTER COLUMN: Expansive Stage
            Displays Real Designed Output View (or Real Running Live Demo IFrame)
         ───────────────────────────────────────────────────────────────────── */}
-        <main className="sb-center-stage">
+        <main className={cn("sb-center-stage", mobilePanel !== "preview" && "sb-mobile-hidden")}>
           {/* Multi-Page Visual Switcher Bar */}
           <div className="sb-page-switcher-bar">
             <div className="flex items-center gap-1.5 overflow-x-auto py-1 scrollbar-none flex-1">
@@ -1572,6 +1641,8 @@ export default function PreviewPage() {
                   key={iframeKey}
                   src={liveServerUrl}
                   title="Live Demo"
+                  sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+                  referrerPolicy="no-referrer"
                   className="w-full h-full rounded-2xl border border-border shadow-2xl bg-white"
                 />
               </div>
@@ -1597,7 +1668,7 @@ export default function PreviewPage() {
              IF editorMode === "manual": Shows Template's Actual Components & Fields
              IF editorMode === "ai": Shows AI Prompt Assistant
         ───────────────────────────────────────────────────────────────────── */}
-        <aside className="sb-sidebar-right">
+        <aside className={cn("sb-sidebar-right", mobilePanel !== "edit" && "sb-mobile-hidden")}>
           {editorMode === "manual" ? (
             /* MANUAL EDIT PANEL: Template-Accurate Component Fields */
             <div className="flex flex-col h-full overflow-hidden">
@@ -1699,11 +1770,11 @@ export default function PreviewPage() {
                     <span>AI Design Assistant</span>
                   </h3>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400">
-                    Gemini Powered
+                    AI service
                   </span>
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Describe any change in natural language, and AI will refactor the live template.
+                  Describe a change in natural language to update a saved template draft.
                 </p>
               </div>
 
@@ -1844,6 +1915,7 @@ export default function PreviewPage() {
                   type="text"
                   value={newPageName}
                   onChange={(e) => setNewPageName(e.target.value)}
+                  maxLength={50}
                   placeholder="e.g. Careers, Blog, FAQ, Features..."
                   className="sb-control-input text-xs w-full"
                   autoFocus

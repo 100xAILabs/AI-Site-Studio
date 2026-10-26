@@ -32,8 +32,12 @@ def generate_standalone_backend(
         return _generate_laravel_backend(title, business_type)
     elif fw_lower == "actix" or fw_lower == "rust":
         return _generate_actix_backend(title, business_type)
-    else:  # default: fastapi
+    elif fw_lower in {"fastapi", "fast-api", "python"}:
         return _generate_fastapi_backend(title, business_type)
+    raise ValueError(
+        f"Backend framework '{framework}' is not available for full-stack generation. "
+        "Choose FastAPI or Express.js until the other backend scaffolds meet the SQLite API requirements."
+    )
 
 
 def _generate_fastapi_backend(title: str, business_type: str) -> Dict[str, str]:

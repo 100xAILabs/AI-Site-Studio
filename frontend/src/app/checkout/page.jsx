@@ -62,6 +62,7 @@ function Checkout() {
   const [initiatedPayment, setInitiatedPayment] = useState(null);
   const [vpaCopied, setVpaCopied] = useState(false);
   const [upiUtr, setUpiUtr] = useState("");
+  const [upiUtrSubmitted, setUpiUtrSubmitted] = useState(false);
   const [utrError, setUtrError] = useState("");
 
   // 5-minute QR Code timer & auto-refresh state
@@ -163,6 +164,9 @@ function Checkout() {
           const res = await api.get(`/payment/status/${initiatedOrder.id}`, authToken);
           if (res?.is_paid) {
             handleCompleteSuccessFlow(initiatedOrder);
+          } else if (res?.payment_status === "failed" && upiUtrSubmitted) {
+            setUpiUtrSubmitted(false);
+            setUtrError("The submitted payment reference was not approved. Check it and contact support if you believe this is incorrect.");
           }
         } catch (e) {
           // Silent catch for background polling
@@ -170,7 +174,7 @@ function Checkout() {
       }, 3000);
     }
     return () => clearInterval(interval);
-  }, [paymentStep, initiatedOrder, authToken]);
+  }, [paymentStep, initiatedOrder, authToken, upiUtrSubmitted]);
 
   const copyVpaToClipboard = (vpaText) => {
     navigator.clipboard.writeText(vpaText);
@@ -400,6 +404,7 @@ function Checkout() {
   const handleUtrChange = (val) => {
     const cleaned = val.replace(/\D/g, "").slice(0, 12);
     setUpiUtr(cleaned);
+    setUpiUtrSubmitted(false);
     if (cleaned.length === 12) {
       setUtrError("");
     }
@@ -424,7 +429,7 @@ function Checkout() {
         upi_utr: upiUtr,
       });
 
-      await handleCompleteSuccessFlow(initiatedOrder);
+      setUpiUtrSubmitted(true);
     } catch (err) {
       console.error("UPI verification error:", err);
       const errorMsg =
@@ -488,7 +493,7 @@ function Checkout() {
         gateway_signature: "mock_signature_verified",
       });
 
-      await handleCompleteSuccessFlow(initiatedOrder);
+      setUpiUtrSubmitted(true);
     } catch (err) {
       console.error(err);
       alert("Simulated transaction failed. Please retry.");
@@ -507,7 +512,7 @@ function Checkout() {
   const minutesLeft = Math.floor(qrTimerSeconds / 60);
   const secondsLeft = qrTimerSeconds % 60;
   const timerFormatted = `${String(minutesLeft).padStart(2, '0')}:${String(secondsLeft).padStart(2, '0')}`;
-  const merchantVpa = initiatedPayment?.vpa || "aisitestudio@upi";
+  const merchantVpa = initiatedPayment?.vpa || "";
   const merchantName = initiatedPayment?.merchant_name || "AI Site Studio";
   const defaultUpiUri = initiatedPayment?.upi_uri || `upi://pay?pa=${encodeURIComponent(merchantVpa)}&pn=${encodeURIComponent(merchantName)}&am=${inrAmountVal.toFixed(2)}&cu=INR&tn=Order%20${initiatedOrder?.id?.slice(0, 8) || "ASS"}&nonce=${qrNonce}`;
   const isRealRazorpay =
@@ -666,13 +671,22 @@ function Checkout() {
                   <div className="checkout-steps-banner">
                     <div className="flex items-center gap-2">
                       <Smartphone className="w-4 h-4 text-blue-500 shrink-0" />
-                      <span><strong>1.</strong> Pay {inrAmountString} via UPI App • <strong>2.</strong> Enter 12-digit UTR</span>
+                      <span><strong>1.</strong> Pay {inrAmountString} via UPI App • <strong>2.</strong> Submit the 12-digit UTR for review</span>
                     </div>
-                    <span className="checkout-steps-pill">Receipt Verification</span>
+                    <span className="checkout-steps-pill">Manual Payment Review</span>
                   </div>
 
                   {/* Step 2: 12-Digit UTR Verification Form */}
                   <div className="checkout-utr-card">
+                    {upiUtrSubmitted ? (
+                      <div className="text-center py-6 space-y-3">
+                        <Clock className="w-8 h-8 text-amber-500 mx-auto" />
+                        <h3 className="font-bold">Payment reference submitted</h3>
+                        <p className="text-sm text-muted-foreground">Your order is pending while an administrator checks the UTR against the merchant account. Downloads will be available after confirmation.</p>
+                        <p className="text-xs text-muted-foreground">Reference: <span className="font-mono">{upiUtr}</span></p>
+                      </div>
+                    ) : (
+                    <>
                     <div className="flex items-center justify-between flex-wrap gap-1">
                       <span className="checkout-utr-step-title">
                         <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" /> Step 2: Enter 12-Digit UPI Reference (UTR)
@@ -740,12 +754,14 @@ function Checkout() {
                         )}
                       >
                         {isProcessing ? (
-                          <><Loader2 className="w-4 h-4 animate-spin" /> Verifying UTR...</>
+                          <><Loader2 className="w-4 h-4 animate-spin" /> Submitting reference...</>
                         ) : (
-                          <><ShieldCheck className="w-4 h-4" /> Verify UTR & Download Template</>
+                          <><ShieldCheck className="w-4 h-4" /> Submit UTR for Confirmation</>
                         )}
                       </button>
                     </div>
+                    </>
+                    )}
                   </div>
                 </div>
               ) : isRealRazorpay ? (
@@ -938,7 +954,7 @@ function Checkout() {
                     <div className="checkout-payment-header">
                       <h3 className="checkout-section-title">Select Payment Method</h3>
                       <span className="checkout-upi-active-badge">
-                        <Check className="w-2.5 h-2.5 text-emerald-500" /> Instant UPI Active
+                        <Check className="w-2.5 h-2.5 text-emerald-500" /> UPI payment
                       </span>
                     </div>
 
@@ -960,7 +976,7 @@ function Checkout() {
                           <span className="checkout-gateway-title">UPI QR & Apps</span>
                         </div>
                         <span className="checkout-gateway-badge-upi">
-                          0% Fee • Instant
+                          Manual review
                         </span>
                       </button>
 
@@ -1065,7 +1081,7 @@ function Checkout() {
                       <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                       <span>
                         {paymentMethodType === "upi"
-                          ? "Instant UPI (GPay, PhonePe, Paytm, QR) 100% active • Instant delivery"
+                          ? "UPI reference reviewed by an administrator before order completion"
                           : `Encrypted payment via ${paymentGateway === "razorpay" ? "Razorpay" : "Stripe"} • Click below to proceed`}
                       </span>
                     </p>

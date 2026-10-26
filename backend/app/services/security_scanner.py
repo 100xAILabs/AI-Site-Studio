@@ -251,15 +251,27 @@ class SecurityScanner:
         Returns HTTP headers for sandboxed live previews.
         Allows the preview to be safely framed in the marketplace canvas while preventing cross-site exfiltration.
         """
+        from urllib.parse import urlsplit
+        from app.core.config import settings
+        frontend = urlsplit(settings.FRONTEND_URL)
+        frame_ancestors = "'self'"
+        if frontend.scheme in {"http", "https"} and frontend.netloc:
+            frontend_origin = f"{frontend.scheme}://{frontend.netloc}"
+            if frontend_origin not in frame_ancestors:
+                frame_ancestors += f" {frontend_origin}"
         return {
             "X-Content-Type-Options": "nosniff",
             "Referrer-Policy": "strict-origin-when-cross-origin",
             "Content-Security-Policy": (
-                "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https: http:; "
-                "font-src 'self' https: http: data:; "
-                "img-src 'self' https: http: data: blob:; "
-                "connect-src 'self' https: http: ws: wss:; "
-                "frame-ancestors *;"
+                "default-src 'self' https: data: blob:; "
+                "script-src 'self' https: 'unsafe-inline'; "
+                "style-src 'self' https: 'unsafe-inline'; "
+                "font-src 'self' https: data:; "
+                "img-src 'self' https: data: blob:; "
+                "connect-src 'self' https: wss:; "
+                "object-src 'none'; base-uri 'self'; form-action 'self' https:; "
+                f"frame-ancestors {frame_ancestors}; "
+                "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox;"
             )
         }
 

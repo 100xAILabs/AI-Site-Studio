@@ -115,7 +115,9 @@ async def get_stored_file(
         disposition = "attachment"
 
     if original_filename:
-        headers["Content-Disposition"] = f'{disposition}; filename="{original_filename}"'
+        safe_filename = os.path.basename(original_filename.replace("\\", "/"))
+        safe_filename = safe_filename.replace('"', "").replace("\r", "").replace("\n", "")
+        headers["Content-Disposition"] = f'{disposition}; filename="{safe_filename}"'
 
     return Response(content=data, media_type=content_type, headers=headers)
 
@@ -138,21 +140,23 @@ async def upload_file(
         )
 
     # 2. Read in chunks to prevent loading huge files into memory (OOM safety)
-    content = b""
+    content_buffer = bytearray()
     chunk_size = 1024 * 1024  # 1MB chunks
     try:
         while True:
             chunk = await file.read(chunk_size)
             if not chunk:
                 break
-            content += chunk
-            if len(content) > max_bytes:
+            content_buffer.extend(chunk)
+            if len(content_buffer) > max_bytes:
                 raise HTTPException(
                     status_code=413,
                     detail=f"File too large. Maximum allowed size is {settings.MAX_UPLOAD_SIZE_MB}MB."
                 )
     finally:
         await file.close()
+
+    content = bytes(content_buffer)
 
     # 3. Security: Check if file is a video, ZIP template, or image
     filename_lower = (file.filename or "").lower()

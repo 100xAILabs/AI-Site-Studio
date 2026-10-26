@@ -9,14 +9,15 @@ Strict Data Plane Isolation:
 import os
 import asyncio
 import mimetypes
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse
 
 from app.services.security_scanner import security_scanner
 from app.core.database import AsyncSessionLocal
-from app.models.deployment import Deployment, DeploymentLog
+from app.models.deployment import Deployment, DeploymentLog, Domain
+from app.models.hosting_subscription import HostingSubscription
 from sqlalchemy import select
 
 router = APIRouter(tags=["Tenant Workload Sites"])
@@ -96,22 +97,57 @@ async def serve_tenant_workload(
         return RedirectResponse(url=target_url, status_code=308)
 
     clean_identifier = site_identifier.strip().lower()
+    domain_lookup = clean_identifier[4:] if clean_identifier.startswith("www.") else clean_identifier
     clean_site_id = site_identifier.split(".")[0].upper()
 
     # 1. Check DB for matching site_id, subdomain, or custom_domain
     resolved_site_id = None
     try:
         async with AsyncSessionLocal() as session:
-            stmt = select(Deployment.site_id).where(
+            stmt = select(Deployment).where(
                 (Deployment.site_id == clean_site_id) |
                 (Deployment.subdomain == clean_identifier) |
                 (Deployment.custom_domain == clean_identifier) |
-                (Deployment.subdomain == f"{clean_identifier}.aisitestudio.com")
+                (Deployment.custom_domain == domain_lookup) |
+                (Deployment.subdomain == f"{clean_identifier}.aisitestudio.com") |
+                (select(Domain.id).where(
+                    Domain.deployment_id == Deployment.id,
+                    Domain.domain.in_({clean_identifier, domain_lookup}),
+                    Domain.verification_status == "verified",
+                ).exists())
             ).limit(1)
             res = await session.execute(stmt)
-            resolved_site_id = res.scalar_one_or_none()
+            deployment = res.scalar_one_or_none()
+            resolved_site_id = deployment.site_id if deployment else None
+            if deployment and deployment.provider == "local":
+                from app.core.config import settings
+                if settings.ENVIRONMENT == "production":
+                    subscription_result = await session.execute(select(HostingSubscription).where(
+                        HostingSubscription.deployment_id == deployment.id
+                    ))
+                    subscription = subscription_result.scalar_one_or_none()
+                    subscription_status = subscription.status if subscription else None
+                    in_grace_period = False
+                    if subscription_status == "past_due" and subscription.last_payment_failed_at:
+                        failed_at = subscription.last_payment_failed_at
+                        if failed_at.tzinfo is None:
+                            failed_at = failed_at.replace(tzinfo=timezone.utc)
+                        in_grace_period = datetime.now(timezone.utc) <= failed_at + timedelta(
+                            days=max(0, settings.HOSTING_GRACE_PERIOD_DAYS)
+                        )
+                    if subscription_status not in {"active", "trialing"} and not in_grace_period:
+                        return HTMLResponse(
+                            "<!doctype html><html><head><title>Hosting unavailable</title></head>"
+                            "<body style='font:16px system-ui;max-width:640px;margin:12vh auto;padding:24px'>"
+                            "<h1>This website's hosting is not active</h1><p>The owner can restore access by completing or updating the hosting subscription in AI Site Studio.</p></body></html>",
+                            status_code=402,
+                        )
     except Exception:
-        pass
+        # Billing lookup errors must fail closed in production; otherwise an outage
+        # in the billing database could accidentally serve unpaid customer sites.
+        from app.core.config import settings
+        if settings.ENVIRONMENT == "production":
+            return HTMLResponse("Hosting status is temporarily unavailable.", status_code=503)
 
     target_id = (resolved_site_id or clean_site_id).upper()
     site_dir = _DEPLOYMENTS_ROOT / target_id / "current"

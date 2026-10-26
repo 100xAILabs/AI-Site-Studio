@@ -4,6 +4,7 @@ Payment routes — Razorpay and Stripe payment initiation and verification.
 
 import hashlib
 import hmac
+import logging
 import uuid
 from decimal import Decimal
 from typing import Optional
@@ -20,12 +21,15 @@ from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.models.order import Order, OrderItem, OrderStatus
 from app.models.payment import Payment, PaymentGateway, PaymentStatus
+from app.models.deployment import Deployment, Domain
+from app.models.hosting_subscription import HostingSubscription
 from app.schemas.payment import (
     PaymentInitRequest, PaymentInitResponse,
     PaymentVerifyRequest, PaymentVerifyResponse,
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def calculate_order_inr_amount(order: Order, usd_to_inr_rate: float) -> Decimal:
@@ -180,6 +184,11 @@ async def initiate_payment(
     if order.status != OrderStatus.PENDING:
         raise HTTPException(status_code=400, detail="Order is not in PENDING state")
 
+    if data.gateway == PaymentGateway.UPI:
+        merchant_vpa = settings.UPI_MERCHANT_VPA.strip()
+        if not merchant_vpa or "yourname" in merchant_vpa.lower():
+            raise HTTPException(status_code=503, detail="UPI payments are not configured. Please choose another payment method.")
+
     # Fetch live USD-to-INR rate if using Razorpay or UPI
     usd_to_inr_rate = 83.50
     if data.gateway in (PaymentGateway.RAZORPAY, PaymentGateway.UPI):
@@ -201,7 +210,7 @@ async def initiate_payment(
             existing_payment.amount = inr_amount
             await db.commit()
             upi_order_id = existing_payment.gateway_order_id or f"upi_qr_{uuid.uuid4().hex[:12]}"
-            merchant_vpa = getattr(settings, "UPI_MERCHANT_VPA", "aisitestudio@upi")
+            merchant_vpa = settings.UPI_MERCHANT_VPA.strip()
             merchant_name = getattr(settings, "UPI_MERCHANT_NAME", "AI Site Studio")
             upi_uri = f"upi://pay?pa={merchant_vpa}&pn={merchant_name}&am={inr_amount}&cu=INR&tn=Order%20{str(order.id)[:8]}&tr={upi_order_id}"
             return PaymentInitResponse(
@@ -266,7 +275,7 @@ async def initiate_payment(
         inr_amount = calculate_order_inr_amount(order, usd_to_inr_rate)
         amount_in_paise = int(inr_amount * 100)
         upi_order_id = f"upi_qr_{uuid.uuid4().hex[:12]}"
-        merchant_vpa = getattr(settings, "UPI_MERCHANT_VPA", "aisitestudio@upi")
+        merchant_vpa = settings.UPI_MERCHANT_VPA.strip()
         merchant_name = getattr(settings, "UPI_MERCHANT_NAME", "AI Site Studio")
         upi_uri = f"upi://pay?pa={merchant_vpa}&pn={merchant_name}&am={inr_amount}&cu=INR&tn=Order%20{str(order.id)[:8]}&tr={upi_order_id}"
 
@@ -534,14 +543,16 @@ async def verify_payment(
             )
 
         # Anti-fraud: Check if this UTR has already been claimed for another order
+        if payment and payment.gateway != PaymentGateway.UPI:
+            raise HTTPException(status_code=409, detail="This order already has a payment through a different gateway.")
+
         dup_query = select(Payment).where(
             or_(
                 Payment.gateway_payment_id == f"UTR:{raw_utr}",
                 Payment.gateway_payment_id == raw_utr
             ),
-            Payment.order_id != order.id,
-            Payment.status == PaymentStatus.CAPTURED
-        )
+            Payment.order_id != order.id
+        ).limit(1)
         dup_res = await db.execute(dup_query)
         existing_claimed = dup_res.scalar_one_or_none()
         if existing_claimed:
@@ -551,35 +562,39 @@ async def verify_payment(
             )
 
         utr_formatted = f"UTR:{raw_utr}"
+        if payment and payment.status == PaymentStatus.CAPTURED:
+            return PaymentVerifyResponse(
+                success=True,
+                message="This UPI payment has already been confirmed.",
+                order_id=str(order.id),
+            )
+
         if not payment:
             payment = Payment(
                 order_id=order.id,
                 gateway=PaymentGateway.UPI,
-                status=PaymentStatus.CAPTURED,
+                status=PaymentStatus.PENDING,
                 gateway_payment_id=utr_formatted,
                 amount=order.total,
                 currency="INR",
             )
             db.add(payment)
         else:
-            payment.status = PaymentStatus.CAPTURED
+            payment.status = PaymentStatus.PENDING
             payment.gateway_payment_id = utr_formatted
 
         from datetime import datetime, timezone
         meta = dict(order.extra_metadata or {})
         meta["upi_utr"] = raw_utr
-        meta["payment_verified_at"] = datetime.now(timezone.utc).isoformat()
+        meta["upi_utr_submitted_at"] = datetime.now(timezone.utc).isoformat()
         order.extra_metadata = meta
-        order.status = OrderStatus.COMPLETED
-
-        await _fulfill_order_licenses(db, order, user_email=current_user.email if current_user else None)
 
         await db.flush()
         await db.commit()
 
         return PaymentVerifyResponse(
             success=True,
-            message=f"UPI Payment successfully verified with UTR {raw_utr}.",
+            message="UPI reference submitted. Your order stays pending until the payment is confirmed.",
             order_id=str(order.id),
         )
 
@@ -594,6 +609,8 @@ async def verify_payment(
     )
 
     if is_card_mock:
+        if settings.ENVIRONMENT not in ("development", "local", "test"):
+            raise HTTPException(status_code=400, detail="Mock payments are not allowed in this environment.")
         if not payment:
             payment = Payment(
                 order_id=order.id,
@@ -734,7 +751,186 @@ async def stripe_webhook(
     except stripe.error.SignatureVerificationError:
         raise HTTPException(status_code=400, detail="Invalid signature")
 
-    if event["type"] == "payment_intent.succeeded":
+    if event["type"] in {"checkout.session.completed", "checkout.session.async_payment_succeeded"}:
+        checkout_session = event["data"]["object"]
+        metadata = checkout_session.get("metadata") or {}
+        if metadata.get("purchase_type") == "domain_registration":
+            from app.services.domain_purchase_service import fulfill_domain_checkout
+            await fulfill_domain_checkout(checkout_session, db)
+        elif metadata.get("purchase_type") == "hosting_subscription":
+            subscription_id = checkout_session.get("subscription")
+            if subscription_id:
+                stripe_subscription = stripe.Subscription.retrieve(subscription_id)
+                sub_metadata = stripe_subscription.get("metadata") or metadata
+                deployment_id = sub_metadata.get("deployment_id") or metadata.get("deployment_id")
+                user_id = sub_metadata.get("user_id") or metadata.get("user_id")
+                if deployment_id and user_id:
+                    row_result = await db.execute(select(HostingSubscription).where(
+                        (HostingSubscription.stripe_subscription_id == subscription_id)
+                        | (HostingSubscription.deployment_id == uuid.UUID(deployment_id))
+                    ))
+                    row = row_result.scalar_one_or_none()
+                    if not row:
+                        row = HostingSubscription(
+                            deployment_id=uuid.UUID(deployment_id),
+                            user_id=uuid.UUID(user_id),
+                            stripe_subscription_id=subscription_id,
+                            stripe_customer_id=checkout_session.get("customer"),
+                            status=stripe_subscription.get("status", "active"),
+                        )
+                        db.add(row)
+                    else:
+                        row.stripe_subscription_id = subscription_id
+                        row.user_id = uuid.UUID(user_id)
+                        row.status = stripe_subscription.get("status", row.status)
+                    period_end = stripe_subscription.get("current_period_end")
+                    if period_end:
+                        from datetime import datetime, timezone
+                        row.current_period_end = datetime.fromtimestamp(period_end, timezone.utc)
+                    deployment_result = await db.execute(select(Deployment).where(Deployment.id == uuid.UUID(deployment_id)))
+                    hosting_deployment = deployment_result.scalar_one_or_none()
+                    if hosting_deployment and hosting_deployment.hosting_checkout_session_id == checkout_session.get("id"):
+                        hosting_deployment.hosting_checkout_session_id = None
+                    await db.commit()
+
+    elif event["type"] in {"customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"}:
+        subscription_data = event["data"]["object"]
+        subscription_id = subscription_data["id"]
+        sub_metadata = subscription_data.get("metadata") or {}
+        deployment_id = sub_metadata.get("deployment_id")
+        row_result = await db.execute(select(HostingSubscription).where(
+            HostingSubscription.stripe_subscription_id == subscription_id
+        ))
+        row = row_result.scalar_one_or_none()
+        stale_subscription_event = False
+        if not row and deployment_id:
+            deployment_row_result = await db.execute(select(HostingSubscription).where(
+                HostingSubscription.deployment_id == uuid.UUID(deployment_id)
+            ))
+            candidate = deployment_row_result.scalar_one_or_none()
+            if candidate and candidate.stripe_subscription_id != subscription_id:
+                terminal_states = {"canceled", "unpaid", "incomplete_expired"}
+                if event["type"] == "customer.subscription.deleted" or candidate.status not in terminal_states:
+                    stale_subscription_event = True
+                else:
+                    row = candidate
+            else:
+                row = candidate
+        deployment = None
+        if not row and not stale_subscription_event and event["type"] != "customer.subscription.deleted" and sub_metadata.get("deployment_id") and sub_metadata.get("user_id"):
+            row = HostingSubscription(
+                deployment_id=uuid.UUID(sub_metadata["deployment_id"]),
+                user_id=uuid.UUID(sub_metadata["user_id"]),
+                stripe_subscription_id=subscription_id,
+                stripe_customer_id=subscription_data.get("customer"),
+                status=subscription_data.get("status", "incomplete"),
+            )
+            db.add(row)
+        if row:
+            row.stripe_subscription_id = subscription_id
+            row.status = subscription_data.get("status", row.status)
+            row.stripe_customer_id = subscription_data.get("customer") or row.stripe_customer_id
+            row.cancel_at_period_end = bool(subscription_data.get("cancel_at_period_end", False))
+            if row.status in {"active", "trialing"}:
+                row.last_payment_failed_at = None
+            if row.status == "past_due":
+                from datetime import datetime, timezone, timedelta
+                if not row.last_payment_failed_at:
+                    row.last_payment_failed_at = datetime.now(timezone.utc)
+                failed_at = row.last_payment_failed_at
+                if failed_at.tzinfo is None:
+                    failed_at = failed_at.replace(tzinfo=timezone.utc)
+                try:
+                    from app.tasks.hosting_tasks import cancel_unpaid_hosting_after_grace
+                    cancel_unpaid_hosting_after_grace.apply_async(
+                        args=[str(row.id)],
+                        countdown=max(0, int((failed_at + timedelta(days=max(0, settings.HOSTING_GRACE_PERIOD_DAYS)) - datetime.now(timezone.utc)).total_seconds())),
+                    )
+                except Exception:
+                    logger.exception("Could not queue hosting grace-period cancellation")
+            period_end = subscription_data.get("current_period_end")
+            if period_end:
+                from datetime import datetime, timezone
+                row.current_period_end = datetime.fromtimestamp(period_end, timezone.utc)
+            deployment_result = await db.execute(select(Deployment).where(Deployment.id == row.deployment_id))
+            deployment = deployment_result.scalar_one_or_none()
+            if deployment and row.status in {"unpaid", "canceled", "incomplete_expired"}:
+                from app.services.deployment_providers import get_deployment_provider
+                provider = get_deployment_provider(deployment.provider)
+                if deployment.status != "suspended":
+                    await provider.stop(deployment.site_id)
+                    deployment.status = "suspended"
+                    deployment.is_suspended = True
+            elif deployment and row.status in {"active", "trialing"} and deployment.is_suspended:
+                from app.services.deployment_providers import get_deployment_provider
+                provider = get_deployment_provider(deployment.provider)
+                ok, _ = await provider.rollback(deployment.site_id, deployment.current_version)
+                if ok:
+                    deployment.status = "live"
+                    deployment.is_suspended = False
+            await db.commit()
+
+    elif event["type"] in {"checkout.session.async_payment_failed", "checkout.session.expired"}:
+        checkout_session = event["data"]["object"]
+        metadata = checkout_session.get("metadata") or {}
+        if metadata.get("purchase_type") == "hosting_subscription":
+            deployment_id = metadata.get("deployment_id")
+            if deployment_id:
+                deployment_result = await db.execute(select(Deployment).where(Deployment.id == uuid.UUID(deployment_id)))
+                hosting_deployment = deployment_result.scalar_one_or_none()
+                if hosting_deployment and hosting_deployment.hosting_checkout_session_id == checkout_session.get("id"):
+                    hosting_deployment.hosting_checkout_session_id = None
+                    await db.commit()
+        if metadata.get("purchase_type") == "domain_registration":
+            domain_result = await db.execute(select(Domain).where(Domain.id == uuid.UUID(metadata["domain_id"])))
+            domain = domain_result.scalar_one_or_none()
+            if domain and domain.registrar_status == "pending_payment":
+                domain.registrar_status = "payment_failed" if event["type"].endswith("failed") else "checkout_expired"
+                domain.verification_status = domain.registrar_status
+                await db.commit()
+
+    elif event["type"] == "invoice.payment_failed":
+        invoice = event["data"]["object"]
+        subscription_id = invoice.get("subscription")
+        if subscription_id:
+            row_result = await db.execute(select(HostingSubscription).where(
+                HostingSubscription.stripe_subscription_id == subscription_id
+            ))
+            row = row_result.scalar_one_or_none()
+            if row:
+                from datetime import datetime, timezone, timedelta
+                if not row.last_payment_failed_at:
+                    row.status = "past_due"
+                    row.last_payment_failed_at = datetime.now(timezone.utc)
+                else:
+                    row.status = "past_due"
+                failed_at = row.last_payment_failed_at
+                if failed_at.tzinfo is None:
+                    failed_at = failed_at.replace(tzinfo=timezone.utc)
+                try:
+                    from app.tasks.hosting_tasks import cancel_unpaid_hosting_after_grace
+                    cancel_unpaid_hosting_after_grace.apply_async(
+                        args=[str(row.id)],
+                        countdown=max(0, int((failed_at + timedelta(days=max(0, settings.HOSTING_GRACE_PERIOD_DAYS)) - datetime.now(timezone.utc)).total_seconds())),
+                    )
+                except Exception:
+                    logger.exception("Could not queue hosting grace-period cancellation")
+                await db.commit()
+
+    elif event["type"] == "invoice.payment_succeeded":
+        invoice = event["data"]["object"]
+        subscription_id = invoice.get("subscription")
+        if subscription_id:
+            row_result = await db.execute(select(HostingSubscription).where(
+                HostingSubscription.stripe_subscription_id == subscription_id
+            ))
+            row = row_result.scalar_one_or_none()
+            if row:
+                row.status = "active"
+                row.last_payment_failed_at = None
+                await db.commit()
+
+    elif event["type"] == "payment_intent.succeeded":
         intent = event["data"]["object"]
         payment_intent_id = intent["id"]
         order_id_str = intent.get("metadata", {}).get("order_id")

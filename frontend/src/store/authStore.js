@@ -8,6 +8,7 @@ import { persist } from "zustand/middleware";
 
 const SESSION_KEY = "aisitestudio_auth";
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api/v1";
+try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
 
 export const resolveMediaUrl = (url) => {
   if (!url || typeof url !== "string") return "";
@@ -18,14 +19,12 @@ export const resolveMediaUrl = (url) => {
   return url;
 };
 
-// Tab-isolated dual storage adapter to support simultaneous multi-account login per tab & browser
+// Keep bearer tokens in tab-scoped storage so injected scripts cannot read a persistent local token.
 const tabIsolatedStorage = {
   getItem: (name) => {
     try {
       const sessionVal = sessionStorage.getItem(name);
       if (sessionVal) return JSON.parse(sessionVal);
-      const localVal = localStorage.getItem(name);
-      if (localVal) return JSON.parse(localVal);
     } catch (e) {}
     return null;
   },
@@ -33,35 +32,37 @@ const tabIsolatedStorage = {
     try {
       const str = JSON.stringify(value);
       sessionStorage.setItem(name, str);
-      localStorage.setItem(name, str);
     } catch (e) {}
   },
   removeItem: (name) => {
     try {
       sessionStorage.removeItem(name);
-      localStorage.removeItem(name);
     } catch (e) {}
   },
 };
 
 let activeWs = null;
+let activeWsPingTimer = null;
 
 function initWebSocketSession(token) {
   if (!token) {
     if (activeWs) {
+      if (activeWsPingTimer) clearInterval(activeWsPingTimer);
       try { activeWs.close(); } catch (e) {}
       activeWs = null;
     }
     return;
   }
   try {
-    const wsUrl = API_BASE.replace(/^http/, "ws") + "/ws/session?token=" + encodeURIComponent(token);
+    const wsUrl = API_BASE.replace(/^http/, "ws") + "/ws/session";
     if (activeWs) {
+      if (activeWsPingTimer) clearInterval(activeWsPingTimer);
       try { activeWs.close(); } catch (e) {}
     }
     activeWs = new WebSocket(wsUrl);
     activeWs.onopen = () => {
-      setInterval(() => {
+      activeWs.send(JSON.stringify({ type: "auth", token }));
+      activeWsPingTimer = setInterval(() => {
         if (activeWs && activeWs.readyState === WebSocket.OPEN) {
           activeWs.send("ping");
         }
@@ -182,7 +183,8 @@ export const useAuthStore = create(
 
       /** Redirect to backend OAuth (Google) */
       beginGoogleAuth: (role) => {
-        window.location.href = `${API_BASE}/auth/google/login?role=${role || 'buyer'}`;
+        const originParam = typeof window !== 'undefined' ? `&origin=${encodeURIComponent(window.location.origin)}` : '';
+        window.location.href = `${API_BASE}/auth/google/login?role=${role || 'buyer'}${originParam}`;
         return { success: true };
       },
 
@@ -207,6 +209,9 @@ export const useAuthStore = create(
           
           if (data.status === "otp_required") {
             return { requires_otp: true, email: data.email };
+          }
+          if (data.status === "registration_received") {
+            return { requires_otp: true, email };
           }
           
           set({ token: data.access_token, isSignedIn: true });

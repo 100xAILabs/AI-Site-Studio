@@ -5,6 +5,8 @@ Handles file tree traversal, safe file reading/writing, and autonomous AI Site D
 
 import os
 import uuid
+import tempfile
+import shutil
 import mimetypes
 from pathlib import Path
 from datetime import datetime, timezone
@@ -44,6 +46,40 @@ class DeploymentHealingService:
         """Returns the versioned snapshot directory for a deployed site."""
         clean_site_id = site_id.upper().strip()
         return _DEPLOYMENTS_ROOT / clean_site_id / version / "dist"
+
+    def create_snapshot(self, site_id: str, snapshot_tag: str) -> bool:
+        """Creates an immutable backup snapshot of the site current/ directory."""
+        current_dir = self.get_site_current_dir(site_id)
+        if not current_dir.exists():
+            return False
+        clean_site_id = site_id.upper().strip()
+        snapshot_dir = _DEPLOYMENTS_ROOT / clean_site_id / snapshot_tag / "dist"
+        try:
+            # Snapshots are immutable restore points: never replace an existing tag.
+            if snapshot_dir.exists():
+                return False
+            os.makedirs(snapshot_dir.parent, exist_ok=True)
+            shutil.copytree(current_dir, snapshot_dir)
+            return True
+        except Exception:
+            return False
+
+    async def rollback_deployment(self, deployment: Deployment, target_version: str) -> Tuple[bool, str]:
+        """Performs atomic zero-downtime rollback to a chosen snapshot/version."""
+        site_id = deployment.site_id
+        success, res = await self.provider.rollback(site_id, target_version)
+        if success:
+            deployment.health_status = "healthy"
+            deployment.status = "live"
+            self.db.add(DeploymentLog(
+                deployment_id=deployment.id,
+                level="INFO",
+                message=f"[Tier 4 Rollback] Reverted live site to version {target_version}.",
+                timestamp=datetime.now(timezone.utc),
+            ))
+            await self.db.commit()
+            return True, f"Successfully rolled back {site_id} to {target_version}."
+        return False, f"Rollback failed: {res}"
 
     def list_files(self, site_id: str) -> List[Dict[str, Any]]:
         """
@@ -118,21 +154,22 @@ class DeploymentHealingService:
         target_path = (current_dir / relative_path).resolve()
 
         # Security check
-        if not str(target_path).startswith(str(current_dir)):
+        if os.path.commonpath((str(current_dir), str(target_path))) != str(current_dir):
             return False, "Access denied: Path traversal detected."
 
         try:
             os.makedirs(target_path.parent, exist_ok=True)
-            with open(target_path, "w", encoding="utf-8") as f:
-                f.write(content)
-
-            # Sync to current version directory as well
-            version_dir = self.get_site_version_dir(deployment.site_id, deployment.current_version).resolve()
-            version_target = (version_dir / relative_path).resolve()
-            if str(version_target).startswith(str(version_dir)):
-                os.makedirs(version_target.parent, exist_ok=True)
-                with open(version_target, "w", encoding="utf-8") as vf:
-                    vf.write(content)
+            # Replace each file atomically so a reader never observes a partial write.
+            fd, temp_name = tempfile.mkstemp(prefix=f".{target_path.name}.", suffix=".tmp", dir=target_path.parent)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(content)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(temp_name, target_path)
+            finally:
+                if os.path.exists(temp_name):
+                    os.unlink(temp_name)
 
             # Log update
             log_entry = DeploymentLog(
@@ -247,6 +284,25 @@ class DeploymentHealingService:
 
         patched_paths = []
 
+        # Tier 4 Pre-Healing Snapshot: backup pristine current version BEFORE hotfixing
+        snapshot_tag = f"snapshot_pre_heal_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}_{uuid.uuid4().hex[:8]}"
+        snapshot_created = self.create_snapshot(site_id, snapshot_tag)
+        if not snapshot_created:
+            return {
+                "success": False,
+                "rolled_back": False,
+                "site_id": site_id,
+                "live_url": deployment.live_url,
+                "health_status": deployment.health_status,
+                "error_message": "Healing stopped before changing live files because a pre-heal snapshot could not be created.",
+            }
+        self.db.add(DeploymentLog(
+            deployment_id=deployment.id,
+            level="INFO",
+            message=f"[Tier 4 Pre-Heal Snapshot] Created restore point: {snapshot_tag}",
+            timestamp=datetime.now(timezone.utc),
+        ))
+
         # 3. Apply patched files to disk
         if fixed_files:
             for file_patch in fixed_files:
@@ -262,36 +318,74 @@ class DeploymentHealingService:
                     if success:
                         patched_paths.append(p_path)
 
-        # 4. If AI didn't return files or returned empty, perform smart self-healing on index.html
-        if not patched_paths and "index.html" in files_dict:
-            orig_html = files_dict["index.html"]
-            repaired_html = orig_html
-            # Add safe error boundary & responsive fix
-            if "<!-- AI Site Doctor Guard -->" not in repaired_html:
-                guard_script = """
-    <!-- AI Site Doctor Guard: Auto-catches runtime exceptions and prevents blank screens -->
-    <script>
-      window.addEventListener('error', function(e) {
-        console.warn('AI Site Doctor Caught Error:', e.message);
-      });
-      window.addEventListener('unhandledrejection', function(e) {
-        console.warn('AI Site Doctor Caught Unhandled Rejection:', e.reason);
-      });
-    </script>
-</head>"""
-                repaired_html = repaired_html.replace("</head>", guard_script, 1) if "</head>" in repaired_html else repaired_html + guard_script
-                await self.save_file(deployment, "index.html", repaired_html, "AI Site Doctor (Guard Injection)")
-                patched_paths.append("index.html")
+        # A telemetry guard is not a repair. Never report a successful heal unless the
+        # diagnostic agent returned at least one usable patch and it was applied.
+        if not patched_paths:
+            rollback_ok, rollback_message = await self.provider.rollback(site_id, snapshot_tag)
+            deployment.health_status = "degraded"
+            if incident:
+                incident.status = "open"
+                incident.resolution_notes = "AI Site Doctor produced no applicable file patch; the pre-heal snapshot was restored."
+            self.db.add(DeploymentLog(
+                deployment_id=deployment.id,
+                level="WARN",
+                message=f"[AI Site Doctor] No applicable patch returned. Snapshot restore {'succeeded' if rollback_ok else 'failed'}: {rollback_message}",
+                timestamp=datetime.now(timezone.utc),
+            ))
+            await self.db.commit()
+            return {
+                "success": False,
+                "rolled_back": rollback_ok,
+                "snapshot_restored": snapshot_tag if rollback_ok else None,
+                "site_id": site_id,
+                "live_url": deployment.live_url,
+                "health_status": "degraded",
+                "error_message": "AI Site Doctor did not produce an applicable patch; the issue remains open.",
+            }
 
         # 5. Execute Health Verification
         live_url = deployment.live_url or f"http://localhost:8000/sites/{site_id}/"
         is_healthy, h_code, h_msg = await self.provider.health_check(live_url, site_id=site_id)
 
-        # 6. Update Deployment State
+        # 6. Tier 4 Decision Gate: If health check fails, auto-rollback to pre-heal snapshot
+        if not is_healthy:
+            rollback_ok, rollback_message = await self.provider.rollback(site_id, snapshot_tag)
+            if not rollback_ok and deployment.current_version:
+                rollback_ok, rollback_message = await self.provider.rollback(site_id, deployment.current_version)
+            deployment.health_status = "degraded"
+            fail_log = (
+                f"[AI Site Doctor Tier 4 Rollback] Post-heal health verification failed ({h_msg}). "
+                f"Rollback {'succeeded' if rollback_ok else 'FAILED'} for pre-heal snapshot ({snapshot_tag}): {rollback_message}."
+            )
+            self.db.add(DeploymentLog(
+                deployment_id=deployment.id,
+                level="WARN",
+                message=fail_log,
+                timestamp=datetime.now(timezone.utc),
+            ))
+            if incident:
+                incident.status = "open"
+                incident.resolution_notes = f"AI patch failed verification ({h_msg}). Rollback {'succeeded' if rollback_ok else 'failed'}: {rollback_message}."
+            await self.db.commit()
+            return {
+                "success": False,
+                "rolled_back": rollback_ok,
+                "snapshot_restored": snapshot_tag if rollback_ok else None,
+                "incident_id": incident.id if incident else None,
+                "site_id": site_id,
+                "live_url": live_url,
+                "diagnosis": diagnosis,
+                "root_cause": root_cause,
+                "patch_summary": patch_summary,
+                "health_status": "degraded",
+                "error_message": f"Health check failed ({h_msg}). Rollback {'succeeded' if rollback_ok else 'failed'}: {rollback_message}.",
+            }
+
+        # 6. Update Deployment State on Verified Health
         deployment.health_status = "healthy"
         deployment.status = "live"
         success_log = (
-            f"[AI Site Doctor] Autonomous healing successful! "
+            f"[AI Site Doctor Tier 4] Autonomous healing & verification successful! "
             f"Patched: {', '.join(patched_paths) or 'Runtime stabilization'}. "
             f"Health: {h_msg}"
         )
