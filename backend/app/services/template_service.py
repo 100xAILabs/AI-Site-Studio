@@ -217,7 +217,6 @@ class TemplateService:
         total_sales = 0
         if template.seller_id or template.developer_name:
             from sqlalchemy import select, func
-            from app.models.template import TemplateStatus
 
             count_cond = (
                 Template.seller_id == template.seller_id 
