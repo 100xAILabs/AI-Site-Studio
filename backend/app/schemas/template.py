@@ -314,7 +314,7 @@ class TemplateGenerateRequest(BaseModel):
     content_language: str = Field("English (en)", min_length=2, max_length=80)
     framework: Optional[str] = "html"
     backend_framework: Optional[str] = "fastapi"
-    css_engine: Optional[str] = "tailwind"
+    css_engine: Optional[str] = None
     project_scope: Optional[str] = "frontend"
     answers: Optional[Dict[str, Any]] = None
     pages: Optional[List[Dict[str, Any]]] = None
@@ -325,5 +325,25 @@ class TemplateGenerateRequest(BaseModel):
     brand_colors: Optional[Dict[str, Any]] = None
     logo_info: Optional[Dict[str, Any]] = None
     contact_details: Optional[Dict[str, Any]] = None
+    project_images: Optional[List[Dict[str, Any]]] = Field(default=None, max_length=8)
+
+    @field_validator("project_images")
+    @classmethod
+    def validate_project_images(cls, images):
+        if images is None:
+            return images
+        safe_images = []
+        for image in images:
+            if not isinstance(image, dict):
+                raise ValueError("Each project image must include a URL and optional alt text.")
+            url = str(image.get("url") or "").strip()
+            if len(url) > 2048 or not re.match(r"^https://[^\s]+$|^http://(?:localhost|127\.0\.0\.1)(?::\d+)?/[^\s]*$", url, re.IGNORECASE):
+                raise ValueError("Project images must use HTTPS URLs (HTTP is allowed for localhost development).")
+            safe_images.append({
+                "name": re.sub(r"[\r\n\x00-\x1f]", " ", str(image.get("name") or "Project image"))[:120],
+                "url": url,
+                "alt": re.sub(r"[\r\n\x00-\x1f]", " ", str(image.get("alt") or image.get("name") or "Project image"))[:200],
+            })
+        return safe_images
 
 

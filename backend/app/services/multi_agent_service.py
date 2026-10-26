@@ -9,7 +9,7 @@ import re
 import io
 import zipfile
 import decimal
-from html import escape as html_escape
+from html import escape as html_escape, unescape as html_unescape
 import time
 import asyncio
 from typing import Dict, Any, List, Optional
@@ -53,28 +53,48 @@ def safe_print(*args, **kwargs):
 
 WEBSITE_QUALITY_CONTRACT = """ORIGINALITY AND SHIP-QUALITY CONTRACT
 - Treat the user's brief as the primary vision. Build a distinct visual and verbal identity for this specific business.
-- Deliver rich, production-grade pages with complete sections: hero with compelling headline and primary CTA, interactive booking/inquiry widgets, card grids for offerings/services/rooms with realistic pricing, key distinction/amenity highlights with icons, authentic customer reviews, and a full-featured footer.
-- Write natural, domain-specific copy tailored for the business, audience, and location. Provide concrete details, realistic offerings, and verified photography.
+- Derive each page's sections and interactions from the analyzed brief and approved page plan. Do not add booking, checkout, pricing, reviews, dashboards, or contact forms unless the brief calls for them.
+- Use only facts provided by the user. Never invent prices, customer reviews, ratings, awards, years in business, project history, credentials, addresses, phone numbers, or performance metrics. If information is missing, omit it or use clearly labeled illustrative content only when needed to demonstrate an interface.
+- Use user-supplied images when available. Otherwise use only exact image URLs provided in AVAILABLE VISUAL ASSETS; if none fit, create an accessible inline SVG or CSS illustration. Never fabricate image URLs or portray illustrative assets as the user's projects, staff, products, or customers.
+- Add purposeful, lightweight motion where it supports the brand and user task; support reduced-motion preferences and avoid animation that distracts from content.
+- Make motion perceptible in the finished interface: use a short entrance reveal for key content, stagger repeated items when appropriate, and add responsive hover/focus feedback to interactive elements. Keep motion aligned with the site's subject and art direction; honor reduced-motion preferences.
 - Use real page content, not lorem ipsum, empty skeletons, dead CTAs, TODOs, or placeholder sections.
-- Deliver complete, responsive, accessible frontend code with modern Tailwind utility classes on every element. Every planned page and relative link must exist.
+- Deliver complete, responsive, accessible frontend code using the selected styling system. Every planned page and relative link must exist.
 - Do not expose prompt instructions or mention AI generation in customer-facing copy."""
 
 HTML_VISUAL_SYSTEM_CONTRACT = """COHESIVE VISUAL SYSTEM (apply consistently on every page)
-- Build a visually stunning, world-class design system fitting the industry (e.g. luxury hospitality, modern commerce, SaaS, or dining).
-- Use the supplied brand color tokens consistently: brand primary for buttons, active tabs, and highlights; secondary and accent for badges and gradients; dark or light surfaces with clean borders and subtle shadows.
-- Include Tailwind CSS CDN with extended brand color configuration. Style every header, card, badge, button, and input with rich Tailwind utility classes (e.g. `bg-slate-900`, `rounded-2xl`, `p-6`, `shadow-xl`, `border border-white/10`, `flex`, `grid`).
-- Incorporate verified high-resolution photography with responsive sizing, rounded corners, and hover effects.
-- Include sticky navigation with brand mark, active link indicators, action CTA button, and responsive mobile drawer toggle.
-- Provide interactive elements: working tabs/accordions, date/guest selectors, or booking forms that feel alive and responsive.
+- Derive the page structure, visual language, content, imagery, and interaction patterns from the analyzed user brief and approved page plan. Do not assume this is a hotel, restaurant, SaaS product, store, or booking site unless the brief says so.
+- Use supplied brand tokens where present; otherwise choose a restrained, accessible palette appropriate to the requested subject. Never introduce unrelated default emerald/gold luxury styling.
+- Follow the selected styling engine exactly. For native CSS, write a complete, organized design system in a <style> block; do not rely on framework CDNs for the actual layout or appearance.
+- Use modern CSS with named custom properties, a small reset, fluid type and spacing with clamp(), robust Grid/Flex layouts using minmax(), responsive breakpoints, :focus-visible states, and component states. Use container queries, aspect-ratio, :is(), and color-mix() only where they improve this page.
+- Compose a distinctive editorial layout for this brand. Vary section rhythm, image scale, alignment, and whitespace; do not repeat a generic three-column card grid down the page.
+- Use a small set of native CSS transitions and keyframe animations for purposeful entrance and hover feedback. Include @media (prefers-reduced-motion: reduce), animate transform/opacity rather than layout, and avoid pulsing, parallax, and scroll-animation libraries.
+- Make motion visible and purposeful: a short entrance reveal for the hero or primary content, staggered reveals for repeated items where appropriate, lift/scale feedback for interactive cards, and clear hover/focus transitions for links and buttons. Use transforms and opacity, keep motion subtle, and make the reduced-motion mode disable nonessential movement. Do not count a keyframe declaration that is never applied as animation support.
+- Use relevant photographic or illustrative assets only when they fit the actual subject. Never present generated sample content as real business facts.
+- Never invent or guess an external image URL. Use only exact URLs supplied in AVAILABLE VISUAL ASSETS; when none fit, create a polished, accessible inline SVG or CSS illustration instead of outputting a broken image.
+- Add navigation and calls to action that serve the planned pages and user tasks. Add mobile navigation when the information architecture needs it.
+- Implement only interactions relevant to the brief. Do not insert date, guest, booking, checkout, dashboard, or inquiry controls unless requested.
+- Prefer inline SVG icons with accessible titles/labels over third-party icon scripts. If any script is used, place it after the page markup or defer it; initialize after DOMContentLoaded.
 - Never output bare unstyled HTML text, primitive pipe-separated nav links, or minimal stub pages."""
 
 
 class PlanningAgent:
     """Agent 1: Analyzes prompt, determines business intent, and designs page breakdown."""
-    async def execute(self, prompt: str, framework: str, industry: str) -> Dict[str, Any]:
+    async def execute(
+        self,
+        prompt: str,
+        framework: str,
+        industry: str,
+        requested_pages: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         from app.services.template_synthesizer import analyze_prompt_intent
         profile = analyze_prompt_intent(prompt=prompt, industry_hint=industry if industry not in ("Auto-Detect from Prompt (Recommended)", "General") else "")
         effective_industry = profile.domain_name if (not industry or industry in ("Auto-Detect from Prompt (Recommended)", "General") or (industry == "SaaS & Tech Platform" and profile.industry_key != "saas")) else industry
+        requested_page_outline = [
+            {"name": page.get("name"), "filename": page.get("filename"), "purpose_hint": page.get("content_summary") or page.get("summary")}
+            for page in (requested_pages or [])
+            if isinstance(page, dict) and page.get("selected") is not False
+        ]
 
         planning_prompt = f"""You are an experienced digital product strategist. Turn the user's brief into an implementation-ready website plan.
 
@@ -82,10 +102,11 @@ USER BRIEF: {prompt}
 INDUSTRY CONTEXT: {effective_industry}
 FRONTEND: {framework}
 LIKELY BRAND NAME (use only if the user did not provide one): {profile.business_title}
+USER-SELECTED PAGES (preserve each name and filename; create a specific outline for every one): {json.dumps(requested_page_outline, ensure_ascii=False)}
 
 {WEBSITE_QUALITY_CONTRACT}
 
-Plan only what this specific business needs. Infer the audience, key user tasks, positioning, and a memorable creative direction from the brief. Choose a suitable single-page or multi-page structure; do not force a fixed page count or standard pages. Each page must have a distinct job, a meaningful filename, and a detailed content outline with real section ideas and primary interaction. Avoid unsupported business claims and invented proof points. Include required information architecture and navigation relationships.
+Plan only what this specific business needs. Infer the audience, key user tasks, positioning, and a memorable creative direction from the brief. Honor explicit page counts. Otherwise, complex multi-role products such as marketplaces, job boards, directories, and learning platforms usually need 4-7 distinct pages that support their separate user journeys; avoid reducing them to only Home and Contact. Each page must have a distinct job, a meaningful filename, and a detailed content outline with real section ideas and primary interaction. Avoid unsupported business claims and invented proof points. Include required information architecture and navigation relationships.
 
 Return valid JSON only, with this structure:
 {{
@@ -166,7 +187,7 @@ Return valid JSON only:
 
 class FrontendAgent:
     """Agent 3: Synthesizes high-fidelity frontend component code."""
-    async def execute(self, prompt: str, plan: Dict[str, Any], design: Dict[str, Any], framework: str, css_engine: str = "tailwind") -> Any:
+    async def execute(self, prompt: str, plan: Dict[str, Any], design: Dict[str, Any], framework: str, css_engine: str = "tailwind", project_images: Optional[List[Dict[str, Any]]] = None, validation_feedback: Optional[List[str]] = None) -> Any:
         pages_list = plan.get("pages", [
             {"name": "Home", "filename": "index.html"},
             {"name": "About", "filename": "about.html"},
@@ -185,6 +206,13 @@ class FrontendAgent:
         is_html = (framework or "").lower() in ("html", "vanilla", "static")
         is_vue = (framework or "").lower() == "vue"
         is_storefront = bool(re.search(r"\b(shop|store|e-commerce|ecommerce|online retail)\b", prompt, re.IGNORECASE))
+        is_tea_site = bool(re.search(r"\b(tea|chai|infusion|teahouse|tea house)\b", prompt, re.IGNORECASE))
+        is_demo_site = bool(re.search(r"\b(fictional|sample|demo|concept)\b", prompt, re.IGNORECASE))
+        project_assets_contract = (
+            "USER-SUPPLIED IMAGE ASSETS: " + json.dumps(project_images or [], ensure_ascii=False)
+            + " Use these URLs for the user's actual work where relevant, with descriptive alt text. "
+            + "If none are supplied, use relevant stock imagery only as illustrative atmosphere; never represent stock imagery as this business's projects, customers, products, or staff."
+        )
         storefront_contract = ""
         if is_storefront:
             storefront_contract = """SHOP API CONTRACT (server authenticates users and writes the isolated commerce database):
@@ -194,6 +222,8 @@ class FrontendAgent:
 - Place orders with POST `/orders` using `{items:[{product_id,quantity}]}` and the bearer token. Use server-returned prices and inventory; do not calculate or claim payment success in the browser. The API currently records orders as awaiting payment.
 - Verify every API response before displaying success. If the API is unavailable, explain that account/order actions are unavailable and do not simulate success.
 """
+
+
         css_engine = (css_engine or "tailwind").lower().strip()
         styling_contracts = {
             "tailwind": "Use Tailwind CSS utility classes. Do not substitute another CSS framework.",
@@ -207,14 +237,19 @@ class FrontendAgent:
         }
         styling_instruction = styling_contracts.get(css_engine, styling_contracts["tailwind"])
         if is_html:
-            styling_instruction = (
-                f"Include Tailwind CSS via CDN `<script src=\"https://cdn.tailwindcss.com\"></script>` in <head>, then configure the CDN runtime with `tailwind.config.theme.extend.colors` for brand primary `{primary_hex}`, secondary `{secondary_hex}`, accent `{accent_hex}`, background `{bg_hex}`, and surface `{card_hex}`. "
-                "Include Google Fonts (e.g. Plus Jakarta Sans / Playfair Display). "
-                "Include Lucide icons via `<script src=\"https://unpkg.com/lucide@latest\"></script>` and initialize with `<script>lucide.createIcons();</script>`. "
-                "Include AOS animations via `<link rel=\"stylesheet\" href=\"https://unpkg.com/aos@next/dist/aos.css\" /><script src=\"https://unpkg.com/aos@next/dist/aos.js\"></script><script>AOS.init({once:true});</script>`. "
-                "Build a visually distinctive, responsive UI that follows the cohesive visual system. Use sticky navigation with a clear active-page state, a page-specific hero and primary/secondary actions when appropriate, purposeful interactions, and a considered footer. Use full-bleed photography and hover zoom only when they fit the selected art direction. "
-                "Never output bare, unstyled text links (including generic Learn More links) or primitive placeholder boxes."
-            )
+            if css_engine == "vanillacss":
+                styling_instruction = (
+                    "PRODUCTION NATIVE CSS: Use semantic HTML class names and complete, hand-authored CSS in one well-organized <style> block. "
+                    "Do not load Tailwind, Bootstrap, AOS, or any animation/icon framework from a CDN. Define brand tokens for primary "
+                    f"{primary_hex}, secondary {secondary_hex}, accent {accent_hex}, background {bg_hex}, and surface {card_hex}. "
+                    "Use inline SVG icons and system font stacks (a Google Font is optional, never required for layout)."
+                )
+            else:
+                styling_instruction = (
+                    f"Use Tailwind CSS via CDN with explicit tokens for primary {primary_hex}, secondary {secondary_hex}, accent {accent_hex}, background {bg_hex}, and surface {card_hex}. "
+                    "Supplement utilities with a complete custom <style> block for fluid type, responsive layouts, accessible focus states, and native reduced-motion-safe animation. "
+                    "Do not load AOS or third-party icon scripts; use inline SVG icons."
+                )
         multipage_react = {}
 
         if is_html:
@@ -227,7 +262,9 @@ Design: Primary {primary_hex}, Secondary {secondary_hex}, Accent {accent_hex}, B
 Styling engine: {css_engine}. {styling_instruction}
 Art direction: {design.get('creative_direction', '')}; composition: {design.get('composition', '')}; imagery: {design.get('image_direction', '')}
 {storefront_contract}
+{project_assets_contract}
 {WEBSITE_QUALITY_CONTRACT}
+If validation feedback is present, correct each issue without inventing missing company details: {json.dumps(validation_feedback or [], ensure_ascii=False)}
 Output valid Vue Single File Component (<template>, <script>, <style>) code only without markdown.
 """
         else:
@@ -260,7 +297,9 @@ PLAN & BRAND SPECIFICATIONS:
 STRICT PRODUCTION REQUIREMENTS:
 0. FRONTEND ONLY: Generate browser-side UI only. Do not create API routes, database code, or server handlers. Contact forms must clearly explain that an external form service is needed to receive messages. For shops, use only the documented same-origin Storefront API contract below; never use browser-side authentication or direct database access.
 {storefront_contract}
+{project_assets_contract}
 {WEBSITE_QUALITY_CONTRACT}
+VALIDATION DEFECTS TO CORRECT ON THIS RETRY (when present): {json.dumps(validation_feedback or [], ensure_ascii=False)}. Fix them directly and do not invent missing company facts.
 1. PAGE ARCHITECTURE (NO PHANTOM PAGES):
    - {architecture_instruction}
    - Planned pages: {json.dumps([p.get('name') for p in pages_list], ensure_ascii=False)}.
@@ -285,9 +324,9 @@ STRICT PRODUCTION REQUIREMENTS:
    - Return valid complete JSX code without markdown formatting or conversational text.
 """
         try:
-            from app.services.ai_service import clean_code_response, repair_truncated_jsx, repair_truncated_html
+            from app.services.ai_service import clean_code_response, repair_truncated_jsx
             if is_html:
-                from app.services.template_synthesizer import analyze_prompt_intent, synthesize_multipage_html_suite
+                from app.services.template_synthesizer import analyze_prompt_intent
                 profile = analyze_prompt_intent(
                     prompt=prompt,
                     industry_hint=plan.get("domain", "") if plan else "",
@@ -303,45 +342,132 @@ STRICT PRODUCTION REQUIREMENTS:
                     if design.get("card_hex"): profile.card_hex = design["card_hex"]
                     if design.get("text_hex"): profile.text_hex = design["text_hex"]
 
-                # Pre-synthesize high-fidelity pages so we have guaranteed 100% beautiful layouts
-                synthesized_suite = synthesize_multipage_html_suite(profile, seo_data={}, plan=plan)
-
                 generated_pages = {}
                 planned_pages = [page for page in pages_list if isinstance(page, dict) and page.get("filename")]
                 if not planned_pages or not any(page["filename"].lower() == "index.html" for page in planned_pages):
                     raise RuntimeError("The site plan must include index.html and at least one page.")
 
-                def is_high_fidelity_html(html: str) -> bool:
-                    if not html or len(html) < 2500:
-                        return False
-                    lower = html.lower()
-                    if "<img" not in lower:
-                        return False
-                    if "source.unsplash.com" in lower:  # Deprecated 404 endpoint
-                        return False
+                def html_quality_defects(document: str) -> List[str]:
+                    defects = []
+                    lower = (document or "").lower()
+                    if len(document or "") < 1800:
+                        defects.append("The page is too short to cover its planned content; build the full page, not a hero-and-footer stub.")
+                    required_markup = ("<!doctype html", "<html", "<head", "</head>", "<body", "</body>", "</html>", "<title", "<h1")
+                    if not all(marker in lower for marker in required_markup):
+                        defects.append("Return complete HTML with doctype, head, title, body, h1, and closing tags.")
+                    if len(re.findall(r"<h1\b", lower)) != 1:
+                        defects.append("Use exactly one descriptive h1 heading on this page.")
+                    elif filename.lower() != "index.html":
+                        h1_match = re.search(r"<h1\b[^>]*>([\s\S]*?)</h1>", document or "", re.IGNORECASE)
+                        h1_text = re.sub(r"<[^>]+>", " ", h1_match.group(1) if h1_match else "")
+                        h1_text = re.sub(r"\s+", " ", h1_text).strip().lower()
+                        planned_name = str(page.get("name") or "").strip().lower()
+                        generic_brand_heading = re.match(r"^(?:welcome to |welcome |home(?:page)?(?: for)? )", h1_text)
+                        page_heading_keywords = ("menu", "collection", "catalog", "story", "about", "visit", "contact", "guide", "resources", "projects", "work")
+                        if generic_brand_heading or (planned_name and planned_name not in h1_text and not any(word in h1_text for word in page_heading_keywords)):
+                            defects.append(f"Write an original h1 for the {page.get('name', filename)} page; do not reuse the homepage welcome heading.")
+                    if "source.unsplash.com" in lower:
+                        defects.append("Replace deprecated source.unsplash.com URLs with a stable, relevant image URL.")
+                    if re.search(r"(?:via\.placeholder\.com|placehold\.it|dummyimage\.com)", lower):
+                        defects.append("Replace placeholder images with relevant stock imagery or an accessible inline SVG illustration.")
+                    if re.search(r"<img\b(?![^>]*\balt\s*=)[^>]*>", document or "", re.IGNORECASE | re.DOTALL) or re.search(
+                        r"\balt\s*=\s*([\"'])(?:tea|image|photo)\s*\d*\1", document or "", re.IGNORECASE
+                    ):
+                        defects.append("Give every content image useful, subject-specific alternative text; avoid generic numbered alt text.")
+                    if re.search(r"\b(?:fictional|sample|demo|concept)\b", prompt, re.IGNORECASE) and not re.search(
+                        r"\b(?:fictional|sample|demo|concept)\b", re.sub(r"<[^>]+>", " ", document or ""), re.IGNORECASE
+                    ):
+                        defects.append("Add a short visible notice that this is a concept/demo with sample content.")
+                    if profile.industry_key == "construction" and re.search(
+                        r"\b(?:hotel|resort|michelin|butler|helipad|infinity pool|presidential suite|private island)\b",
+                        lower,
+                    ):
+                        defects.append("Remove hotel and luxury-resort content; this brief is for a construction business.")
+                    if not re.search(r"<(?:img|svg|picture)\b", lower):
+                        defects.append("Add relevant imagery or inline SVG artwork with accessible text.")
+                    if not re.search(r"<nav\b", lower):
+                        defects.append("Add semantic navigation for the planned pages and actions.")
                     if ">home</a> |" in lower or ">home</a>|" in lower or ">home</a> \n|" in lower:
-                        return False
-                    return True
+                        defects.append("Replace primitive pipe-separated navigation with a designed navigation layout.")
+
+                    css_blocks = re.findall(r"<style\b[^>]*>([\s\S]*?)</style\s*>", document or "", flags=re.IGNORECASE)
+                    css = "\n".join(css_blocks)
+                    css_rules = re.findall(r"[^{}]+\{[^{}]*\}", css)
+                    if not css_blocks or len(css_rules) < 14:
+                        defects.append("Write a substantial custom CSS system with layout, component, responsive, and interaction rules.")
+                    if not re.search(r"--[a-z][\w-]*\s*:", css, re.IGNORECASE):
+                        defects.append("Define reusable CSS design tokens in :root or a theme scope.")
+                    if not re.search(r"\bclamp\s*\(", css) or not re.search(r"\bminmax\s*\(", css):
+                        defects.append("Use clamp() for fluid type or spacing and minmax() for resilient responsive sizing.")
+                    if not re.search(r"@media[^{}]*(?:max-width|min-width)|@container", css, re.IGNORECASE):
+                        defects.append("Add responsive CSS breakpoints or a container query.")
+                    if not re.search(r":focus-visible\b", css, re.IGNORECASE):
+                        defects.append("Add a visible keyboard focus state with :focus-visible.")
+                    if not re.search(r"@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)", css, re.IGNORECASE):
+                        defects.append("Respect reduced-motion preferences in CSS.")
+                    keyframe_names = re.findall(r"@keyframes\s+([\w-]+)", css, re.IGNORECASE)
+                    animation_values = re.findall(r"\banimation(?:-name)?\s*:\s*([^;{}]+)", css, re.IGNORECASE)
+                    if not any(
+                        re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", value, re.IGNORECASE)
+                        for name in keyframe_names
+                        for value in animation_values
+                    ):
+                        defects.append("Add a named @keyframes animation and apply that same animation name to a real page element.")
+                    if re.search(r"https://unpkg\.com/aos|AOS\.init", document or "", re.IGNORECASE):
+                        defects.append("Remove AOS and use native CSS motion so animation setup cannot run before page markup exists.")
+                    head_end = lower.find("</head>")
+                    if head_end >= 0 and re.search(r"(?:lucide\.createIcons|AOS\.init)", document[:head_end], re.IGNORECASE):
+                        defects.append("Move DOM-dependent initialization out of <head> and run it after page markup is parsed.")
+                    return defects
+
+                def repair_html_css_requirements(document: str) -> str:
+                    """Patch small, deterministic responsive/accessibility CSS omissions."""
+                    style_match = re.search(r"<style\b[^>]*>([\s\S]*?)</style\s*>", document, re.IGNORECASE)
+                    if not style_match:
+                        return document
+                    css = style_match.group(1)
+                    additions = []
+                    if not re.search(r"\bclamp\s*\(", css, re.IGNORECASE):
+                        additions.append("h1 { font-size: clamp(2rem, 5vw, 4rem); }")
+                    if not re.search(r"\bminmax\s*\(", css, re.IGNORECASE):
+                        grid_rule = re.search(r"([^{}]+)\{[^{}]*(?:\bdisplay\s*:\s*grid\b|\bgrid-template-columns\s*:)[^{}]*\}", css, re.IGNORECASE)
+                        if grid_rule:
+                            additions.append(f"{grid_rule.group(1).strip()} {{ grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }}")
+                    if not re.search(r":focus-visible\b", css, re.IGNORECASE):
+                        additions.append(":where(a, button, input, select, textarea, [tabindex]):focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }")
+                    if not re.search(r"@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)", css, re.IGNORECASE):
+                        additions.append("@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; } }")
+                    if additions:
+                        patched_css = css.rstrip() + "\n\n/* Generated accessibility and responsive fallbacks. */\n" + "\n".join(additions) + "\n"
+                        return document[:style_match.start(1)] + patched_css + document[style_match.end(1):]
+                    return document
 
                 async def generate_page(page: Dict[str, Any]) -> tuple[str, str]:
                     filename = page["filename"]
                     if "/" in filename or "\\" in filename or not filename.lower().endswith((".html", ".htm")):
                         raise RuntimeError(f"Unsafe planned page filename: {filename}")
 
-                    page_prompt = f"""You are a principal frontend engineer and digital art director. Implement one finished, original, visually stunning static HTML page for this website.
+                    demo_content_contract = ""
+                    if is_demo_site:
+                        demo_content_contract += """DEMO CONTENT RULES:
+- Clearly label this as a concept/demo and identify illustrative sample content where visitors could mistake it for real business data.
+- Do not imply that the fictional project is an operating business or that sample interactions persist data.
+"""
+                    if is_tea_site:
+                        demo_content_contract += """TEA-SITE FACT RULES:
+- Do not invent prices, stock, address, hours, tea origin, sourcing/certification, health benefits, reviews, awards, founding year, or copyright year.
+- Use neutral flavor descriptions; do not make unsupported health or country-of-origin claims.
+"""
+
+                    page_prompt = f"""You are a principal frontend engineer and digital art director. Implement one finished, original, visually distinctive static HTML page for this website.
 
 USER BRIEF: {prompt}
 FULL SITE PLAN: {json.dumps(plan, ensure_ascii=False)}
 THIS PAGE: {json.dumps(page, ensure_ascii=False)}
-DOMAIN CONTEXT & VERIFIED ASSETS:
-- Business: {profile.business_title} ({profile.domain_name})
-- Tagline: {profile.tagline}
-- Value Proposition: {profile.value_prop}
-- Hero Photography: {profile.hero_image}
-- Gallery Photography: {json.dumps(profile.gallery_images)}
-- Curated Offerings & Rates: {json.dumps(profile.offerings, ensure_ascii=False)}
-- Core Features & Amenities: {json.dumps(profile.features, ensure_ascii=False)}
-- Client Testimonials: {json.dumps(profile.testimonials, ensure_ascii=False)}
+AVAILABLE VISUAL ASSETS (use only images that fit the requested subject):
+- Hero image: {profile.hero_image}
+- Gallery images: {json.dumps(profile.gallery_images)}
+- User-supplied project/site images: {json.dumps(project_images or [], ensure_ascii=False)}
 
 DESIGN SYSTEM: {json.dumps(design, ensure_ascii=False)}
 COLORS: primary {primary_hex}; secondary {secondary_hex}; accent {accent_hex}; background {bg_hex}; surface {card_hex}; text {text_hex}
@@ -352,42 +478,79 @@ FRAMEWORK & STYLING: {styling_instruction}
 
 {WEBSITE_QUALITY_CONTRACT}
 
+{demo_content_contract}
+
 CRITICAL ARCHITECTURAL & INTERACTION REQUIREMENTS:
-1. BUILD ONLY `{filename}`. Return only a complete HTML document starting with <!doctype html> and ending with </html>. Include all CSS/CDN and JS so it works standalone.
-2. SHARED DESIGN SYSTEM: Follow the cohesive visual system above. Use the planned art direction (`{design.get('creative_direction', '')}`), supplied color roles, and font pairing. Keep header, footer, spacing, typography, and reusable components consistent across pages; the active state must identify `{filename}`. Include consistent relative links to all planned pages ({json.dumps([p.get('filename') for p in planned_pages])}).
-3. PAGE-SPECIFIC COMPOSITION: This page is `{page.get('name', filename)}`. Build a rich multi-section layout:
-   - Sticky navigation with brand mark, active indicator, and action CTA button.
-   - Compelling hero with high-res photography and primary CTA.
-   - Interactive booking/reservation, date selector, or inquiry card.
-   - Multi-card grid showcasing offerings/suites/products with real pricing, descriptions, and photography.
-   - Amenities and key distinctions grid with Lucide icons.
-   - Verified customer reviews and social proof.
-   - Full-featured multi-column footer with contact details and navigation.
-4. TAILWIND UTILITY CLASSES: Apply rich Tailwind CSS classes (`bg-slate-900`, `rounded-2xl`, `p-6`, `shadow-xl`, `border border-white/10`, `grid grid-cols-1 md:grid-cols-3 gap-8`, `flex`, `hover:scale-105`) directly onto every HTML element. Never output unstyled bare text or plain primitive tags.
-5. REAL INTERACTIONS: Working menu drawer behavior, correct internal links, and date/guest controls.
-6. NO TRUNCATION: Complete every section and tag. No markdown fences or commentary."""
+1. BUILD ONLY `{filename}`. Return only a complete HTML document starting with <!doctype html> and ending with </html>. Include all required CSS and minimal JavaScript so it works as a standalone page; do not require a CDN for layout or animation.
+2. SHARED DESIGN SYSTEM: Follow the cohesive visual system above. Use the planned art direction (`{design.get('creative_direction', '')}`), supplied color roles, and font pairing. Keep header, footer, spacing, typography, and reusable components consistent across pages; the active state must identify `{filename}`. Include consistent relative links to all planned pages ({json.dumps([p.get('filename') for p in planned_pages])}). Use supplied images for the user's real work when available. Otherwise use exact stock image URLs from AVAILABLE VISUAL ASSETS only; never invent URLs, and use inline SVG/CSS illustration if none fit.
+3. PAGE-SPECIFIC COMPOSITION: This is `{page.get('name', filename)}`. Follow its specific content outline and user task in the plan. Build a complete destination, not an empty shell: give it a page-specific headline, substantial copy grounded in the brief, and enough distinct sections/components to fulfill the outline. Never reuse the homepage headline or copy as the body of another page. Select page sections only when they serve that outline. Never invent prices, product stock, locations, opening hours, credentials, awards, metrics, testimonials, customer ratings, or contact information. Use concise clearly labeled sample/placeholder content only when essential to demonstrate the requested UI, and do not present it as factual.
+4. STYLING: Follow the selected styling engine exactly and implement the advanced CSS requirements above. Use a cohesive responsive visual system rather than utility classes alone. Never output unstyled bare text or primitive tags.
+   CSS ACCEPTANCE CHECKLIST (all are required in the final <style> block):
+   - Define custom properties in :root.
+   - Include `font-size: clamp(2rem, 5vw, 4rem);` on a suitable heading.
+   - Include `grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));` on a suitable grid.
+   - Include `@media (max-width: 48rem)`, a visible `:focus-visible` style, and `@media (prefers-reduced-motion: reduce)` that minimizes motion.
+   - Define `@keyframes site-enter` and apply `animation: site-enter 700ms ease-out both;` to the hero or primary content region.
+   - Add intentional hover/focus transitions for interactive links, buttons, and page-relevant cards; do not animate unrelated elements.
+   Do not merely mention these requirements in comments.
+5. REAL INTERACTIONS: Working controls directly related to the requested user workflow, a functional mobile menu when present, and correct internal links. Do not add unrelated booking/date/guest controls.
+6. NO TRUNCATION: Return a complete document; do not rely on automatic generic footer injection. No markdown fences or commentary.
+7. If validation feedback is supplied, correct each specific defect without adding unsupported facts:
+{json.dumps(validation_feedback or [], ensure_ascii=False)}"""
 
-                    try:
-                        raw_page = await ai_service._generate_content(
-                            page_prompt,
-                            response_mime_type="text/plain",
-                            feature_name="website_frontend_generation",
-                            preferred_provider=getattr(settings, "AGENT_FRONTEND_PROVIDER", "cline"),
-                        )
-                        html_page = clean_code_response(raw_page, "html")
-                        if html_page and is_high_fidelity_html(html_page):
-                            return filename, repair_truncated_html(html_page)
-                    except Exception as gen_exc:
-                        logger.warning("AI page generation encountered issue for %s: %s; applying high-fidelity synthesized layout.", filename, gen_exc)
+                    last_error = None
+                    previous_defects: List[str] = []
+                    previous_html = ""
+                    for attempt in range(4):
+                        try:
+                            if attempt == 0:
+                                retry_prompt = page_prompt
+                            else:
+                                retry_prompt = f"""You are correcting your immediately previous HTML page. Keep its existing page-specific content, overall composition, and shared brand styling. Make only the changes needed to pass the failed checks, but return the complete replacement HTML document, not a diff.
 
-                    # Seamless high-fidelity fallback
-                    if filename in synthesized_suite:
-                        return filename, synthesized_suite[filename]
-                    base_key = filename.split(".")[0]
-                    for k, v in synthesized_suite.items():
-                        if base_key in k.lower():
-                            return filename, v
-                    return filename, synthesized_suite.get("index.html", "")
+USER BRIEF: {prompt}
+PAGE: {json.dumps(page, ensure_ascii=False)}
+PLANNED HTML FILES: {json.dumps([p.get('filename') for p in planned_pages])}
+PAGE PURPOSE AND CONTENT OUTLINE: {page.get('summary', page.get('content_summary', 'Create complete page content from the brief and this page name.'))}
+BRAND: {plan.get('business_name') or 'the requested business'}; art direction: {design.get('creative_direction', '')}
+COLORS: primary {primary_hex}; secondary {secondary_hex}; accent {accent_hex}; background {bg_hex}; surface {card_hex}; text {text_hex}
+FAILED QUALITY CHECKS: {json.dumps(previous_defects or [last_error], ensure_ascii=False)}
+
+REQUIRED REPAIRS:
+- Preserve semantic navigation linking to every planned HTML file. Do not use pipe-separated text links.
+- Use exactly one h1. Add a visible concept-demo notice and label sample menu content as illustrative.
+- Use relevant imagery with descriptive alt text or a self-contained accessible inline SVG. Never use fabricated image URLs, placeholder.com, or generic alt text.
+- In the page's <style>, include `font-size: clamp(2rem, 5vw, 4rem);`, `grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));`, `@media (max-width: 48rem)`, a visible `:focus-visible` style, and `@media (prefers-reduced-motion: reduce)`.
+- Define `@keyframes site-enter` and apply `animation: site-enter 700ms ease-out both;` to a visible hero or primary content element.
+- Do not invent prices, stock, addresses, hours, contact details, origin/sourcing/certification or health claims, reviews, awards, founding years, or copyright years.
+
+PREVIOUS COMPLETE PAGE:
+```html
+{previous_html}
+```
+
+Return only the finished standalone document starting with <!doctype html>."""
+                            raw_page = await ai_service._generate_content(
+                                retry_prompt,
+                                response_mime_type="text/plain",
+                                feature_name="website_frontend_generation",
+                                preferred_provider=getattr(settings, "AGENT_FRONTEND_PROVIDER", "cline"),
+                            )
+                            html_page = clean_code_response(raw_page, "html")
+                            html_page = repair_html_css_requirements(html_page)
+                            defects = html_quality_defects(html_page)
+                            if not defects:
+                                safe_print(f"     -> HTML quality gate passed on attempt {attempt + 1}.")
+                                return filename, html_page
+                            previous_html = html_page
+                            previous_defects = defects
+                            last_error = "; ".join(defects)
+                            safe_print("     -> Remaining HTML quality issues: " + last_error)
+                        except Exception as gen_exc:
+                            last_error = str(gen_exc)
+                            previous_defects = [f"The previous generation attempt failed: {last_error}"]
+                            logger.warning("AI page generation attempt %s failed for %s: %s", attempt + 1, filename, gen_exc)
+                    raise RuntimeError(f"Could not generate a complete, site-specific page '{filename}' after retry: {last_error}")
 
                 concurrency = max(1, min(4, int(getattr(settings, "WEBSITE_PAGE_GENERATION_CONCURRENCY", 3))))
                 semaphore = asyncio.Semaphore(concurrency)
@@ -528,7 +691,7 @@ Return valid Python script code for `seed.py`.
 
 class SEOAgent:
     """Agent 6: Synthesizes Schema.org JSON-LD structured data, OpenGraph, Twitter, and SEO tags using Ollama Qwen."""
-    async def execute(self, title: str, plan: Dict[str, Any], hero_image: str = "") -> Dict[str, Any]:
+    async def execute(self, title: str, plan: Dict[str, Any], hero_image: str = "", source_prompt: str = "") -> Dict[str, Any]:
         domain_name = plan.get('domain', 'Business')
         val_prop = plan.get('value_prop', f'Official website layout for {title}.')
         pages_list = [p.get('name', p.get('filename', '')) for p in plan.get('pages', [])]
@@ -538,6 +701,7 @@ Business: {title}
 Domain: {domain_name}
 Positioning: {val_prop}
 Planned pages: {json.dumps(pages_list)}
+USER BRIEF (for accurate, non-invented metadata): {source_prompt[:8000]}
 Image URL, only if actually supplied: {hero_image or "none"}
 
 Write a precise title under 60 characters, a useful description under 160 characters, and a concise list of relevant search phrases. Do not invent a live domain, canonical URL, customer evidence, location, credentials, or business claims. Use an empty canonical URL if the real domain is unknown. Add image metadata only when a real image URL was supplied. Choose a relevant Schema.org type and include only evidence-backed fields.
@@ -585,7 +749,7 @@ Return valid JSON only with: meta_title, meta_description, keywords, canonical_u
 
 class TestingAgent:
     """Runs deterministic static package checks and an advisory source review."""
-    async def execute(self, zip_bytes: bytes, expected_pages=None, project_scope="frontend", framework="html") -> Dict[str, Any]:
+    async def execute(self, zip_bytes: bytes, expected_pages=None, project_scope="frontend", framework="html", approved_facts: str = "") -> Dict[str, Any]:
         try:
             with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
                 files = {name.replace("\\", "/") for name in archive.namelist() if not name.endswith("/")}
@@ -598,6 +762,20 @@ class TestingAgent:
                 for page in page_names:
                     if f"{html_prefix}{page}" not in files:
                         errors.append(f"Missing planned page: {page}")
+                    elif framework_name in {"html", "vanilla", "static"}:
+                        page_source = archive.read(f"{html_prefix}{page}").decode("utf-8", errors="ignore")
+                        if not re.search(r"<title\b[^>]*>[\s\S]*?</title\s*>", page_source, re.IGNORECASE):
+                            errors.append(f"HTML SEO metadata is missing a title: {page}")
+                        if not re.search(r"<meta\b(?=[^>]*\bname\s*=\s*(['\"])description\1)[^>]*>", page_source, re.IGNORECASE):
+                            errors.append(f"HTML SEO metadata is missing a description: {page}")
+                        if not re.search(r"<meta\b(?=[^>]*\bproperty\s*=\s*(['\"])og:title\1)[^>]*>", page_source, re.IGNORECASE):
+                            errors.append(f"HTML SEO metadata is missing Open Graph title data: {page}")
+                if framework_name not in {"html", "vanilla", "static"} and "index.html" in files:
+                    index_source = archive.read("index.html").decode("utf-8", errors="ignore")
+                    if not re.search(r"<title\b[^>]*>[\s\S]*?</title\s*>", index_source, re.IGNORECASE):
+                        errors.append("Framework entry HTML is missing its SEO title")
+                    if not re.search(r"<meta\b(?=[^>]*\bname\s*=\s*(['\"])description\1)[^>]*>", index_source, re.IGNORECASE):
+                        errors.append("Framework entry HTML is missing its SEO description")
                 for page in expected_pages or []:
                     route_slug = page.get("route_slug")
                     page_file = str(page.get("filename", ""))
@@ -692,6 +870,8 @@ class TestingAgent:
                         if css.count("{") != css.count("}"):
                             errors.append(f"Unbalanced CSS braces in {name}")
                 review_evidence = []
+                if approved_facts:
+                    review_evidence.append("--- USER-APPROVED FACTS AND BRIEF (source of truth; do not treat code comments as facts) ---\n" + approved_facts[:8000] + "\n")
                 allowed_suffixes = (".py", ".js", ".jsx", ".ts", ".tsx", ".vue", ".json", ".html", ".md")
                 budget = 24000
                 for name in sorted(files):
@@ -701,8 +881,25 @@ class TestingAgent:
                     block = f"--- {name} ---\n{snippet}\n"
                     review_evidence.append(block[:budget])
                     budget -= len(block)
+                claim_patterns = (
+                    r"(?<![\w/])(?:[$£€]\s?\d[\d,.]*|\b\d+(?:\.\d+)?\s*(?:%|\b(?:years?|reviews?|projects?|customers?|clients?|homes?|properties?|ratings?)\b)|\b\d+(?:\.\d+)?\s*/\s*5(?:\.0)?\s*(?:rating|stars?)?\b|\b\d+(?:\.\d+)?\s*stars?\b|\b(?:award[- ]winning|award winner|forbes|michelin|verified reviews)\b)",
+                )
+                if approved_facts:
+                    approved_lower = approved_facts.casefold()
+                    for name in sorted(files):
+                        if not name.lower().endswith((".html", ".htm", ".jsx", ".tsx", ".vue")):
+                            continue
+                        source = archive.read(name).decode("utf-8", errors="ignore")
+                        visible = re.sub(r"<(script|style|noscript)\b[^>]*>[\s\S]*?</\1\s*>", " ", source, flags=re.IGNORECASE)
+                        visible = re.sub(r"<!--([\s\S]*?)-->|\{\/\*[\s\S]*?\*\/\}|/\*[\s\S]*?\*/", " ", visible)
+                        visible = html_unescape(re.sub(r"<[^>]+>", " ", visible)).casefold()
+                        for pattern in claim_patterns:
+                            for claim in re.finditer(pattern, visible, flags=re.IGNORECASE):
+                                claim_text = claim.group(0).strip()
+                                if claim_text and claim_text.casefold() not in approved_lower:
+                                    errors.append(f"Unsupported factual claim in {name}: {claim_text}")
                 ai_review = await run_advisory_code_review(
-                    task="Review the supplied source excerpts for concrete syntax or runtime defects, broken wiring, inaccessible controls, security issues, demo or placeholder copy, fabricated claims, and visual sameness. Call out specific filenames and actionable issues. Deterministic checks separately verify every planned page and local link.",
+                    task="Review the supplied source excerpts for concrete syntax or runtime defects, broken wiring, inaccessible controls, security issues, demo or placeholder copy, fabricated claims, and visual sameness. Compare factual claims with the USER-APPROVED FACTS source; treat facts absent from it as unknown and flag unsupported prices, reviews, awards, metrics, credentials, project history, and business contact details. Call out specific filenames and actionable issues. Deterministic checks separately verify planned pages, local links, and common numeric/award claims.",
                     evidence="\n".join(review_evidence),
                     provider=getattr(settings, "AGENT_TESTING_PROVIDER", "cline"),
                 )
@@ -710,9 +907,20 @@ class TestingAgent:
                     finding for finding in ai_review.get("findings", [])
                     if isinstance(finding, dict) and str(finding.get("severity", "")).lower() in {"high", "critical"}
                 ]
+                unsupported_claim_findings = [
+                    finding for finding in ai_review.get("findings", [])
+                    if isinstance(finding, dict) and re.search(
+                        r"unsupported|fabricat|invented|unverified|not provided|no evidence|hallucinat|fictional",
+                        f"{finding.get('issue', '')} {finding.get('recommendation', '')}", re.IGNORECASE,
+                    )
+                ]
                 errors.extend(
                     f"Code review [{finding.get('severity')}]: {finding.get('file', 'unknown')}: {finding.get('issue', 'high-severity issue')}"
                     for finding in high_findings
+                )
+                errors.extend(
+                    f"Code review [claim verification]: {finding.get('file', 'unknown')}: {finding.get('issue', 'Unsupported factual claim')}"
+                    for finding in unsupported_claim_findings
                 )
                 if errors:
                     return {"status": "failed", "errors": errors, "tech_stack": ["ZIP package"], "ai_review": ai_review}
@@ -724,6 +932,96 @@ class TestingAgent:
 
 class DeploymentAgent:
     """Agent 8: Packages ZIP bundle, writes README guide, registers storage assets & returns URLs."""
+    @staticmethod
+    def _seo_values(seo_data: Optional[Dict[str, Any]], title: str, source_prompt: str = "", approved_images=None) -> Dict[str, Any]:
+        seo_data = seo_data if isinstance(seo_data, dict) else {}
+        meta_title = str(seo_data.get("meta_title") or title).strip()[:120] or title[:120]
+        meta_description = re.sub(r"\s+", " ", str(seo_data.get("meta_description") or "").strip())[:300]
+        if not meta_description:
+            meta_description = f"Explore the {title} website."[:300]
+        raw_keywords = seo_data.get("keywords", [])
+        if isinstance(raw_keywords, str):
+            raw_keywords = raw_keywords.split(",")
+        keywords = []
+        if isinstance(raw_keywords, list):
+            for keyword in raw_keywords:
+                clean_keyword = re.sub(r"\s+", " ", str(keyword)).strip()[:80]
+                if clean_keyword and clean_keyword.casefold() not in {item.casefold() for item in keywords}:
+                    keywords.append(clean_keyword)
+                if len(keywords) >= 12:
+                    break
+
+        canonical_url = str(seo_data.get("canonical_url") or "").strip()
+        if not (
+            canonical_url.startswith("https://")
+            and re.fullmatch(r"https://[^\s<>\"']+", canonical_url)
+            and canonical_url in (source_prompt or "")
+        ):
+            canonical_url = ""
+
+        approved_images = set(approved_images or [])
+        raw_og = seo_data.get("og_tags") if isinstance(seo_data.get("og_tags"), dict) else {}
+        raw_twitter = seo_data.get("twitter_tags") if isinstance(seo_data.get("twitter_tags"), dict) else {}
+        image = str(raw_og.get("image") or raw_twitter.get("image") or "").strip()
+        if image not in approved_images:
+            image = ""
+        return {
+            "title": meta_title,
+            "description": meta_description,
+            "keywords": keywords,
+            "canonical_url": canonical_url,
+            "image": image,
+        }
+
+    @classmethod
+    def _seo_head_markup(cls, seo_data: Optional[Dict[str, Any]], title: str, source_prompt: str = "", approved_images=None) -> str:
+        values = cls._seo_values(seo_data, title, source_prompt, approved_images)
+        esc = lambda value: html_escape(str(value), quote=True)
+        tags = [
+            f'<meta name="description" content="{esc(values["description"])}">',
+            f'<meta property="og:title" content="{esc(values["title"])}">',
+            f'<meta property="og:description" content="{esc(values["description"])}">',
+            '<meta property="og:type" content="website">',
+            f'<meta name="twitter:card" content="{"summary_large_image" if values["image"] else "summary"}">',
+            f'<meta name="twitter:title" content="{esc(values["title"])}">',
+            f'<meta name="twitter:description" content="{esc(values["description"])}">',
+        ]
+        if values["keywords"]:
+            tags.append(f'<meta name="keywords" content="{esc(", ".join(values["keywords"]))}">')
+        if values["image"]:
+            tags.extend([
+                f'<meta property="og:image" content="{esc(values["image"])}">',
+                f'<meta name="twitter:image" content="{esc(values["image"])}">',
+            ])
+        if values["canonical_url"]:
+            tags.append(f'<link rel="canonical" href="{esc(values["canonical_url"])}">')
+        schema = {"@context": "https://schema.org", "@type": "WebSite", "name": str(title)[:200]}
+        # Keep the generated structured data factual and limited to the site identity.
+        schema_text = json.dumps(schema, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+        tags.append(f'<script type="application/ld+json">{schema_text}</script>')
+        return "\n".join(tags)
+
+    @classmethod
+    def _apply_seo_metadata(cls, document: str, seo_data: Optional[Dict[str, Any]], title: str, source_prompt: str = "", approved_images=None) -> str:
+        if not isinstance(document, str) or not document:
+            return document
+        values = cls._seo_values(seo_data, title, source_prompt, approved_images)
+        head_match = re.search(r"<head\b[^>]*>[\s\S]*?</head\s*>", document, flags=re.IGNORECASE)
+        if not head_match:
+            return document
+        head = head_match.group(0)
+        head = re.sub(r"<title\b[^>]*>[\s\S]*?</title\s*>", "", head, flags=re.IGNORECASE)
+        head = re.sub(
+            r"<meta\b(?=[^>]*(?:\bname|\bproperty)\s*=\s*(['\"])(?:description|keywords|og:[^'\"]+|twitter:[^'\"]+)\1)[^>]*>",
+            "",
+            head,
+            flags=re.IGNORECASE,
+        )
+        head = re.sub(r"<link\b(?=[^>]*\brel\s*=\s*(['\"])canonical\1)[^>]*>", "", head, flags=re.IGNORECASE)
+        markup = f'<title>{html_escape(values["title"])}</title>\n{cls._seo_head_markup(seo_data, title, source_prompt, approved_images)}\n'
+        head = re.sub(r"</head\s*>", markup + "</head>", head, count=1, flags=re.IGNORECASE)
+        return document[:head_match.start()] + head + document[head_match.end():]
+
     async def execute(
         self,
         title: str,
@@ -737,7 +1035,8 @@ class DeploymentAgent:
         design: Optional[Dict[str, Any]] = None,
         backend_framework: str = "fastapi",
         prompt: str = "",
-        plan: Optional[Dict[str, Any]] = None
+        plan: Optional[Dict[str, Any]] = None,
+        project_images: Optional[List[Dict[str, Any]]] = None,
     ) -> bytes:
         from app.services.template_synthesizer import (
             analyze_prompt_intent,
@@ -763,6 +1062,11 @@ class DeploymentAgent:
             if design.get("card_hex"): profile.card_hex = design["card_hex"]
             if design.get("text_hex"): profile.text_hex = design["text_hex"]
 
+        approved_image_urls = [
+            str(image.get("url")) for image in (project_images or [])
+            if isinstance(image, dict) and image.get("url")
+        ]
+
         if is_html:
             multipage_files = dict(frontend_code) if isinstance(frontend_code, dict) else {}
             if not multipage_files:
@@ -775,6 +1079,19 @@ class DeploymentAgent:
 
             if "index.html" not in multipage_files:
                 raise RuntimeError("Refusing to package an HTML site without an AI-generated index.html.")
+
+            page_names = {str(page.get("filename")): str(page.get("name") or page.get("filename") or title) for page in (plan or {}).get("pages", []) if page.get("filename")}
+            for filename, document in list(multipage_files.items()):
+                page_seo = dict(seo_data or {})
+                base_meta_title = self._seo_values(seo_data, title, prompt, approved_image_urls)["title"]
+                if filename.lower() == "index.html":
+                    page_title = title
+                else:
+                    page_title = f"{page_names.get(filename, title)} | {title}"
+                    page_seo["meta_title"] = f"{page_names.get(filename, title)} | {base_meta_title}"[:120]
+                    # A site-root canonical must not be copied onto every subpage.
+                    page_seo["canonical_url"] = ""
+                multipage_files[filename] = self._apply_seo_metadata(document, page_seo, page_title, prompt, approved_image_urls)
 
             readme = f"""# {title} — Static HTML5 Website
 
@@ -1050,6 +1367,9 @@ body {{
             else:
                 index_html = f'<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{safe_title}</title></head><body><div id="root"></div><script type="module" src="/src/main.jsx"></script></body></html>'
 
+        if not is_html:
+            index_html = self._apply_seo_metadata(index_html, seo_data, title, prompt, approved_image_urls)
+
             readme = f"""# {title}
 
 Generated by **AI Site Studio** as a frontend-only static website. No API server or database is included.
@@ -1105,10 +1425,37 @@ The Studio checks package structure, required files, local imports and links, pa
             if is_next:
                 zip_file.writestr("next.config.mjs", "const nextConfig = { output: 'export' };\nexport default nextConfig;\n")
                 zip_file.writestr("jsconfig.json", json.dumps({"compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["./*"]}}}, indent=2))
-                zip_file.writestr(
-                    "app/layout.jsx",
-                    "import '../src/" + ("index.scss" if css_engine == "sass" else "index.css") + "';\n" + ("import 'bootstrap/dist/css/bootstrap.min.css';\n" if css_engine == "bootstrap" else "") + "export const metadata = { title: " + json.dumps(title) + " };\nexport default function RootLayout({ children }) { return <html lang=\"en\"><body>{children}</body></html>; }\n",
+                seo_values = self._seo_values(seo_data, title, prompt, approved_image_urls)
+                next_metadata = {
+                    "title": seo_values["title"],
+                    "description": seo_values["description"],
+                    "keywords": seo_values["keywords"],
+                    "openGraph": {
+                        "title": seo_values["title"],
+                        "description": seo_values["description"],
+                        "type": "website",
+                    },
+                    "twitter": {
+                        "card": "summary_large_image" if seo_values["image"] else "summary",
+                        "title": seo_values["title"],
+                        "description": seo_values["description"],
+                    },
+                }
+                if seo_values["image"]:
+                    next_metadata["openGraph"]["images"] = [seo_values["image"]]
+                    next_metadata["twitter"]["images"] = [seo_values["image"]]
+                if seo_values["canonical_url"] and len((plan or {}).get("pages", [])) <= 1:
+                    next_metadata["alternates"] = {"canonical": seo_values["canonical_url"]}
+                structured_data = {"@context": "https://schema.org", "@type": "WebSite", "name": title[:200]}
+                structured_data_text = json.dumps(structured_data, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+                next_layout = (
+                    "import '../src/" + ("index.scss" if css_engine == "sass" else "index.css") + "';\n"
+                    + ("import 'bootstrap/dist/css/bootstrap.min.css';\n" if css_engine == "bootstrap" else "")
+                    + "export const metadata = " + json.dumps(next_metadata, ensure_ascii=False) + ";\n"
+                    + "const structuredData = " + json.dumps(structured_data_text, ensure_ascii=False) + ";\n"
+                    + "export default function RootLayout({ children }) { return <html lang=\"en\"><head><script type=\"application/ld+json\" dangerouslySetInnerHTML={{ __html: structuredData }} /></head><body>{children}</body></html>; }\n"
                 )
+                zip_file.writestr("app/layout.jsx", next_layout)
                 for fpath, fcontent in next_files.items():
                     zip_file.writestr(fpath, fcontent)
             else:
@@ -1190,6 +1537,7 @@ class MultiAgentOrchestrator:
         title: str,
         design: Dict[str, Any],
         expected_pages: List[Dict[str, Any]],
+        project_images: Optional[List[Dict[str, Any]]] = None,
     ) -> Any:
         """
         ML Backpropagation Step:
@@ -1207,7 +1555,7 @@ class MultiAgentOrchestrator:
                     missing_page = match_missing.group(1).strip()
                     if missing_page not in frontend_code:
                         if regenerated_pages is None:
-                            regenerated_pages = await self.frontend_agent.execute(prompt, plan, design, framework, css_engine)
+                            regenerated_pages = await self.frontend_agent.execute(prompt, plan, design, framework, css_engine, project_images=project_images)
                         if isinstance(regenerated_pages, dict) and regenerated_pages.get(missing_page):
                             frontend_code[missing_page] = regenerated_pages[missing_page]
                             safe_print(f"     🛠️ [Backprop Repair] Regenerated missing page using the shared design system: {missing_page}")
@@ -1220,43 +1568,47 @@ class MultiAgentOrchestrator:
                     if source_file in frontend_code:
                         content = frontend_code[source_file]
                         clean_target = broken_target.split('#')[0].split('?')[0].lstrip('/')
-                        replacement = "index.html"
-                        for k in frontend_code.keys():
-                            if k.lower() == clean_target.lower() or k.lower() == (clean_target + ".html").lower():
-                                replacement = k
-                                break
-                            elif clean_target.lower() in k.lower() or k.lower().replace(".html", "") in clean_target.lower():
-                                replacement = k
-                                break
-                        content = re.sub(
-                            rf'(href=["\']){re.escape(broken_target)}(["\'])',
-                            rf'\g<1>{replacement}\g<2>',
-                            content
+                        target_stem = clean_target.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
+                        replacement = next(
+                            (name for name in frontend_code if name.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower() == target_stem),
+                            None,
                         )
-                        frontend_code[source_file] = content
-                        safe_print(f"     🛠️ [Backprop Repair] Repaired link in {source_file}: '{broken_target}' -> '{replacement}'")
+                        if replacement:
+                            content = re.sub(
+                                rf'(href=["\']){re.escape(broken_target)}(["\'])',
+                                rf'\g<1>{replacement}\g<2>',
+                                content,
+                            )
+                            frontend_code[source_file] = content
 
-                # 3. Placeholder or unfinished content
-                match_placeholder = re.search(r"Placeholder or unfinished content in ([^:]+):\s*(.+)", err)
-                if match_placeholder:
-                    source_file = match_placeholder.group(1).strip()
-                    placeholder_str = match_placeholder.group(2).strip()
-                    if source_file in frontend_code:
-                        content = frontend_code[source_file]
-                        domain_topic = (plan.get("domain") or "our services").lower()
-                        authentic_copy = f"Dedicated to delivering exceptional quality, innovative craftsmanship, and tailored experiences for every {domain_topic} client."
-                        content = re.sub(re.escape(placeholder_str), authentic_copy, content, flags=re.IGNORECASE)
-                        frontend_code[source_file] = content
-                        safe_print(f"     🛠️ [Backprop Repair] Replaced placeholder in {source_file}: '{placeholder_str}'")
+            if any(
+                "Placeholder or unfinished content" in err
+                or "Code review [" in err
+                or "Broken local link" in err
+                or "Unsupported factual claim" in err
+                for err in errors
+            ):
+                regenerated_pages = await self.frontend_agent.execute(
+                    prompt, plan, design, framework, css_engine,
+                    project_images=project_images,
+                    validation_feedback=errors,
+                )
+                if isinstance(regenerated_pages, dict):
+                    frontend_code.update(regenerated_pages)
 
-        elif isinstance(frontend_code, str):
-            for err in errors:
-                match_placeholder = re.search(r"Placeholder or unfinished content in [^:]+:\s*(.+)", err)
-                if match_placeholder:
-                    placeholder_str = match_placeholder.group(1).strip()
-                    authentic_copy = "Dedicated to delivering exceptional quality, innovation, and client satisfaction."
-                    frontend_code = re.sub(re.escape(placeholder_str), authentic_copy, frontend_code, flags=re.IGNORECASE)
-                    safe_print(f"     🛠️ [Backprop Repair] Replaced placeholder in source code: '{placeholder_str}'")
+        elif isinstance(frontend_code, str) and any(
+            "Placeholder or unfinished content" in err
+            or "Code review [" in err
+            or "Broken local link" in err
+            or "Unsupported factual claim" in err
+            for err in errors
+        ):
+            regenerated = await self.frontend_agent.execute(
+                prompt, plan, design, framework, css_engine,
+                project_images=project_images,
+                validation_feedback=errors,
+            )
+            return regenerated if isinstance(regenerated, str) and regenerated.strip() else frontend_code
 
         return frontend_code
 
@@ -1267,9 +1619,7 @@ class MultiAgentOrchestrator:
         framework: str
     ) -> Any:
         """
-        Infallible Convergence Pass:
-        Ensures all local links resolve to existing files, removes remaining placeholder tokens,
-        and guarantees zero verification defects.
+        Deterministic repair pass: normalize only links with an exact planned destination.
         """
         is_html = (framework or "").lower() in ("html", "vanilla", "static")
         if is_html and isinstance(frontend_code, dict):
@@ -1286,15 +1636,16 @@ class MultiAgentOrchestrator:
                         return match.group(0)
                     if clean_val + ".html" in available_files:
                         return f"{attr}{quote}{clean_val}.html{quote}"
-                    for af in available_files:
-                        af_base = af.rsplit('.', 1)[0]
-                        if af_base.lower() in clean_val.lower() or clean_val.lower() in af_base.lower():
-                            return f"{attr}{quote}{af}{quote}"
-                    return f"{attr}{quote}index.html{quote}"
+                    target_stem = clean_val.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
+                    exact_match = next(
+                        (af for af in available_files if af.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower() == target_stem),
+                        None,
+                    )
+                    if exact_match:
+                        return f"{attr}{quote}{exact_match}{quote}"
+                    return match.group(0)
 
                 normalized_content = re.sub(r'(href=)(["\'])([^"\']+)\2', link_replacer, content, flags=re.IGNORECASE)
-                for ph in ("lorem ipsum", "todo:", "fixme:", "your company here", "replace this text"):
-                    normalized_content = re.sub(re.escape(ph), "Premium Service & Guaranteed Satisfaction", normalized_content, flags=re.IGNORECASE)
                 frontend_code[fname] = normalized_content
 
         return frontend_code
@@ -1311,6 +1662,8 @@ class MultiAgentOrchestrator:
         backend_framework: str = "fastapi",
         requested_pages: Optional[List[Dict[str, Any]]] = None,
         answers: Optional[Dict[str, Any]] = None,
+        project_images: Optional[List[Dict[str, Any]]] = None,
+        brand_colors: Optional[Dict[str, Any]] = None,
         architecture_type: str = "multi_page",
         is_multipage: bool = True,
         progress_callback: Optional[Any] = None
@@ -1342,12 +1695,22 @@ class MultiAgentOrchestrator:
         plan_provider = getattr(settings, 'AGENT_PLANNING_PROVIDER', 'cline').upper()
         safe_print(f"\n[1/6] 📋 PLANNING AGENT (Feature: planning_agent | Provider: {plan_provider})")
         safe_print("     Status: Analyzing prompt architecture & ordering multi-page breakdown...")
-        plan = await self.planning_agent.execute(prompt, framework, industry)
+        plan = await self.planning_agent.execute(prompt, framework, industry, requested_pages=requested_pages)
         if architecture_type not in {"single_page", "multi_page"} or is_multipage != (architecture_type == "multi_page"):
             raise ValueError("The selected page architecture is invalid or inconsistent.")
         plan["architecture_type"] = architecture_type
         if requested_pages is not None:
             normalized_pages = []
+            planned_by_filename = {
+                str(page.get("filename", "")).strip().lower(): page
+                for page in plan.get("pages", [])
+                if isinstance(page, dict) and page.get("filename")
+            }
+            planned_by_name = {
+                re.sub(r"[^a-z0-9]+", "", str(page.get("name", "")).lower()): page
+                for page in plan.get("pages", [])
+                if isinstance(page, dict) and page.get("name")
+            }
             for page in requested_pages:
                 if page.get("selected") is False:
                     continue
@@ -1357,12 +1720,24 @@ class MultiAgentOrchestrator:
                     continue
                 if "/" in filename or "\\" in filename or not filename.lower().endswith(".html"):
                     raise ValueError(f"Invalid page filename in selected plan: {filename}")
+                planned_detail = planned_by_filename.get(filename.lower()) or planned_by_name.get(re.sub(r"[^a-z0-9]+", "", name.lower()), {})
+                requested_summary = str(page.get("content_summary") or page.get("summary") or "").strip()
+                is_generic_custom_summary = bool(re.match(r"custom\s+.+?\s+page layout tailored to your specific business requirements\.?$", requested_summary, re.IGNORECASE))
+                page_summary = str(
+                    planned_detail.get("summary") if is_generic_custom_summary and planned_detail.get("summary") else requested_summary
+                ).strip()
+                if not page_summary or is_generic_custom_summary and not planned_detail.get("summary"):
+                    page_summary = (
+                        f"Create a complete, original {name} page for {title}, grounded in this website brief and its audience. "
+                        "Give this page a distinct user task and headline, useful page-specific sections, substantial real copy derived only from the brief, "
+                        "relevant imagery or illustration, and interactions appropriate to this page. Do not reuse the homepage layout or leave placeholder sections."
+                    )
                 normalized_pages.append({
                     **page,
                     "name": name,
                     "filename": filename,
                     "slug": str(page.get("slug") or filename.rsplit(".", 1)[0]),
-                    "summary": str(page.get("content_summary") or page.get("summary") or f"{name} page for {title}"),
+                    "summary": page_summary,
                     "page_type": str(page.get("page_type") or page.get("type") or name.lower()),
                 })
             if not normalized_pages:
@@ -1373,6 +1748,23 @@ class MultiAgentOrchestrator:
             if len(set(filenames)) != len(filenames):
                 raise ValueError("The selected page plan contains duplicate filenames.")
             plan["pages"] = normalized_pages
+
+        if (framework or "").lower() in ("html", "vanilla", "static"):
+            canonical_pages = []
+            for page in plan.get("pages", []):
+                if not isinstance(page, dict):
+                    raise ValueError("The generated page plan contains an invalid page entry.")
+                filename = str(page.get("filename") or "").strip()
+                if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*\.html", filename, flags=re.IGNORECASE):
+                    raise ValueError(f"Invalid HTML page filename in the page plan: {filename or '(empty)'}")
+                canonical_pages.append({**page, "filename": filename.lower()})
+            filenames = [page["filename"] for page in canonical_pages]
+            if len(filenames) != len(set(filenames)):
+                raise ValueError("The page plan contains duplicate HTML filenames after case normalization.")
+            if "index.html" not in filenames:
+                raise ValueError("The page plan must include index.html.")
+            plan["pages"] = canonical_pages
+
         if not is_multipage:
             planned = plan.get("pages", [])
             if requested_pages is not None and len(planned) != 1:
@@ -1402,6 +1794,18 @@ class MultiAgentOrchestrator:
         safe_print(f"\n[2/6] 🎨 UI DESIGNER AGENT (Feature: designer_agent | Provider: {designer_provider})")
         safe_print("     Status: Establishing visual design tokens & Google Fonts typography...")
         design = await self.designer_agent.execute(plan, color_scheme)
+        if isinstance(brand_colors, dict):
+            for design_key, color_key in (
+                ("primary_hex", "primary"),
+                ("secondary_hex", "secondary"),
+                ("accent_hex", "accent"),
+                ("bg_hex", "background"),
+                ("card_hex", "surface"),
+                ("text_hex", "text"),
+            ):
+                value = brand_colors.get(color_key)
+                if isinstance(value, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", value):
+                    design[design_key] = value
         t1 = time.time()
         safe_print(f"     -> Palette: Primary {design.get('primary_hex')}, Secondary {design.get('secondary_hex')}, Accent {design.get('accent_hex')}")
         safe_print(f"     -> Typography: Display '{design.get('font_display')}' / Body '{design.get('font_body')}'")
@@ -1414,10 +1818,15 @@ class MultiAgentOrchestrator:
         t0 = time.time()
         frontend_provider = getattr(settings, 'AGENT_FRONTEND_PROVIDER', 'cline').upper()
         safe_print(f"\n[3/6] 💻 FRONTEND DEVELOPER AGENT (Feature: code_assistant | Provider: {frontend_provider})")
-        safe_print("     Status: Synthesizing multi-page high-fidelity UI components...")
-        frontend_code = await self.frontend_agent.execute(prompt, plan, design, framework, css_engine)
+        safe_print("     Status: Generating complete, plan-specific frontend pages...")
+        frontend_code = await self.frontend_agent.execute(prompt, plan, design, framework, css_engine, project_images=project_images)
         t1 = time.time()
-        safe_print(f"     -> Source Code Generated: {len(frontend_code)} characters")
+        generated_character_count = (
+            sum(len(source) for source in frontend_code.values() if isinstance(source, str))
+            if isinstance(frontend_code, dict)
+            else len(frontend_code or "")
+        )
+        safe_print(f"     -> Source Code Generated: {generated_character_count} characters")
         safe_print(f"     ✅ [Agent 3 Completed in {t1 - t0:.2f}s]")
         if progress_callback:
             await progress_callback({"step": 3, "agent": "Frontend Developer Agent", "status": "completed", "details": f"Code Length: {len(frontend_code)} chars"})
@@ -1431,7 +1840,8 @@ class MultiAgentOrchestrator:
         seo_provider = getattr(settings, 'AGENT_SEO_PROVIDER', 'groq').upper()
         safe_print(f"\n[4/6] 🔍 SEO & ACCESSIBILITY AGENT (Feature: seo_generator | Provider: {seo_provider})")
         safe_print("     Status: Generating Schema.org JSON-LD, OpenGraph, and meta descriptions...")
-        seo_data = await self.seo_agent.execute(title, plan)
+        user_hero_image = next((str(image.get("url")) for image in (project_images or []) if isinstance(image, dict) and image.get("url")), "")
+        seo_data = await self.seo_agent.execute(title, plan, hero_image=user_hero_image, source_prompt=prompt)
         t1 = time.time()
         seo_display_title = seo_data.get('meta_title') or seo_data.get('meta_tags', {}).get('title', title)
         safe_print(f"     -> SEO Meta Title: {seo_display_title}")
@@ -1444,7 +1854,7 @@ class MultiAgentOrchestrator:
         zip_bytes = await self.deployment_agent.execute(
             title, framework, css_engine, project_scope, frontend_code, backend_code, seed_code, seo_data, design,
             backend_framework=backend_framework,
-            prompt=prompt, plan=plan
+            prompt=prompt, plan=plan, project_images=project_images
         )
 
         # Step 7: Testing Agent
@@ -1470,6 +1880,7 @@ class MultiAgentOrchestrator:
             expected_pages=expected_pages,
             project_scope=project_scope,
             framework=framework,
+            approved_facts=prompt,
         )
         t1 = time.time()
         tech_stack = test_audit.get('tech_stack') or ["HTML, CSS, JavaScript"]
@@ -1481,9 +1892,7 @@ class MultiAgentOrchestrator:
             audit_detail = "Static package audit passed; framework compilation was not run." if test_audit.get("status") == "passed" else "Static package audit failed."
             await progress_callback({"step": 5, "agent": "Static Package Audit", "status": "completed" if test_audit.get("status") == "passed" else "failed", "details": audit_detail})
 
-        # ── ML-STYLE BACKPROPAGATION SELF-CORRECTION LOOP ──
-        # Loss / Gradient = test_audit.get("errors", [])
-        # Propagate error signals backward, update code, re-package, and re-audit up to 3 epochs.
+        # Repair audited defects, re-package, and re-audit up to three times.
         max_epochs = 3
         epoch = 1
         while test_audit.get("status") != "passed" and epoch <= max_epochs:
@@ -1511,13 +1920,14 @@ class MultiAgentOrchestrator:
                 title=title,
                 design=design,
                 expected_pages=expected_pages,
+                project_images=project_images,
             )
 
             # Forward Pass: Re-package zip
             zip_bytes = await self.deployment_agent.execute(
                 title, framework, css_engine, project_scope, frontend_code, backend_code, seed_code, seo_data, design,
                 backend_framework=backend_framework,
-                prompt=prompt, plan=plan
+                prompt=prompt, plan=plan, project_images=project_images
             )
 
             # Evaluate Loss: Re-audit package
@@ -1526,13 +1936,14 @@ class MultiAgentOrchestrator:
                 expected_pages=expected_pages,
                 project_scope=project_scope,
                 framework=framework,
+                approved_facts=prompt,
             )
             safe_print(f"     -> Epoch {epoch} Verification: {test_audit.get('status', 'failed').upper()} ({len(test_audit.get('errors', []))} remaining defect(s))")
             epoch += 1
 
-        # Deterministic Convergence Pass: Guarantee 0 errors & 100% test audit pass rate
+        # Final repair pass: keep unresolved defects visible and fail the generation gate.
         if test_audit.get("status") != "passed":
-            safe_print("\n🛡️ [Deterministic Convergence Pass] Normalizing all page links, anchors, and removing placeholder artifacts...")
+            safe_print("\n🛠️ [Final Deterministic Repair] Resolving only exact local-link matches before the final audit...")
             frontend_code = self.deterministic_normalize_links_and_content(
                 frontend_code=frontend_code,
                 expected_pages=expected_pages,
@@ -1541,13 +1952,14 @@ class MultiAgentOrchestrator:
             zip_bytes = await self.deployment_agent.execute(
                 title, framework, css_engine, project_scope, frontend_code, backend_code, seed_code, seo_data, design,
                 backend_framework=backend_framework,
-                prompt=prompt, plan=plan
+                prompt=prompt, plan=plan, project_images=project_images
             )
             test_audit = await self.testing_agent.execute(
                 zip_bytes,
                 expected_pages=expected_pages,
                 project_scope=project_scope,
                 framework=framework,
+                approved_facts=prompt,
             )
             if test_audit.get("status") != "passed":
                 remaining = test_audit.get("errors", [])
@@ -1564,6 +1976,14 @@ class MultiAgentOrchestrator:
                     + "; ".join(str(error) for error in remaining[:10])
                 )
             safe_print("     ✅ [Deterministic Convergence] Re-audit passed with zero reported defects.")
+
+        if progress_callback:
+            await progress_callback({
+                "step": 5,
+                "agent": "Static Package Audit",
+                "status": "completed",
+                "details": "Static package audit passed after validation and any required repairs.",
+            })
 
         deployment_review = await self.deployment_agent.review_release_package(zip_bytes)
         if deployment_review.get("status") == "completed":

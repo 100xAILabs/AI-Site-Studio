@@ -16,9 +16,10 @@ const GENERATION_STEPS = [
   { id: 1, agent: "Agent 1/6 (Planning Agent)", icon: "📋", name: "Planning Agent", title: "Analyzing the website requirements...", detail: "Planning the pages, navigation, and business content.", duration: 2400 },
   { id: 2, agent: "Agent 2/6 (UI Designer Agent)", icon: "🎨", name: "UI Designer Agent", title: "Establishing typography, color palette & design tokens...", detail: "Configuring colors, fonts, and visual styling.", duration: 2400 },
   { id: 3, agent: "Agent 3/6 (Frontend Agent)", icon: "💻", name: "Frontend Agent", title: "Building the selected pages and responsive layouts...", detail: "Creating the website frontend for your chosen framework.", duration: 4200 },
-  { id: 4, agent: "Agent 4/6 (SEO Agent)", icon: "🔍", name: "SEO Agent", title: "Adding SEO and accessibility metadata...", detail: "Configuring structured data, semantic headings, and page metadata.", duration: 2000 },
+  { id: 4, agent: "Agent 4/6 (SEO Agent)", icon: "🔍", name: "SEO Agent", title: "Adding SEO and accessibility metadata...", detail: "Applying page titles, search descriptions, social metadata, and structured data.", duration: 2000 },
   { id: 5, agent: "Agent 5/6 (Testing Agent)", icon: "🧪", name: "Testing Agent", title: "Checking the generated frontend package...", detail: "Checking planned pages, local links, and frontend files.", duration: 2400 },
-  { id: 6, agent: "Agent 6/6 (Packaging Agent)", icon: "📦", name: "Packaging Agent", title: "Packaging your static website...", detail: "Saving the generated website project in Studio.", duration: 2000 },
+  { id: 6, agent: "Agent 6/6 (Packaging Agent)", icon: "📦", name: "Packaging Agent", title: "Packaging your static website...", detail: "Building the downloadable website ZIP.", duration: 2000 },
+  { id: 7, agent: "Final Phase (Security & Save)", icon: "🔒", name: "Security & Save", title: "Security-checking and saving your project...", detail: "Scanning the ZIP, storing the package, and saving the project to Studio.", duration: 1800 },
 ];
 
 const PRESET_COLOR_PALETTES = [
@@ -405,6 +406,8 @@ export default function GenerateTemplatePage() {
   const [logoPrompt, setLogoPrompt] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [projectImages, setProjectImages] = useState([]);
+  const [isUploadingProjectImages, setIsUploadingProjectImages] = useState(false);
 
   // Contact Details
   const [contactEmail, setContactEmail] = useState("");
@@ -418,8 +421,7 @@ export default function GenerateTemplatePage() {
   // Prompt & Generation States
   const [prompt, setPrompt] = useState(() => toReadableText(location.state?.prompt));
   const [framework, setFramework] = useState("html");
-  const [cssEngine, setCssEngine] = useState("tailwind");
-  const [techTab, setTechTab] = useState("framework"); // "framework" | "css"
+  const cssEngine = framework === "html" ? "vanillacss" : "tailwind";
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState([]);
@@ -430,6 +432,8 @@ export default function GenerateTemplatePage() {
   const [step, setStep] = useState("prompt"); // "prompt" | "questions"
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [enhancedSpecs, setEnhancedSpecs] = useState(null);
+  const [analyzedPrompt, setAnalyzedPrompt] = useState("");
+  const [isBuildingAnalyzedPrompt, setIsBuildingAnalyzedPrompt] = useState(false);
   const [architectureType, setArchitectureType] = useState("multi_page"); // "single_page" | "multi_page"
   const [isMultipage, setIsMultipage] = useState(true);
   const [architectureReasoning, setArchitectureReasoning] = useState("");
@@ -634,6 +638,56 @@ export default function GenerateTemplatePage() {
     }
   };
 
+  const handleProjectImagesUpload = async (e) => {
+    const selectedFiles = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!selectedFiles.length) return;
+    if (projectImages.length + selectedFiles.length > 8) {
+      setError("Upload up to 8 project images.");
+      return;
+    }
+    const supportedImageTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    const invalidFile = selectedFiles.find((file) => !supportedImageTypes.includes(file.type) || file.size > 10 * 1024 * 1024);
+    if (invalidFile) {
+      setError("Project images must be valid image files under 10MB each.");
+      return;
+    }
+
+    setIsUploadingProjectImages(true);
+    setError("");
+    try {
+      const uploadResults = await Promise.allSettled(selectedFiles.map(async (file) => {
+        const formData = new FormData();
+        formData.append("file", file);
+        const response = await fetch(`${API_URL}/files/upload`, {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: formData,
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.detail || `Could not upload ${file.name}.`);
+        }
+        const data = await response.json();
+        if (!data?.url) throw new Error(`Image upload did not return a URL for ${file.name}.`);
+        return { name: file.name, url: data.url, alt: file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ") };
+      }));
+      const uploadedImages = uploadResults.filter((item) => item.status === "fulfilled").map((item) => item.value);
+      if (uploadedImages.length) {
+        setAnalyzedPrompt("");
+        setProjectImages((previous) => [...previous, ...uploadedImages]);
+      }
+      const failedUploads = uploadResults.filter((item) => item.status === "rejected");
+      if (failedUploads.length) {
+        setError(toReadableText(failedUploads[0].reason?.message) || `${failedUploads.length} image upload(s) failed.`);
+      }
+    } catch (uploadError) {
+      setError(toReadableText(uploadError?.message) || "Project image upload failed.");
+    } finally {
+      setIsUploadingProjectImages(false);
+    }
+  };
+
   // Synthesize creator inputs into prompt string
   const buildSynthesizedPrompt = () => {
     const activeIndustry = businessType === "Other (Custom)" ? customBusinessType : businessType === "Auto-Detect from Prompt (Recommended)" ? "" : businessType;
@@ -696,7 +750,18 @@ export default function GenerateTemplatePage() {
     setError("");
     setIsEnhancing(true);
     try {
-      const res = await api.post("/ai/enhance-prompt", { prompt: activePrompt }, token);
+      const res = await api.post("/ai/enhance-prompt", {
+        prompt: activePrompt,
+        business_name: businessName.trim() || undefined,
+        business_type: businessType === "Other (Custom)" ? customBusinessType : businessType === "Auto-Detect from Prompt (Recommended)" ? undefined : businessType,
+        pages: pages.map(({ name, filename, content_summary }) => ({ name, filename, content_summary })),
+        architecture_type: architectureType,
+        answers,
+        content_language: requestedContentLanguage,
+        target_frontend: framework,
+        styling_engine: cssEngine,
+        project_images: projectImages,
+      }, token);
       if (res?.enhanced_prompt) {
         // Some model providers return the enhanced prompt as a structured
         // object despite the requested string schema. Convert it before it
@@ -786,14 +851,11 @@ export default function GenerateTemplatePage() {
           }))
         : [];
       setQuestions(normalizedQuestions);
+      setAnalyzedPrompt("");
 
-      const defaultAnswers = {};
-      normalizedQuestions.forEach((q) => {
-        if (q.options && q.options.length > 0) {
-          defaultAnswers[q.id] = q.options[0];
-        }
-      });
-      setAnswers(defaultAnswers);
+      // Keep clarifying answers genuinely optional; selecting the first option
+      // on the user's behalf can silently choose a price/image policy.
+      setAnswers({});
 
       const fetchedPages = Array.isArray(res.suggested_pages)
         ? res.suggested_pages.map((page, index) => ({
@@ -814,8 +876,37 @@ export default function GenerateTemplatePage() {
     }
   };
 
+  const handleBuildAnalyzedPrompt = async () => {
+    setError("");
+    setIsBuildingAnalyzedPrompt(true);
+    try {
+      const activePrompt = toReadableText(prompt).trim() || buildSynthesizedPrompt();
+      const res = await api.post("/ai/enhance-prompt", {
+        prompt: activePrompt,
+        business_name: businessName.trim() || undefined,
+        business_type: businessType === "Other (Custom)" ? customBusinessType : businessType === "Auto-Detect from Prompt (Recommended)" ? undefined : businessType,
+        pages: pages.filter((page) => page.selected !== false).map(({ name, filename, content_summary }) => ({ name, filename, content_summary })),
+        architecture_type: architectureType,
+        answers,
+        content_language: requestedContentLanguage,
+        target_frontend: framework,
+        styling_engine: cssEngine,
+        project_images: projectImages,
+      }, token);
+      const result = toReadableText(res?.enhanced_prompt);
+      if (!result || result.length < 100) throw new Error("The analyzed prompt was too short. Please try again.");
+      setAnalyzedPrompt(result);
+      setEnhancedSpecs({ ...res, enhanced_prompt: result });
+    } catch (err) {
+      setError(toReadableText(err?.message) || "Could not build the analyzed prompt. Please try again.");
+    } finally {
+      setIsBuildingAnalyzedPrompt(false);
+    }
+  };
+
   const handleToggleArchitecture = async (targetType) => {
     if (targetType === architectureType) return;
+    setAnalyzedPrompt("");
 
     if (targetType === "single_page") {
       const homePage = pages.find((page) => page.filename === "index.html") || pages[0] || {};
@@ -878,6 +969,7 @@ export default function GenerateTemplatePage() {
   const handleAddCustomPage = (e) => {
     e.preventDefault();
     if (!newPageName.trim()) return;
+    setAnalyzedPrompt("");
 
     const name = newPageName.trim();
     const filename = `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}.html`;
@@ -898,6 +990,7 @@ export default function GenerateTemplatePage() {
 
   const handleRemovePage = (filename) => {
     if (filename === "index.html") return;
+    setAnalyzedPrompt("");
     setPages((prev) => prev.filter((p) => p.filename !== filename));
     setMultiPageCache((prev) => prev.filter((p) => p.filename !== filename));
   };
@@ -919,12 +1012,13 @@ export default function GenerateTemplatePage() {
 
     try {
       const payload = {
-          prompt: toReadableText(prompt),
+          prompt: toReadableText(analyzedPrompt || prompt),
           content_language: requestedContentLanguage,
           framework,
           css_engine: cssEngine,
           project_scope: "frontend",
           answers,
+          project_images: projectImages,
           pages: selectedPages,
           architecture_type: architectureType,
           is_multipage: isMultipage,
@@ -979,9 +1073,13 @@ export default function GenerateTemplatePage() {
           }
           if (eventData.event === "result") {
             generatedResult = eventData.template;
-          } else if (eventData.status === "completed" && eventData.step) {
-            setCompletedSteps((prev) => prev.includes(eventData.step) ? prev : [...prev, eventData.step]);
-            setCurrentStep(Math.min(eventData.step, GENERATION_STEPS.length));
+          } else if (eventData.step) {
+            if (eventData.status === "completed") {
+              setCompletedSteps((prev) => prev.includes(eventData.step) ? prev : [...prev, eventData.step]);
+              setCurrentStep(Math.min(eventData.step, GENERATION_STEPS.length));
+            } else if (eventData.status === "in_progress") {
+              setCurrentStep(Math.max(0, Math.min(eventData.step - 1, GENERATION_STEPS.length - 1)));
+            }
           }
         }
         if (done) break;
@@ -1560,46 +1658,17 @@ export default function GenerateTemplatePage() {
                   </div>
                 )}
 
-                {/* 2-BUTTON TAB SWITCHER BAR (FRAMEWORK & CSS TOOL) */}
                 <div className="form-group mb-6">
-                  {/* Tab Navigation Buttons */}
-                  <div className="flex items-center gap-2 p-1.5 bg-muted/60 backdrop-blur-md rounded-2xl border border-border/80 mb-4 shadow-inner">
-                    <button
-                      type="button"
-                      onClick={() => setTechTab("framework")}
-                      className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-xs transition-all duration-200 flex items-center justify-center gap-2 select-none ${
-                        techTab === "framework"
-                          ? "bg-primary text-primary-foreground shadow-md ring-1 ring-primary/40"
-                          : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
-                      }`}
-                    >
-                      <Layers className="w-4 h-4" />
-                      <span>Frontend Frameworks</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary-foreground/20 text-current font-mono">
-                        {framework.toUpperCase()}
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setTechTab("css")}
-                      className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-xs transition-all duration-200 flex items-center justify-center gap-2 select-none ${
-                        techTab === "css"
-                          ? "bg-secondary text-secondary-foreground shadow-md ring-1 ring-secondary/40"
-                          : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
-                      }`}
-                    >
-                      <Palette className="w-4 h-4" />
-                      <span>CSS & Designing Tools</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-secondary-foreground/20 text-current font-mono">
-                        {cssEngine.toUpperCase()}
-                      </span>
-                    </button>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5 text-primary" />
+                      <span>Choose a supported frontend framework</span>
+                    </span>
+                    <span className="text-[10px] text-muted-foreground font-mono">CSS: Auto-selected</span>
                   </div>
 
-                  {/* TAB CONTENT 1: FRONTEND FRAMEWORKS */}
-                  {techTab === "framework" && (
-                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-200">
+                  {/* Frontend framework options */}
+                  <div className="animate-in fade-in slide-in-from-bottom-2 duration-200">
                       <div className="flex items-center justify-between mb-3">
                         <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
                           <Layers className="w-3.5 h-3.5 text-primary" />
@@ -1622,7 +1691,9 @@ export default function GenerateTemplatePage() {
                           return (
                             <div
                               key={fw.id}
-                              onClick={() => setFramework(fw.id)}
+                              onClick={() => {
+                                setFramework(fw.id);
+                              }}
                               className={`group relative p-3 rounded-xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between overflow-hidden select-none ${
                                 isSelected
                                   ? "bg-primary/10 border-primary shadow-lg ring-2 ring-primary/40 -translate-y-0.5"
@@ -1667,96 +1738,8 @@ export default function GenerateTemplatePage() {
                       <p className="mt-3 text-[10px] text-muted-foreground">
                         These are the frontend options currently supported by template generation. Angular, Nuxt, Astro, and Svelte are not generation options yet.
                       </p>
-                    </div>
-                  )}
+                  </div>
 
-                  {/* TAB CONTENT 3: CSS & STYLING TOOLS */}
-                  {techTab === "css" && (
-                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-200">
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                          <Palette className="w-3.5 h-3.5 text-secondary" />
-                          <span>Select CSS & Styling Engine (8 Options)</span>
-                        </span>
-                        <span className="text-[10px] text-muted-foreground font-mono">
-                          Active: {cssEngine.toUpperCase()}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                        {[
-                          { id: "tailwind", name: "Tailwind CSS Studio", icon: Palette, badge: "Tailwind JIT", color: "from-cyan-500/20 to-blue-500/20 text-cyan-400 border-cyan-500/30", desc: "Utility-first CSS engine with custom theme config & JIT compiler" },
-                          { id: "vanillacss", name: "Vanilla CSS & Modules", icon: Wand2, badge: "Pure CSS3", color: "from-pink-500/20 to-rose-600/20 text-pink-400 border-pink-500/30", desc: "Pure CSS3 custom properties (:root) & keyframe animations" },
-                          { id: "styledcomponents", name: "Styled Components", icon: Sparkles, badge: "CSS-in-JS", color: "from-violet-500/20 to-purple-600/20 text-violet-400 border-violet-500/30", desc: "Component-scoped CSS-in-JS styling with theme providers" },
-                          { id: "bootstrap", name: "Bootstrap 5 Studio", icon: LayoutGrid, badge: "Bootstrap 5", color: "from-indigo-500/20 to-purple-700/20 text-indigo-300 border-indigo-500/30", desc: "Responsive flexbox grid system & pre-built UI utility suite" },
-                          { id: "sass", name: "Sass / SCSS Studio", icon: Layers, badge: "Sass SCSS", color: "from-rose-500/20 to-pink-700/20 text-rose-300 border-rose-500/30", desc: "Nesting, mixins, math functions & modular SCSS architecture" },
-                          { id: "chakra", name: "Chakra UI / Emotion", icon: Sparkles, badge: "Chakra UI", color: "from-teal-500/20 to-emerald-600/20 text-teal-300 border-teal-500/30", desc: "Accessible component-first styling with design token primitives" },
-                          { id: "cssgrid", name: "CSS Grid Studio", icon: LayoutGrid, badge: "CSS Grid", color: "from-blue-500/20 to-indigo-600/20 text-blue-300 border-blue-500/30", desc: "Advanced 2D layout grid system with CSS custom properties" },
-                          { id: "glassmorphism", name: "Glassmorphic CSS", icon: Palette, badge: "Glassmorphism", color: "from-sky-500/20 to-cyan-600/20 text-sky-300 border-sky-500/30", desc: "Translucent frosted-glass aesthetic & backdrop blur filters" },
-                        ].map((styleEngine) => {
-                          const IconComp = styleEngine.icon;
-                          const isSelected = cssEngine === styleEngine.id;
-                          const cssCompatibility = {
-                            html: ["tailwind"], vanilla: ["tailwind"], static: ["tailwind"],
-                            react: ["tailwind", "vanillacss", "styledcomponents", "bootstrap", "sass", "chakra", "cssgrid", "glassmorphism"],
-                            vue: ["tailwind", "vanillacss", "bootstrap", "sass", "cssgrid", "glassmorphism"],
-                            next: ["tailwind", "vanillacss", "bootstrap", "sass", "cssgrid", "glassmorphism"],
-                            nextjs: ["tailwind", "vanillacss", "bootstrap", "sass", "cssgrid", "glassmorphism"],
-                          };
-                          const isSupported = cssCompatibility[framework]?.includes(styleEngine.id) ?? false;
-                          return (
-                            <div
-                              key={styleEngine.id}
-                              onClick={() => isSupported && setCssEngine(styleEngine.id)}
-                              aria-disabled={!isSupported}
-                              title={isSupported ? styleEngine.desc : `Not configured for ${framework.toUpperCase()}`}
-                              className={`group relative p-3 rounded-xl border text-left transition-all duration-200 ${isSupported ? "cursor-pointer" : "cursor-not-allowed opacity-45"} flex flex-col justify-between overflow-hidden select-none ${
-                                isSelected
-                                  ? "bg-secondary/10 border-secondary shadow-lg ring-2 ring-secondary/40 -translate-y-0.5"
-                                  : "bg-card/80 backdrop-blur-sm border-border hover:border-secondary/40 hover:bg-muted/40 hover:-translate-y-0.5"
-                              }`}
-                            >
-                              {isSelected && (
-                                <div className="absolute inset-0 bg-gradient-to-br from-secondary/10 via-transparent to-transparent pointer-events-none" />
-                              )}
-
-                              <div className="relative z-10">
-                                <div className="flex items-center justify-between mb-2">
-                                  <div className={`p-1.5 rounded-lg border bg-gradient-to-br ${styleEngine.color} shadow-sm group-hover:scale-105 transition-transform`}>
-                                    <IconComp className="w-3.5 h-3.5" />
-                                  </div>
-
-                                  <div className="flex items-center gap-1.5">
-                                    {!isSupported ? (
-                                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-muted text-muted-foreground font-medium border border-border/60">
-                                        Choose another frontend
-                                      </span>
-                                    ) : isSelected ? (
-                                      <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground font-bold shadow-sm">
-                                        <Check className="w-3 h-3" />
-                                        <span>Active</span>
-                                      </span>
-                                    ) : (
-                                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-muted text-muted-foreground font-mono font-medium border border-border/60">
-                                        {styleEngine.badge}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-
-                                <h3 className="font-bold text-xs text-foreground mb-0.5 group-hover:text-secondary transition-colors">
-                                  {styleEngine.name}
-                                </h3>
-                                <p className="text-[10px] text-muted-foreground leading-snug">
-                                  {styleEngine.desc}
-                                </p>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 <div className="form-group mb-6 rounded-xl border border-secondary/30 bg-secondary/5 p-4 text-sm text-muted-foreground">
@@ -1803,6 +1786,14 @@ export default function GenerateTemplatePage() {
                   )}
 
                   {/* Architecture Mode Selector */}
+                  <div className="questionnaire-progress" aria-live="polite">
+                    <div className="questionnaire-progress-copy">
+                      <span>Brief details</span>
+                      <span>{Object.values(answers).filter(Boolean).length} of {questions.length} answered</span>
+                    </div>
+                    <div className="questionnaire-progress-track"><span style={{ width: `${questions.length ? (Object.values(answers).filter(Boolean).length / questions.length) * 100 : 100}%` }} /></div>
+                  </div>
+
                   <div className="arch-toggle-container">
                     <label className="arch-toggle-label">Select Page Architecture:</label>
                     <div className="arch-toggle-buttons">
@@ -1833,26 +1824,55 @@ export default function GenerateTemplatePage() {
                 {/* Questions */}
                 {questions.length > 0 && (
                   <div className="questions-container mt-6">
-                    <h3 className="section-subtitle">Styling & Design Preferences</h3>
-                    {questions.map((q) => (
-                      <div key={q.id} className="question-group">
-                        <label className="prompt-label">{toReadableText(q.question)}</label>
-                        <div className="options-grid">
+                    <div className="questionnaire-heading">
+                      <span className="questionnaire-kicker">Tailored to your brief</span>
+                      <h3 className="section-subtitle">A few details to make the plan more accurate</h3>
+                      <p>Answer what you can. Your selections guide the page plan and generated prompt.</p>
+                    </div>
+                    {questions.map((q, questionIndex) => (
+                      <div key={q.id} className="question-group" style={{ "--question-index": questionIndex }}>
+                        <label className="question-label">{toReadableText(q.question)}</label>
+                        {q.options.length > 0 && <div className="options-grid">
                           {q.options.map((opt) => (
                             <button
                               key={opt}
                               type="button"
-                              onClick={() => setAnswers(prev => ({ ...prev, [q.id]: opt }))}
+                              onClick={() => { setAnalyzedPrompt(""); setAnswers(prev => ({ ...prev, [q.id]: opt })); }}
                               className={`option-button ${answers[q.id] === opt ? "active" : ""}`}
                             >
                               {opt}
                             </button>
                           ))}
-                        </div>
+                        </div>}
+                        <input className="question-answer-input" type="text" value={answers[q.id] && !q.options.includes(answers[q.id]) ? answers[q.id] : ""} onChange={(e) => { setAnalyzedPrompt(""); setAnswers((prev) => ({ ...prev, [q.id]: e.target.value })); }} placeholder="Or add a different detail…" aria-label={`Custom answer: ${toReadableText(q.question)}`} />
                       </div>
                     ))}
                   </div>
                 )}
+                <section className="project-image-upload" aria-labelledby="project-images-title">
+                  <div className="project-image-upload-copy">
+                    <ImageIcon className="w-5 h-5 text-secondary" />
+                    <div><h3 id="project-images-title">Add real project or website images</h3><p>Optional · Upload up to 8 images, 10MB each. If you skip this, the prompt will instruct the generator to use relevant stock imagery only as illustrative context.</p></div>
+                  </div>
+                  <label className={`project-image-upload-button ${isUploadingProjectImages ? "is-uploading" : ""}`}>
+                    {isUploadingProjectImages ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                    {isUploadingProjectImages ? "Uploading images…" : "Choose images"}
+                    <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple disabled={isUploadingProjectImages || projectImages.length >= 8} onChange={handleProjectImagesUpload} />
+                  </label>
+                  {projectImages.length > 0 && <div className="project-image-list">{projectImages.map((image) => <div className="project-image-preview" key={image.url}><img src={image.url} alt={image.alt} /><span title={image.name}>{image.name}</span><button type="button" aria-label={`Remove ${image.name}`} onClick={() => { setAnalyzedPrompt(""); setProjectImages((previous) => previous.filter((item) => item.url !== image.url)); }}><X className="w-3.5 h-3.5" /></button></div>)}</div>}
+                </section>
+
+                {questions.length === 0 && <div className="questionnaire-empty">The brief contains enough detail for a first plan. You can still refine the page list below.</div>}
+
+                <section className="analyzed-prompt-panel" aria-labelledby="analyzed-prompt-title">
+                  <div className="analyzed-prompt-heading">
+                    <div><span className="questionnaire-kicker">Prompt before code</span><h3 id="analyzed-prompt-title">Build your analyzed generation prompt</h3><p>We combine your brief, answers, selected pages, visual direction, motion, and working interactions into one site-specific specification.</p></div>
+                    <button type="button" className="analyze-prompt-button" onClick={handleBuildAnalyzedPrompt} disabled={isBuildingAnalyzedPrompt || isPreparing || isGenerating}>
+                      {isBuildingAnalyzedPrompt ? <><Loader2 className="w-4 h-4 animate-spin" /> Analyzing…</> : <><Sparkles className="w-4 h-4" /> {analyzedPrompt ? "Rebuild prompt" : "Analyze & build prompt"}</>}
+                    </button>
+                  </div>
+                  {analyzedPrompt && <><textarea className="analyzed-prompt-editor" value={analyzedPrompt} onChange={(event) => setAnalyzedPrompt(event.target.value)} aria-label="Review and edit the analyzed website generation prompt" /><p className="analyzed-prompt-note">This reviewed prompt is sent directly to the code generation pipeline.</p></>}
+                </section>
 
                 {/* Pages checklist & Content Summary */}
                 <div className="form-group mb-6 mt-6">
@@ -1871,6 +1891,7 @@ export default function GenerateTemplatePage() {
                               checked={p.selected !== false}
                               disabled={p.filename === "index.html" || architectureType === "single_page"}
                               onChange={(e) => {
+                                setAnalyzedPrompt("");
                                 const updated = [...pages];
                                 updated[idx] = { ...updated[idx], selected: e.target.checked };
                                 setPages(updated);
@@ -1940,9 +1961,10 @@ export default function GenerateTemplatePage() {
                   <button
                     type="button"
                     onClick={handleGenerate}
+                    disabled={!analyzedPrompt || isBuildingAnalyzedPrompt || isGenerating}
                     className="flex-1 submit-btn group"
                   >
-                    <span>Generate Template ({pages.filter(p => p.selected !== false).length} Pages)</span>
+                    <span>{analyzedPrompt ? `Generate from Analyzed Prompt (${pages.filter(p => p.selected !== false).length} Pages)` : "Build the analyzed prompt first"}</span>
                     <Sparkles className="submit-btn-icon group-hover:rotate-12 transition-transform" />
                   </button>
                 </div>

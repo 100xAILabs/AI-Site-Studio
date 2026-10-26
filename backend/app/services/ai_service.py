@@ -482,6 +482,13 @@ class AIService:
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.7,
         }
+        # Local Ollama defaults can stop long HTML/CSS responses early. Keep a
+        # generous, configurable output budget for locally hosted generation.
+        if "ollama" in provider_label.lower():
+            try:
+                payload["max_tokens"] = max(1024, min(16384, int(getattr(settings, "OLLAMA_MAX_OUTPUT_TOKENS", 8192))))
+            except (TypeError, ValueError):
+                payload["max_tokens"] = 8192
         if response_mime_type == "application/json":
             payload["response_format"] = {"type": "json_object"}
 
@@ -601,8 +608,11 @@ class AIService:
                             candidates.append(item)
             return candidates
 
-        # Enforce .clinerules across ALL models (Gemini, Cline, Ollama) for zero-placeholder ship-quality output
-        clinerules_directive = self._get_clinerules_directive()
+        # Repository engineering rules conflict with end-user website briefs
+        # (for example, they prescribe a backend for a frontend-only template).
+        # Inject them only for internal code-assistant features.
+        internal_engineering_features = {"code_assistant", "code_debugging_agent"}
+        clinerules_directive = self._get_clinerules_directive() if feature_name in internal_engineering_features else ""
         if clinerules_directive and "CLINE AGENT RULES" not in prompt and "Senior AI Architect" not in prompt:
             prompt = f"{clinerules_directive}\n\nTask Specification:\n{prompt}"
 
@@ -1212,7 +1222,7 @@ Return ONLY valid JSON. Do not include markdown code block notation (```json) or
         )
         return robust_json_loads(response_text)
 
-    async def enhance_template_prompt(self, user_prompt: str) -> dict:
+    async def enhance_template_prompt(self, user_prompt: str, context: Optional[dict] = None) -> dict:
         """
         Enhance a brief template prompt into a high-fidelity design specification using Gemini Pro.
         """
@@ -1225,13 +1235,17 @@ Return ONLY valid JSON. Do not include markdown code block notation (```json) or
             "Adhere strictly to any theme preferences specified by the user. If they ask for white/light theme, make it white/light. If dark, make it dark."
         )
 
+        context_text = json.dumps(context or {}, ensure_ascii=False, indent=2)
         prompt = f"""You are a principal digital product designer, brand strategist, and frontend architect.
-Translate this user brief into an original, buildable website direction:
+Translate this user brief and supplied answers into an original, buildable website direction. Preserve its actual category and workflows. Organize the result into labeled sections for goal and audience, page purpose and content, pricing presentation, imagery and asset sourcing, visual system, motion and accessibility, interactions and states, responsive behavior, and architecture. Treat supplied answers as authoritative; never guess prices, project history, credentials, or company-specific facts. If the user chooses quote-only pricing, use estimate/consultation language and do not show fabricated rates. Use supplied project-image URLs as the user's real assets when relevant. If no company-owned images are provided, use relevant illustrative stock imagery only when appropriate, and never label it as the user's completed work, staff, property, or customers. Generic prompt examples are inspiration for completeness only: never copy their subject matter or requirements into unrelated site types.
 {user_prompt}
+
+Additional structured creator details (answers, planned pages, architecture, build target, and supplied project images):
+{json.dumps(context or {}, ensure_ascii=False, indent=2)}
 
 {theme_directive}
 
-Do not turn this into a generic template. Derive a distinctive visual thesis, audience, positioning, information architecture, content voice, and useful interactions from the actual brief. Specify concrete layout and art-direction choices. Avoid default glassmorphism, neon gradients, generic SaaS dashboards, and repeated feature-card patterns unless the brief explicitly calls for them. Do not invent testimonials, metrics, client names, awards, certifications, or other factual claims. The generated site is frontend-only: no API, database, simulated checkout, or false form-success state. Keep the design feasible in the chosen frontend framework.
+Do not turn this into a generic template. Derive a distinctive visual thesis, audience, positioning, information architecture, content voice, and useful interactions from the actual brief. Specify concrete layout and art-direction choices. Avoid default glassmorphism, neon gradients, generic SaaS dashboards, and repeated feature-card patterns unless the brief explicitly calls for them. Do not invent testimonials, metrics, client names, awards, certifications, or other factual claims. The generated site is frontend-only: no API, database, simulated checkout, or false form-success state. Keep the design feasible in the chosen frontend framework and styling engine. For advanced native CSS, specify a tokenized system with fluid clamp() sizing, CSS Grid/Flex layouts, responsive or container breakpoints, :focus-visible states, subtle keyframe motion, and a prefers-reduced-motion fallback. Animation must be initialized after the page markup exists; prefer CSS over scroll-animation CDNs.
 
 Return valid JSON with these fields:
 {{

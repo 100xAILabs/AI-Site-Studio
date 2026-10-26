@@ -1,5 +1,7 @@
 # ==============================================================================
 # AI SITE STUDIO — CLINE AGENT RULES (.clinerules)
+# Scope: repository development only; do not inject these rules into end-user website-generation prompts.
+# Generated websites must follow the user's brief and active generation contract, without forced backend, database, pages, images, or features.
 # Architecture: 8-Stage Specialized AI Agents Swarm
 # Engines: Cline Autonomous Engine (qwen3-coder:30b, qwen3-coder:latest, qwen2.5-coder:latest) + Ollama
 # ==============================================================================

@@ -100,3 +100,5 @@ backend/backend/
 *.wav
 backend/pgsql/
 scratch/
+generated-sites/
+.tmp_*

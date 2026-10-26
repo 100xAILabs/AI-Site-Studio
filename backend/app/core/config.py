@@ -158,6 +158,7 @@ class Settings(BaseSettings):
 
     # ── Ollama (Local AI Engine - Qwen / DeepSeek) ────────────────────────────
     OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
+    OLLAMA_MAX_OUTPUT_TOKENS: int = 8192
     OLLAMA_MODEL: str = "qwen3.5:9b"
     OLLAMA_MODEL_FALLBACK: str = "qwen2.5-coder:latest,qwen2.5:latest"
     OLLAMA_MODEL_PLANNING: str = "qwen3.5:9b"
