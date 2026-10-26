@@ -91,6 +91,7 @@ static/deployments/
 backend/static/deployments/
 backend/static/thumbnails/
 backend/static/templates/
+backend/static/studio-projects/
 backend/backend/
 
 # ==================== Executables / Media ====================

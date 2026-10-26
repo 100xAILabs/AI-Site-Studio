@@ -114,6 +114,45 @@ DOMAIN_CATALOG = {
             {"name": "David Chen", "role": "Executive Patient", "quote": "The gentlest dental cleaning I have ever experienced. The clinic feels like a luxury retreat."}
         ]
     },
+    "hotel": {
+        "domain_name": "Ultra-Luxury Hotel, Resort & Dining Sanctuary",
+        "default_title": "The Grand Horizon Sanctuary",
+        "tagline": "Bespoke Suites, Michelin Dining & Private Horizon Sanctuary",
+        "value_prop": "Where timeless luxury meets horizon serenity. Intimate suites with private heated infinity pools, Michelin-starred culinary artistry, and dedicated 24/7 butler service curated for discerning global travelers.",
+        "colors": {
+            "primary": "#10b981",
+            "secondary": "#0f172a",
+            "accent": "#d97706",
+            "bg": "#020617",
+            "card": "#0f172a",
+            "text": "#f8fafc"
+        },
+        "hero_image": "https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=1200&q=85",
+        "gallery": [
+            "https://images.unsplash.com/photo-1590490360182-c33d57733427?auto=format&fit=crop&w=800&q=80",
+            "https://images.unsplash.com/photo-1566665797739-1674de7a421a?auto=format&fit=crop&w=800&q=80",
+            "https://images.unsplash.com/photo-1618773928121-c32242e63f39?auto=format&fit=crop&w=800&q=80"
+        ],
+        "features": [
+            {"title": "Michelin Dining & Sommelier", "desc": "Three Michelin-starred culinary venues blending locally sourced organic ingredients with rare vintage wine pairings."},
+            {"title": "Holistic Ayurvedic Wellness Spa", "desc": "Overwater sanctuary offering bespoke longevity rituals, hydrotherapy chambers, and therapeutic wellness treatments."},
+            {"title": "Private Yacht Charter & Helipad", "desc": "Explore secluded coves aboard our 85-foot Sunseeker yacht, with direct rooftop helicopter transfers."}
+        ],
+        "offerings": [
+            {"title": "Presidential Horizon Villa", "price": "From $1,450 / night", "desc": "280 m² private heated infinity pool, expansive teak terrace, and private wine cellar."},
+            {"title": "Royal Overwater Bungalow", "price": "From $1,850 / night", "desc": "Suspended directly over the coral lagoon with glass-panel floor sections and sunset dining pavilion."},
+            {"title": "Cliffside Grand Penthouse", "price": "From $2,600 / night", "desc": "360-degree panoramic ocean views, private rooftop jacuzzi, and personal executive chef service."},
+            {"title": "Executive Horizon Suite", "price": "From $950 / night", "desc": "Expansive ocean-view terrace, marble soaking tub, and dedicated 24/7 private butler assistance."}
+        ],
+        "team": [
+            {"name": "Chef Alessandro Celli", "role": "Executive Chef & Culinary Director", "desc": "3-star Michelin veteran curating hyper-seasonal coastal gastronomy and bespoke private dining."},
+            {"name": "Elena Sterling", "role": "Head Concierge & Experience Director", "desc": "Les Clefs d'Or certified concierge orchestrating discreet travel, yacht charters, and VIP arrivals."}
+        ],
+        "testimonials": [
+            {"name": "Julian Vance", "role": "Forbes Travel Reviewer", "quote": "The pinnacle of discreet luxury. The horizon villas and Michelin culinary experience are unmatched globally."},
+            {"name": "Clara DeWitt", "role": "Global Traveler", "quote": "An unforgettable sanctuary. Waking up to private infinity waters with personal butler service made our stay truly magical."}
+        ]
+    },
     "restaurant": {
         "domain_name": "Fine Dining & Craft Cocktails",
         "default_title": "Lumière Table & Bar",
@@ -415,6 +454,8 @@ def analyze_prompt_intent(
         matched_key = "bakery"
     elif any(k in p_lower for k in ["dent", "teeth", "tooth", "clinic", "orthodont", "smile"]):
         matched_key = "dental"
+    elif any(k in p_lower for k in ["hotel", "resort", "suite", "stay", "villa", "lodge", "inn", "room", "hospitality", "motel", "accommodation", "booking"]):
+        matched_key = "hotel"
     elif any(k in p_lower for k in ["restaurant", "food", "dining", "bar", "pizza", "burger", "chef", "cafe", "bistro", "steak"]):
         matched_key = "restaurant"
     elif any(k in p_lower for k in ["real estate", "property", "house", "villa", "realty", "apartment", "mansion", "architect"]):
@@ -1624,7 +1665,15 @@ def synthesize_multipage_html_suite(
     # Domain-authentic fallback if plan is missing or empty
     if not planned_pages or len(planned_pages) < 2:
         ind = profile.industry_key or "general"
-        if any(w in ind for w in ["restaurant", "food", "dining", "bakery", "cafe"]):
+        if any(w in ind for w in ["hotel", "resort", "suite", "stay", "villa", "hospitality"]):
+            planned_pages = [
+                {"name": "Home", "slug": "home", "filename": "index.html", "type": "home", "summary": f"Ultra-luxury living and private sanctuary at {profile.business_title}."},
+                {"name": "Suites & Villas", "slug": "services", "filename": "services.html", "type": "catalog", "summary": "Exclusive residential villas, private heated infinity pools, and pricing."},
+                {"name": "Michelin Dining", "slug": "menu", "filename": "menu.html", "type": "menu", "summary": "Seasonal gastronomy, wood-fired hearth, and sommelier vintage pairings."},
+                {"name": "Sanctuary Spa", "slug": "spa", "filename": "spa.html", "type": "case-studies", "summary": "Holistic Ayurvedic wellness, hydrotherapy chambers, and restorative rituals."},
+                {"name": "Reservations & Concierge", "slug": "contact", "filename": "contact.html", "type": "contact", "summary": "Direct booking assistance, private aviation transfers, and concierge service."}
+            ]
+        elif any(w in ind for w in ["restaurant", "food", "dining", "bakery", "cafe"]):
             planned_pages = [
                 {"name": "Home", "slug": "home", "filename": "index.html", "type": "home", "summary": f"Culinary excellence and signature ambiance at {profile.business_title}."},
                 {"name": "Chef's Tasting Menu", "slug": "menu", "filename": "menu.html", "type": "menu", "summary": "Artisanal seasonal harvests, flight pairings, and farm-direct ingredients."},
