@@ -227,12 +227,6 @@ function AdminPanel() {
               >
                 <Plus className="w-4 h-4" /> Add Category
               </button>
-              <button
-                onClick={() => navigate("/marketplace/generate")}
-                className="px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 flex items-center gap-1.5 transition-colors"
-              >
-                <Plus className="w-4 h-4" /> Generate Template
-              </button>
             </div>
           </div>
 

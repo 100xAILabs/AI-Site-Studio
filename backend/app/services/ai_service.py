@@ -18,20 +18,32 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 _gemini_key_cycle = itertools.count()
+_gemini_model_cooldowns: dict[str, float] = {}
 _ollama_models_cache: tuple[float, set[str]] = (0.0, set())
 
-# Ordered fallback Gemini generation models (tried in sequence on 503/quota errors)
+# Gemini text models with a listed Free Tier, tried in sequence when one is unavailable or rate-limited.
 _GEMINI_FALLBACK_MODELS = [
+    "gemini-3.6-flash",
     "gemini-3.8-flash",
-    "gemini-3.7-flash",
-    "gemini-3.5-flash",
-    "gemini-flash-latest",
-    "gemini-flash-lite-latest",
-    "gemini-pro-latest",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
 ]
+
+
+def _gemini_retry_delay_seconds(message: str) -> float:
+    """Read Google's suggested retry delay, with a long cooldown for daily quota exhaustion."""
+    retry_match = re.search(
+        r"retry\s+in\s+(?:(\d+)h)?(?:(\d+)m)?([\d.]+)s",
+        message,
+        flags=re.IGNORECASE,
+    )
+    if retry_match:
+        hours, minutes, seconds = retry_match.groups()
+        return max(1.0, int(hours or 0) * 3600 + int(minutes or 0) * 60 + float(seconds or 0))
+    lowered = message.lower()
+    if "per day" in lowered or "requests_per_day" in lowered or "free_tier_requests" in lowered:
+        return 24 * 60 * 60
+    return 60.0
 
 
 def _strip_think_tags(text: str) -> str:
@@ -381,8 +393,20 @@ class AIService:
 
         timeout = max(10.0, float(getattr(settings, "AI_GEMINI_TIMEOUT_SECONDS", 60.0)))
 
-        # Build de-duplicated ordered model list: configured model first, then fallbacks
-        model_sequence = [model_name] + [m for m in _GEMINI_FALLBACK_MODELS if m != model_name]
+        # Skip models whose quota/availability cooldown is still active. Gemini
+        # daily quotas are model-specific, so another configured model may work.
+        now = time.monotonic()
+        for cooled_model, until in list(_gemini_model_cooldowns.items()):
+            if until <= now:
+                _gemini_model_cooldowns.pop(cooled_model, None)
+        configured_sequence = list(dict.fromkeys([model_name, *_GEMINI_FALLBACK_MODELS]))
+        model_sequence = [model for model in configured_sequence if _gemini_model_cooldowns.get(model, 0) <= now]
+        skipped_models = [model for model in configured_sequence if model not in model_sequence]
+        if skipped_models:
+            safe_print(f"[AI Service] Skipping Gemini models in quota cooldown: {', '.join(skipped_models)}")
+        if not model_sequence:
+            safe_print("[AI Service] All configured Gemini models are quota-limited; continuing to the next AI provider.")
+            return None
         start = next(_gemini_key_cycle) % len(keys)
         ordered_keys = keys[start:] + keys[:start]
 
@@ -402,6 +426,7 @@ class AIService:
                                 text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
                                 if model_idx > 0:
                                     logger.info("Gemini fallback model '%s' succeeded after primary '%s' failed.", try_model, model_name)
+                                    safe_print(f"   └─ ✅ Gemini fallback ({try_model}) generated output successfully.")
                                 return text
                             except (KeyError, IndexError, TypeError):
                                 logger.warning("Gemini returned an unexpected response structure for model %s", try_model)
@@ -413,6 +438,12 @@ class AIService:
                                 err_msg = err_body.get("error", {}).get("message", response.text[:200])
                             except Exception:
                                 err_msg = response.text[:200]
+                            cooldown = _gemini_retry_delay_seconds(err_msg)
+                            _gemini_model_cooldowns[try_model] = time.monotonic() + cooldown
+                            safe_print(
+                                f"[AI Service] Cooling down Gemini model {try_model} for about "
+                                f"{max(1, int(cooldown // 3600))}h {int((cooldown % 3600) // 60)}m after quota/rate limit; trying another model."
+                            )
                             logger.warning(
                                 "Gemini API key %d/%d returned %d for model '%s': %s. "
                                 "Trying next key/model.",
@@ -429,6 +460,9 @@ class AIService:
                         continue
                     except (httpx.TimeoutException, httpx.NetworkError) as exc:
                         logger.warning("Gemini key %d/%d request failed (%s) for model %s", key_index + 1, len(keys), type(exc).__name__, try_model)
+                        # Hand slow generation to the next provider instead of
+                        # waiting through every Gemini model's full timeout.
+                        return None
         return None
 
 
@@ -462,7 +496,8 @@ class AIService:
         model_name: str,
         response_mime_type: str = "application/json",
         provider_label: str = "LLM",
-        timeout: float = 120.0
+        timeout: float = 120.0,
+        max_tokens: Optional[int] = None,
     ) -> Optional[str]:
         """
         Generic OpenAI-compatible caller for Kimi (Moonshot), OpenRouter, Groq, DeepSeek, or OpenAI.
@@ -489,6 +524,8 @@ class AIService:
                 payload["max_tokens"] = max(1024, min(16384, int(getattr(settings, "OLLAMA_MAX_OUTPUT_TOKENS", 8192))))
             except (TypeError, ValueError):
                 payload["max_tokens"] = 8192
+        elif max_tokens is not None:
+            payload["max_tokens"] = max(256, min(8192, int(max_tokens)))
         if response_mime_type == "application/json":
             payload["response_format"] = {"type": "json_object"}
 
@@ -519,13 +556,24 @@ class AIService:
                         except Exception:
                             err_msg = response.text
                         logger.warning(f"{provider_label} API ({model_name}) returned status {response.status_code}: {err_msg}")
+                        if response.status_code == 429 and "groq" in provider_label.lower() and attempt == 0:
+                            retry_match = re.search(r"try again in\s+([0-9]+(?:\.[0-9]+)?)\s*s", str(err_msg), re.IGNORECASE)
+                            retry_after = response.headers.get("retry-after")
+                            try:
+                                delay = float(retry_after) if retry_after else (float(retry_match.group(1)) if retry_match else 0.0)
+                            except (TypeError, ValueError):
+                                delay = 0.0
+                            if 0 < delay <= 60:
+                                safe_print(f"[AI Service] Groq rate limited this request; retrying once in {delay:.1f}s before using local fallback.")
+                                await asyncio.sleep(delay + 0.5)
+                                continue
                         if "kimi" in provider_label.lower() or "moonshot" in provider_label.lower():
                             raise KimiAPIError(response.status_code, err_msg, model_name)
                         return None
             except KimiAPIError:
                 raise
             except Exception as e:
-                logger.warning(f"{provider_label} API call failed on attempt {attempt+1}: {e}")
+                logger.warning(f"{provider_label} API call failed on attempt {attempt+1}: {type(e).__name__}: {e!r}")
                 if attempt == 0 and max_attempts > 1:
                     await asyncio.sleep(1.0)
         return None
@@ -536,7 +584,10 @@ class AIService:
         response_mime_type: str = "application/json",
         feature_name: str = "website_content_generation",
         fallback_azure: bool = True,
-        preferred_provider: Optional[str] = None
+        preferred_provider: Optional[str] = None,
+        provider_order_override: Optional[List[str]] = None,
+        request_timeout_seconds: Optional[float] = None,
+        max_local_model_attempts: Optional[int] = None,
     ) -> str:
         """
         Call LLM to generate content.
@@ -547,19 +598,34 @@ class AIService:
         agent_choice = getattr(settings, agent_setting_key, None)
         primary_choice = (preferred_provider or agent_choice or getattr(settings, "AI_PRIMARY_PROVIDER", "cline")).lower().strip()
 
-        all_providers = ["cline", "ollama", "groq", "openrouter", "openai", "kimi", "azure"]
+        all_providers = ["cline", "ollama", "groq", "openrouter", "openai", "kimi", "azure", "gemini"]
         website_features = {
             "website_content_generation", "planning_agent", "designer_agent",
             "seo_agent", "seo_generator", "website_frontend_generation",
             "website_backend_generation", "website_database_generation",
             "code_assistant", "code_debugging_agent", "testing_agent", "deployment_agent"
         }
-        if feature_name in website_features:
-            configured_order = [p.strip().lower() for p in getattr(settings, "AI_WEBSITE_PROVIDER_ORDER", "cline,ollama").split(",")]
-            provider_order = [p for p in configured_order if p in ("cline", "ollama")]
-            if preferred_provider and preferred_provider.lower() in ("cline", "ollama"):
+        if provider_order_override:
+            provider_order = [p.strip().lower() for p in provider_order_override if p.strip().lower() in all_providers]
+            if getattr(settings, "AI_FREE_ONLY", False):
+                provider_order = [p for p in provider_order if p in ("cline", "ollama")]
+            if preferred_provider and preferred_provider.lower() in provider_order:
                 pref = preferred_provider.lower()
                 provider_order = [pref] + [p for p in provider_order if p != pref]
+        elif feature_name in website_features:
+            configured_order = [p.strip().lower() for p in getattr(settings, "AI_WEBSITE_PROVIDER_ORDER", "cline,ollama").split(",")]
+            provider_order = [p for p in configured_order if p in all_providers]
+            if getattr(settings, "AI_FREE_ONLY", False):
+                provider_order = [p for p in provider_order if p in ("cline", "ollama")]
+            if preferred_provider and preferred_provider.lower() in all_providers and (
+                not getattr(settings, "AI_FREE_ONLY", False) or preferred_provider.lower() in ("cline", "ollama")
+            ):
+                pref = preferred_provider.lower()
+                provider_order = [pref] + [p for p in provider_order if p != pref]
+            elif primary_choice in all_providers and (
+                not getattr(settings, "AI_FREE_ONLY", False) or primary_choice in ("cline", "ollama")
+            ):
+                provider_order = [primary_choice] + [p for p in provider_order if p != primary_choice]
             if not provider_order:
                 provider_order = ["cline", "ollama"]
         elif getattr(settings, "AI_FREE_ONLY", False):
@@ -588,7 +654,7 @@ class AIService:
             elif "seo" in name:
                 primary_model = getattr(settings, "OLLAMA_MODEL_SEO", settings.OLLAMA_MODEL)
                 fallback_setting = "OLLAMA_MODEL_SEO_FALLBACK"
-            elif "code" in name or "debug" in name:
+            elif "code" in name or "debug" in name or "frontend" in name:
                 primary_model = getattr(settings, "OLLAMA_MODEL_CODE", settings.OLLAMA_MODEL)
                 fallback_setting = "OLLAMA_MODEL_CODE_FALLBACK"
             else:
@@ -615,6 +681,11 @@ class AIService:
         clinerules_directive = self._get_clinerules_directive() if feature_name in internal_engineering_features else ""
         if clinerules_directive and "CLINE AGENT RULES" not in prompt and "Senior AI Architect" not in prompt:
             prompt = f"{clinerules_directive}\n\nTask Specification:\n{prompt}"
+
+        provider_outcomes: List[str] = []
+        if getattr(settings, "AI_FREE_ONLY", False) and primary_choice not in ("cline", "ollama"):
+            provider_outcomes.append(f"{primary_choice} skipped because AI_FREE_ONLY is enabled")
+            safe_print(f"[AI Service] Hosted provider '{primary_choice}' is disabled by AI_FREE_ONLY; local providers only will be tried.")
 
         for provider in provider_order:
             # 1. Kimi (Moonshot AI)
@@ -672,22 +743,35 @@ class AIService:
                         raise e
 
             # 2. Groq
-            elif provider == "groq" and getattr(settings, "GROQ_API_KEY", ""):
-                try:
-                    safe_print(f"[AI Service] Invoking Groq ({settings.GROQ_MODEL}) for '{feature_name}'...")
-                    res = await self._call_openai_compatible_api(
-                        prompt=prompt,
-                        base_url=settings.GROQ_BASE_URL,
-                        api_key=settings.GROQ_API_KEY,
-                        model_name=settings.GROQ_MODEL,
-                        response_mime_type=response_mime_type,
-                        provider_label="Groq"
-                    )
-                    if res:
-                        safe_print(f"   └─ ✅ Groq ({settings.GROQ_MODEL}) generated output successfully.")
-                        return res
-                except Exception as e:
-                    logger.error(f"Groq attempt failed: {e}")
+            elif provider == "groq":
+                if not getattr(settings, "GROQ_API_KEY", ""):
+                    provider_outcomes.append("Groq skipped: GROQ_API_KEY is not configured")
+                    safe_print("[AI Service] Groq skipped because GROQ_API_KEY is not configured; continuing to the next provider.")
+                else:
+                    try:
+                        safe_print(f"[AI Service] Invoking Groq ({settings.GROQ_MODEL}) for '{feature_name}'...")
+                        res = await self._call_openai_compatible_api(
+                            prompt=prompt,
+                            base_url=settings.GROQ_BASE_URL,
+                            api_key=settings.GROQ_API_KEY,
+                            model_name=settings.GROQ_MODEL,
+                            response_mime_type=response_mime_type,
+                            provider_label="Groq",
+                            max_tokens=(
+                                6000 if feature_name == "website_frontend_generation"
+                                else 3500 if feature_name == "planning_agent" and response_mime_type != "application/json"
+                                else 2000 if response_mime_type == "application/json"
+                                else 1400 if feature_name == "designer_agent"
+                                else 2500
+                            ),
+                        )
+                        if res:
+                            safe_print(f"   └─ ✅ Groq ({settings.GROQ_MODEL}) generated output successfully.")
+                            return res
+                        provider_outcomes.append("Groq returned no content")
+                    except Exception as e:
+                        logger.error(f"Groq attempt failed: {e}")
+                        provider_outcomes.append(f"Groq failed: {e}")
 
             # 3. OpenRouter
             elif provider == "openrouter" and getattr(settings, "OPENROUTER_API_KEY", ""):
@@ -744,6 +828,8 @@ class AIService:
                     if installed_models:
                         available = [model for model in cline_models if model in installed_models]
                         cline_models = available or cline_models
+                    if max_local_model_attempts is not None:
+                        cline_models = cline_models[:max(1, int(max_local_model_attempts))]
                     safe_print(f"🤖 [Cline-compatible Ollama] Trying local coding models {cline_models} for '{feature_name}'...")
                     
                     augmented_prompt = prompt
@@ -759,7 +845,7 @@ class AIService:
                                     model_name=cline_model,
                                     response_mime_type=response_mime_type,
                                     provider_label=f"Cline-compatible Ollama ({cline_model})",
-                                    timeout=600.0
+                                    timeout=request_timeout_seconds or 600.0
                                 )
                             if res:
                                 safe_print(f"   └─ ✅ Local coding model ({cline_model}) generated output successfully.")
@@ -789,10 +875,17 @@ class AIService:
             # 7. Ollama (Local AI Engine e.g. Qwen / DeepSeek)
             elif provider == "ollama":
                 ollama_models = local_model_candidates(feature_name)
+                if max_local_model_attempts is not None and "cline" in provider_order:
+                    cline_first_models = set(local_model_candidates(
+                        feature_name, getattr(settings, "OLLAMA_MODEL_CODE", "qwen2.5-coder:7b")
+                    )[:max(1, int(max_local_model_attempts))])
+                    ollama_models = [model for model in ollama_models if model not in cline_first_models] or ollama_models
                 installed_models = await self._installed_ollama_models()
                 if installed_models:
                     available = [model for model in ollama_models if model in installed_models]
                     ollama_models = available or ollama_models
+                if max_local_model_attempts is not None:
+                    ollama_models = ollama_models[:max(1, int(max_local_model_attempts))]
                 for ollama_model in ollama_models:
                     try:
                         safe_print(f"[AI Service] Invoking Ollama ({ollama_model}) for '{feature_name}'...")
@@ -802,7 +895,8 @@ class AIService:
                             api_key="ollama",
                             model_name=ollama_model,
                             response_mime_type=response_mime_type,
-                            provider_label=f"Ollama ({ollama_model})"
+                            provider_label=f"Ollama ({ollama_model})",
+                            timeout=request_timeout_seconds or 120.0,
                         )
                         if res:
                             safe_print(f"   └─ ✅ Ollama ({ollama_model}) generated output successfully.")
@@ -810,6 +904,7 @@ class AIService:
                     except Exception as e:
                         logger.warning(f"Ollama model '{ollama_model}' failed for '{feature_name}': {e}")
                         safe_print(f"   [FALLBACK] Ollama model '{ollama_model}' failed; trying the next configured local model.")
+                        provider_outcomes.append(f"Ollama {ollama_model} failed: {e}")
 
             # 7. Google Gemini (Active Flash Engine)
             elif provider == "gemini" and self._gemini_api_keys():
@@ -836,7 +931,11 @@ class AIService:
             local_model = getattr(settings, "OLLAMA_MODEL_CODE", "qwen2.5-coder:7b") if primary_choice == "cline" else getattr(settings, "OLLAMA_MODEL", "qwen2.5:latest")
             error_details = f"Local Ollama model '{local_model}' failed for '{feature_name}'. Check that Ollama is running and that the model is installed."
         else:
-            error_details = f"AI Provider '{primary_choice}' failed for '{feature_name}'. Check its credentials and quota."
+            attempted = "; ".join(provider_outcomes)
+            error_details = (
+                f"No configured provider succeeded for '{feature_name}'. {attempted}"
+                if attempted else f"AI Provider '{primary_choice}' failed for '{feature_name}'. Check its credentials and quota."
+            )
         if primary_choice == "kimi":
             error_details = (
                 f"Kimi (Moonshot) model '{getattr(settings, 'KIMI_MODEL', 'moonshot-v1-32k')}' encountered an error or insufficient account balance. "
@@ -1061,6 +1160,8 @@ class AIService:
             "coffee": "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=1400&q=85",
             "food": "https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=1400&q=85",
             "ai": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1400&q=85",
+            "wildlife": "https://images.unsplash.com/photo-1508499245556-1e080caab0b8?auto=format&fit=crop&w=1400&q=85",
+            "bird photography": "https://images.unsplash.com/photo-1615862408539-d069f4018470?auto=format&fit=crop&w=1400&q=85",
             "portfolio": "https://images.unsplash.com/photo-1507238691740-187a5b1d37b8?auto=format&fit=crop&w=1400&q=85",
             "saas": "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1400&q=85",
             "technology": "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1400&q=85",
@@ -1075,14 +1176,6 @@ class AIService:
         for key, unsplash_url in UNSPLASH_MAP.items():
             if key in prompt_lower:
                 return unsplash_url
-
-        try:
-            from app.services.template_synthesizer import analyze_prompt_intent
-            profile = analyze_prompt_intent(prompt)
-            if profile.hero_image:
-                return profile.hero_image
-        except Exception:
-            pass
 
         return "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1280&q=80"
 
@@ -1222,75 +1315,13 @@ Return ONLY valid JSON. Do not include markdown code block notation (```json) or
         )
         return robust_json_loads(response_text)
 
-    async def enhance_template_prompt(self, user_prompt: str, context: Optional[dict] = None) -> dict:
-        """
-        Enhance a brief template prompt into a high-fidelity design specification using Gemini Pro.
-        """
-        is_light = any(w in user_prompt.lower() for w in ["white", "light theme", "light mode", "clean white", "cream"])
-        theme_directive = (
-            "CRITICAL THEME DIRECTIVE: The user explicitly specified or requested a WHITE / LIGHT theme. "
-            "You MUST set 'color_scheme' to a Clean Modern Light/White Theme (e.g., 'Fresh Organic White & Emerald Leaf', 'Crisp White Minimalist', 'Sunlit Artisan Cream & Citrus'). "
-            "Under NO circumstances should you output a dark theme."
-            if is_light else
-            "Adhere strictly to any theme preferences specified by the user. If they ask for white/light theme, make it white/light. If dark, make it dark."
-        )
-
-        context_text = json.dumps(context or {}, ensure_ascii=False, indent=2)
-        prompt = f"""You are a principal digital product designer, brand strategist, and frontend architect.
-Translate this user brief and supplied answers into an original, buildable website direction. Preserve its actual category and workflows. Organize the result into labeled sections for goal and audience, page purpose and content, pricing presentation, imagery and asset sourcing, visual system, motion and accessibility, interactions and states, responsive behavior, and architecture. Treat supplied answers as authoritative; never guess prices, project history, credentials, or company-specific facts. If the user chooses quote-only pricing, use estimate/consultation language and do not show fabricated rates. Use supplied project-image URLs as the user's real assets when relevant. If no company-owned images are provided, use relevant illustrative stock imagery only when appropriate, and never label it as the user's completed work, staff, property, or customers. Generic prompt examples are inspiration for completeness only: never copy their subject matter or requirements into unrelated site types.
-{user_prompt}
-
-Additional structured creator details (answers, planned pages, architecture, build target, and supplied project images):
-{json.dumps(context or {}, ensure_ascii=False, indent=2)}
-
-{theme_directive}
-
-Do not turn this into a generic template. Derive a distinctive visual thesis, audience, positioning, information architecture, content voice, and useful interactions from the actual brief. Specify concrete layout and art-direction choices. Avoid default glassmorphism, neon gradients, generic SaaS dashboards, and repeated feature-card patterns unless the brief explicitly calls for them. Do not invent testimonials, metrics, client names, awards, certifications, or other factual claims. The generated site is frontend-only: no API, database, simulated checkout, or false form-success state. Keep the design feasible in the chosen frontend framework and styling engine. For advanced native CSS, specify a tokenized system with fluid clamp() sizing, CSS Grid/Flex layouts, responsive or container breakpoints, :focus-visible states, subtle keyframe motion, and a prefers-reduced-motion fallback. Animation must be initialized after the page markup exists; prefer CSS over scroll-animation CDNs.
-
-Return valid JSON with these fields:
-{{
-  "enhanced_prompt": "Specific product and brand direction, audience, unique visual thesis, content voice, page structure, and interactions. Preserve unknown facts as unknown.",
-  "suggested_title": "A concise, business-specific title",
-  "industry": "The closest accurate industry",
-  "color_scheme": "A palette and light/dark direction grounded in the brief",
-  "recommended_sections": ["Only sections that serve this brief"],
-  "visual_signature": "A memorable, concrete design device",
-  "content_rules": ["Claims or facts that must not be invented"]
-}}
-
-Return ONLY valid JSON. Do not include markdown code block notation or explanations."""
-
-        try:
-            response_text = await self._generate_content(
-                prompt,
-                response_mime_type="application/json",
-                feature_name="website_content_generation",
-                preferred_provider="ollama"
-            )
-            data = robust_json_loads(response_text)
-            if isinstance(data, dict) and "enhanced_prompt" in data:
-                return data
-        except Exception as e:
-            logger.warning(f"enhance_template_prompt AI execution fallback triggered: {e}")
-
-        # Preserve the user's brief without inserting a canned site recipe.
-        return {
-            "enhanced_prompt": f"{user_prompt.strip()}\n\nCreate an original, brief-specific frontend. Use only supplied facts. Avoid generic sections, fabricated proof, demo content, and nonfunctional interactions.",
-            "suggested_title": "",
-            "industry": "",
-            "color_scheme": "Respect the user's requested theme.",
-            "recommended_sections": [],
-            "visual_signature": "",
-            "content_rules": ["Do not invent business facts, testimonials, metrics, awards, or credentials."]
-        }
-
     async def chat_with_assistant(self, message: str) -> dict:
         """Chat with the AI Site Studio assistant."""
-        prompt = f"""You are the official support concierge for Site Studio, a premium platform for website template generation, personalization, and purchasing.
+        prompt = f"""You are the official support concierge for Site Studio, a marketplace for website templates, personalization, and purchasing.
 Rules:
 - Answer only questions related to Site Studio.
 - Help users with templates.
-- Help users create and customize websites.
+- Help users discover, preview, purchase, and personalize marketplace templates.
 - Help users buy templates.
 - Be friendly, professional, and act like a pro.
 - Keep answers under 150 words.
@@ -1488,12 +1519,10 @@ def repair_truncated_jsx(code: str) -> str:
     if not code:
         return ""
 
-    # Guard against raw JSON status objects being parsed as JSX code
+    # Leave non-code JSON responses untouched instead of substituting a generated site.
     trimmed = code.strip()
-    if (trimmed.startswith("{") and ("status" in trimmed or "diagnosis" in trimmed or "Dynamic structural" in trimmed)) or (trimmed.startswith("{") and "export default" not in trimmed):
-        from app.services.template_synthesizer import analyze_prompt_intent, synthesize_react_application
-        profile = analyze_prompt_intent("Professional Website Template")
-        return synthesize_react_application(profile)
+    if trimmed.startswith("{") and "export default" not in trimmed:
+        return code
 
     # Guard: If this is clearly a config file or pure module without JSX, do not mutate exports or inject JSX tags!
     if "defineConfig" in code or "module.exports" in code or ("<" not in code and ">" not in code):

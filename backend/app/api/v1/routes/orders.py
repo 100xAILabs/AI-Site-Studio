@@ -14,6 +14,7 @@ from sqlalchemy import select, or_
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.models.template import TemplateStatus
@@ -36,6 +37,11 @@ async def create_order(
     current_user: User = Depends(get_current_user),
 ):
     """Create a new order. Returns the order with PENDING status ready for payment."""
+    if settings.TEMPLATE_DOWNLOADS_FREE:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Marketplace templates are free to download right now. Open a template and choose Free Download.",
+        )
     template_repo = TemplateRepository(db)
     subtotal = Decimal("0")
     order_items = []

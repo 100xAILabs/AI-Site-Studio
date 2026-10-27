@@ -42,6 +42,7 @@ import { useCurrencyStore } from "@/store/currencyStore";
 import Image from "@/components/Image";
 import "./Page.css";
 import Link from "@/components/Link";
+import { TEMPLATE_DOWNLOADS_FREE } from "@/lib/marketplaceConfig";
 
 // Toggle external card gateways (Razorpay / Stripe)
 const ENABLE_EXTERNAL_GATEWAYS = true;
@@ -58,6 +59,8 @@ function Checkout() {
   const [authToken, setAuthToken] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [paymentStep, setPaymentStep] = useState("cart"); // "cart" | "paying" | "success"
+  const [freeDownloads, setFreeDownloads] = useState([]);
+  const [freeDownloadsComplete, setFreeDownloadsComplete] = useState(false);
   const [initiatedOrder, setInitiatedOrder] = useState(null);
   const [initiatedPayment, setInitiatedPayment] = useState(null);
   const [vpaCopied, setVpaCopied] = useState(false);
@@ -213,7 +216,7 @@ function Checkout() {
     }, 3000);
   };
 
-  if (isSeller) {
+  if (isSeller && !TEMPLATE_DOWNLOADS_FREE) {
     return (
       <>
         <Navbar />
@@ -362,6 +365,30 @@ function Checkout() {
 
   const handleCheckout = async () => {
     if (items.length === 0) return;
+    if (TEMPLATE_DOWNLOADS_FREE) {
+      if (!authToken) {
+        router.push(`/sign-in?from=${encodeURIComponent("/checkout")}`);
+        return;
+      }
+      setIsProcessing(true);
+      try {
+        const ready = [];
+        for (const item of items) {
+          const result = await api.post(`/templates/${item.templateId}/download?format=zip`, {}, authToken);
+          if (!result?.download_url) throw new Error(`Could not prepare the download for ${item.title}.`);
+          ready.push({ id: item.templateId, title: item.title, downloadUrl: result.download_url });
+        }
+        setFreeDownloads(ready);
+        setFreeDownloadsComplete(true);
+        clearCart();
+      } catch (err) {
+        console.error("Free template download preparation failed:", err);
+        alert(err.message || "Could not prepare your free downloads. Please try again.");
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
     if (!authToken) {
       router.push("/login?redirect=/checkout");
       return;
@@ -525,7 +552,25 @@ function Checkout() {
       <Navbar />
       <div className="checkout-page">
         <div className="checkout-container">
-          {paymentStep === "success" ? (
+          {freeDownloadsComplete ? (
+            <div className="checkout-success-card">
+              <div style={{ width: "4rem", height: "4rem", borderRadius: "50%", backgroundColor: "rgba(16, 185, 129, 0.1)", display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "center", color: "hsl(var(--success, 142.1 76.2% 36.3%))" }}>
+                <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+              </div>
+              <h1 className="text-2xl font-bold text-foreground">Your free downloads are ready</h1>
+              <p className="text-sm text-muted-foreground">Choose a file below to download its template ZIP. No payment was taken.</p>
+              <div className="w-full space-y-2">
+                {freeDownloads.map((file) => (
+                  <a key={file.id} href={file.downloadUrl} target="_blank" rel="noopener noreferrer" download className="checkout-browse-btn" style={{ width: "100%", justifyContent: "center", textDecoration: "none" }}>
+                    <Download className="w-4 h-4" /> Download {file.title}
+                  </a>
+                ))}
+              </div>
+              <Link href="/marketplace" className="checkout-browse-btn" style={{ width: "100%", textAlign: "center", justifyContent: "center" }}>
+                Back to Marketplace
+              </Link>
+            </div>
+          ) : paymentStep === "success" ? (
             <div className="checkout-success-card">
               <div style={{ width: "4rem", height: "4rem", borderRadius: "50%", backgroundColor: "rgba(16, 185, 129, 0.1)", display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "center", color: "hsl(var(--success, 142.1 76.2% 36.3%))" }}>
                 <ShieldCheck className="w-10 h-10 text-emerald-500" />
@@ -937,7 +982,7 @@ function Checkout() {
                           </div>
                           <div className="checkout-item-right">
                             <span className="checkout-item-price">
-                              {formatConvertedPrice(item.price, item.price_currency || "USD", userCurrency, rates)}
+                              {TEMPLATE_DOWNLOADS_FREE ? "Free" : formatConvertedPrice(item.price, item.price_currency || "USD", userCurrency, rates)}
                             </span>
                             <button onClick={() => removeItem(item.templateId)} className="checkout-item-delete">
                               <Trash2 className="checkout-trash-icon" />
@@ -949,7 +994,7 @@ function Checkout() {
                   )}
                 </div>
 
-                {items.length > 0 && (
+                {items.length > 0 && !TEMPLATE_DOWNLOADS_FREE && (
                   <div className="checkout-card checkout-payment-card">
                     <div className="checkout-payment-header">
                       <h3 className="checkout-section-title">Select Payment Method</h3>
@@ -1096,15 +1141,15 @@ function Checkout() {
                   <div className="summary-items-list">
                     <div className="summary-item-row">
                       <span>Subtotal</span>
-                      <span className="font-semibold">{hasInrItems ? `₹${total().toFixed(2)}` : formatConvertedPrice(total(), "USD", userCurrency, rates)}</span>
+                      <span className="font-semibold">{TEMPLATE_DOWNLOADS_FREE ? "Free" : hasInrItems ? `₹${total().toFixed(2)}` : formatConvertedPrice(total(), "USD", userCurrency, rates)}</span>
                     </div>
                     <div className="summary-item-row text-muted-foreground/75">
                       <span>Taxes</span>
-                      <span>{hasInrItems ? `₹0.00` : formatConvertedPrice(0, "USD", userCurrency, rates)}</span>
+                      <span>{TEMPLATE_DOWNLOADS_FREE ? "Included" : hasInrItems ? `₹0.00` : formatConvertedPrice(0, "USD", userCurrency, rates)}</span>
                     </div>
                     <div className="summary-total-row">
                       <span>Total Amount</span>
-                      <span className="summary-total-amount">{hasInrItems ? `₹${total().toFixed(2)}` : formatConvertedPrice(total(), "USD", userCurrency, rates)}</span>
+                      <span className="summary-total-amount">{TEMPLATE_DOWNLOADS_FREE ? "Free" : hasInrItems ? `₹${total().toFixed(2)}` : formatConvertedPrice(total(), "USD", userCurrency, rates)}</span>
                     </div>
                   </div>
 
@@ -1115,6 +1160,8 @@ function Checkout() {
                   >
                     {isProcessing ? (
                       <><Loader2 className="checkout-btn-loader animate-spin" /> Starting Session…</>
+                    ) : TEMPLATE_DOWNLOADS_FREE ? (
+                      <><Download className="checkout-btn-icon" /> Download templates for free</>
                     ) : paymentMethodType === "upi" ? (
                       <><ScanQrCode className="checkout-btn-icon" /> Pay via UPI QR ({hasInrItems ? `₹${total().toFixed(2)}` : inrAmountString})</>
                     ) : paymentGateway === "stripe" ? (
@@ -1126,7 +1173,7 @@ function Checkout() {
 
                   <div className="checkout-security-badge">
                     <ShieldCheck className="security-shield-icon" />
-                    <span>Secure 256-bit SSL encrypted checkout</span>
+                    <span>{TEMPLATE_DOWNLOADS_FREE ? "Free downloads · no payment required" : "Secure 256-bit SSL encrypted checkout"}</span>
                   </div>
                 </div>
               </div>

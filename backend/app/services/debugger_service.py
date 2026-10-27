@@ -35,9 +35,7 @@ class AIDebuggerService:
         # Reject raw JSON status anomalies masquerading as code
         trimmed = code.strip()
         if ext_clean in [".jsx", ".tsx"] and (trimmed.startswith("{") and ("status" in trimmed or "diagnosis" in trimmed or "Dynamic structural" in trimmed)):
-            from app.services.template_synthesizer import analyze_prompt_intent, synthesize_react_application
-            profile = analyze_prompt_intent("Professional Website Template")
-            return synthesize_react_application(profile)
+            return code
 
         code = clean_code_response(code, ext_clean)
 

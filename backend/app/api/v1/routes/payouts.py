@@ -295,7 +295,7 @@ async def get_withdrawal_receipt(
         "payout_date": request.updated_at if request.status == WithdrawalStatus.PAID else None,
         "amount": request.amount,
         "status": request.status,
-        "seller_name": request.seller.full_name or request.seller.username or "Site Studio Creator",
+        "seller_name": request.seller.full_name or request.seller.username or "Site Studio Seller",
         "seller_email": request.seller.email,
         "bank_name": request.bank_name,
         "account_number": f"****{request.account_number[-4:]}" if request.account_number else "N/A",

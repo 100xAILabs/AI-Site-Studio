@@ -167,7 +167,7 @@ export default function ReceiptPage() {
               <Building2 style={{ width: "0.75rem", height: "0.75rem" }} /> SELLER / CREATOR
             </span>
             <p className="receipt-party-name">
-              {order.items?.[0]?.template?.developer_name || "Site Studio Creator"}
+              {order.items?.[0]?.template?.developer_name || "Site Studio Seller"}
             </p>
             <p className="receipt-party-detail">Verified Marketplace Seller</p>
           </div>

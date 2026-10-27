@@ -1227,7 +1227,7 @@ async def edit_live_preview_manual(
 
     owns_template = template.seller_id == current_user.id
     is_admin = getattr(current_user.role, "value", current_user.role) == "admin"
-    has_purchase = template.is_free
+    has_purchase = template.is_free or settings.TEMPLATE_DOWNLOADS_FREE
     if not owns_template and not is_admin and not has_purchase:
         purchase_result = await db.execute(
             select(OrderItem.id).join(Order, Order.id == OrderItem.order_id).where(
@@ -2281,6 +2281,8 @@ async def serve_live_preview(
   })();
 </script>
 """.replace("__PURCHASE_URL__", purchase_url)
+    if settings.TEMPLATE_DOWNLOADS_FREE:
+        watermark_payload = ""
     async def serve_fallback(err_msg: str = "Preview compilation"):
         if filepath and not (filepath.endswith(".html") or filepath.endswith(".htm")):
             if filepath.endswith(".css"):
@@ -2459,13 +2461,10 @@ async def serve_live_preview(
         c_title = request.query_params.get("title") or template.title
         c_sub = request.query_params.get("subtitle") or template.short_description
         c_cta = request.query_params.get("ctaText") or "Get Started"
-        from app.services.template_synthesizer import analyze_prompt_intent
-        domain_prompt_hint = f"{c_title} {template.short_description or ''} {template.description or ''} {template.industry or ''}"
-        domain_profile = analyze_prompt_intent(prompt=domain_prompt_hint, industry_hint=template.industry or b_name, business_title_hint=b_name)
-        hero_bg_url = domain_profile.hero_image
-        gallery_1 = domain_profile.gallery_images[0] if len(domain_profile.gallery_images) > 0 else domain_profile.hero_image
-        gallery_2 = domain_profile.gallery_images[1] if len(domain_profile.gallery_images) > 1 else domain_profile.hero_image
-        gallery_3 = domain_profile.gallery_images[2] if len(domain_profile.gallery_images) > 2 else domain_profile.hero_image
+        hero_bg_url = "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1600&q=85"
+        gallery_1 = hero_bg_url
+        gallery_2 = hero_bg_url
+        gallery_3 = hero_bg_url
         
         is_light_fallback = (
             request.query_params.get("theme", "").lower() == "light" 
@@ -3390,6 +3389,7 @@ async def serve_live_preview(
 
                 # Check if this template is a personal project, figma import, customized draft, or live mode
                 is_personal_or_clean = (
+                    settings.TEMPLATE_DOWNLOADS_FREE or
                     getattr(template, "is_free", False) or
                     getattr(template, "price", 0) <= 0 or
                     template.status == TemplateStatus.DRAFT or

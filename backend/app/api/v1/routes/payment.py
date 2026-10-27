@@ -183,6 +183,11 @@ async def initiate_payment(
         raise HTTPException(status_code=403, detail="Access denied")
     if order.status != OrderStatus.PENDING:
         raise HTTPException(status_code=400, detail="Order is not in PENDING state")
+    if settings.TEMPLATE_DOWNLOADS_FREE and any(item.template_id for item in (order.items or [])):
+        raise HTTPException(
+            status_code=410,
+            detail="Marketplace templates are free to download right now. No payment is due.",
+        )
 
     if data.gateway == PaymentGateway.UPI:
         merchant_vpa = settings.UPI_MERCHANT_VPA.strip()

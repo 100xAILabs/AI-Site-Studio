@@ -173,8 +173,18 @@ function Marketplace() {
   return (
     <>
       <Navbar />
-      <div className="marketplace-page">
+      <div className="marketplace-page marketplace-redesign">
         <div className="marketplace-container">
+          <section className="market-hero">
+            <div className="market-hero-topline"><span><i /> THE WEBSITE TEMPLATE LIBRARY</span><span>DESIGNED TO GET YOU STARTED</span></div>
+            <div className="market-hero-main">
+              <div>
+                <h1>Good ideas deserve<br /><em>a better starting point.</em></h1>
+                <p>Thoughtful, ready-to-customize websites for the things you want to make next.</p>
+              </div>
+              <button type="button" onClick={() => navigate("/studio")} className="market-hero-studio"><Sparkles size={17} /><span>Studio Creator</span><b aria-hidden="true">↗</b></button>
+            </div>
+          </section>
           <div className="marketplace-layout">
 
             {/* ── Sidebar ─────────────────────────────────────────── */}
@@ -236,8 +246,7 @@ function Marketplace() {
                     </button>
                   </div>
                 </div>
-
-                {/* Row 2 — Mobile & Tablet Action Row (Visible < 1024px: Filters Left, Studio Creator Right, 100% visible without scroll) */}
+                {/* Row 2 — Mobile & Tablet Action Row */}
                 <div className="marketplace-mobile-actions-bar">
                   <button
                     type="button"
@@ -251,19 +260,9 @@ function Marketplace() {
                       <span className="mobile-filter-count-badge">{activeFilterCount}</span>
                     )}
                   </button>
-
-                  <button
-                    type="button"
-                    onClick={() => navigate("/marketplace/generate")}
-                    className="marketplace-ai-generate-btn mobile-creator-btn"
-                    title="Generate a custom template in the studio"
-                  >
-                    <Sparkles className="ai-generate-icon animate-pulse" />
-                    <span>Studio Creator</span>
-                  </button>
                 </div>
 
-                {/* Row 3 — Sort tabs + Desktop Studio Creator + view toggle */}
+                {/* Row 3 — Sort tabs and view toggle */}
                 <div className="toolbar-row toolbar-row-controls">
                   <div className="marketplace-sort-bar">
                     {SORT_OPTIONS.slice(0, 4).map((o) => (
@@ -278,17 +277,6 @@ function Marketplace() {
                   </div>
 
                   <div className="toolbar-spacer" />
-
-                  {/* Desktop Studio Creator (hidden on mobile, visible on desktop >= 1024px) */}
-                  <button
-                    type="button"
-                    onClick={() => navigate("/marketplace/generate")}
-                    className="marketplace-ai-generate-btn desktop-creator-btn"
-                    title="Generate a custom template in the studio"
-                  >
-                    <Sparkles className="ai-generate-icon animate-pulse" />
-                    <span>Studio Creator</span>
-                  </button>
 
                   <div className="view-toggle">
                     {(["grid", "list"]).map((v) => (
@@ -335,8 +323,8 @@ function Marketplace() {
                 {filters.developer && (
                   <div className="flex items-center gap-1.5 bg-primary/20 text-primary border border-primary/30 px-3 py-1 rounded-full text-xs font-semibold" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
                     <span>Developer: {filters.developer}</span>
-                    <button 
-                      type="button" 
+                    <button
+                      type="button"
                       onClick={() => setFilter("developer", undefined)}
                       className="hover:text-white transition-colors ml-1 focus:outline-none bg-transparent border-none p-0 cursor-pointer text-primary flex items-center"
                     >

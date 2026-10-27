@@ -53,10 +53,10 @@ class TemplateService:
                     "title": t.title,
                     "slug": t.slug,
                     "short_description": t.short_description,
-                    "price": t.price,
-                    "original_price": t.original_price,
-                    "is_free": t.is_free,
-                    "is_on_sale": t.is_on_sale,
+                    "price": 0 if settings.TEMPLATE_DOWNLOADS_FREE else t.price,
+                    "original_price": None if settings.TEMPLATE_DOWNLOADS_FREE else t.original_price,
+                    "is_free": True if settings.TEMPLATE_DOWNLOADS_FREE else t.is_free,
+                    "is_on_sale": False if settings.TEMPLATE_DOWNLOADS_FREE else t.is_on_sale,
                     "thumbnail_url": t.thumbnail_url,
                     "video_url": t.video_url,
                     "category_id": t.category_id,
@@ -154,6 +154,11 @@ class TemplateService:
             is_wishlisted = await self.wishlist.is_wishlisted(current_user.id, template.id)
 
         response = TemplateResponse.model_validate(template)
+        if settings.TEMPLATE_DOWNLOADS_FREE:
+            response.price = 0
+            response.original_price = None
+            response.is_free = True
+            response.is_on_sale = False
         
         # Dynamically inspect ZIP files ONLY if included_pages has never been determined
         download_assets = template.download_assets or {}
@@ -331,7 +336,14 @@ class TemplateService:
 
     async def get_featured_templates(self, limit: int = 8) -> List[TemplateCardResponse]:
         templates = await self.repo.get_featured(limit)
-        return [TemplateCardResponse.model_validate(t) for t in templates]
+        cards = [TemplateCardResponse.model_validate(t) for t in templates]
+        if settings.TEMPLATE_DOWNLOADS_FREE:
+            for card in cards:
+                card.price = 0
+                card.original_price = None
+                card.is_free = True
+                card.is_on_sale = False
+        return cards
 
     async def record_unique_account_view(
         self,

@@ -22,7 +22,7 @@ import Register from './app/register/page.jsx'
 import Onboarding from './app/onboarding/page.jsx'
 import AdminPanel from './app/admin/page.jsx'
 import TemplateDetailsPage from './app/marketplace/[slug]/page.jsx'
-import GenerateTemplatePage from './app/marketplace/generate.jsx'
+import StudioPage from './app/studio/page.jsx'
 import PreviewPage from './app/preview/page.jsx'
 import StorybookPage from './app/storybook/page.jsx'
 import PricingPage from './app/pricing/page.jsx'
@@ -88,7 +88,8 @@ function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/marketplace" element={<Marketplace />} />
-            <Route path="/marketplace/generate" element={<ProtectedRoute><GenerateTemplatePage /></ProtectedRoute>} />
+            <Route path="/studio" element={<ProtectedRoute><StudioPage /></ProtectedRoute>} />
+            <Route path="/marketplace/generate" element={<Navigate to="/studio" replace />} />
             <Route path="/marketplace/:slug" element={<TemplateDetailsPage />} />
             <Route path="/pricing" element={<PricingPage />} />
             <Route path="/about" element={<AboutPage />} />

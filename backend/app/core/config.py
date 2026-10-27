@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
     ENVIRONMENT: str = "development"  # development | staging | production
+    TEMPLATE_DOWNLOADS_FREE: bool = True
 
     # ── Database ──────────────────────────────────────────────────────────────
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_site_studio"
@@ -93,8 +94,8 @@ class Settings(BaseSettings):
     # Comma/newline-separated Gemini keys, rotated to spread requests and
     # fail over quickly when a key is quota-limited. Keep keys in .env only.
     GEMINI_API_KEYS: str = ""
-    AI_GEMINI_TIMEOUT_SECONDS: float = 60.0
-    GEMINI_MODEL: str = "gemini-3.8-flash"
+    AI_GEMINI_TIMEOUT_SECONDS: float = 600.0
+    GEMINI_MODEL: str = "gemini-3.6-flash"
     GEMINI_EMBEDDING_MODEL: str = "gemini-embedding-2"
 
     # Separate Gemini models per feature (Tuned to high-quota active Flash models to avoid quota exhaustion)
@@ -136,25 +137,26 @@ class Settings(BaseSettings):
 
     # ── Multi-Model Swarm Provider Assignments ────────────────────────────────
     # Primary AI provider across all features & agents:
-    # Set to 'kimi', 'gemini', 'ollama', or 'openrouter'
-    # Explicit provider selection is used by default. Hosted fallback must be enabled
-    # deliberately so a local Ollama/Cline request never incurs an unexpected API call.
-    AI_FREE_ONLY: bool = True
+    # Set to 'kimi', 'gemini', 'groq', 'ollama', 'openrouter', or another supported provider.
+    # Studio agent provider order is scoped in studio_service; these defaults
+    # continue to control all other AI features.
+    AI_FREE_ONLY: bool = False
     AI_PROVIDER_FALLBACKS: bool = False
     AI_LOCAL_FALLBACKS: bool = True
-    AI_WEBSITE_PROVIDER_ORDER: str = "cline,ollama"
+    AI_WEBSITE_PROVIDER_ORDER: str = "groq,ollama"
     WEBSITE_PAGE_GENERATION_CONCURRENCY: int = 3
     AI_PRIMARY_PROVIDER: str = "cline"
-    AGENT_PLANNING_PROVIDER: str = "cline"
-    AGENT_DESIGNER_PROVIDER: str = "cline"
-    AGENT_FRONTEND_PROVIDER: str = "cline"
+    AGENT_PLANNING_PROVIDER: str = "groq"
+    AGENT_DESIGNER_PROVIDER: str = "groq"
+    AGENT_FRONTEND_PROVIDER: str = "groq"
     AGENT_BACKEND_PROVIDER: str = "cline"
     AGENT_DATABASE_PROVIDER: str = "cline"
     AGENT_SEO_PROVIDER: str = "cline"
     AGENT_TESTING_PROVIDER: str = "cline"
     AGENT_DEPLOYMENT_PROVIDER: str = "cline"
     AGENT_CODE_DEBUGGING_AGENT_PROVIDER: str = "cline"
-    AGENT_WEBSITE_CONTENT_GENERATION_PROVIDER: str = "cline"
+    AGENT_CODE_ASSISTANT_PROVIDER: str = "groq"
+    AGENT_WEBSITE_CONTENT_GENERATION_PROVIDER: str = "groq"
 
     # ── Ollama (Local AI Engine - Qwen / DeepSeek) ────────────────────────────
     OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
@@ -167,8 +169,8 @@ class Settings(BaseSettings):
     OLLAMA_MODEL_DESIGNER_FALLBACK: str = "qwen2.5:latest"
     OLLAMA_MODEL_SEO: str = "qwen3.5:9b"
     OLLAMA_MODEL_SEO_FALLBACK: str = "qwen2.5:latest"
-    OLLAMA_MODEL_CODE: str = "qwen2.5-coder:latest,qwen3.5:9b,qwen2.5-coder:7b"
-    OLLAMA_MODEL_CODE_FALLBACK: str = "qwen2.5:latest,qwen3-coder:30b"
+    OLLAMA_MODEL_CODE: str = "qwen3.5:9b,qwen2.5-coder:7b"
+    OLLAMA_MODEL_CODE_FALLBACK: str = "qwen2.5:latest"
 
     # ── OpenRouter (Free and Paid community & flagship models) ────────────────
     OPENROUTER_API_KEY: str = ""
@@ -276,6 +278,7 @@ class Settings(BaseSettings):
     # ── File Uploads ──────────────────────────────────────────────────────────
     MAX_UPLOAD_SIZE_MB: int = 50
     ALLOWED_IMAGE_TYPES: str = "image/jpeg,image/png,image/webp,image/gif"
+    PIXABAY_API_KEY: str = ""
 
     # ── Computed Properties ───────────────────────────────────────────────────
     @property

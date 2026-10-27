@@ -30,6 +30,7 @@ import { cn, formatPrice, formatConvertedPrice, formatNumber, convertToUSD } fro
 import { useCartStore } from "@/store";
 import { useCurrencyStore } from "@/store/currencyStore";
 import { API_URL, api } from "@/lib/api";
+import { TEMPLATE_DOWNLOADS_FREE } from "@/lib/marketplaceConfig";
 import "./Page.css";
 
 /**
@@ -297,12 +298,39 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
   const [recentlyViewed, setRecentlyViewed] = useState([]);
 
   const [token, setToken] = useState(null);
+  const [isDownloading, setIsDownloading] = useState(false);
   useEffect(() => {
     getToken().then(setToken);
   }, [getToken]);
 
   // Declare template query hook first to avoid TDZ ReferenceError in render hooks
   const { data: template, isLoading, error } = useTemplate(slug, token);
+
+  const handleFreeDownload = async () => {
+    if (!template) return;
+    if (!isSignedIn) {
+      navigate(`/sign-in?from=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
+    setIsDownloading(true);
+    try {
+      const authToken = token || await getToken();
+      const result = await api.post(`/templates/${template.id}/download?format=zip`, {}, authToken);
+      if (!result?.download_url) throw new Error("The download file is not available yet.");
+      const link = document.createElement("a");
+      link.href = result.download_url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.download = "";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (downloadError) {
+      window.alert(downloadError.message || "Could not download this template.");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   // Helper functions for license enum mapping
   const mapLicenseToBackend = (val) => {
@@ -668,6 +696,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
   };
 
   const isSeller = isSignedIn && (user?.role === "seller" || user?.role === "SELLER");
+  const isTemplateFree = TEMPLATE_DOWNLOADS_FREE || !!template?.is_free;
 
   // Fetch related templates of the same category
   const categorySlug = template?.category?.slug || template?.category_id || "";
@@ -737,7 +766,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
       // If user arrived with ?buy=1 or ?action=buy, directly add to cart and route to checkout
       const buyParam = searchParams.get("buy");
       const actionParam = searchParams.get("action");
-      if (buyParam === "1" || actionParam === "buy" || buyParam === "true") {
+      if (!isTemplateFree && (buyParam === "1" || actionParam === "buy" || buyParam === "true")) {
         addToCart({
           templateId: template.id,
           title: template.title,
@@ -752,7 +781,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
   }, [template, searchParams]);
 
   const handleAddToCart = () => {
-    if (!template) return;
+    if (!template || isTemplateFree) return;
     addToCart({
       templateId: template.id,
       title: template.title,
@@ -766,6 +795,10 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
   const handleBuyNow = (e) => {
     e.preventDefault();
     if (!template) return;
+    if (isTemplateFree) {
+      handleFreeDownload();
+      return;
+    }
     if (!isInCart) {
       addToCart({
         templateId: template.id,
@@ -962,7 +995,7 @@ npm run build`;
       <div>
         <div className="details-price-row flex items-baseline justify-between mb-1">
           <span className="details-price-value text-3xl font-extrabold text-foreground">
-            {template.is_free ? "Free" : formatPrice(template.price, "USD")}
+            {isTemplateFree ? "Free" : formatPrice(template.price, "USD")}
           </span>
           {template.original_price && template.original_price > template.price && (
             <span className="details-price-original text-sm line-through text-muted-foreground">
@@ -970,20 +1003,38 @@ npm run build`;
             </span>
           )}
         </div>
-        <span className="text-xs text-muted-foreground block font-medium mt-1">Instant download • Full commercial & personal use</span>
+        <span className="text-xs text-muted-foreground block font-medium mt-1">Free source download • Full commercial & personal use</span>
       </div>
 
       {/* Action Buttons */}
       <div className="details-action-stack space-y-2">
         {(user?.id === template?.seller_id || user?.role === "admin" || user?.role === "super_admin") ? (
+          <>
+            <button
+              onClick={() => {
+                setEditModalTab("general");
+                setIsEditModalOpen(true);
+              }}
+              className="w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-primary to-indigo-600 hover:opacity-95 text-white shadow-md shadow-primary/20 transition-all text-sm cursor-pointer border-0"
+            >
+              <Edit3 className="w-4 h-4" /> Edit Template Details
+            </button>
+            {isTemplateFree && (
+              <button type="button" onClick={handleFreeDownload} disabled={isDownloading} className="details-purchase-btn w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-primary text-primary-foreground text-sm disabled:opacity-60">
+                {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                {isDownloading ? "Preparing download…" : "Free Download"}
+              </button>
+            )}
+          </>
+        ) : isTemplateFree ? (
           <button
-            onClick={() => {
-              setEditModalTab("general");
-              setIsEditModalOpen(true);
-            }}
-            className="w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-primary to-indigo-600 hover:opacity-95 text-white shadow-md shadow-primary/20 transition-all text-sm cursor-pointer border-0"
+            type="button"
+            onClick={handleFreeDownload}
+            disabled={isDownloading}
+            className="details-purchase-btn w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-primary hover:bg-primary/95 text-primary-foreground shadow-md shadow-primary/20 transition-all text-sm disabled:opacity-60"
           >
-            <Edit3 className="w-4 h-4" /> Edit Template Details
+            {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {isDownloading ? "Preparing download…" : "Free Download"}
           </button>
         ) : isSeller ? (
           <button disabled className="w-full py-3 bg-muted text-muted-foreground text-xs font-bold rounded-xl cursor-not-allowed">
@@ -1252,7 +1303,7 @@ npm run build`;
                 </div>
                 <div className="details-info-price hidden lg:block">
                   <div className="text-2xl font-bold text-foreground">
-                    {template.is_free ? "Free" : formatPrice(template.price, "USD")}
+                    {isTemplateFree ? "Free" : formatPrice(template.price, "USD")}
                   </div>
                   <span className="text-xs text-muted-foreground">Lifetime Access • Complete Source Code</span>
                 </div>
@@ -3055,7 +3106,7 @@ npm run build`;
       <div className="details-mobile-bottom-bar">
         <div className="details-mobile-bottom-info">
           <span className="details-mobile-bottom-price">
-            {template.is_free ? "Free" : formatPrice(template.price, "USD")}
+            {isTemplateFree ? "Free" : formatPrice(template.price, "USD")}
           </span>
           <span className="details-mobile-bottom-license">Lifetime License</span>
         </div>
@@ -3068,7 +3119,12 @@ npm run build`;
           >
             <Globe className="w-3.5 h-3.5" /> Demo
           </a>
-          {!isSeller && (
+          {isTemplateFree ? (
+            <button type="button" onClick={handleFreeDownload} disabled={isDownloading} className="details-mobile-bottom-btn cart">
+              {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+              {isDownloading ? "Preparing…" : "Free Download"}
+            </button>
+          ) : !isSeller && (
             <button
               type="button"
               onClick={handleAddToCart}

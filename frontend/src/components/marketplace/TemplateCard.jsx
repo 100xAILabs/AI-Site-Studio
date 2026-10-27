@@ -23,6 +23,7 @@ import { cn, formatPrice, formatConvertedPrice, formatNumber, discountPercent } 
 import { useCartStore } from "@/store";
 import { useCurrencyStore } from "@/store/currencyStore";
 import { useAppUser } from "@/lib/auth";
+import { TEMPLATE_DOWNLOADS_FREE } from "@/lib/marketplaceConfig";
 import "./TemplateCard.css";
 
 const StarRating = ({ rating, count }) => (
@@ -56,6 +57,7 @@ export default function TemplateCard({
   const { userCurrency, rates } = useCurrencyStore();
 
   const isSeller = isSignedIn && (user?.role === "seller" || user?.role === "SELLER");
+  const isTemplateFree = TEMPLATE_DOWNLOADS_FREE || template.is_free;
 
   const handleAddToCart = (e) => {
     e.preventDefault();
@@ -126,7 +128,18 @@ export default function TemplateCard({
                 <Eye className="overlay-icon" />
                 Preview
               </button>
-              {!isSeller && (
+              {!isSeller && isTemplateFree ? (
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window.location.href = `/marketplace/${templateSlug}`;
+                  }}
+                  className="overlay-btn-cart add-to-cart"
+                >
+                  <Download className="overlay-icon" /> View &amp; Download
+                </button>
+              ) : !isSeller && (
                 <button
                   onClick={handleAddToCart}
                   className={cn(
@@ -255,9 +268,9 @@ export default function TemplateCard({
             <div className="card-price-row">
               <div className="price-val-container">
                 <span className="price-val">
-                  {template.is_free ? "Free" : formatPrice(template.price, "USD")}
+                  {isTemplateFree ? "Free" : formatPrice(template.price, "USD")}
                 </span>
-                {template.original_price && template.original_price > template.price && (
+                {!isTemplateFree && template.original_price && template.original_price > template.price && (
                   <span className="original-price-val">
                     {formatPrice(template.original_price, "USD")}
                   </span>
@@ -270,7 +283,20 @@ export default function TemplateCard({
 
             {/* Action Bar (Mobile & Tablet) */}
             <div className="card-mobile-action-bar">
-              {!isSeller && (
+                  {!isSeller && isTemplateFree ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    window.location.href = `/marketplace/${templateSlug}`;
+                  }}
+                  className="card-mobile-cart-btn"
+                  aria-label="View and download this free template"
+                >
+                  <Download className="card-cart-icon" /> Free Download
+                </button>
+              ) : !isSeller && (
                 <button
                   type="button"
                   onClick={handleAddToCart}

@@ -85,6 +85,7 @@ async def get_stored_file(
                                 .where(
                                     (Template.source_file_id == file_uuid) | (Template.id == file_uuid),
                                     or_(
+                                        settings.TEMPLATE_DOWNLOADS_FREE,
                                         Template.is_free == True,
                                         (Order.user_id == current_user.id) & (Order.status == OrderStatus.COMPLETED)
                                     )

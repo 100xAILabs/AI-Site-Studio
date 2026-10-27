@@ -1770,7 +1770,7 @@ function Dashboard() {
         license_type: licenseType === "extended" ? "extended" : "regular",
         is_featured: false,
         is_bestseller: false,
-        developer_name: user?.fullName ?? user?.firstName ?? "Site Studio Creator",
+        developer_name: user?.fullName ?? user?.firstName ?? "Site Studio Seller",
         developer_avatar: user?.imageUrl ?? null,
         included_pages: analysisResult ? (analysisResult.pages || []) : [],
         seo_keywords: keywords ? keywords.split(",").map(k => k.trim()) : [],
@@ -3385,47 +3385,16 @@ function Dashboard() {
                     ) : studioProjectsSubTab === "created" ? (
                       /* Draft / Unpurchased Studio Projects */
                       createdStudioProjects.length === 0 ? (
-                        <div className="grid md:grid-cols-2 gap-6">
-                          <div className="text-center p-6 py-10 border-2 border-dashed border-indigo-200 dark:border-indigo-900 rounded-2xl bg-white dark:bg-slate-900 flex flex-col justify-center items-center shadow-sm">
-                            <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center mb-3">
-                              <Cpu className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-                            </div>
-                            <p className="text-base font-extrabold text-slate-900 dark:text-white">No Draft Studio Projects</p>
-                            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 max-w-sm mx-auto leading-relaxed font-medium">
-                              You don't have any unpurchased draft projects. Generate a custom prototype to customize and preview.
-                            </p>
-                            <Link
-                              to="/marketplace/generate"
-                              className="mt-4 btn-primary-gradient"
-                              style={{ textDecoration: 'none' }}
-                            >
-                              <Sparkles className="w-4 h-4" /> Launch Studio Creator
-                            </Link>
-                          </div>
-
-                          <div className="p-6 rounded-2xl border-2 border-indigo-200 dark:border-indigo-900 bg-white dark:bg-slate-900 flex flex-col justify-between shadow-sm">
-                            <div className="space-y-2">
-                              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 rounded-full text-indigo-700 dark:text-indigo-300 text-[10px] font-extrabold uppercase tracking-wider">
-                                <Wand2 className="w-3 h-3" /> AI Studio Creator
-                              </div>
-                              <h4 className="font-extrabold text-lg text-slate-900 dark:text-white">Create New Project</h4>
-                              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
-                                Enter your exact business specifications, brand colors, and contact info in Studio Creator. Our AI pipeline generates the complete multi-page prototype for you.
-                              </p>
-                            </div>
-                            <Link
-                              to="/marketplace/generate"
-                              className="mt-4 w-full btn-primary-gradient"
-                              style={{ textDecoration: 'none' }}
-                            >
-                              <Sparkles className="w-4 h-4" /> Create Project with Studio
-                            </Link>
-                          </div>
+                        <div className="text-center p-6 py-10 border-2 border-dashed border-indigo-200 dark:border-indigo-900 rounded-2xl bg-white dark:bg-slate-900 flex flex-col justify-center items-center shadow-sm">
+                          <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center mb-3"><Cpu className="w-6 h-6 text-indigo-600 dark:text-indigo-400" /></div>
+                          <p className="text-base font-extrabold text-slate-900 dark:text-white">No Draft Studio Projects</p>
+                          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 max-w-sm mx-auto leading-relaxed font-medium">You don't have any unpurchased draft projects.</p>
                         </div>
                       ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-8 justify-items-start">
                           {createdStudioProjects.map((item) => (
                             <div key={item.id} className="w-full max-w-[340px] group relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-indigo-500 transition-all duration-300 flex flex-col justify-between overflow-hidden shadow-md hover:shadow-xl p-5 space-y-4">
+                              {item.thumbnail_url && <img src={item.thumbnail_url} alt={`${item.title} preview`} className="-mx-5 -mt-5 mb-1 h-40 w-[calc(100%+2.5rem)] object-cover" loading="lazy" />}
                               {/* Header Badges */}
                               <div className="flex items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
                                 <span className="px-2.5 py-1 bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 font-extrabold text-[10px] uppercase rounded-md border border-indigo-300 dark:border-indigo-800">
@@ -3447,8 +3416,8 @@ function Dashboard() {
                                 </div>
 
                                 <div className="space-y-2 pt-3 border-t border-slate-200 dark:border-slate-800">
-                                  {/* Buy / Add to Cart Action */}
-                                  <button
+                                  {/* Private Studio builds stay in the user's workspace and are not marketplace purchases. */}
+                                  {!item.tags?.includes("studio-project") && <button
                                     type="button"
                                     onClick={() => {
                                       addToCart({
@@ -3468,7 +3437,7 @@ function Dashboard() {
                                   >
                                     <ShoppingCart className="w-4 h-4" />
                                     <span>{isInCart(item.id) ? "In Cart" : `Buy ($${item.price || 49})`}</span>
-                                  </button>
+                                  </button>}
 
                                   {/* Live Editor & Live Demo */}
                                   <div className="flex gap-2">
@@ -3476,16 +3445,16 @@ function Dashboard() {
                                       to={`/preview?template=${item.slug || item.id}`}
                                       className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all text-decoration-none"
                                     >
-                                      <Wand2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Editor
+                                      <Wand2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> {item.tags?.includes("studio-project") ? "Open in AI Studio" : "Editor"}
                                     </Link>
-                                    <a
+                                    {!item.tags?.includes("studio-project") && <a
                                       href={`${API_BASE}/preview/live/${item.id}`}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all text-decoration-none text-center"
                                     >
                                       <ExternalLink className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Demo
-                                    </a>
+                                    </a>}
                                   </div>
                                 </div>
                               </div>

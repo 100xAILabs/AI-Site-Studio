@@ -8,7 +8,7 @@ from app.api.v1.routes import (
     auth, templates, categories, search,
     orders, payment, reviews, favorites,
     wishlist, dashboard, admin, preview, ai, files, follows, deployments,
-    payouts, ws, figma, incidents, telemetry, storefront,
+    payouts, ws, incidents, telemetry, storefront, studio,
 )
 
 api_router = APIRouter()
@@ -26,12 +26,12 @@ api_router.include_router(dashboard.router,  prefix="/dashboard",  tags=["Dashbo
 api_router.include_router(admin.router,      prefix="/admin",      tags=["Admin"])
 api_router.include_router(preview.router,    prefix="/preview",    tags=["Preview"])
 api_router.include_router(ai.router,         prefix="/ai",         tags=["AI"])
+api_router.include_router(studio.router,     prefix="/studio",     tags=["Studio"])
 api_router.include_router(files.router,      prefix="/files",      tags=["Files"])
 api_router.include_router(follows.router,    prefix="/follows",    tags=["Follows"])
 api_router.include_router(deployments.router, prefix="/deployments", tags=["Deployments"])
 api_router.include_router(payouts.router,     prefix="/payouts",     tags=["Payouts"])
 api_router.include_router(ws.router,          prefix="/ws",          tags=["WebSocket"])
-api_router.include_router(figma.router,       prefix="/figma",       tags=["Figma"])
 api_router.include_router(incidents.router,   prefix="/incidents",   tags=["Incidents"])
 api_router.include_router(telemetry.router,   prefix="/telemetry",   tags=["Telemetry"])
 api_router.include_router(storefront.router,  prefix="/storefront",  tags=["Storefront"])

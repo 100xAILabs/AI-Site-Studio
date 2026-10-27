@@ -3,11 +3,10 @@ AI routes — content generation, SEO, color palettes, template recommendations.
 """
 
 from typing import List, Optional
-import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from app.core.dependencies import get_current_user
 from app.core.request_limits import enforce_user_limit
@@ -39,56 +38,6 @@ class ColorPaletteRequest(BaseModel):
 class RecommendRequest(BaseModel):
     description: str
     available_categories: List[str]
-
-
-class EnhancePromptRequest(BaseModel):
-    prompt: str
-    business_name: Optional[str] = None
-    business_type: Optional[str] = None
-    pages: Optional[List[dict]] = None
-    architecture_type: Optional[str] = None
-    answers: Optional[dict] = None
-    content_language: Optional[str] = None
-    target_frontend: Optional[str] = None
-    styling_engine: Optional[str] = None
-    project_images: Optional[List[dict]] = Field(default=None, max_length=8)
-
-    @field_validator("project_images")
-    @classmethod
-    def validate_project_images(cls, images):
-        if images is None:
-            return images
-        for image in images:
-            url = str(image.get("url") or "") if isinstance(image, dict) else ""
-            if len(url) > 2048 or not re.match(r"^https://[^\s]+$|^http://(?:localhost|127\.0\.0\.1)(?::\d+)?/[^\s]*$", url, re.IGNORECASE):
-                raise ValueError("Project images must use HTTPS URLs (HTTP is allowed for localhost development).")
-        return images
-
-
-@router.post("/enhance-prompt")
-async def enhance_prompt(
-    request: EnhancePromptRequest,
-    current_user: User = Depends(get_current_user),
-):
-    """Enhance a template prompt into detailed architectural specifications using Gemini Pro."""
-    if not request.prompt or len(request.prompt.strip()) < 5:
-        raise HTTPException(status_code=400, detail="Prompt must be at least 5 characters long.")
-    try:
-        return await ai_service.enhance_template_prompt(request.prompt, context={
-            "business_name": request.business_name,
-            "business_type": request.business_type,
-            "pages": request.pages or [],
-            "architecture_type": request.architecture_type,
-            "answers": request.answers or {},
-            "content_language": request.content_language,
-            "target_frontend": request.target_frontend,
-            "styling_engine": request.styling_engine,
-            "project_images": request.project_images or [],
-        })
-    except (RuntimeError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI Service error: {str(e)}")
 
 
 @router.post("/generate-content")
