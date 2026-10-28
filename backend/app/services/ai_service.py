@@ -10,7 +10,7 @@ import re
 import itertools
 import time
 from pathlib import Path
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Callable
 import urllib.parse
 import httpx
 
@@ -231,6 +231,18 @@ FEATURE_MODELS = {
         "gemini": "gemini-3.8-flash",
         "alternative": "gpt-4o",
     },
+    "website_frontend_generation": {
+        "gemini": "gemini-3.8-flash",
+        "alternative": "gpt-4o",
+    },
+    "website_backend_generation": {
+        "gemini": "gemini-3.8-flash",
+        "alternative": "gpt-4o",
+    },
+    "website_database_generation": {
+        "gemini": "gemini-3.8-flash",
+        "alternative": "gpt-4o",
+    },
     "code_debugging_agent": {
         "gemini": "gemini-3.8-flash",
         "alternative": "gpt-4o",
@@ -375,7 +387,13 @@ class AIService:
                 model = mapping.get("alternative", "gpt-4o") if mapping else "gpt-4o"
             return model
 
-    async def _call_gemini_api(self, prompt: str, model_name: str, response_mime_type: str) -> Optional[str]:
+    async def _call_gemini_api(
+        self,
+        prompt: str,
+        model_name: str,
+        response_mime_type: str,
+        on_model_success: Optional[Callable[[str], None]] = None,
+    ) -> Optional[str]:
         """Rotate across configured Gemini keys AND fallback models on 503/429 quota/availability errors."""
         import asyncio as _asyncio
         headers = {"Content-Type": "application/json"}
@@ -427,6 +445,8 @@ class AIService:
                                 if model_idx > 0:
                                     logger.info("Gemini fallback model '%s' succeeded after primary '%s' failed.", try_model, model_name)
                                     safe_print(f"   └─ ✅ Gemini fallback ({try_model}) generated output successfully.")
+                                if on_model_success:
+                                    on_model_success(try_model)
                                 return text
                             except (KeyError, IndexError, TypeError):
                                 logger.warning("Gemini returned an unexpected response structure for model %s", try_model)
@@ -588,6 +608,7 @@ class AIService:
         provider_order_override: Optional[List[str]] = None,
         request_timeout_seconds: Optional[float] = None,
         max_local_model_attempts: Optional[int] = None,
+        on_provider_success: Optional[Callable[[str, str], None]] = None,
     ) -> str:
         """
         Call LLM to generate content.
@@ -683,6 +704,15 @@ class AIService:
             prompt = f"{clinerules_directive}\n\nTask Specification:\n{prompt}"
 
         provider_outcomes: List[str] = []
+
+        def report_provider_success(provider_name: str, model_name: str) -> None:
+            if on_provider_success is None:
+                return
+            try:
+                on_provider_success(provider_name, model_name)
+            except Exception:
+                logger.debug("AI provider metadata callback failed", exc_info=True)
+
         if getattr(settings, "AI_FREE_ONLY", False) and primary_choice not in ("cline", "ollama"):
             provider_outcomes.append(f"{primary_choice} skipped because AI_FREE_ONLY is enabled")
             safe_print(f"[AI Service] Hosted provider '{primary_choice}' is disabled by AI_FREE_ONLY; local providers only will be tried.")
@@ -767,6 +797,7 @@ class AIService:
                         )
                         if res:
                             safe_print(f"   └─ ✅ Groq ({settings.GROQ_MODEL}) generated output successfully.")
+                            report_provider_success("groq", settings.GROQ_MODEL)
                             return res
                         provider_outcomes.append("Groq returned no content")
                     except Exception as e:
@@ -849,6 +880,7 @@ class AIService:
                                 )
                             if res:
                                 safe_print(f"   └─ ✅ Local coding model ({cline_model}) generated output successfully.")
+                                report_provider_success("cline", cline_model)
                                 return res
                         except Exception as model_error:
                             logger.warning(f"Local Cline-compatible model '{cline_model}' failed: {model_error}")
@@ -866,6 +898,7 @@ class AIService:
                         )
                         if groq_res:
                             safe_print(f"   └─ ✅ Cline Engine (Groq) generated complete output successfully.")
+                            report_provider_success("groq", settings.GROQ_MODEL)
                             return groq_res
 
                 except Exception as e:
@@ -900,6 +933,7 @@ class AIService:
                         )
                         if res:
                             safe_print(f"   └─ ✅ Ollama ({ollama_model}) generated output successfully.")
+                            report_provider_success("ollama", ollama_model)
                             return res
                     except Exception as e:
                         logger.warning(f"Ollama model '{ollama_model}' failed for '{feature_name}': {e}")
@@ -911,7 +945,12 @@ class AIService:
                 try:
                     gemini_model = self.get_model_for_feature(feature_name, provider="gemini")
                     safe_print(f"[AI Service] Invoking Google Gemini ({gemini_model}) for '{feature_name}'...")
-                    res = await self._call_gemini_api(prompt, gemini_model, response_mime_type)
+                    res = await self._call_gemini_api(
+                        prompt,
+                        gemini_model,
+                        response_mime_type,
+                        on_model_success=lambda actual_model: report_provider_success("gemini", actual_model),
+                    )
                     if res:
                         safe_print(f"   └─ ✅ Gemini ({gemini_model}) generated output successfully.")
                         return res

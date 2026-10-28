@@ -1,4 +1,4 @@
-"""
+﻿"""
 Preview routes — create preview sessions and serve watermarked previews.
 """
 
@@ -13,12 +13,12 @@ import zipfile
 import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, HTTPException, Body, Response, Request
+from fastapi import APIRouter, Depends, HTTPException, Body, Response, Request, UploadFile, File, Form
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -184,6 +184,180 @@ async def get_preview_session(
 
 # Global locks to prevent parallel builds of the same template
 _build_locks = {}
+
+
+@router.get("/live/{template_id}/assets")
+async def list_live_preview_assets(
+    template_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    List all image and media assets detected in this template preview,
+    including file paths, preview URLs, and recommended format/dimension guidance.
+    """
+    from app.core.local_project_manager import local_project_manager
+    from app.repositories.template_repo import TemplateRepository
+    import time
+
+    template_repo = TemplateRepository(db)
+    template = await template_repo.get_by_id_or_slug(template_id)
+    slug = template.slug if (template and template.slug) else template_id
+
+    # 1. First check local_project_manager (generated projects)
+    assets = local_project_manager.list_project_assets(slug)
+    if not assets and slug != template_id:
+        assets = local_project_manager.list_project_assets(template_id)
+
+    # 2. Fallback: check tempfile preview directory if any
+    if not assets:
+        import tempfile
+        temp_dir = Path(tempfile.gettempdir()) / "ai_site_studio" / "live_previews" / str(template_id)
+        if temp_dir.exists():
+            image_extensions = {".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif", ".ico"}
+            for root, _, files in os.walk(temp_dir):
+                for filename in files:
+                    ext = os.path.splitext(filename)[1].lower()
+                    if ext in image_extensions:
+                        full_path = Path(root) / filename
+                        rel_path = full_path.relative_to(temp_dir).as_posix()
+                        if any(part in rel_path.split("/") for part in (".git", "node_modules", "dist")):
+                            continue
+                        size_bytes = full_path.stat().st_size
+                        size_str = f"{size_bytes / 1024:.1f} KB" if size_bytes >= 1024 else f"{size_bytes} B"
+                        stem_lower = full_path.stem.lower()
+                        if any(k in stem_lower for k in ("profile", "portrait", "avatar", "person", "headshot", "owner")):
+                            role = "Profile / Portrait Photo"
+                            format_hint = "PNG, JPG, or WebP"
+                            dim_hint = "Square (1:1, 800 × 800px)"
+                        elif "logo" in stem_lower:
+                            role = "Brand Logo"
+                            format_hint = "PNG or SVG (Transparent)"
+                            dim_hint = "Recommended 400 × 120px"
+                        elif any(k in stem_lower for k in ("hero", "banner", "cover", "bg", "background")):
+                            role = "Hero / Banner Image"
+                            format_hint = "JPG, WebP, or PNG"
+                            dim_hint = "Landscape (16:9, 1200 × 675px)"
+                        else:
+                            role = "Content Image"
+                            format_hint = "PNG, JPG, or WebP"
+                            dim_hint = "Standard resolution"
+                        assets.append({
+                            "filename": filename,
+                            "rel_path": rel_path,
+                            "size_bytes": size_bytes,
+                            "size_str": size_str,
+                            "extension": ext,
+                            "role": role,
+                            "format_hint": format_hint,
+                            "dim_hint": dim_hint,
+                            "updated_at": datetime.fromtimestamp(full_path.stat().st_mtime, timezone.utc).isoformat(),
+                        })
+
+    ts = int(time.time())
+    for a in assets:
+        a["preview_url"] = f"/api/v1/preview/live/{template_id}/{a['rel_path']}?t={ts}"
+
+    return {"template_id": template_id, "assets": assets, "total": len(assets)}
+
+
+@router.post("/live/{template_id}/assets/replace")
+async def replace_live_preview_asset(
+    template_id: str,
+    target_rel_path: str = Form(...),
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Replace an existing image asset on disk with the uploaded file.
+    Does NOT modify the HTML, CSS, or JS code — keeping the relative path intact.
+    """
+    from app.core.local_project_manager import local_project_manager
+    from app.repositories.template_repo import TemplateRepository
+    from app.core.storage import storage
+    from app.models.stored_file import StoredFile
+    import time
+    import zipfile
+    import io
+
+    allowed_types = {
+        "image/jpeg", "image/png", "image/webp", "image/svg+xml",
+        "image/gif", "image/x-icon", "image/vnd.microsoft.icon", "application/octet-stream"
+    }
+    if file.content_type and file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported image type '{file.content_type}'. Please upload PNG, JPG, WebP, or SVG."
+        )
+
+    content = await file.read()
+    if not content or len(content) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image file must be between 1 byte and 15MB")
+
+    template_repo = TemplateRepository(db)
+    template = await template_repo.get_by_id_or_slug(template_id)
+    slug = template.slug if (template and template.slug) else template_id
+
+    # 1. Update on disk via local_project_manager
+    updated = False
+    try:
+        local_project_manager.replace_project_asset(slug, target_rel_path, content)
+        updated = True
+    except Exception:
+        if slug != template_id:
+            try:
+                local_project_manager.replace_project_asset(template_id, target_rel_path, content)
+                updated = True
+            except Exception:
+                pass
+
+    # 2. Update temp preview directory if present
+    import tempfile
+    temp_dest = Path(tempfile.gettempdir()) / "ai_site_studio" / "live_previews" / str(template_id) / target_rel_path
+    if temp_dest.parent.exists():
+        try:
+            temp_dest.write_bytes(content)
+            updated = True
+        except Exception:
+            pass
+
+    # 3. If template has a StoredFile ZIP archive in DB, also update the ZIP in place
+    if template and template.download_assets and template.download_assets.get("zip"):
+        zip_url = template.download_assets.get("zip")
+        match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
+        if match:
+            try:
+                sf_id = uuid.UUID(match.group(1))
+                stored = await storage.get_file(db, sf_id)
+                if stored:
+                    old_zip_bytes = stored[0]
+                    buf = io.BytesIO()
+                    clean_target = target_rel_path.replace("\\", "/").lstrip("/")
+                    with zipfile.ZipFile(io.BytesIO(old_zip_bytes), "r") as z_in, zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z_out:
+                        for item in z_in.infolist():
+                            norm_name = item.filename.replace("\\", "/").lstrip("/")
+                            if norm_name == clean_target or norm_name.endswith(f"/{clean_target}"):
+                                z_out.writestr(item.filename, content)
+                            else:
+                                z_out.writestr(item.filename, z_in.read(item.filename))
+                    new_zip_bytes = buf.getvalue()
+                    await storage.save_file(
+                        db=db,
+                        file_id=sf_id,
+                        filename=f"{template.slug or template_id}.zip",
+                        content=new_zip_bytes,
+                        content_type="application/zip",
+                    )
+            except Exception as e:
+                logger.warning("Could not sync asset replacement into ZIP: %s", e)
+
+    ts = int(time.time())
+    return {
+        "success": True,
+        "message": "Photo replaced successfully. Zero code changes required.",
+        "rel_path": target_rel_path,
+        "preview_url": f"/api/v1/preview/live/{template_id}/{target_rel_path}?t={ts}",
+        "size_bytes": len(content),
+    }
 
 
 @router.get("/live/{template_id}/extracted-data")
@@ -2832,27 +3006,45 @@ async def serve_live_preview(
             raise HTTPException(status_code=400, detail="Template does not have source ZIP assets")
             
         from app.core.storage import storage
+        from app.core.local_project_manager import local_project_manager
+
+        # Check if project source code is already saved in the local workspace
+        local_dir = local_project_manager.get_local_project_dir(template_id, version="latest")
+        if not local_dir and template.slug:
+            local_dir = local_project_manager.get_local_project_dir(template.slug, version="latest")
+
         storage_base = urlsplit(storage.public_url)
         asset_url = urlsplit(str(zip_url))
         file_id = storage._parse_file_id(str(zip_url))
         expected_asset_path = f"{storage_base.path.rstrip('/')}/{file_id}" if file_id else None
+
+        def _is_local_host(netloc: str) -> bool:
+            host = netloc.split(":")[0].lower()
+            return host in ("localhost", "127.0.0.1", "0.0.0.0", "::1")
+
+        is_local_netloc = _is_local_host(asset_url.netloc) and _is_local_host(storage_base.netloc)
+        same_netloc = asset_url.netloc.lower() == storage_base.netloc.lower()
+
         is_external = not (
             file_id
-            and asset_url.scheme == storage_base.scheme
-            and asset_url.netloc.lower() == storage_base.netloc.lower()
-            and asset_url.path == expected_asset_path
+            and (asset_url.scheme == storage_base.scheme or is_local_netloc)
+            and (same_netloc or is_local_netloc)
+            and (asset_url.path == expected_asset_path or (file_id and str(file_id) in asset_url.path))
         )
 
         # Do not fetch seller-controlled URLs from the API process. Templates
         # must use an archive uploaded to Studio storage to prevent SSRF.
-        if is_external:
+        if is_external and not local_dir:
             raise HTTPException(
                 status_code=400,
                 detail="Preview archives must be uploaded to Studio storage; external archive URLs are not supported.",
             )
             
-        preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
-        os.makedirs(preview_dir, exist_ok=True)
+        if local_dir and os.path.exists(str(local_dir)):
+            preview_dir = str(local_dir)
+        else:
+            preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
+            os.makedirs(preview_dir, exist_ok=True)
         project_root = preview_dir
 
         import json
@@ -3578,7 +3770,16 @@ async def get_dynamic_thumbnail(template_id: str, db: AsyncSession = Depends(get
     """Dynamically serves or generates on-demand SVG thumbnail snapshot for any template or draft."""
     from fastapi.responses import FileResponse, Response
     from app.services.screenshot_service import screenshot_service, _THUMBNAILS_DIR
-    thumb_path = Path(_THUMBNAILS_DIR) / f"{template_id}.svg"
+    from app.core.local_project_manager import local_project_manager
+
+    # 1. If local project exists, generate snapshot using real photo, real skills & real content
+    clean_id = str(template_id).strip()
+    if local_project_manager.get_local_project_dir(clean_id, version="latest"):
+        svg = screenshot_service.generate_for_project(clean_id)
+        return Response(content=svg, media_type="image/svg+xml")
+
+    # 2. Check cached thumbnail file on disk
+    thumb_path = Path(_THUMBNAILS_DIR) / f"{clean_id}.svg"
     if thumb_path.exists():
         return FileResponse(str(thumb_path), media_type="image/svg+xml")
 

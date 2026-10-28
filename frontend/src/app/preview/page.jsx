@@ -15,6 +15,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
+  Image, UploadCloud,
   Monitor, Laptop, Tablet, Smartphone, Sun, Moon, Grid,
   RefreshCw, Zap, Layers, FileText, Sparkles, Star, Mail,
   Shield, AlertCircle, Edit3, Trash2, Eraser, Plus, Check,
@@ -451,6 +452,7 @@ export default function PreviewPage() {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
   const activeTemplateId = searchParams.get("template") || searchParams.get("templateId") || searchParams.get("slug") || "default";
+  const studioBuildId = searchParams.get("build") || "";
 
   // Template Data State
   const [templateData, setTemplateData] = useState(null);
@@ -494,7 +496,75 @@ export default function PreviewPage() {
   };
 
   // 2 Top Mode Buttons State: "manual" | "ai"
-  const [editorMode, setEditorMode] = useState("manual");
+  const [editorMode, setEditorMode] = useState("manual"); // "manual" | "ai" | "assets"
+  const [projectAssets, setProjectAssets] = useState([]);
+  const [loadingAssets, setLoadingAssets] = useState(false);
+  const [replacingAssetPath, setReplacingAssetPath] = useState(null);
+  const [assetTimestamp, setAssetTimestamp] = useState(Date.now());
+  const assetFileInputRef = useRef(null);
+  const [selectedAssetForUpload, setSelectedAssetForUpload] = useState(null);
+
+  const fetchProjectAssets = async () => {
+    if (!templateId) return;
+    setLoadingAssets(true);
+    try {
+      const res = await fetch(`${API_BASE}/preview/live/${templateId}/assets`);
+      if (res.ok) {
+        const data = await res.json();
+        setProjectAssets(data.assets || []);
+      }
+    } catch (err) {
+      console.warn("Could not fetch project assets:", err);
+    } finally {
+      setLoadingAssets(false);
+    }
+  };
+
+  useEffect(() => {
+    if (editorMode === "assets") {
+      fetchProjectAssets();
+    }
+  }, [editorMode, templateId]);
+
+  const handleTriggerReplaceAsset = (asset) => {
+    setSelectedAssetForUpload(asset);
+    if (assetFileInputRef.current) {
+      assetFileInputRef.current.value = "";
+      assetFileInputRef.current.click();
+    }
+  };
+
+  const handleAssetFileSelected = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedAssetForUpload || !templateId) return;
+
+    setReplacingAssetPath(selectedAssetForUpload.rel_path);
+    const formData = new FormData();
+    formData.append("target_rel_path", selectedAssetForUpload.rel_path);
+    formData.append("file", file);
+
+    try {
+      const res = await fetch(`${API_BASE}/preview/live/${templateId}/assets/replace`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setAssetTimestamp(Date.now());
+        setIframeKey((k) => k + 1);
+        setNotice(`✓ Replaced photo "${selectedAssetForUpload.filename}"! Code remains 100% intact.`);
+        setTimeout(() => setNotice(""), 4000);
+        await fetchProjectAssets();
+      } else {
+        alert(data.detail || "Failed to replace asset.");
+      }
+    } catch (err) {
+      alert("Error uploading asset replacement: " + err.message);
+    } finally {
+      setReplacingAssetPath(null);
+      setSelectedAssetForUpload(null);
+    }
+  };
   const [mobilePanel, setMobilePanel] = useState("preview");
 
   // Center Stage Viewport & Theme State
@@ -1033,6 +1103,33 @@ export default function PreviewPage() {
   ]);
   const [isDebugging, setIsDebugging] = useState(false);
 
+  useEffect(() => {
+    if (!studioBuildId) return undefined;
+    let active = true;
+    api.get(`/studio/builds/${studioBuildId}`).then((build) => {
+      if (!active || !Array.isArray(build?.messages)) return;
+      const restored = build.messages
+        .filter((message) => message.type !== "build_brief")
+        .map((message) => ({
+          id: message.id,
+          role: message.role,
+          text: message.content,
+          timestamp: message.created_at ? new Date(message.created_at).toLocaleString() : "Saved",
+        }));
+      if (restored.length) setAiHistory(restored);
+    }).catch((err) => console.warn("Could not restore Studio build chat:", err));
+    return () => { active = false; };
+  }, [studioBuildId]);
+
+  const persistBuildMessage = async (role, content, message_type = "chat") => {
+    if (!studioBuildId) return;
+    try {
+      await api.post(`/studio/builds/${studioBuildId}/messages`, { role, content, message_type });
+    } catch (err) {
+      console.warn("Could not save Studio build chat message:", err);
+    }
+  };
+
   const executeAiPrompt = async (customPrompt) => {
     const promptToRun = customPrompt || aiInput;
     if (!promptToRun.trim() || isAiProcessing) return;
@@ -1044,6 +1141,7 @@ export default function PreviewPage() {
     setAiInput("");
     setIsAiProcessing(true);
     setAiLogs(["Sending your request to the editor..."]);
+    await persistBuildMessage("user", promptToRun);
 
     const targetId = customDraftId || activeTemplateId;
     try {
@@ -1052,15 +1150,18 @@ export default function PreviewPage() {
         const newDraftId = res?.template_id || res?.data?.template_id;
         if (!newDraftId) throw new Error("The editor did not return a saved draft.");
         setCustomDraftId(newDraftId);
-        navigate(`/preview?template=${newDraftId}&mode=live`, { replace: true });
+        const buildQuery = studioBuildId ? `&build=${encodeURIComponent(studioBuildId)}` : "";
+        navigate(`/preview?template=${newDraftId}&mode=live${buildQuery}`, { replace: true });
         setViewMode("live");
         setIframeKey((k) => k + 1);
+        const assistantText = "Your AI edit was saved to a draft. The live preview is refreshing.";
         setAiHistory((prev) => [...prev, {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          text: "Your AI edit was saved to a draft. The live preview is refreshing.",
+          text: assistantText,
           timestamp: "Just now"
         }]);
+        await persistBuildMessage("assistant", assistantText);
         return;
       }
 
@@ -1081,15 +1182,18 @@ export default function PreviewPage() {
       } else {
         throw new Error("AI editing needs a real template draft. In demo mode, try a listed business or theme preset.");
       }
+      const assistantText = "Applied a matching local demo preset. This did not call the AI service or save a draft.";
       setAiHistory((prev) => [...prev, {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        text: "Applied a matching local demo preset. This did not call the AI service or save a draft.",
+        text: assistantText,
         timestamp: "Just now"
       }]);
+      await persistBuildMessage("assistant", assistantText);
     } catch (err) {
       console.warn("AI editor request failed:", err);
       setNotice(`AI edit failed: ${err?.message || "Please try again."}`);
+      await persistBuildMessage("assistant", `The edit was not completed: ${err?.message || "Please try again."}`, "error");
       setAiHistory((prev) => [...prev, {
         id: (Date.now() + 1).toString(),
         role: "assistant",
@@ -1191,6 +1295,16 @@ export default function PreviewPage() {
             >
               <Bot className="w-3.5 h-3.5" />
               <span>2. AI Edit</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setEditorMode("assets")}
+              className={cn("sb-mode-pill-btn", editorMode === "assets" && "active-manual")}
+              title="Replace Photos & Media Assets (Zero Code Changes)"
+            >
+              <Image className="w-3.5 h-3.5" />
+              <span>3. Replace Photos</span>
             </button>
           </div>
         </div>
@@ -1437,8 +1551,22 @@ export default function PreviewPage() {
               })}
             </div>
 
-            {/* "+ Add Section" Button & Dropdown */}
-            <div className="mt-4 pt-3 border-t border-border/50">
+            {/* "+ Add Section" & Photo Media Switcher */}
+            <div className="mt-4 pt-3 border-t border-border/50 space-y-2">
+              <button
+                type="button"
+                onClick={() => setEditorMode("assets")}
+                className={cn(
+                  "w-full py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all",
+                  editorMode === "assets"
+                    ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400 shadow-sm"
+                    : "border-border/60 hover:border-emerald-500/40 bg-card/60 hover:bg-emerald-500/10 text-muted-foreground hover:text-emerald-400"
+                )}
+                title="Replace photos in this website with zero code changes"
+              >
+                <Image className="w-3.5 h-3.5" />
+                <span>Change Photos &amp; Media</span>
+              </button>
               <div className="relative">
                 <button
                   type="button"

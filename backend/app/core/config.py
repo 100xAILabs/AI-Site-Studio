@@ -1,4 +1,4 @@
-"""
+﻿"""
 Application configuration via Pydantic Settings.
 
 All values are read from environment variables (or .env file).
@@ -82,6 +82,10 @@ class Settings(BaseSettings):
     FACEBOOK_CLIENT_SECRET: str = ""
     GITHUB_CLIENT_ID: str = ""
     GITHUB_CLIENT_SECRET: str = ""
+    # Anthropic (Claude) - primary code-generation model for full-stack builds
+    ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_MODEL: str = "claude-sonnet-4-5"
+
 
     # ── OpenAI ────────────────────────────────────────────────────────────────
     OPENAI_API_KEY: str = ""
@@ -107,6 +111,9 @@ class Settings(BaseSettings):
     GEMINI_MODEL_ACCESSIBILITY_REVIEW: str = "gemini-3.8-flash"
     GEMINI_MODEL_CODE_ASSISTANT: str = "gemini-3.8-flash"
     GEMINI_MODEL_CODE_DEBUGGING_AGENT: str = "gemini-3.8-flash"
+    GEMINI_MODEL_WEBSITE_FRONTEND_GENERATION: str = "gemini-3.8-flash"
+    GEMINI_MODEL_WEBSITE_BACKEND_GENERATION: str = "gemini-3.8-flash"
+    GEMINI_MODEL_WEBSITE_DATABASE_GENERATION: str = "gemini-3.8-flash"
     GEMINI_MODEL_PROJECT_ZIP_ANALYSIS: str = "gemini-3.8-flash"
     GEMINI_MODEL_TRANSLATION: str = "gemini-3.8-flash"
     GEMINI_MODEL_BUSINESS_ANALYSIS: str = "gemini-3.8-flash"
@@ -149,8 +156,8 @@ class Settings(BaseSettings):
     AGENT_PLANNING_PROVIDER: str = "groq"
     AGENT_DESIGNER_PROVIDER: str = "groq"
     AGENT_FRONTEND_PROVIDER: str = "groq"
-    AGENT_BACKEND_PROVIDER: str = "cline"
-    AGENT_DATABASE_PROVIDER: str = "cline"
+    AGENT_BACKEND_PROVIDER: str = "gemini,groq,ollama"
+    AGENT_DATABASE_PROVIDER: str = "gemini,groq,ollama"
     AGENT_SEO_PROVIDER: str = "cline"
     AGENT_TESTING_PROVIDER: str = "cline"
     AGENT_DEPLOYMENT_PROVIDER: str = "cline"

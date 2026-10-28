@@ -8,7 +8,26 @@ import { useAppAuth } from "@/lib/auth";
 import { api, API_URL } from "@/lib/api";
 import "./Page.css";
 
-const AGENTS = ["Planning Agent", "UI Designer Agent", "Frontend Dev Agent", "SEO & A11y Agent", "Testing & Audit Agent", "Packaging Agent"];
+const AGENTS = [
+  "Planning Agent",
+  "UI Designer Agent",
+  "Architect Agent",
+  "DB Schema Agent",
+  "Backend Dev Agent",
+  "Frontend Dev Agent",
+  "SEO & A11y Agent",
+  "Testing & Audit Agent",
+  "Packaging Agent",
+];
+
+const STACK_OPTIONS = [
+  { value: "react-fastapi-postgresql", title: "React + FastAPI + PostgreSQL", badge: "Emergent Standard", description: "Async FastAPI REST API, SQLAlchemy 2.0 ORM, and React 18 TypeScript frontend." },
+  { value: "react-fastapi-mongodb", title: "React + FastAPI + MongoDB (FARM)", badge: "NoSQL Flexibility", description: "Emergent FARM stack: async Motor driver, MongoDB document schemas, and React UI." },
+  { value: "nextjs-fastapi-postgresql", title: "Next.js 14 + FastAPI + PostgreSQL", badge: "Next.js App Router", description: "Next.js 14 App Router client with Python FastAPI backend services." },
+  { value: "react-express-mongodb", title: "React + Express.js + MongoDB", badge: "MERN Stack", description: "Node.js Express REST API with Mongoose schemas and React Vite frontend." },
+  { value: "nextjs-nestjs-postgresql", title: "Next.js + NestJS + PostgreSQL", badge: "TypeScript End-to-End", description: "Enterprise NestJS modules, TypeORM entities, and Next.js frontend." },
+  { value: "html-css-js", title: "Static Website (HTML5 / CSS / JS)", badge: "Lightweight", description: "Zero-dependency static site with semantic HTML, custom CSS, and vanilla JS." },
+];
 
 export default function StudioPage() {
   const navigate = useNavigate();
@@ -17,11 +36,14 @@ export default function StudioPage() {
   const [categoryId, setCategoryId] = useState("");
   const [genre, setGenre] = useState("");
   const [pageStructure, setPageStructure] = useState("");
+  const [stack, setStack] = useState("react-fastapi-postgresql");
   const [prompt, setPrompt] = useState("");
   const [plan, setPlan] = useState(null);
   const [buildPrompt, setBuildPrompt] = useState("");
   const [loadingBuildPrompt, setLoadingBuildPrompt] = useState(false);
   const [answers, setAnswers] = useState({});
+  const [completedQuestions, setCompletedQuestions] = useState([]);
+  const [skippedQuestions, setSkippedQuestions] = useState([]);
   const [uploadedAssets, setUploadedAssets] = useState([]);
   const [uploadingImages, setUploadingImages] = useState(false);
   const [loadingPlan, setLoadingPlan] = useState(false);
@@ -30,6 +52,7 @@ export default function StudioPage() {
   const [events, setEvents] = useState([]);
   const [activeAgent, setActiveAgent] = useState("");
   const generationInFlight = useRef(false);
+  const buildSessionId = useRef("");
 
   useEffect(() => {
     let alive = true;
@@ -48,7 +71,6 @@ export default function StudioPage() {
   const isPortfolioRequest = !isConstructionRequest && (portfolioPattern.test(prompt) || (!promptHasProjectType && portfolioPattern.test(selectedSiteType)));
   const siteImageContext = promptHasProjectType ? prompt : `${selectedSiteType} ${prompt}`;
   const effectivePageStructure = pageStructure || (isPortfolioRequest ? "single_page" : isConstructionRequest ? "multi_page" : "");
-  const missingRequired = !!plan?.questions?.some((question, index) => question.required && !String(answers[question.id || `q-${index}`] || "").trim());
 
   async function buildPlan(event) {
     event.preventDefault();
@@ -56,7 +78,13 @@ export default function StudioPage() {
     setLoadingPlan(true);
     try {
       const token = await getToken();
-      const result = await api.post("/studio/plan", { prompt, category: selectedCategory?.name || "Website", genre: genre.trim() || selectedCategory?.name || "Website", page_structure: effectivePageStructure }, token);
+      const result = await api.post("/studio/plan", {
+        prompt,
+        category: selectedCategory?.name || "Website",
+        genre: genre.trim() || selectedCategory?.name || "Website",
+        page_structure: effectivePageStructure,
+        stack: stack || "react-fastapi-postgresql",
+      }, token);
       setPlan({
         ...result.plan,
         pages: (result.plan.pages || []).map((page) => ({
@@ -66,6 +94,8 @@ export default function StudioPage() {
         })),
       });
       setAnswers({});
+      setCompletedQuestions([]);
+      setSkippedQuestions([]);
       setBuildPrompt("");
     } catch (err) {
       setError(err.message || "The Planning Agent could not create a plan.");
@@ -88,6 +118,7 @@ export default function StudioPage() {
         answers,
         image_urls: [],
         image_assets: uploadedAssets,
+        stack: stack || "react-fastapi-postgresql",
       }, token);
       setBuildPrompt(result.build_prompt || "");
     } catch (err) {
@@ -103,6 +134,7 @@ export default function StudioPage() {
     setError("");
     setEvents([]);
     setActiveAgent(AGENTS[0]);
+    buildSessionId.current = "";
     setGenerating(true);
     try {
       const token = await getToken();
@@ -119,6 +151,7 @@ export default function StudioPage() {
           answers,
           image_urls: [],
           image_assets: uploadedAssets,
+          stack: stack || "react-fastapi-postgresql",
         }),
       });
       if (!response.ok || !response.body) {
@@ -140,14 +173,18 @@ export default function StudioPage() {
           if (!line) continue;
           const item = JSON.parse(line.slice(6));
           if (item.type === "error") throw new Error(item.message || "Studio generation failed.");
+          if (item.type === "session") buildSessionId.current = item.build_id || "";
           if (item.type === "agent") {
             setActiveAgent(item.agent);
             setEvents((current) => [...current, { ...item, key: `${item.agent}-${item.status}-${current.length}` }]);
           } else if (item.type === "page") {
             setActiveAgent("Frontend Dev Agent");
             setEvents((current) => [...current, { ...item, key: `${item.filename}-${item.status}-${current.length}` }]);
+          } else if (item.type === "model") {
+            setEvents((current) => [...current, { ...item, key: `${item.page}-${item.provider}-${current.length}` }]);
           } else if (item.type === "complete") {
-            navigate(`/dashboard?tab=studio-projects&project=${encodeURIComponent(item.project.id)}`, { replace: true });
+            const buildQuery = buildSessionId.current ? `&build=${encodeURIComponent(buildSessionId.current)}` : "";
+            navigate(`/preview?template=${encodeURIComponent(item.project.id)}&mode=live${buildQuery}`, { replace: true });
             return;
           }
         }
@@ -193,6 +230,14 @@ export default function StudioPage() {
     setBuildPrompt("");
   }
 
+  function submitClarification(question, index) {
+    const id = question.id || `q-${index}`;
+    const value = String(answers[id] || "").trim();
+    if (!value && question.required) return;
+    if (value) setCompletedQuestions((current) => [...new Set([...current, id])]);
+    else setSkippedQuestions((current) => [...new Set([...current, id])]);
+  }
+
   function togglePlanPage(filename) {
     setBuildPrompt("");
     setPlan((current) => ({
@@ -222,6 +267,12 @@ export default function StudioPage() {
   }
 
   const selectedPageCount = plan?.pages?.filter((page) => page.included !== false || page.required).length || 0;
+  const clarificationQuestions = plan?.questions || [];
+  const activeClarificationIndex = clarificationQuestions.findIndex((question, index) => {
+    const id = question.id || `q-${index}`;
+    return !completedQuestions.includes(id) && !skippedQuestions.includes(id);
+  });
+  const clarificationsComplete = activeClarificationIndex < 0;
 
   const palette = plan?.design_system || {};
   const safeColor = (value, fallback) => /^#[0-9a-f]{6}$/i.test(String(value || "")) ? value : fallback;
@@ -310,14 +361,14 @@ export default function StudioPage() {
           <div className="studio-intro-copy">
             <div className="studio-eyebrow"><Sparkles size={14} /> YOUR PRIVATE AI WEBSITE STUDIO</div>
             <h1>From a rough idea<br /><span>to a complete website.</span></h1>
-            <p>Shape the plan, choose your pages, and let six focused agents build your site one page at a time.</p>
+            <p>Shape the plan, choose your stack, and let nine focused agents build your full-stack application and API.</p>
           </div>
           <div className="studio-agent-preview" aria-label="Studio workflow">
             <span className="studio-agent-orbit"><Sparkles size={22} /></span>
             <span className="studio-agent-caption">YOUR BUILD TEAM</span>
-            <strong>Six agents.<br />One finished site.</strong>
+            <strong>Nine agents.<br />One finished site.</strong>
             <div className="studio-agent-dots">{AGENTS.map((agent, index) => <i key={agent} title={agent} className={index === 0 ? "active" : ""} />)}</div>
-            <small>Plan · Design · Build · Review · Package</small>
+            <small>Plan · Architect · Database · Backend · Frontend · Review</small>
           </div>
         </div>
 
@@ -339,6 +390,24 @@ export default function StudioPage() {
                     <input className="sr-only" type="radio" name="page-structure" value={option.value} checked={effectivePageStructure === option.value} onChange={() => setPageStructure(option.value)} required />
                     <span className="block text-sm font-semibold text-white">{option.title}</span>
                     <span className="mt-1 block text-xs leading-5 text-slate-400">{option.description}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <fieldset>
+              <div className="mb-2 flex items-center justify-between">
+                <legend className="text-sm font-semibold text-slate-200">Architecture &amp; Tech Stack</legend>
+                <span className="rounded-full bg-violet-400/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-violet-300">Emergent Multi-Agent</span>
+              </div>
+              <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                {STACK_OPTIONS.map((opt) => (
+                  <label key={opt.value} className={`cursor-pointer rounded-2xl border p-3.5 transition ${stack === opt.value ? "border-violet-400 bg-violet-400/10 shadow-lg shadow-violet-500/10" : "border-white/10 bg-[#0c111b] hover:border-white/20"}`}>
+                    <input className="sr-only" type="radio" name="tech-stack" value={opt.value} checked={stack === opt.value} onChange={() => setStack(opt.value)} />
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="block text-xs font-bold text-white">{opt.title}</span>
+                      <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[9px] font-semibold text-violet-300">{opt.badge}</span>
+                    </div>
+                    <span className="mt-1.5 block text-[11px] leading-4 text-slate-400">{opt.description}</span>
                   </label>
                 ))}
               </div>
@@ -398,7 +467,7 @@ export default function StudioPage() {
               </div>
 
               <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
-                <div className="mb-4"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">UI Designer Agent · Visual concept</p><h2 className="mt-2 text-xl font-bold">A preview of the direction</h2><p className="mt-1 text-sm text-slate-400">This concept reflects the planned palette, layout, and imagery. The finished pages are built after you answer the questions.</p></div>
+                <div className="mb-4"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">UI Designer Agent · Visual concept</p><h2 className="mt-2 text-xl font-bold">A preview of the direction</h2><p className="mt-1 text-sm text-slate-400">This concept reflects the planned palette, layout, and imagery. Answer the Studio’s questions one at a time, then it will build the pages in sequence.</p></div>
                 <div className="overflow-hidden rounded-2xl border border-black/10 shadow-xl" style={{ backgroundColor: safeColor(palette.background, "#f3f4f6"), color: safeColor(palette.text, "#172033") }}>
                   <div className="flex items-center justify-between border-b border-black/10 px-4 py-3 text-xs">
                     <strong>{plan.title}</strong>
@@ -424,16 +493,32 @@ export default function StudioPage() {
               </div>
 
               <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
-                <div className="mb-5"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">Your details</p><h2 className="mt-2 text-xl font-bold">Help the agents make it yours</h2></div>
-                <div className="space-y-4">
+                <div className="mb-5"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">Build chat · one question at a time</p><h2 className="mt-2 text-xl font-bold">Let’s get the details right</h2><p className="mt-1 text-sm leading-6 text-slate-400">I’ll ask only what the plan still needs. Your answers shape the site and its pages.</p></div>
+                <div className="space-y-3">
                   {(plan.questions || []).map((question, index) => {
                     const id = question.id || `q-${index}`;
-                    const value = answers[id] || "";
-                    return <div key={id}>
-                      <label htmlFor={id} className="mb-2 block text-sm font-medium">{question.question}{question.required && <span className="ml-1 text-violet-300">*</span>}</label>
-                      {question.input_type === "select" ? <select id={id} required={!!question.required} value={value} onChange={(e) => updateAnswer(id, e.target.value)} className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm outline-none focus:border-violet-400/60"><option value="">Choose an answer</option>{(question.options || []).map((option) => <option key={option} value={option}>{option}</option>)}</select> : question.input_type === "textarea" ? <textarea id={id} required={!!question.required} value={value} onChange={(e) => updateAnswer(id, e.target.value)} placeholder={question.placeholder || "Your answer…"} rows={3} className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm outline-none placeholder:text-slate-600 focus:border-violet-400/60" /> : <input id={id} required={!!question.required} value={value} onChange={(e) => updateAnswer(id, e.target.value)} placeholder={question.placeholder || "Your answer…"} className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm outline-none placeholder:text-slate-600 focus:border-violet-400/60" />}
+                    const wasAnswered = completedQuestions.includes(id);
+                    const wasSkipped = skippedQuestions.includes(id);
+                    if (!wasAnswered && !wasSkipped) return null;
+                    return <div key={id} className="space-y-2">
+                      <div className="max-w-[88%] rounded-2xl rounded-bl-sm border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-slate-300">{question.question}</div>
+                      <div className="ml-auto max-w-[88%] rounded-2xl rounded-br-sm bg-violet-500/15 px-4 py-3 text-sm text-violet-100">{wasSkipped ? "Skip for now" : answers[id]}</div>
                     </div>;
                   })}
+                  {activeClarificationIndex >= 0 ? (() => {
+                    const question = clarificationQuestions[activeClarificationIndex];
+                    const id = question.id || `q-${activeClarificationIndex}`;
+                    const value = answers[id] || "";
+                    return <div className="space-y-3 pt-2" key={id}>
+                      <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.16em] text-violet-300"><span>Studio asks</span><span>{completedQuestions.length + skippedQuestions.length + 1} / {clarificationQuestions.length}</span></div>
+                      <label htmlFor={`active-${id}`} className="block rounded-2xl rounded-bl-sm border border-violet-400/20 bg-violet-400/[0.07] px-4 py-3 text-sm leading-6 text-slate-100">{question.question}{question.required && <span className="ml-1 text-violet-300">*</span>}</label>
+                      {question.input_type === "select" ? <select id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} className="w-full border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white"><option value="">Choose an answer</option>{(question.options || []).map((option) => <option key={option} value={option}>{option}</option>)}</select> : question.input_type === "textarea" ? <textarea id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} placeholder={question.placeholder || "Type your answer…"} rows={3} className="w-full border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white placeholder:text-slate-600" /> : <input id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} placeholder={question.placeholder || "Type your answer…"} className="w-full border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white placeholder:text-slate-600" />}
+                      <div className="flex justify-end gap-2">
+                        {!question.required && <button type="button" onClick={() => submitClarification(question, activeClarificationIndex)} className="rounded-xl border border-white/10 px-4 py-2.5 text-sm text-slate-300">Skip</button>}
+                        <button type="button" onClick={() => submitClarification(question, activeClarificationIndex)} disabled={!value.trim()} className="inline-flex items-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">Send answer <ArrowRight size={15} /></button>
+                      </div>
+                    </div>;
+                  })() : <p className="rounded-xl border border-emerald-400/15 bg-emerald-400/[0.06] px-4 py-3 text-sm text-emerald-200">That’s everything I need. Next I’ll build the pages in order, then open your live preview so you can keep editing by chat.</p>}
                 </div>
               </div>
             </section>
@@ -466,7 +551,15 @@ export default function StudioPage() {
                     })}
                   </div>
                   <div className="mt-5 max-h-48 space-y-2 overflow-auto border-t border-white/10 pt-4">
-                    {events.slice(-10).map((event) => <p key={event.key} className="text-xs leading-5 text-slate-400">{event.type === "page" ? `${event.status === "completed" ? "✓" : "•"} ${event.name} (${event.index}/${event.total})` : `${event.status === "completed" ? "✓" : "•"} ${event.agent}: ${event.detail}`}</p>)}
+                    {events.slice(-10).map((event) => (
+                      <p key={event.key} className="text-xs leading-5 text-slate-400">
+                        {event.type === "page"
+                          ? `${event.status === "completed" ? "✓" : "•"} ${event.name}${event.index && event.total ? ` (${event.index}/${event.total})` : ""}`
+                          : event.type === "model"
+                            ? `Code model · ${event.page}: ${event.provider} / ${event.model}`
+                            : `${event.status === "completed" ? "✓" : "•"} ${event.agent}: ${event.detail}`}
+                      </p>
+                    ))}
                   </div>
                 </div>
               ) : (
@@ -477,9 +570,9 @@ export default function StudioPage() {
                   {error && <p role="alert" className="mt-3 rounded-xl border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-xs text-rose-200">{error}</p>}
                   {!buildPrompt ? (
                     <>
-                      {missingRequired && <p className="mt-3 rounded-xl border border-amber-300/15 bg-amber-300/5 px-3 py-2 text-xs leading-5 text-amber-100/80">Answer the required questions marked * in “Your details” to enable prompt creation.</p>}
+                      {!clarificationsComplete && <p className="mt-3 rounded-xl border border-amber-300/15 bg-amber-300/5 px-3 py-2 text-xs leading-5 text-amber-100/80">Finish the one-at-a-time questions before building the site.</p>}
                       {uploadingImages && <p className="mt-3 text-xs text-violet-200">Wait for image uploads to finish before creating the prompt.</p>}
-                      <button onClick={createBuildPrompt} disabled={!categoryId || missingRequired || uploadingImages || loadingBuildPrompt} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-violet-400 disabled:opacity-50">
+                      <button onClick={createBuildPrompt} disabled={!categoryId || !clarificationsComplete || uploadingImages || loadingBuildPrompt} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-violet-400 disabled:opacity-50">
                       {loadingBuildPrompt ? <LoaderCircle size={16} className="animate-spin" /> : <WandSparkles size={16} />}
                       {loadingBuildPrompt ? "Writing your project prompt…" : "Create my editable prompt"}
                       </button>
@@ -492,9 +585,9 @@ export default function StudioPage() {
                         <textarea id="approved-build-prompt" value={buildPrompt} maxLength={60000} onChange={(event) => setBuildPrompt(event.target.value)} rows={18} className="w-full resize-y rounded-xl border border-white/10 bg-[#080b12] px-3 py-3 font-mono text-xs leading-5 text-slate-200 outline-none focus:border-violet-400/50" aria-label="Edit the full website build prompt" />
                         <div className="mt-1 text-right text-[10px] text-slate-600">{buildPrompt.length.toLocaleString()}/60,000</div>
                       </div>
-                      <button onClick={createBuildPrompt} disabled={loadingBuildPrompt || missingRequired || uploadingImages} className="w-full rounded-xl border border-white/10 px-3 py-2.5 text-xs font-semibold text-slate-300 transition hover:bg-white/5 disabled:opacity-50">{loadingBuildPrompt ? "Regenerating…" : "Regenerate prompt from my answers"}</button>
-                      <button onClick={startGeneration} disabled={buildPrompt.trim().length < 100 || missingRequired || uploadingImages} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-violet-400 disabled:opacity-50"><WandSparkles size={16} /> Build from this prompt</button>
-                      <p className="text-center text-[11px] text-slate-500">Your edited prompt is sent directly to Groq for code generation, then Ollama if Groq is unavailable.</p>
+                      <button onClick={createBuildPrompt} disabled={loadingBuildPrompt || !clarificationsComplete || uploadingImages} className="w-full rounded-xl border border-white/10 px-3 py-2.5 text-xs font-semibold text-slate-300 transition hover:bg-white/5 disabled:opacity-50">{loadingBuildPrompt ? "Regenerating…" : "Refresh build brief from chat"}</button>
+                      <button onClick={startGeneration} disabled={buildPrompt.trim().length < 100 || !clarificationsComplete || uploadingImages} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-violet-400 disabled:opacity-50"><WandSparkles size={16} /> Build my website</button>
+                      <p className="text-center text-[11px] text-slate-500">Studio generates and reviews each page in sequence. When it’s ready, you can refine the live site by chatting with the editor.</p>
                     </div>
                   )}
                   <button onClick={() => { setPlan(null); setBuildPrompt(""); setError(""); }} className="mt-3 w-full rounded-xl border border-white/10 px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-white/5">Edit brief and plan</button>

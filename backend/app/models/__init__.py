@@ -23,6 +23,7 @@ from app.models.incident import SiteIncident
 from app.models.project import Project
 from app.models.withdrawal_request import WithdrawalRequest, WithdrawalStatus
 from app.models.template_view import TemplateAccountView
+from app.models.studio_build import StudioBuild, StudioBuildMessage, StudioBuildEvent
 
 __all__ = [
     "User", "UserRole",
@@ -50,5 +51,6 @@ __all__ = [
     "WithdrawalRequest",
     "WithdrawalStatus",
     "TemplateAccountView",
+    "StudioBuild", "StudioBuildMessage", "StudioBuildEvent",
 ]
 

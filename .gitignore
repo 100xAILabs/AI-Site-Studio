@@ -102,3 +102,4 @@ backend/pgsql/
 scratch/
 generated-sites/
 .tmp_*
+generated_projects/
