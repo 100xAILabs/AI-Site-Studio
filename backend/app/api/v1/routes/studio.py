@@ -222,15 +222,18 @@ async def generate_studio_project(
                 image_assets=[asset.model_dump() for asset in request.image_assets],
                 stack=request.stack,
             )
+            next_task = asyncio.create_task(gen.__anext__())
             while True:
-                try:
-                    event = await asyncio.wait_for(gen.__anext__(), timeout=15.0)
-                except asyncio.TimeoutError:
-                    # SSE comment line keeps HTTP streaming connection warm during heavy generation steps
+                done, _ = await asyncio.wait({next_task}, timeout=15.0)
+                if not done:
+                    # SSE comment line keeps HTTP streaming connection warm during heavy generation steps without cancelling
                     yield ": keep-alive\n\n"
                     continue
+                try:
+                    event = next_task.result()
                 except StopAsyncIteration:
                     break
+                next_task = asyncio.create_task(gen.__anext__())
 
                 sequence += 1
                 db.add(StudioBuildEvent(build_id=build_id, sequence=sequence, event_type=str(event.get("type") or "progress"), payload=event))
@@ -248,6 +251,8 @@ async def generate_studio_project(
                 await db.commit()
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except asyncio.CancelledError:
+            if "next_task" in locals() and next_task and not next_task.done():
+                next_task.cancel()
             await db.rollback()
             cancelled_build = await db.get(StudioBuild, build_id)
             if cancelled_build:

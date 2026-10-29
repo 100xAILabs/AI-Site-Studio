@@ -164,6 +164,7 @@ export default function StudioPage() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let buildCompleted = false;
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -185,11 +186,15 @@ export default function StudioPage() {
           } else if (item.type === "model") {
             setEvents((current) => [...current, { ...item, key: `${item.page}-${item.provider}-${current.length}` }]);
           } else if (item.type === "complete") {
+            buildCompleted = true;
             const buildQuery = buildSessionId.current ? `&build=${encodeURIComponent(buildSessionId.current)}` : "";
             navigate(`/preview?template=${encodeURIComponent(item.project.id)}&mode=live${buildQuery}`, { replace: true });
             return;
           }
         }
+      }
+      if (!buildCompleted) {
+        throw new Error("Generation stream closed before completion. Your plan and prompt are preserved—please click 'Build my website' again.");
       }
     } catch (err) {
       setError(err.message || "Studio generation failed. Your plan and answers are still here.");
