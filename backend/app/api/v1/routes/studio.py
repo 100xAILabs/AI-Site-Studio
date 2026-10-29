@@ -240,47 +240,60 @@ async def generate_studio_project(
                         break
 
                     sequence += 1
-                    db.add(StudioBuildEvent(build_id=build_id, sequence=sequence, event_type=str(event.get("type") or "progress"), payload=event))
-                    if event.get("type") in {"agent", "page"}:
-                        build.current_phase = str(event.get("agent") or event.get("name") or event.get("filename") or build.current_phase)[:80]
-                    if event.get("type") == "complete":
-                        project = event.get("project") or {}
-                        build.status = "completed"
-                        build.current_phase = "completed"
-                        build.template_id = UUID(str(project["id"]))
-                        build.result_summary = f"Created {project.get('title') or build.title} with {project.get('pages_count') or 1} page(s)."
-                        build.finished_at = datetime.now(timezone.utc)
-                        last_message_sequence += 1
-                        db.add(StudioBuildMessage(build_id=build_id, sequence=last_message_sequence, role="assistant", content=build.result_summary, message_type="build_summary"))
-                    await db.commit()
+                    try:
+                        async with AsyncSessionLocal() as ev_db:
+                            ev_db.add(StudioBuildEvent(build_id=build_id, sequence=sequence, event_type=str(event.get("type") or "progress"), payload=event))
+                            b = await ev_db.get(StudioBuild, build_id)
+                            if b:
+                                if event.get("type") in {"agent", "page"}:
+                                    b.current_phase = str(event.get("agent") or event.get("name") or event.get("filename") or b.current_phase)[:80]
+                                if event.get("type") == "complete":
+                                    project = event.get("project") or {}
+                                    b.status = "completed"
+                                    b.current_phase = "completed"
+                                    b.template_id = UUID(str(project["id"]))
+                                    b.result_summary = f"Created {project.get('title') or b.title} with {project.get('pages_count') or 1} page(s)."
+                                    b.finished_at = datetime.now(timezone.utc)
+                                    last_message_sequence += 1
+                                    ev_db.add(StudioBuildMessage(build_id=build_id, sequence=last_message_sequence, role="assistant", content=b.result_summary, message_type="build_summary"))
+                            await ev_db.commit()
+                    except Exception as log_exc:
+                        logger.warning("Could not persist build event %s: %s", sequence, log_exc)
+
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
-                    # Schedule next iteration only after this event is fully committed and yielded
+                    # Schedule next iteration only after this event is fully processed and yielded
                     next_task = asyncio.create_task(gen.__anext__())
             except asyncio.CancelledError:
                 if "next_task" in locals() and next_task and not next_task.done():
                     next_task.cancel()
-                await db.rollback()
-                cancelled_build = await db.get(StudioBuild, build_id)
-                if cancelled_build:
-                    cancelled_build.status = "cancelled"
-                    cancelled_build.current_phase = "cancelled"
-                    cancelled_build.error_message = "Build stream was interrupted before completion."
-                    cancelled_build.finished_at = datetime.now(timezone.utc)
-                    db.add(StudioBuildEvent(build_id=build_id, sequence=sequence + 1, event_type="cancelled", payload={"type": "cancelled", "reason": "client_disconnected"}))
-                    await db.commit()
+                try:
+                    async with AsyncSessionLocal() as c_db:
+                        cancelled_build = await c_db.get(StudioBuild, build_id)
+                        if cancelled_build:
+                            cancelled_build.status = "cancelled"
+                            cancelled_build.current_phase = "cancelled"
+                            cancelled_build.error_message = "Build stream was interrupted before completion."
+                            cancelled_build.finished_at = datetime.now(timezone.utc)
+                            c_db.add(StudioBuildEvent(build_id=build_id, sequence=sequence + 1, event_type="cancelled", payload={"type": "cancelled", "reason": "client_disconnected"}))
+                            await c_db.commit()
+                except Exception:
+                    pass
                 raise
             except Exception as exc:
-                await db.rollback()
-                failed_build = await db.get(StudioBuild, build_id)
-                if failed_build:
-                    failed_build.status = "failed"
-                    failed_build.current_phase = "failed"
-                    failed_build.error_message = str(exc)[:2000]
-                    failed_build.finished_at = datetime.now(timezone.utc)
-                    max_message_sequence = await db.scalar(select(func.max(StudioBuildMessage.sequence)).where(StudioBuildMessage.build_id == build_id)) or 0
-                    db.add(StudioBuildMessage(build_id=build_id, sequence=max_message_sequence + 1, role="assistant", content=f"Build failed: {str(exc)[:1800]}", message_type="error"))
-                    await db.commit()
+                try:
+                    async with AsyncSessionLocal() as f_db:
+                        failed_build = await f_db.get(StudioBuild, build_id)
+                        if failed_build:
+                            failed_build.status = "failed"
+                            failed_build.current_phase = "failed"
+                            failed_build.error_message = str(exc)[:2000]
+                            failed_build.finished_at = datetime.now(timezone.utc)
+                            max_message_sequence = await f_db.scalar(select(func.max(StudioBuildMessage.sequence)).where(StudioBuildMessage.build_id == build_id)) or 0
+                            f_db.add(StudioBuildMessage(build_id=build_id, sequence=max_message_sequence + 1, role="assistant", content=f"Build failed: {str(exc)[:1800]}", message_type="error"))
+                            await f_db.commit()
+                except Exception:
+                    pass
                 yield f"data: {json.dumps({'type': 'error', 'message': str(exc)[:500]}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(

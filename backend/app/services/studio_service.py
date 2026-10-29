@@ -1611,54 +1611,62 @@ Audit: {json.dumps(audit, ensure_ascii=False)[:2000]}"""
             scan = security_scanner.scan_zip_bytes(zip_bytes, "studio-project.zip")
             if not scan.get("is_safe", False):
                 raise RuntimeError("The generated project did not pass the security scan and was not saved.")
-            zip_url = await storage.upload_file(db, zip_bytes, "studio-projects", f"{uuid.uuid4().hex}.zip", "application/zip")
 
             base_slug = re.sub(r"[^a-z0-9]+", "-", str(plan.get("title") or genre).lower()).strip("-")[:80] or "studio-project"
             slug = f"{base_slug}-{uuid.uuid4().hex[:8]}"
             title = str(plan.get("title") or genre.title())[:255]
-            project = Template(
-                title=title,
-                slug=slug,
-                short_description=str(plan.get("summary") or "Private AI-generated website project.")[:500],
-                description=str(plan.get("summary") or "Private AI-generated website project."),
-                price=0,
-                price_currency="USD",
-                is_free=True,
-                thumbnail_url=(safe_images[0] if safe_images else "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1200&q=85"),
-                preview_url=f"{settings.FRONTEND_URL.rstrip('/')}/preview?template={slug}",
-                gallery_images=safe_images or None,
-                category_id=category.id,
-                tags=["studio-project", "ai-generated", genre[:60]],
-                industry=genre[:100],
-                framework=(
-                    TemplateFramework.NEXTJS if stack_info.get("frontend") == "nextjs"
-                    else TemplateFramework.REACT if stack_info.get("frontend") == "react"
-                    else TemplateFramework.HTML
-                ),
-                pages_count=len(pages),
-                has_dark_mode=bool(re.search(r"dark", design, re.IGNORECASE)),
-                is_responsive=True,
-                is_ai_ready=True,
-                license_type=TemplateLicense.REGULAR,
-                status=TemplateStatus.DRAFT,
-                developer_name=(user.full_name or user.username or "My Studio")[:200],
-                seller_id=user.id,
-                download_assets={"html": zip_url, "zip": zip_url},
-                changelog={"private_studio_project": True, "plan": plan, "answers": answers, "architecture": architecture, "stack": stack, "design": design[:5000], "seo_a11y_review": seo, "test_audit": audit},
-                included_pages=[str(p.get("name") or p.get("filename")) for p in page_list],
-                seo_keywords=[genre[:100], category_name[:100], "custom website"],
-            )
-            db.add(project)
-            await db.commit()
-            await db.refresh(project)
+
+            # Use a fresh, pre-pinged session to prevent serverless database idle timeouts during long generations
+            from app.core.database import AsyncSessionLocal
+            async with AsyncSessionLocal() as save_db:
+                zip_url = await storage.upload_file(save_db, zip_bytes, "studio-projects", f"{uuid.uuid4().hex}.zip", "application/zip")
+                project = Template(
+                    title=title,
+                    slug=slug,
+                    short_description=str(plan.get("summary") or "Private AI-generated website project.")[:500],
+                    description=str(plan.get("summary") or "Private AI-generated website project."),
+                    price=0,
+                    price_currency="USD",
+                    is_free=True,
+                    thumbnail_url=(safe_images[0] if safe_images else "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1200&q=85"),
+                    preview_url=f"{settings.FRONTEND_URL.rstrip('/')}/preview?template={slug}",
+                    gallery_images=safe_images or None,
+                    category_id=category.id,
+                    tags=["studio-project", "ai-generated", genre[:60]],
+                    industry=genre[:100],
+                    framework=(
+                        TemplateFramework.NEXTJS if stack_info.get("frontend") == "nextjs"
+                        else TemplateFramework.REACT if stack_info.get("frontend") == "react"
+                        else TemplateFramework.HTML
+                    ),
+                    pages_count=len(pages),
+                    has_dark_mode=bool(re.search(r"dark", design, re.IGNORECASE)),
+                    is_responsive=True,
+                    is_ai_ready=True,
+                    license_type=TemplateLicense.REGULAR,
+                    status=TemplateStatus.DRAFT,
+                    developer_name=(user.full_name or user.username or "My Studio")[:200],
+                    seller_id=user.id,
+                    download_assets={"html": zip_url, "zip": zip_url},
+                    changelog={"private_studio_project": True, "plan": plan, "answers": answers, "architecture": architecture, "stack": stack, "design": design[:5000], "seo_a11y_review": seo, "test_audit": audit},
+                    included_pages=[str(p.get("name") or p.get("filename")) for p in page_list],
+                    seo_keywords=[genre[:100], category_name[:100], "custom website"],
+                )
+                save_db.add(project)
+                await save_db.commit()
+                await save_db.refresh(project)
+                saved_project_id = str(project.id)
+                saved_slug = project.slug
+                saved_title = project.title
+                saved_pages_count = project.pages_count
 
             # Persist full source code locally (both before_edit and latest)
             try:
                 local_project_manager.unpack_zip_bytes_to_local(
-                    template_id=project.id,
-                    slug=project.slug,
+                    template_id=saved_project_id,
+                    slug=saved_slug,
                     zip_bytes=zip_bytes,
-                    title=title,
+                    title=saved_title,
                     stack=stack,
                     is_initial=True,
                 )
@@ -1666,9 +1674,12 @@ Audit: {json.dumps(audit, ensure_ascii=False)[:2000]}"""
                 logger.warning("Could not persist local project files: %s", loc_exc)
 
             yield status("packaging", "completed", "Private project saved to your dashboard.")
-            yield {"type": "complete", "project": {"id": str(project.id), "slug": project.slug, "title": project.title, "pages_count": project.pages_count}}
+            yield {"type": "complete", "project": {"id": saved_project_id, "slug": saved_slug, "title": saved_title, "pages_count": saved_pages_count}}
         except Exception:
-            await db.rollback()
+            try:
+                await db.rollback()
+            except Exception:
+                pass
             logger.exception("Studio project generation failed")
             raise
         finally:
