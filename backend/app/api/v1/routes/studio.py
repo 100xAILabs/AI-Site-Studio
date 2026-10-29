@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.request_limits import enforce_user_limit
@@ -119,7 +120,8 @@ async def create_studio_plan(
     request: StudioPlanRequest,
     current_user: User = Depends(get_current_user),
 ):
-    await enforce_user_limit(str(current_user.id), "studio-plan", limit=10, window_seconds=3600)
+    limit = 200 if settings.DEBUG else 50
+    await enforce_user_limit(str(current_user.id), "studio-plan", limit=limit, window_seconds=3600)
     try:
         plan = await studio_service.plan(
             request.prompt,
@@ -140,7 +142,8 @@ async def create_studio_build_prompt(
     request: StudioPromptRequest,
     current_user: User = Depends(get_current_user),
 ):
-    await enforce_user_limit(str(current_user.id), "studio-prompt", limit=10, window_seconds=3600)
+    limit = 200 if settings.DEBUG else 50
+    await enforce_user_limit(str(current_user.id), "studio-prompt", limit=limit, window_seconds=3600)
     try:
         build_prompt = await studio_service.create_build_prompt(
             prompt=request.prompt,
@@ -166,7 +169,8 @@ async def generate_studio_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    await enforce_user_limit(str(current_user.id), "studio-generate", limit=3, window_seconds=3600)
+    limit = 100 if settings.DEBUG else 30
+    await enforce_user_limit(str(current_user.id), "studio-generate", limit=limit, window_seconds=3600)
 
     build = StudioBuild(
         user_id=current_user.id,
