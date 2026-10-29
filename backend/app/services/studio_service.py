@@ -467,12 +467,19 @@ def _filename(value: str, index: int, page_name: str = "") -> str:
         raw_value = raw_name
     if not raw_value:
         raw_value = raw_name or ("index" if index == 0 else "")
-    value = raw_value
-    value = re.sub(r"[^a-z0-9_-]+", "-", value).strip("-_")
-    stem = value[:-5] if value.endswith(".html") else value
-    if stem in HOME_PAGE_NAMES:
+
+    clean = raw_value
+    if clean.endswith(".html"):
+        clean = clean[:-5]
+    while clean.endswith("-html") or clean.endswith("_html"):
+        clean = clean[:-5]
+
+    clean = re.sub(r"[^a-z0-9_-]+", "-", clean).strip("-_")
+    if clean in HOME_PAGE_NAMES:
         return "index.html"
-    return f"{value[:50]}.html" if not value.endswith(".html") else value[:60]
+    if not clean:
+        clean = "index" if index == 0 else f"page-{index + 1}"
+    return f"{clean[:50]}.html"
 
 
 def _ensure_home_page(pages: list[dict[str, Any]], prompt: str, genre: str) -> list[dict[str, Any]]:
@@ -1445,7 +1452,7 @@ Existing incomplete document (continue after its final character):
             yield status("seo", "running", "Reviewing metadata, headings, links, and accessibility.")
             seo_prompt = f"""You are the SEO & A11y Agent. Review these generated pages and return a concise JSON report. Identify only actionable errors. Ensure unique titles/descriptions, heading order, link clarity, image alt text, keyboard access, color contrast concerns, and reduced-motion. List filenames requiring changes in repair_pages.
 Plan: {json.dumps(plan, ensure_ascii=False)[:4000]}
-Pages: {json.dumps({k: v[:2500] for k, v in pages.items()}, ensure_ascii=False)[:12000]}
+Pages: {json.dumps({k: (v if len(v) <= 5000 else f"{v[:3000]}\n<!-- ... [interior sections omitted; {len(v)} chars total] ... -->\n{v[-1500:]}") for k, v in pages.items()}, ensure_ascii=False)[:16000]}
 Return JSON: {{\"summary\":\"...\",\"repair_pages\":[\"filename\"],\"findings\":[{{\"severity\":\"critical|warning|info\",\"page\":\"filename\",\"finding\":\"...\"}}]}}"""
             seo = _parse_json(await ai_service._generate_content(
                 seo_prompt, response_mime_type="application/json", feature_name="seo_agent",
@@ -1472,7 +1479,8 @@ Return JSON: {{\"summary\":\"...\",\"repair_pages\":[\"filename\"],\"findings\":
 
             yield status("testing", "running", "Checking generated pages and their navigation.")
             audit_prompt = f"""You are the Testing & Audit Agent. Inspect the generated HTML for broken internal links, missing page-specific content, dead controls, invalid HTML structure, unsafe claims, and missing responsive/accessibility support. Verify index.html is a real homepage for the user's brief, never an About, Contact, or product-listing interior page. Flag browser-default/un-styled HTML, repetitive copy/cards, broken or Google search-result image URLs, and page layouts that ignore the design system. Return JSON only with keys passed (boolean), summary, findings (array of {{severity,page,finding}}), and repair_pages (array of filenames). Do not ask for or invent backend behavior.
-Files: {json.dumps({k: v[:3000] for k, v in pages.items()}, ensure_ascii=False)[:14000]}"""
+Input previews may be truncated in the middle for token efficiency; do not flag a page as incomplete purely because of middle truncation if the structure begins and ends properly with valid tags.
+Files: {json.dumps({k: (v if len(v) <= 6000 else f"{v[:3800]}\n<!-- ... [interior sections omitted for token efficiency; {len(v)} chars total] ... -->\n{v[-1800:]}") for k, v in pages.items()}, ensure_ascii=False)[:20000]}"""
             audit = _parse_json(await ai_service._generate_content(
                 audit_prompt, response_mime_type="application/json", feature_name="testing_agent",
                 preferred_provider="groq", provider_order_override=ANALYSIS_PROVIDER_ORDER,

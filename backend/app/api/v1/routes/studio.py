@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.database import get_db
+from app.core.database import AsyncSessionLocal, get_db
 from app.core.dependencies import get_current_user
 from app.core.request_limits import enforce_user_limit
 from app.models.user import User
@@ -211,50 +211,53 @@ async def generate_studio_project(
         sequence = 0
         last_message_sequence = message_sequence
         yield f"data: {json.dumps({'type': 'session', 'build_id': str(build_id)}, ensure_ascii=False)}\n\n"
-        try:
-            gen = studio_service.generate(
-                db=db,
-                user=current_user,
-                prompt=request.prompt,
-                category_id=request.category_id,
-                category_name=request.category,
-                genre=request.genre,
-                plan=request.plan,
-                answers=request.answers,
-                build_prompt=request.build_prompt,
-                image_urls=request.image_urls,
-                image_assets=[asset.model_dump() for asset in request.image_assets],
-                stack=request.stack,
-            )
-            next_task = asyncio.create_task(gen.__anext__())
-            while True:
-                done, _ = await asyncio.wait({next_task}, timeout=15.0)
-                if not done:
-                    # SSE comment line keeps HTTP streaming connection warm during heavy generation steps without cancelling
-                    yield ": keep-alive\n\n"
-                    continue
-                try:
-                    event = next_task.result()
-                except StopAsyncIteration:
-                    break
+        async with AsyncSessionLocal() as service_db:
+            try:
+                gen = studio_service.generate(
+                    db=service_db,
+                    user=current_user,
+                    prompt=request.prompt,
+                    category_id=request.category_id,
+                    category_name=request.category,
+                    genre=request.genre,
+                    plan=request.plan,
+                    answers=request.answers,
+                    build_prompt=request.build_prompt,
+                    image_urls=request.image_urls,
+                    image_assets=[asset.model_dump() for asset in request.image_assets],
+                    stack=request.stack,
+                )
                 next_task = asyncio.create_task(gen.__anext__())
+                while True:
+                    done, _ = await asyncio.wait({next_task}, timeout=15.0)
+                    if not done:
+                        # SSE comment line keeps HTTP streaming connection warm during heavy generation steps without cancelling
+                        yield ": keep-alive\n\n"
+                        continue
+                    try:
+                        event = next_task.result()
+                    except StopAsyncIteration:
+                        break
 
-                sequence += 1
-                db.add(StudioBuildEvent(build_id=build_id, sequence=sequence, event_type=str(event.get("type") or "progress"), payload=event))
-                if event.get("type") in {"agent", "page"}:
-                    build.current_phase = str(event.get("agent") or event.get("name") or event.get("filename") or build.current_phase)[:80]
-                if event.get("type") == "complete":
-                    project = event.get("project") or {}
-                    build.status = "completed"
-                    build.current_phase = "completed"
-                    build.template_id = UUID(str(project["id"]))
-                    build.result_summary = f"Created {project.get('title') or build.title} with {project.get('pages_count') or 1} page(s)."
-                    build.finished_at = datetime.now(timezone.utc)
-                    last_message_sequence += 1
-                    db.add(StudioBuildMessage(build_id=build_id, sequence=last_message_sequence, role="assistant", content=build.result_summary, message_type="build_summary"))
-                await db.commit()
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-        except asyncio.CancelledError:
+                    sequence += 1
+                    db.add(StudioBuildEvent(build_id=build_id, sequence=sequence, event_type=str(event.get("type") or "progress"), payload=event))
+                    if event.get("type") in {"agent", "page"}:
+                        build.current_phase = str(event.get("agent") or event.get("name") or event.get("filename") or build.current_phase)[:80]
+                    if event.get("type") == "complete":
+                        project = event.get("project") or {}
+                        build.status = "completed"
+                        build.current_phase = "completed"
+                        build.template_id = UUID(str(project["id"]))
+                        build.result_summary = f"Created {project.get('title') or build.title} with {project.get('pages_count') or 1} page(s)."
+                        build.finished_at = datetime.now(timezone.utc)
+                        last_message_sequence += 1
+                        db.add(StudioBuildMessage(build_id=build_id, sequence=last_message_sequence, role="assistant", content=build.result_summary, message_type="build_summary"))
+                    await db.commit()
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+                    # Schedule next iteration only after this event is fully committed and yielded
+                    next_task = asyncio.create_task(gen.__anext__())
+            except asyncio.CancelledError:
             if "next_task" in locals() and next_task and not next_task.done():
                 next_task.cancel()
             await db.rollback()
