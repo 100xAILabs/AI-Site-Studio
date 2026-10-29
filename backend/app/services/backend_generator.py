@@ -83,9 +83,9 @@ SUPPORTED_STACKS = {
 # Per-backend system prompt fragments
 # ---------------------------------------------------------------------------
 
-_FASTAPI_SYSTEM = """You are an expert Python backend developer specialising in FastAPI.
-Generate a complete, production-ready FastAPI application with NO placeholder comments.
-Every route must be fully implemented and runnable.
+_FASTAPI_SYSTEM = """You are an expert Python backend developer specialising in FastAPI and SQLAlchemy 2.0.
+Generate a complete, production-ready, zero-error FastAPI application with NO placeholder comments.
+Every route must be fully implemented, syntactically valid, and immediately runnable.
 
 Required files (output ALL of them):
   backend/app/models.py        — SQLAlchemy 2.0 async ORM models with typed Mapped columns
@@ -93,19 +93,31 @@ Required files (output ALL of them):
   backend/app/database.py      — Async SQLAlchemy engine + session factory
   backend/app/crud.py          — Async CRUD helpers for every model
   backend/app/routes/          — One router file per resource group
-  backend/app/main.py          — FastAPI app factory with CORS, lifespan, and router mounts
-  backend/requirements.txt     — Pinned dependencies (fastapi, uvicorn, sqlalchemy, asyncpg/motor, pydantic, alembic, python-dotenv, stripe if needed)
+  backend/app/main.py          — FastAPI app factory with CORS, lifespan startup table creation, and router mounts
+  backend/requirements.txt     — Pinned dependencies (fastapi, uvicorn[standard], sqlalchemy>=2.0, asyncpg or aiosqlite, pydantic, alembic, python-dotenv, stripe if needed)
   backend/.env.example         — All required environment variables with safe placeholder values
   backend/alembic.ini          — Alembic config pointing to app.database
   backend/alembic/env.py       — Async Alembic env that imports ORM models
   backend/README.md            — Setup guide: virtualenv, pip install, alembic upgrade head, uvicorn run
 
-Always include:
-  POST /api/contact            — Contact form submission (saves to DB, returns 201)
-  POST /api/newsletter         — Newsletter subscription (unique email, returns 201)
-  GET  /api/health             — Health check returns {status: ok, version: ...}
-  CORS middleware for any origin in development
-  Pydantic Settings for env-var config
+CRITICAL SQLALCHEMY 2.0 & FASTAPI RULES:
+1. In app/models.py:
+   - Explicitly import EVERY column type used from sqlalchemy: Boolean, ForeignKey, UUID, Column, DateTime, Float, Integer, String, Text.
+   - NEVER call synchronous `Base.metadata.create_all(engine)` at module level on an AsyncEngine (this crashes). Table creation belongs in FastAPI lifespan startup.
+2. In app/crud.py:
+   - Import `from uuid import UUID` and `from typing import Optional, List, Any`.
+   - In AsyncSession, NEVER use `db.query()`. Always use `from sqlalchemy import select` and `(await db.execute(select(Model).offset(skip).limit(limit))).scalars().all()`.
+3. In app/main.py:
+   - Mount routers with `app.include_router(router, prefix="/api")`.
+   - In router files (`app/routes/*.py`), use relative decorators like `@router.get("/items")` (NOT `@router.get("/api/items")`) to prevent double `/api/api/...` 404 paths.
+   - Use async lifespan for database startup table creation: `async with engine.begin() as conn: await conn.run_sync(Base.metadata.create_all)`.
+4. In app/routes/:
+   - Always include GET /api/health returning `{"status": "ok", "version": "1.0.0"}`.
+   - If auth is needed, provide both POST /api/auth/register and POST /api/auth/login.
+5. In app/main.py response serialization:
+   - NEVER use UJSONResponse or default_response_class=UJSONResponse (ujson is an unnecessary C-extension that crashes when missing). Always use FastAPI default standard JSON serialization.
+6. In requirements.txt:
+   - Provide complete, detailed, pinned requirements with category comments: fastapi>=0.110.0,<1.0.0, uvicorn[standard]>=0.29.0, pydantic>=2.7.0, sqlalchemy>=2.0.30, aiosqlite>=0.20.0, alembic>=1.13.0, python-dotenv>=1.0.1, httpx>=0.27.0. NEVER add ujson.
 """
 
 _FASTAPI_MONGO_SYSTEM = """You are an expert Python backend developer specialising in FastAPI + Motor (async MongoDB).
@@ -546,6 +558,20 @@ OUTPUT INSTRUCTIONS (CRITICAL — follow exactly):
 - Wire all forms to the API using fetch/axios. Show loading spinners and error states.
 - If owner provided an email in answers, wire the contact form to deliver messages to that email.
 - If owner provided a mobile number in answers, render 1-click WhatsApp (https://wa.me/<PHONE>?text=...), SMS (sms:<PHONE>), and Call (tel:<PHONE>) action buttons.
+- ALL-DEVICE & MOBILE RESPONSIVENESS (MANDATORY):
+  * Every page and component MUST be 100% responsive across all screen sizes: mobile phones (320px–480px), tablets (768px–1024px), laptops, and large desktop screens.
+  * Use responsive layout classes (e.g. `grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3`, `flex flex-col md:flex-row`, `px-4 sm:px-6 lg:px-8`).
+  * Include a working mobile navigation hamburger menu state (`isOpen`, `setIsOpen`) that toggles a mobile drawer on screens below `md:`.
+  * Ensure touch targets for buttons, links, and inputs have at least 44px tap height (`min-h-[44px]`).
+  * Ensure zero horizontal overflow (`overflow-x-hidden`).
+- MANDATORY HIGH-FIDELITY CSS & MODERN UI STYLING:
+  * NEVER generate bare, unstyled, or plain HTML. Every TSX page and component MUST have rich, polished, modern visual CSS styling using Tailwind CSS.
+  * Card Surfaces & Glassmorphism: Use elevated, rounded containers with subtle borders and backdrop blur (e.g. `bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-gray-200/80 dark:border-slate-800 rounded-2xl shadow-xl shadow-gray-200/50`).
+  * Radiant Gradient Accents: Use radiant gradient buttons, badges, and icon backgrounds (e.g. `bg-gradient-to-r from-primary-600 via-teal-500 to-emerald-500 hover:shadow-lg hover:shadow-primary-500/25`).
+  * Typography & Hierarchy: Use crisp font scales with tight tracking (`text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900`), balanced muted subtext (`text-gray-500 text-sm sm:text-base leading-relaxed`), and prominent metric values.
+  * Form Inputs & Interactive Controls: Form fields must have icons, clean border transitions, and prominent glow focus rings (`rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm shadow-sm transition-all focus:border-primary-500 focus:ring-4 focus:ring-primary-500/15`). Buttons must feature subtle hover translation (`hover:-translate-y-0.5 active:translate-y-0 transition-transform`).
+  * Tables & Lists: Polished table rows with hover states (`hover:bg-gray-50/80 transition-colors`), status pills with tinted rings (`bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20 rounded-full px-2.5 py-1 text-xs font-semibold`), and illustrated or icon-backed empty states.
+  * Micro-Badges & Icon Wrappers: Wrap Lucide icons in rounded square or circular gradient pill containers (`p-3 rounded-xl bg-primary-50 text-primary-600`).
 - Start immediately with the first ===FILE: ...=== line.
 """
 
@@ -572,6 +598,12 @@ OUTPUT INSTRUCTIONS (CRITICAL — follow exactly):
 
         if not has_dockerfile:
             sanitized.append(("frontend/Dockerfile", self._generate_frontend_dockerfile(frontend_type)))
+
+        if frontend_type == "react":
+            if not any(p.endswith("vite-env.d.ts") for p, _ in sanitized):
+                sanitized.append(("frontend/src/vite-env.d.ts", '/// <reference types="vite/client" />\n'))
+            if not any(p.endswith("postcss.config.js") for p, _ in sanitized):
+                sanitized.append(("frontend/postcss.config.js", "export default {\n  plugins: {\n    tailwindcss: {},\n    autoprefixer: {},\n  },\n};\n"))
 
         return sanitized
 

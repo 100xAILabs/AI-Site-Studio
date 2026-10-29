@@ -1,4 +1,4 @@
-﻿"""
+"""
 Preview routes — create preview sessions and serve watermarked previews.
 """
 
@@ -1787,6 +1787,8 @@ async def edit_live_preview_manual(
                     new_t = ti.get("text")
                     if orig and new_t and orig != new_t:
                         page_edits_str += f"  * Replace text snippet \"{orig}\" with: \"{new_t}\"\n"
+                    elif not orig and new_t:
+                        page_edits_str += f"  * Add new text content element: \"{new_t}\" ({ti.get('label') or 'element'})\n"
 
     edit_prompt = f"""You are a specialized React/HTML code refactoring tool.
 Your task is to take the provided website template files and replace specific business fields and styles with these new values:
@@ -1804,6 +1806,7 @@ Rules:
 3. The "replace" string must contain the updated code to replace it.
 4. Replace all occurrences of old business names, descriptions, accent colors, and contact info in the code.
 5. If the template is a single-page template (index.html), apply all page/section overrides to the corresponding sections inside index.html.
+6. If new items or cards were added that do not yet exist in the file, duplicate the previous item's surrounding HTML/JSX element markup, populate it with the new item's details, and insert it right after the previous item.
 
 Format the JSON response exactly like this:
 [

@@ -79,9 +79,10 @@ class ErrorBoundary extends Component {
         timestamp: new Date().toISOString(),
       };
 
-      // Non-blocking fire-and-forget report
+      // Non-blocking fire-and-forget report to backend
       if (typeof fetch === 'function') {
-        fetch('/api/v1/telemetry/crash', {
+        const apiBase = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) || 'http://localhost:8000/api/v1';
+        fetch(`${apiBase}/telemetry/crash`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -228,6 +229,7 @@ class ErrorBoundary extends Component {
           {/* Diagnostic Collapsible */}
           {error && (
             <details
+              open
               style={{
                 textAlign: 'left',
                 background: 'rgba(0, 0, 0, 0.4)',

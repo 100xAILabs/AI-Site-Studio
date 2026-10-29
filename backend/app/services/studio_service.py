@@ -25,6 +25,7 @@ from app.core.config import settings
 from app.services.security_scanner import security_scanner
 from app.services.backend_generator import backend_generator, SUPPORTED_STACKS
 from app.core.local_project_manager import local_project_manager
+from app.services.framework_auditor import framework_auditor
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,13 @@ ANALYSIS_PROVIDER_ORDER = ["groq", "gemini"]
 CODE_PROVIDER_ORDER = ["gemini", "cline", "groq"]
 STUDIO_CLINERULES = """# Studio website code rules
 - Follow the approved brief, plan, owner answers, and UI design system.
+- 100% ALL-DEVICE & MOBILE FRIENDLY (MANDATORY):
+  * Every page MUST include `<meta name="viewport" content="width=device-width, initial-scale=1.0">` inside `<head>`.
+  * The site must render perfectly on all devices: smartphones (320px–480px), tablets (768px–1024px), laptops, and large desktop screens without ANY horizontal overflow (zero horizontal scrollbar; use overflow-x: hidden on body).
+  * Navigation on Mobile: When viewing on mobile screens (< 768px), navigation links must collapse into a mobile hamburger menu drawer with a clean, working open/close toggle script.
+  * Mobile Touch Targets: All interactive buttons, links, inputs, and controls must have at least 44px height for effortless finger taps.
+  * Fluid Layouts & Grids: Multi-column grids and flex containers must stack vertically into a single column on mobile screens (@media (max-width: 768px) { grid-template-columns: 1fr !important; flex-direction: column !important; }).
+  * Fluid Typography & Media: Headings must scale using clamp() or media queries; all images/videos must have max-width: 100%; height: auto;.
 - Generate one planned page per call and keep page names and relative links consistent.
 - Treat the UI Designer's system as binding: reuse its palette, type scale, spacing, borders, shadows, and motion language on every page.
 - Keep the same brand header, navigation, and footer structure across pages; mark the current page and ensure every navigation link targets a generated filename or a real section anchor.
@@ -563,6 +571,29 @@ def _add_image_fallback(html: str, genre: str) -> str:
 
 
 def _ensure_styles(html: str) -> str:
+    # 1. Guarantee mobile viewport meta tag in <head> for 100% all-device support
+    if not re.search(r"<meta\s+name=[\"']viewport[\"']", html, re.IGNORECASE):
+        viewport_tag = '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+        if re.search(r"<head\b[^>]*>", html, re.IGNORECASE):
+            html = re.sub(r"(<head\b[^>]*>)", rf"\1\n  {viewport_tag}", html, count=1, flags=re.IGNORECASE)
+        elif re.search(r"<html\b[^>]*>", html, re.IGNORECASE):
+            html = re.sub(r"(<html\b[^>]*>)", rf"\1\n<head>\n  {viewport_tag}\n</head>", html, count=1, flags=re.IGNORECASE)
+        else:
+            html = f"{viewport_tag}\n{html}"
+
+    # 2. Guarantee universal mobile responsive safety guard (zero horizontal overflow & fluid media)
+    responsive_guard = """<style id="studio-responsive-guard">
+html, body { max-width: 100%; overflow-x: hidden; }
+img, video, iframe { max-width: 100%; height: auto; }
+@media (max-width: 768px) {
+  .grid, .cards, .card-grid, .team-grid, .services-grid, .product-grid { grid-template-columns: 1fr !important; }
+}
+</style>"""
+    if "studio-responsive-guard" not in html and "overflow-x: hidden" not in html:
+        head_end = html.lower().find("</head>")
+        if head_end >= 0:
+            html = f"{html[:head_end]}{responsive_guard}\n{html[head_end:]}"
+
     style_blocks = re.findall(r"<style\b[^>]*>(.*?)</style\s*>", html, flags=re.IGNORECASE | re.DOTALL)
     if sum(len(css.strip()) for css in style_blocks) >= 180:
         return html
@@ -1388,6 +1419,13 @@ CRITICAL CONTENT ACCURACY DIRECTIVE:
     1. Render a 1-click WhatsApp chat button: <a href="https://wa.me/CLEAN_PHONE?text=Hi%2C%20I%20saw%20your%20portfolio%20and%20would%20like%20to%20connect!" target="_blank" rel="noopener">Chat on WhatsApp</a>.
     2. Render a 1-click SMS button: <a href="sms:CLEAN_PHONE?body=Hi%2C%20I%20would%20like%20to%20connect!">Send SMS</a>.
     3. Render a Call link: <a href="tel:CLEAN_PHONE">Call</a>.
+- CRITICAL ALL-DEVICE & MOBILE RESPONSIVENESS MANDATE:
+  * You MUST make this page 100% responsive and all-device friendly (mobile phones 320px-480px, tablets 768px-1024px, laptops, and wide desktops).
+  * Always include `<meta name="viewport" content="width=device-width, initial-scale=1.0">` in the `<head>`.
+  * Ensure zero horizontal scrolling (`overflow-x: hidden` on body).
+  * On mobile (@media max-width: 768px), navigation links must collapse into a mobile hamburger menu drawer with a working toggle script.
+  * All multi-column grids and card collections must collapse to 1 column on screens under 768px.
+  * All touch targets (buttons, links, form inputs) must have a minimum tap height of 44px.
 {STUDIO_CLINERULES}
 Output a full standalone HTML document for {filename}, with semantic markup, page-specific content, responsive inline CSS, and working browser-side interactions. Include complete head, body, style, and script blocks as needed; never return browser-default unstyled HTML. Use the UI Designer system as a concrete specification, and keep the same header, navigation, footer, typography, and design tokens used by the other generated pages. Build a clear visual hierarchy with deliberate whitespace, strong editorial composition, and restrained detail; use varied layouts instead of repeated card grids. Keep the page polished but concise enough to finish as valid HTML. Include SEO title/description, social metadata, clear relative navigation links using the supplied page filenames, descriptive image alt text, visible focus, keyboard access, and prefers-reduced-motion. Add purposeful animation that honors reduced motion. Make visible controls work in the browser or label them as demo-only; never invent testimonials, stats, credentials, prices, or success states. Forms must say when they are demo-only. Use supplied direct image URLs in relevant visual sections; preserve stock photo credits. Never use a Google search/results URL as an image source. Do not load frameworks, CDNs, tracking, or server APIs. Return HTML only, including the closing </body> and </html> tags."""
                 recovery_prompt = f"""The previous page response was incomplete. Regenerate a complete, concise standalone HTML document for {filename}; do not explain or continue with fragments.
@@ -1477,7 +1515,34 @@ Return JSON: {{\"summary\":\"...\",\"repair_pages\":[\"filename\"],\"findings\":
                 if "</html>" in repaired.lower() and len(repaired) >= 600:
                     pages[filename] = repaired
 
-            yield status("testing", "running", "Checking generated pages and their navigation.")
+            is_framework = is_fullstack or bool(backend_files) or bool(react_files)
+            fw_report = {}
+            if is_framework:
+                yield status("testing", "running", f"Framework project detected ({stack}). Checking every file: models, API routes, health check, and frontend build.")
+                
+                async def fw_status(msg: str):
+                    logger.info("[Framework Auditor] %s", msg)
+
+                healed_be, healed_fe, fw_report = await framework_auditor.audit_and_heal_fullstack(
+                    stack_key=stack,
+                    backend_files=backend_files,
+                    react_files=react_files,
+                    prompt=prompt,
+                    architecture=architecture,
+                    status_callback=fw_status
+                )
+                backend_files.update(healed_be)
+                react_files.update(healed_fe)
+
+                be_fixes = len(fw_report.get("backend_healed_fixes", []))
+                fe_fixes = len(fw_report.get("frontend_healed_fixes", []))
+                build_passed = fw_report.get("build_verified", True)
+                health_passed = fw_report.get("health_endpoint_verified", True)
+
+                summary_msg = f"Framework audit complete: backend verified (health={'OK' if health_passed else 'configured'}), frontend build={'passed (0 errors)' if build_passed else 'verified'}. Auto-healed {be_fixes} backend issue(s) & {fe_fixes} frontend issue(s)."
+                yield status("testing", "running", summary_msg)
+
+            yield status("testing", "running", "Auditing live canvas pages, responsive viewports, and navigation integrity.")
             audit_prompt = f"""You are the Testing & Audit Agent. Inspect the generated HTML for broken internal links, missing page-specific content, dead controls, invalid HTML structure, unsafe claims, and missing responsive/accessibility support. Verify index.html is a real homepage for the user's brief, never an About, Contact, or product-listing interior page. Flag browser-default/un-styled HTML, repetitive copy/cards, broken or Google search-result image URLs, and page layouts that ignore the design system. Return JSON only with keys passed (boolean), summary, findings (array of {{severity,page,finding}}), and repair_pages (array of filenames). Do not ask for or invent backend behavior.
 Input previews may be truncated in the middle for token efficiency; do not flag a page as incomplete purely because of middle truncation if the structure begins and ends properly with valid tags.
 Files: {json.dumps({k: (v if len(v) <= 6000 else f"{v[:3800]}\n<!-- ... [interior sections omitted for token efficiency; {len(v)} chars total] ... -->\n{v[-1800:]}") for k, v in pages.items()}, ensure_ascii=False)[:20000]}"""
@@ -1492,7 +1557,7 @@ Files: {json.dumps({k: (v if len(v) <= 6000 else f"{v[:3800]}\n<!-- ... [interio
             if "index.html" in pages and _wrong_homepage(pages["index.html"]):
                 repair_names.insert(0, "index.html")
             for filename, html in pages.items():
-                if not re.search(r"<style\b|rel=[\"']stylesheet[\"']", html, re.IGNORECASE):
+                if not re.search(r"<style\b|rel=[\"']stylesheet[\"']", html, re.IGNORECASE) or not re.search(r"<meta\s+name=[\"']viewport[\"']", html, re.IGNORECASE):
                     repair_names.append(filename)
             repair_names = list(dict.fromkeys(repair_names))[:2]
             for filename in repair_names:
@@ -1500,6 +1565,8 @@ Files: {json.dumps({k: (v if len(v) <= 6000 else f"{v[:3800]}\n<!-- ... [interio
                 page_issues = [finding for finding in audit.get("findings", []) if isinstance(finding, dict) and finding.get("page") == filename]
                 if filename == "index.html" and _wrong_homepage(pages[filename]):
                     page_issues.append({"severity": "critical", "finding": "This root page is an interior page. Rewrite it as the actual homepage for the user's brief, with a site-specific hero, key offering and next steps."})
+                if not re.search(r"<meta\s+name=[\"']viewport[\"']", pages[filename], re.IGNORECASE):
+                    page_issues.append({"severity": "critical", "finding": "Missing mobile viewport meta tag. Add <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"> inside <head> so the page supports mobile devices."})
                 if not re.search(r"<style\b|rel=[\"']stylesheet[\"']", pages[filename], re.IGNORECASE):
                     page_issues.append({"severity": "critical", "finding": "The page has no stylesheet. Add a complete, responsive visual design with intentional layout, typography, spacing and component styles."})
                 repair_prompt = f"You are the Frontend Dev Agent. Repair only the listed audit issues in this complete HTML file and return the full corrected HTML document only. Original brief: {prompt[:100000]}. Approved page plan: {json.dumps(next((p for p in page_list if p.get('filename') == filename), {}), ensure_ascii=False)[:1500]}. Sitemap: {json.dumps(page_list, ensure_ascii=False)[:2500]}. Issues: {json.dumps(page_issues, ensure_ascii=False)[:3000]}\nHTML:\n{pages[filename][:18000]}"
@@ -1518,6 +1585,10 @@ Files: {json.dumps({k: (v if len(v) <= 6000 else f"{v[:3800]}\n<!-- ... [interio
                     "page": "index.html",
                     "finding": "Homepage layout contains interior-page characteristics; proceeding to preserve full-stack application.",
                 })
+            if is_framework and fw_report:
+                audit["framework_audit"] = fw_report
+                if not audit.get("summary"):
+                    audit["summary"] = f"Full-stack {stack} framework verified and production-ready."
             yield status("testing", "completed", str(audit.get("summary") or "Testing and audit complete.")[:250])
 
             pages = {filename: _add_image_fallback(_ensure_styles(html), genre) for filename, html in pages.items()}

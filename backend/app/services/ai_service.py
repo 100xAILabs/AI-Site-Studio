@@ -1758,16 +1758,17 @@ def repair_truncated_jsx(code: str) -> str:
             repaired = re.sub(r'export\s+default\s+[A-Za-z0-9_]+\s*;?', '', repaired)
             repaired = repaired.strip() + f"\n\nexport default {last_func};\n"
         elif not valid_standalone:
+            has_named_export = bool(re.search(r'export\s+(const|let|var|function|class)\s+([A-Za-z0-9_]+)', repaired))
             if "function App" in repaired or "const App" in repaired:
                 repaired = repaired.strip() + "\n\nexport default App;\n"
             elif "function " in repaired:
                 func_name = re.search(r'function\s+([A-Za-z0-9_]+)', repaired)
-                if func_name:
+                if func_name and func_name.group(1):
                     repaired = repaired.strip() + f"\n\nexport default {func_name.group(1)};\n"
-                else:
-                    repaired = repaired.strip() + "\n\nexport default App;\n"
-            elif "<" in repaired and ">" in repaired:
-                repaired = repaired.strip() + "\n\nexport default App;\n"
+            elif not has_named_export:
+                comp_match = re.search(r'(?:const|let)\s+([A-Z][A-Za-z0-9_]+)\s*[:=]', repaired)
+                if comp_match:
+                    repaired = repaired.strip() + f"\n\nexport default {comp_match.group(1)};\n"
 
         # Safely strip conversational trailing comments after the final standalone export default
         last_export = list(re.finditer(r'(export\s+default\s+[A-Za-z0-9_]+\s*;)', repaired))

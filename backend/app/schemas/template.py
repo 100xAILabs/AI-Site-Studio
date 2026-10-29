@@ -6,7 +6,7 @@ import uuid
 import re
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -19,9 +19,9 @@ class TemplateBase(BaseModel):
     title: str = Field(..., min_length=3, max_length=255)
     short_description: str = Field(..., max_length=500)
     description: str
-    price: Decimal = Field(..., ge=0)
+    price: Union[Decimal, float, int] = Field(..., ge=0)
     price_currency: Optional[str] = "USD"
-    original_price: Optional[Decimal] = None
+    original_price: Optional[Union[Decimal, float, int]] = None
     is_free: bool = False
     is_on_sale: bool = False
     thumbnail_url: str
@@ -106,9 +106,9 @@ class TemplateUpdate(BaseModel):
     slug: Optional[str] = None
     short_description: Optional[str] = Field(None, max_length=500)
     description: Optional[str] = None
-    price: Optional[Decimal] = Field(None, ge=0)
+    price: Optional[Union[Decimal, float, int]] = Field(None, ge=0)
     price_currency: Optional[str] = None
-    original_price: Optional[Decimal] = None
+    original_price: Optional[Union[Decimal, float, int]] = None
     is_free: Optional[bool] = None
     is_on_sale: Optional[bool] = None
     thumbnail_url: Optional[str] = None
@@ -157,9 +157,9 @@ class TemplateResponse(BaseModel):
     slug: str
     short_description: str
     description: str
-    price: Decimal
+    price: Union[Decimal, float, int]
     price_currency: Optional[str] = "USD"
-    original_price: Optional[Decimal] = None
+    original_price: Optional[Union[Decimal, float, int]] = None
     is_free: bool
     is_on_sale: bool
     thumbnail_url: str
@@ -215,8 +215,8 @@ class TemplateCardResponse(BaseModel):
     title: str
     slug: str
     short_description: str
-    price: Decimal
-    original_price: Optional[Decimal] = None
+    price: Union[Decimal, float, int]
+    original_price: Optional[Union[Decimal, float, int]] = None
     is_free: bool
     is_on_sale: bool
     thumbnail_url: str

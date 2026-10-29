@@ -1795,7 +1795,7 @@ export default function PreviewPage() {
           <div className={cn("sb-stage-canvas-area", `sb-bg-${canvasBg}`)}>
             {viewMode === "live" && liveServerUrl ? (
               <div
-                className="w-full h-full p-4 transition-all duration-300"
+                className="w-full h-full p-4 transition-all duration-300 mx-auto"
                 style={{
                   maxWidth:
                     canvasViewport === "mobile" ? "375px" :
@@ -1815,7 +1815,7 @@ export default function PreviewPage() {
               </div>
             ) : (
               <div
-                className="sb-canvas-stage-full transition-all duration-300"
+                className="sb-canvas-stage-full transition-all duration-300 mx-auto"
                 style={{
                   maxWidth:
                     canvasViewport === "mobile" ? "375px" :
@@ -3153,11 +3153,44 @@ function renderFriendlyFields(sectionId, props, onChange) {
         </div>
         {Array.isArray(props.textItems) && props.textItems.length > 0 && (
           <div className="pt-2 border-t border-border/50">
-            <label className="sb-control-label">Additional Info Texts ({props.textItems.length})</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="sb-control-label mb-0">Additional Info Texts ({props.textItems.length})</label>
+              <button
+                type="button"
+                onClick={() => {
+                  const lastItem = props.textItems[props.textItems.length - 1] || {};
+                  const newItem = {
+                    id: `text-${Date.now()}-${props.textItems.length}`,
+                    label: lastItem.label || "<SPAN> TEXT",
+                    text: "",
+                    originalText: ""
+                  };
+                  onChange("textItems", [...props.textItems, newItem]);
+                }}
+                className="flex items-center gap-1 text-[10px] font-bold text-pink-400 hover:text-pink-300 px-2 py-0.5 rounded-lg bg-pink-500/10 hover:bg-pink-500/20 transition-colors cursor-pointer"
+                title="Add another text field with the same structure as the previous one"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Text</span>
+              </button>
+            </div>
             <div className="space-y-2">
               {props.textItems.map((ti, tIdx) => (
-                <div key={ti.id || tIdx}>
-                  <label className="text-[10px] text-muted-foreground uppercase">{ti.label || `Text #${tIdx+1}`}</label>
+                <div key={ti.id || tIdx} className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] text-muted-foreground uppercase font-mono">{ti.label || `Text #${tIdx+1}`}</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updated = props.textItems.filter((_, i) => i !== tIdx);
+                        onChange("textItems", updated);
+                      }}
+                      className="p-1 text-muted-foreground hover:text-rose-400 hover:bg-rose-500/15 rounded transition-colors cursor-pointer"
+                      title="Remove text"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
                   <input
                     type="text"
                     value={ti.text || ""}
@@ -3166,6 +3199,7 @@ function renderFriendlyFields(sectionId, props, onChange) {
                       updated[tIdx] = { ...updated[tIdx], text: e.target.value };
                       onChange("textItems", updated);
                     }}
+                    placeholder={`Enter ${ti.label || "text"}...`}
                     className="sb-control-input text-xs"
                   />
                 </div>
@@ -3331,6 +3365,37 @@ function renderFriendlyFields(sectionId, props, onChange) {
       }
     };
 
+    const addCardItem = () => {
+      const lastCard = cardsList[cardsList.length - 1] || {};
+      const newIdx = cardsList.length;
+      // Replicate previous card's exact structure and keys ("like the previous one")
+      const newCard = {};
+      Object.keys(lastCard).forEach((k) => {
+        if (k === "tag") {
+          newCard[k] = `Item #${newIdx + 1}`;
+        } else {
+          newCard[k] = "";
+        }
+      });
+      if (!("title" in newCard)) newCard.title = "";
+      if (!("desc" in newCard)) newCard.desc = "";
+      if ("stack" in lastCard && !("stack" in newCard)) newCard.stack = "";
+      if ("tag" in lastCard && !("tag" in newCard)) newCard.tag = `Item #${newIdx + 1}`;
+
+      const updated = [...cardsList, newCard];
+      onChange("cards", updated);
+      onChange(`card${newIdx + 1}_title`, newCard.title);
+      onChange(`card${newIdx + 1}_desc`, newCard.desc);
+      if (newCard.tag) onChange(`card${newIdx + 1}_tag`, newCard.tag);
+      if (newCard.stack) onChange(`card${newIdx + 1}_stack`, newCard.stack);
+    };
+
+    const removeCardItem = (cardIdx) => {
+      if (cardsList.length <= 1) return;
+      const updated = cardsList.filter((_, idx) => idx !== cardIdx);
+      onChange("cards", updated);
+    };
+
     return (
       <div className="space-y-4">
         <div>
@@ -3364,11 +3429,38 @@ function renderFriendlyFields(sectionId, props, onChange) {
 
         {/* Dynamic Cards Editor */}
         <div className="space-y-3 pt-2">
+          <div className="flex items-center justify-between">
+            <label className="sb-control-label mb-0">
+              Content Cards &amp; Items ({cardsList.length})
+            </label>
+            <button
+              type="button"
+              onClick={addCardItem}
+              className="flex items-center gap-1 text-[10px] font-bold text-pink-400 hover:text-pink-300 px-2 py-0.5 rounded-lg bg-pink-500/10 hover:bg-pink-500/20 transition-colors cursor-pointer"
+              title="Add another card with the same structure as the previous one"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Item</span>
+            </button>
+          </div>
+
           {cardsList.map((card, idx) => (
             <div key={idx} className="p-3.5 rounded-xl border border-border/80 bg-card/60 space-y-2.5">
-              <span className="text-[10px] font-mono font-bold uppercase text-pink-400 block">
-                {card.tag || `Item #${idx + 1}`}
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono font-bold uppercase text-pink-400 block">
+                  {card.tag || `Item #${idx + 1}`}
+                </span>
+                {cardsList.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeCardItem(idx)}
+                    className="p-1 rounded text-muted-foreground hover:text-rose-400 hover:bg-rose-500/15 transition-colors cursor-pointer"
+                    title={`Delete item #${idx + 1}`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
               {card.tag !== undefined && (
                 <div>
                   <label className="sb-control-label">Badge / Tag</label>
@@ -3413,8 +3505,30 @@ function renderFriendlyFields(sectionId, props, onChange) {
                   className="sb-control-input text-xs resize-none leading-relaxed"
                 />
               </div>
+              {/* Extra dynamic fields if previous item had other custom properties */}
+              {Object.keys(card).filter((k) => !["tag", "title", "stack", "desc", "description"].includes(k)).map((extraKey) => (
+                <div key={extraKey}>
+                  <label className="sb-control-label capitalize">{extraKey.replace(/([A-Z])/g, " $1")}</label>
+                  <input
+                    type="text"
+                    value={card[extraKey] || ""}
+                    onChange={(e) => updateCardItem(idx, extraKey, e.target.value)}
+                    placeholder={`Enter ${extraKey}...`}
+                    className="sb-control-input text-xs"
+                  />
+                </div>
+              ))}
             </div>
           ))}
+
+          <button
+            type="button"
+            onClick={addCardItem}
+            className="w-full py-2 px-3 rounded-xl border-2 border-dashed border-border hover:border-pink-500/50 hover:bg-pink-500/5 text-xs font-bold text-muted-foreground hover:text-pink-400 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>+ Add Another Item</span>
+          </button>
         </div>
 
         {/* Dynamic Section Tabs / Pills (e.g. Experience / Education) */}
@@ -3541,11 +3655,44 @@ function renderFriendlyFields(sectionId, props, onChange) {
         {/* Universal Extra Template Text Items (100% Text Capture) */}
         {Array.isArray(props.textItems) && props.textItems.length > 0 && (
           <div className="p-3.5 rounded-xl border border-border/80 bg-card/60 space-y-2 mt-2">
-            <label className="sb-control-label mb-0">Additional Template Texts ({props.textItems.length})</label>
+            <div className="flex items-center justify-between">
+              <label className="sb-control-label mb-0">Additional Template Texts ({props.textItems.length})</label>
+              <button
+                type="button"
+                onClick={() => {
+                  const lastItem = props.textItems[props.textItems.length - 1] || {};
+                  const newItem = {
+                    id: `text-${Date.now()}-${props.textItems.length}`,
+                    label: lastItem.label || "<SPAN> TEXT",
+                    text: "",
+                    originalText: ""
+                  };
+                  onChange("textItems", [...props.textItems, newItem]);
+                }}
+                className="flex items-center gap-1 text-[10px] font-bold text-pink-400 hover:text-pink-300 px-2 py-0.5 rounded-lg bg-pink-500/10 hover:bg-pink-500/20 transition-colors cursor-pointer"
+                title="Add another text field with the same structure as the previous one"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Text</span>
+              </button>
+            </div>
             <div className="space-y-2">
               {props.textItems.map((ti, tIdx) => (
-                <div key={ti.id || tIdx}>
-                  <label className="text-[10px] text-muted-foreground uppercase">{ti.label || `Text #${tIdx+1}`}</label>
+                <div key={ti.id || tIdx} className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] text-muted-foreground uppercase font-mono">{ti.label || `Text #${tIdx+1}`}</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updated = props.textItems.filter((_, i) => i !== tIdx);
+                        onChange("textItems", updated);
+                      }}
+                      className="p-1 text-muted-foreground hover:text-rose-400 hover:bg-rose-500/15 rounded transition-colors cursor-pointer"
+                      title="Remove text"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
                   <input
                     type="text"
                     value={ti.text || ""}
@@ -3554,6 +3701,7 @@ function renderFriendlyFields(sectionId, props, onChange) {
                       updated[tIdx] = { ...updated[tIdx], text: e.target.value };
                       onChange("textItems", updated);
                     }}
+                    placeholder={`Enter ${ti.label || "text"}...`}
                     className="sb-control-input text-xs"
                   />
                 </div>
@@ -3933,11 +4081,44 @@ function renderFriendlyFields(sectionId, props, onChange) {
       {/* Universal Extra Template Text Items (100% Text Capture) */}
       {Array.isArray(props.textItems) && props.textItems.length > 0 && (
         <div className="p-3.5 rounded-xl border border-border/80 bg-card/60 space-y-2 mt-2">
-          <label className="sb-control-label mb-0">Additional Template Texts ({props.textItems.length})</label>
+          <div className="flex items-center justify-between">
+            <label className="sb-control-label mb-0">Additional Template Texts ({props.textItems.length})</label>
+            <button
+              type="button"
+              onClick={() => {
+                const lastItem = props.textItems[props.textItems.length - 1] || {};
+                const newItem = {
+                  id: `text-${Date.now()}-${props.textItems.length}`,
+                  label: lastItem.label || "<SPAN> TEXT",
+                  text: "",
+                  originalText: ""
+                };
+                onChange("textItems", [...props.textItems, newItem]);
+              }}
+              className="flex items-center gap-1 text-[10px] font-bold text-pink-400 hover:text-pink-300 px-2 py-0.5 rounded-lg bg-pink-500/10 hover:bg-pink-500/20 transition-colors cursor-pointer"
+              title="Add another text field with the same structure as the previous one"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Text</span>
+            </button>
+          </div>
           <div className="space-y-2">
             {props.textItems.map((ti, tIdx) => (
-              <div key={ti.id || tIdx}>
-                <label className="text-[10px] text-muted-foreground uppercase">{ti.label || `Text #${tIdx+1}`}</label>
+              <div key={ti.id || tIdx} className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] text-muted-foreground uppercase font-mono">{ti.label || `Text #${tIdx+1}`}</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updated = props.textItems.filter((_, i) => i !== tIdx);
+                      onChange("textItems", updated);
+                    }}
+                    className="p-1 text-muted-foreground hover:text-rose-400 hover:bg-rose-500/15 rounded transition-colors cursor-pointer"
+                    title="Remove text"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
                 <input
                   type="text"
                   value={ti.text || ""}
@@ -3946,6 +4127,7 @@ function renderFriendlyFields(sectionId, props, onChange) {
                     updated[tIdx] = { ...updated[tIdx], text: e.target.value };
                     onChange("textItems", updated);
                   }}
+                  placeholder={`Enter ${ti.label || "text"}...`}
                   className="sb-control-input text-xs"
                 />
               </div>

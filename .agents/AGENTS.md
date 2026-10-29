@@ -90,6 +90,14 @@ All templates generated, developed, or audited must strictly adhere to the follo
    - Frontend forms must be wired to submit asynchronously to backend endpoints with graceful offline fallback.
 4. **Standard Package Structure**:
    - Fullstack templates must be packaged with clean `frontend/` and `backend/` folders, accompanied by a comprehensive `README.md`.
+5. **100% Mobile & All-Device Friendly (Full Responsiveness)**:
+   - Every page MUST include `<meta name="viewport" content="width=device-width, initial-scale=1.0">`.
+   - Flawless reflow on smartphones (320px–480px), tablets (768px–1024px), laptops, and desktop screens.
+   - Zero horizontal overflow (`overflow-x: hidden`).
+   - Mobile navigation: Working mobile hamburger menu with smooth open/close drawer toggle.
+   - Touch targets must be at least 44px × 44px for buttons, links, and form fields.
+   - Fluid typography (using `clamp()`) and fluid grids/stacks (`grid-template-columns: 1fr` on mobile).
+   - Images, media, and iframes must use `max-width: 100%; height: auto;`.
 
 ---
 
