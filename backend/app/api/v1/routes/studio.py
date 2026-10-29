@@ -258,30 +258,30 @@ async def generate_studio_project(
                     # Schedule next iteration only after this event is fully committed and yielded
                     next_task = asyncio.create_task(gen.__anext__())
             except asyncio.CancelledError:
-            if "next_task" in locals() and next_task and not next_task.done():
-                next_task.cancel()
-            await db.rollback()
-            cancelled_build = await db.get(StudioBuild, build_id)
-            if cancelled_build:
-                cancelled_build.status = "cancelled"
-                cancelled_build.current_phase = "cancelled"
-                cancelled_build.error_message = "Build stream was interrupted before completion."
-                cancelled_build.finished_at = datetime.now(timezone.utc)
-                db.add(StudioBuildEvent(build_id=build_id, sequence=sequence + 1, event_type="cancelled", payload={"type": "cancelled", "reason": "client_disconnected"}))
-                await db.commit()
-            raise
-        except Exception as exc:
-            await db.rollback()
-            failed_build = await db.get(StudioBuild, build_id)
-            if failed_build:
-                failed_build.status = "failed"
-                failed_build.current_phase = "failed"
-                failed_build.error_message = str(exc)[:2000]
-                failed_build.finished_at = datetime.now(timezone.utc)
-                max_message_sequence = await db.scalar(select(func.max(StudioBuildMessage.sequence)).where(StudioBuildMessage.build_id == build_id)) or 0
-                db.add(StudioBuildMessage(build_id=build_id, sequence=max_message_sequence + 1, role="assistant", content=f"Build failed: {str(exc)[:1800]}", message_type="error"))
-                await db.commit()
-            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)[:500]}, ensure_ascii=False)}\n\n"
+                if "next_task" in locals() and next_task and not next_task.done():
+                    next_task.cancel()
+                await db.rollback()
+                cancelled_build = await db.get(StudioBuild, build_id)
+                if cancelled_build:
+                    cancelled_build.status = "cancelled"
+                    cancelled_build.current_phase = "cancelled"
+                    cancelled_build.error_message = "Build stream was interrupted before completion."
+                    cancelled_build.finished_at = datetime.now(timezone.utc)
+                    db.add(StudioBuildEvent(build_id=build_id, sequence=sequence + 1, event_type="cancelled", payload={"type": "cancelled", "reason": "client_disconnected"}))
+                    await db.commit()
+                raise
+            except Exception as exc:
+                await db.rollback()
+                failed_build = await db.get(StudioBuild, build_id)
+                if failed_build:
+                    failed_build.status = "failed"
+                    failed_build.current_phase = "failed"
+                    failed_build.error_message = str(exc)[:2000]
+                    failed_build.finished_at = datetime.now(timezone.utc)
+                    max_message_sequence = await db.scalar(select(func.max(StudioBuildMessage.sequence)).where(StudioBuildMessage.build_id == build_id)) or 0
+                    db.add(StudioBuildMessage(build_id=build_id, sequence=max_message_sequence + 1, role="assistant", content=f"Build failed: {str(exc)[:1800]}", message_type="error"))
+                    await db.commit()
+                yield f"data: {json.dumps({'type': 'error', 'message': str(exc)[:500]}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         stream_events(),
