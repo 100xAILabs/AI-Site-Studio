@@ -466,6 +466,7 @@ export default function PreviewPage() {
   const [addedToCart, setAddedToCart] = useState(false);
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [customDraftId, setCustomDraftId] = useState(null);
+  const templateId = customDraftId || activeTemplateId;
 
   const handleAddToCart = () => {
     if (!templateData) return;
