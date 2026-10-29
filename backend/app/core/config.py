@@ -9,7 +9,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import List
 
-from pydantic import model_validator
+from pydantic import model_validator, field_validator
+from typing import Any
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -27,6 +28,17 @@ class Settings(BaseSettings):
     APP_NAME: str = "Site Studio"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
+
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def parse_debug(cls, v: Any) -> bool:
+        if isinstance(v, str):
+            clean = v.strip().lower()
+            if clean in ("release", "production", "prod", "false", "0", "no", "off"):
+                return False
+            if clean in ("debug", "development", "dev", "true", "1", "yes", "on"):
+                return True
+        return bool(v)
     ENVIRONMENT: str = "development"  # development | staging | production
     TEMPLATE_DOWNLOADS_FREE: bool = True
 

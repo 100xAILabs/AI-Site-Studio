@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, ArrowRight, CheckCircle2, ImagePlus, LoaderCircle, Sparkles, WandSparkles } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, ImagePlus, LoaderCircle, Sparkles, WandSparkles } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { useAppAuth } from "@/lib/auth";
 import { api, API_URL } from "@/lib/api";
@@ -93,8 +93,10 @@ export default function StudioPage() {
           selected_sections: [...(page.sections || [])],
         })),
       });
-      setAnswers({});
-      setCompletedQuestions([]);
+      const prefilled = result.plan.prefilled_answers || {};
+      setAnswers(prefilled);
+      const prefilledIds = Object.keys(prefilled).filter((k) => String(prefilled[k]).trim().length > 0);
+      setCompletedQuestions(prefilledIds);
       setSkippedQuestions([]);
       setBuildPrompt("");
     } catch (err) {
@@ -546,8 +548,22 @@ export default function StudioPage() {
                   <div className="mt-5 space-y-3">
                     {AGENTS.map((name) => {
                       const done = events.some((event) => event.agent === name && event.status === "completed");
+                      const failed = events.some((event) => event.agent === name && event.status === "failed");
                       const active = activeAgent === name;
-                      return <div key={name} className={`flex items-center gap-2 text-sm ${done ? "text-emerald-300" : active ? "text-white" : "text-slate-600"}`}>{done ? <CheckCircle2 size={15} /> : active ? <LoaderCircle size={15} className="animate-spin" /> : <span className="h-3.5 w-3.5 rounded-full border border-current" />}{name}</div>;
+                      return (
+                        <div key={name} className={`flex items-center gap-2 text-sm ${done ? "text-emerald-300" : failed ? "text-amber-300" : active ? "text-white" : "text-slate-600"}`}>
+                          {done ? (
+                            <CheckCircle2 size={15} />
+                          ) : failed ? (
+                            <AlertCircle size={15} className="text-amber-300" />
+                          ) : active ? (
+                            <LoaderCircle size={15} className="animate-spin" />
+                          ) : (
+                            <span className="h-3.5 w-3.5 rounded-full border border-current" />
+                          )}
+                          {name}
+                        </div>
+                      );
                     })}
                   </div>
                   <div className="mt-5 max-h-48 space-y-2 overflow-auto border-t border-white/10 pt-4">
@@ -557,7 +573,7 @@ export default function StudioPage() {
                           ? `${event.status === "completed" ? "✓" : "•"} ${event.name}${event.index && event.total ? ` (${event.index}/${event.total})` : ""}`
                           : event.type === "model"
                             ? `Code model · ${event.page}: ${event.provider} / ${event.model}`
-                            : `${event.status === "completed" ? "✓" : "•"} ${event.agent}: ${event.detail}`}
+                            : `${event.status === "completed" ? "✓" : event.status === "failed" ? "⚠" : "•"} ${event.agent}: ${event.detail}`}
                       </p>
                     ))}
                   </div>

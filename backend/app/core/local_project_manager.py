@@ -233,6 +233,7 @@ class LocalProjectManager:
         slug: str,
         zip_bytes: bytes,
         title: str = "",
+        stack: str = "html-css-js",
         is_initial: bool = True,
         instruction: str = "",
     ) -> Path:
@@ -256,7 +257,7 @@ class LocalProjectManager:
                     files[name] = data
 
         if is_initial:
-            return self.save_initial_project(template_id, slug, files, title=title)
+            return self.save_initial_project(template_id, slug, files, title=title, stack=stack)
         return self.save_project_revision(template_id, files, instruction=instruction, slug=slug)
 
     def list_project_assets(self, identifier: UUID | str) -> list[dict[str, Any]]:

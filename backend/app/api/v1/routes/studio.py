@@ -208,7 +208,7 @@ async def generate_studio_project(
         last_message_sequence = message_sequence
         yield f"data: {json.dumps({'type': 'session', 'build_id': str(build_id)}, ensure_ascii=False)}\n\n"
         try:
-            async for event in studio_service.generate(
+            gen = studio_service.generate(
                 db=db,
                 user=current_user,
                 prompt=request.prompt,
@@ -221,7 +221,17 @@ async def generate_studio_project(
                 image_urls=request.image_urls,
                 image_assets=[asset.model_dump() for asset in request.image_assets],
                 stack=request.stack,
-            ):
+            )
+            while True:
+                try:
+                    event = await asyncio.wait_for(gen.__anext__(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    # SSE comment line keeps HTTP streaming connection warm during heavy generation steps
+                    yield ": keep-alive\n\n"
+                    continue
+                except StopAsyncIteration:
+                    break
+
                 sequence += 1
                 db.add(StudioBuildEvent(build_id=build_id, sequence=sequence, event_type=str(event.get("type") or "progress"), payload=event))
                 if event.get("type") in {"agent", "page"}:

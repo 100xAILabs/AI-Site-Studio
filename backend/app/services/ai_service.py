@@ -545,7 +545,7 @@ class AIService:
             except (TypeError, ValueError):
                 payload["max_tokens"] = 8192
         elif max_tokens is not None:
-            payload["max_tokens"] = max(256, min(8192, int(max_tokens)))
+            payload["max_tokens"] = max(256, min(16384, int(max_tokens)))
         if response_mime_type == "application/json":
             payload["response_format"] = {"type": "json_object"}
 
@@ -788,11 +788,12 @@ class AIService:
                             response_mime_type=response_mime_type,
                             provider_label="Groq",
                             max_tokens=(
-                                6000 if feature_name == "website_frontend_generation"
+                                8192 if feature_name == "website_backend_generation"
+                                else 6000 if feature_name == "website_frontend_generation"
                                 else 3500 if feature_name == "planning_agent" and response_mime_type != "application/json"
                                 else 2000 if response_mime_type == "application/json"
                                 else 1400 if feature_name == "designer_agent"
-                                else 2500
+                                else 4096
                             ),
                         )
                         if res:
@@ -814,7 +815,11 @@ class AIService:
                         api_key=settings.OPENROUTER_API_KEY,
                         model_name=settings.OPENROUTER_MODEL,
                         response_mime_type=response_mime_type,
-                        provider_label="OpenRouter"
+                        provider_label="OpenRouter",
+                        max_tokens=(
+                            8192 if feature_name in ("website_backend_generation", "website_frontend_generation")
+                            else 4096
+                        ),
                     )
                     if res:
                         safe_print(f"   └─ ✅ OpenRouter ({settings.OPENROUTER_MODEL}) generated output successfully.")

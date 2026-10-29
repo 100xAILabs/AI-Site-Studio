@@ -568,7 +568,17 @@ export default function PreviewPage() {
   const [mobilePanel, setMobilePanel] = useState("preview");
 
   // Center Stage Viewport & Theme State
-  const [viewMode, setViewMode] = useState("designed"); // "designed" (real styled component) | "live" (backend iframe)
+  const [viewMode, setViewMode] = useState(() => {
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      const mode = sp.get("mode");
+      if (mode === "live") return "live";
+      if (mode === "designed") return "designed";
+      const tmpl = sp.get("template") || sp.get("templateId") || sp.get("slug");
+      if (tmpl && tmpl !== "default") return "live";
+    }
+    return "designed";
+  });
   const [canvasViewport, setCanvasViewport] = useState("desktop"); // "desktop" | "laptop" | "tablet" | "mobile"
   const [canvasBg, setCanvasBg] = useState("light"); // "light" | "dark" | "grid"
   const [notice, setNotice] = useState("");
@@ -804,6 +814,34 @@ export default function PreviewPage() {
 
         if (data) {
           setTemplateData(data);
+
+          // Dynamically load generated project pages into multi-page switcher
+          if (data.changelog?.plan?.pages && Array.isArray(data.changelog.plan.pages) && data.changelog.plan.pages.length > 0) {
+            const dynamicPages = data.changelog.plan.pages.map((p) => {
+              const fname = p.filename || `${(p.name || "page").toLowerCase().replace(/[^a-z0-9]+/g, "-")}.html`;
+              return {
+                id: fname,
+                title: p.name || fname.replace(".html", "").replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+                icon: fname === "index.html" ? "🏠" : "📄",
+                path: fname,
+                sectionKey: fname.replace(".html", ""),
+              };
+            });
+            setPages(dynamicPages);
+          } else if (data.included_pages && Array.isArray(data.included_pages) && data.included_pages.length > 0) {
+            const dynamicPages = data.included_pages.map((pName) => {
+              const clean = String(pName);
+              const fname = clean.endsWith(".html") ? clean : `${clean.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.html`;
+              return {
+                id: fname,
+                title: clean.replace(".html", "").replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+                icon: fname === "index.html" ? "🏠" : "📄",
+                path: fname,
+                sectionKey: fname.replace(".html", ""),
+              };
+            });
+            setPages(dynamicPages);
+          }
 
           let primaryColor = "#6366f1";
           if (data.color_scheme) {
