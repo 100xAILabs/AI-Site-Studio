@@ -76,6 +76,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e_ollama:
         print(f"⚠️ [Ollama Engine] Startup check notice: {e_ollama}")
 
+    # Wipe any demo session data abandoned before server restart
+    try:
+        from datetime import datetime, timezone
+        from app.models.demo_session import DemoSession
+        from app.core.local_project_manager import local_project_manager
+        async with AsyncSessionLocal() as session:
+            stmt = select(DemoSession).where(DemoSession.is_active == True)
+            active_demos = (await session.execute(stmt)).scalars().all()
+            if active_demos:
+                for demo in active_demos:
+                    try:
+                        local_project_manager.purge_demo_website_data(demo.template_id, wipe_reason="server_restart")
+                        demo.is_active = False
+                        demo.data_wiped = True
+                        demo.wipe_reason = "server_restart"
+                        demo.ended_at = datetime.now(timezone.utc)
+                    except Exception as wipe_err:
+                        print(f"⚠️ [DemoSession] Failed wiping demo on startup: {wipe_err}")
+                await session.commit()
+                print(f"🧹 [DemoSession] Cleared {len(active_demos)} active demo sessions on server startup.")
+    except Exception as e_demo:
+        print(f"⚠️ [DemoSession] Startup check notice: {e_demo}")
+
     yield
     # Shutdown
     if getattr(app.state, "redis", None) is not None:
@@ -85,6 +108,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             pass
     if commerce_engine is not None:
         await commerce_engine.dispose()
+
+    # Wipe any active demo sessions on server shutdown
+    try:
+        from datetime import datetime, timezone
+        from app.models.demo_session import DemoSession
+        from app.core.local_project_manager import local_project_manager
+        async with AsyncSessionLocal() as session:
+            stmt = select(DemoSession).where(DemoSession.is_active == True)
+            active_demos = (await session.execute(stmt)).scalars().all()
+            if active_demos:
+                for demo in active_demos:
+                    try:
+                        local_project_manager.purge_demo_website_data(demo.template_id, wipe_reason="server_shutdown")
+                        demo.is_active = False
+                        demo.data_wiped = True
+                        demo.wipe_reason = "server_shutdown"
+                        demo.ended_at = datetime.now(timezone.utc)
+                    except Exception:
+                        pass
+                await session.commit()
+                print(f"🧹 [DemoSession] Cleared {len(active_demos)} active demo sessions on server shutdown.")
+    except Exception as e_demo_shut:
+        print(f"⚠️ [DemoSession] Shutdown cleanup notice: {e_demo_shut}")
+
     print("🛑 Site Studio API shutting down")
 
 

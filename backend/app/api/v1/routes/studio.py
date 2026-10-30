@@ -211,90 +211,95 @@ async def generate_studio_project(
         sequence = 0
         last_message_sequence = message_sequence
         yield f"data: {json.dumps({'type': 'session', 'build_id': str(build_id)}, ensure_ascii=False)}\n\n"
-        async with AsyncSessionLocal() as service_db:
-            try:
-                gen = studio_service.generate(
-                    db=service_db,
-                    user=current_user,
-                    prompt=request.prompt,
-                    category_id=request.category_id,
-                    category_name=request.category,
-                    genre=request.genre,
-                    plan=request.plan,
-                    answers=request.answers,
-                    build_prompt=request.build_prompt,
-                    image_urls=request.image_urls,
-                    image_assets=[asset.model_dump() for asset in request.image_assets],
-                    stack=request.stack,
-                )
+        service_db = AsyncSessionLocal()
+        try:
+            gen = studio_service.generate(
+                db=service_db,
+                user=current_user,
+                prompt=request.prompt,
+                category_id=request.category_id,
+                category_name=request.category,
+                genre=request.genre,
+                plan=request.plan,
+                answers=request.answers,
+                build_prompt=request.build_prompt,
+                image_urls=request.image_urls,
+                image_assets=[asset.model_dump() for asset in request.image_assets],
+                stack=request.stack,
+            )
+            next_task = asyncio.create_task(gen.__anext__())
+            while True:
+                done, _ = await asyncio.wait({next_task}, timeout=15.0)
+                if not done:
+                    # SSE comment line keeps HTTP streaming connection warm during heavy generation steps without cancelling
+                    yield ": keep-alive\n\n"
+                    continue
+                try:
+                    event = next_task.result()
+                except StopAsyncIteration:
+                    break
+
+                sequence += 1
+                try:
+                    async with AsyncSessionLocal() as ev_db:
+                        ev_db.add(StudioBuildEvent(build_id=build_id, sequence=sequence, event_type=str(event.get("type") or "progress"), payload=event))
+                        b = await ev_db.get(StudioBuild, build_id)
+                        if b:
+                            if event.get("type") in {"agent", "page"}:
+                                b.current_phase = str(event.get("agent") or event.get("name") or event.get("filename") or b.current_phase)[:80]
+                            if event.get("type") == "complete":
+                                project = event.get("project") or {}
+                                b.status = "completed"
+                                b.current_phase = "completed"
+                                b.template_id = UUID(str(project["id"]))
+                                b.result_summary = f"Created {project.get('title') or b.title} with {project.get('pages_count') or 1} page(s)."
+                                b.finished_at = datetime.now(timezone.utc)
+                                last_message_sequence += 1
+                                ev_db.add(StudioBuildMessage(build_id=build_id, sequence=last_message_sequence, role="assistant", content=b.result_summary, message_type="build_summary"))
+                        await ev_db.commit()
+                except Exception as log_exc:
+                    logger.warning("Could not persist build event %s: %s", sequence, log_exc)
+
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+                # Schedule next iteration only after this event is fully processed and yielded
                 next_task = asyncio.create_task(gen.__anext__())
-                while True:
-                    done, _ = await asyncio.wait({next_task}, timeout=15.0)
-                    if not done:
-                        # SSE comment line keeps HTTP streaming connection warm during heavy generation steps without cancelling
-                        yield ": keep-alive\n\n"
-                        continue
-                    try:
-                        event = next_task.result()
-                    except StopAsyncIteration:
-                        break
-
-                    sequence += 1
-                    try:
-                        async with AsyncSessionLocal() as ev_db:
-                            ev_db.add(StudioBuildEvent(build_id=build_id, sequence=sequence, event_type=str(event.get("type") or "progress"), payload=event))
-                            b = await ev_db.get(StudioBuild, build_id)
-                            if b:
-                                if event.get("type") in {"agent", "page"}:
-                                    b.current_phase = str(event.get("agent") or event.get("name") or event.get("filename") or b.current_phase)[:80]
-                                if event.get("type") == "complete":
-                                    project = event.get("project") or {}
-                                    b.status = "completed"
-                                    b.current_phase = "completed"
-                                    b.template_id = UUID(str(project["id"]))
-                                    b.result_summary = f"Created {project.get('title') or b.title} with {project.get('pages_count') or 1} page(s)."
-                                    b.finished_at = datetime.now(timezone.utc)
-                                    last_message_sequence += 1
-                                    ev_db.add(StudioBuildMessage(build_id=build_id, sequence=last_message_sequence, role="assistant", content=b.result_summary, message_type="build_summary"))
-                            await ev_db.commit()
-                    except Exception as log_exc:
-                        logger.warning("Could not persist build event %s: %s", sequence, log_exc)
-
-                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-
-                    # Schedule next iteration only after this event is fully processed and yielded
-                    next_task = asyncio.create_task(gen.__anext__())
-            except asyncio.CancelledError:
-                if "next_task" in locals() and next_task and not next_task.done():
-                    next_task.cancel()
-                try:
-                    async with AsyncSessionLocal() as c_db:
-                        cancelled_build = await c_db.get(StudioBuild, build_id)
-                        if cancelled_build:
-                            cancelled_build.status = "cancelled"
-                            cancelled_build.current_phase = "cancelled"
-                            cancelled_build.error_message = "Build stream was interrupted before completion."
-                            cancelled_build.finished_at = datetime.now(timezone.utc)
-                            c_db.add(StudioBuildEvent(build_id=build_id, sequence=sequence + 1, event_type="cancelled", payload={"type": "cancelled", "reason": "client_disconnected"}))
-                            await c_db.commit()
-                except Exception:
-                    pass
-                raise
-            except Exception as exc:
-                try:
-                    async with AsyncSessionLocal() as f_db:
-                        failed_build = await f_db.get(StudioBuild, build_id)
-                        if failed_build:
-                            failed_build.status = "failed"
-                            failed_build.current_phase = "failed"
-                            failed_build.error_message = str(exc)[:2000]
-                            failed_build.finished_at = datetime.now(timezone.utc)
-                            max_message_sequence = await f_db.scalar(select(func.max(StudioBuildMessage.sequence)).where(StudioBuildMessage.build_id == build_id)) or 0
-                            f_db.add(StudioBuildMessage(build_id=build_id, sequence=max_message_sequence + 1, role="assistant", content=f"Build failed: {str(exc)[:1800]}", message_type="error"))
-                            await f_db.commit()
-                except Exception:
-                    pass
-                yield f"data: {json.dumps({'type': 'error', 'message': str(exc)[:500]}, ensure_ascii=False)}\n\n"
+        except asyncio.CancelledError:
+            if "next_task" in locals() and next_task and not next_task.done():
+                next_task.cancel()
+            try:
+                async with AsyncSessionLocal() as c_db:
+                    cancelled_build = await c_db.get(StudioBuild, build_id)
+                    if cancelled_build:
+                        cancelled_build.status = "cancelled"
+                        cancelled_build.current_phase = "cancelled"
+                        cancelled_build.error_message = "Build stream was interrupted before completion."
+                        cancelled_build.finished_at = datetime.now(timezone.utc)
+                        c_db.add(StudioBuildEvent(build_id=build_id, sequence=sequence + 1, event_type="cancelled", payload={"type": "cancelled", "reason": "client_disconnected"}))
+                        await c_db.commit()
+            except Exception:
+                pass
+            raise
+        except Exception as exc:
+            try:
+                async with AsyncSessionLocal() as f_db:
+                    failed_build = await f_db.get(StudioBuild, build_id)
+                    if failed_build:
+                        failed_build.status = "failed"
+                        failed_build.current_phase = "failed"
+                        failed_build.error_message = str(exc)[:2000]
+                        failed_build.finished_at = datetime.now(timezone.utc)
+                        max_message_sequence = await f_db.scalar(select(func.max(StudioBuildMessage.sequence)).where(StudioBuildMessage.build_id == build_id)) or 0
+                        f_db.add(StudioBuildMessage(build_id=build_id, sequence=max_message_sequence + 1, role="assistant", content=f"Build failed: {str(exc)[:1800]}", message_type="error"))
+                        await f_db.commit()
+            except Exception:
+                pass
+            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)[:500]}, ensure_ascii=False)}\n\n"
+        finally:
+            try:
+                await service_db.close()
+            except Exception as close_err:
+                logger.debug("service_db closed safely: %s", close_err)
 
     return StreamingResponse(
         stream_events(),

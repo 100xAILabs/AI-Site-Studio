@@ -15,17 +15,18 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
-  Image, UploadCloud,
+  Image, UploadCloud, Palette, Paintbrush,
   Monitor, Laptop, Tablet, Smartphone, Sun, Moon, Grid,
   RefreshCw, Zap, Layers, FileText, Sparkles, Star, Mail,
   Shield, AlertCircle, Edit3, Trash2, Eraser, Plus, Check,
   Copy, RotateCcw, ArrowLeft, Sliders, Globe, Bot, Send,
   CheckCircle2, Play, Code, Search, X, Wand2, ArrowUpRight,
-  ChevronRight, Eye, Phone, MapPin, Clock, ShoppingBag, ShoppingCart, Share2
+  ChevronRight, Eye, Phone, MapPin, Clock, ShoppingBag, ShoppingCart, Share2, Upload
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useCartStore } from "@/store";
+import { useAuthStore } from "@/store/authStore";
 import "./Page.css";
 import "../storybook/Page.css";
 
@@ -453,10 +454,139 @@ export default function PreviewPage() {
   const searchParams = new URLSearchParams(location.search);
   const activeTemplateId = searchParams.get("template") || searchParams.get("templateId") || searchParams.get("slug") || "default";
   const studioBuildId = searchParams.get("build") || "";
+  const [customDraftId, setCustomDraftId] = useState(null);
 
   // Template Data State
   const [templateData, setTemplateData] = useState(null);
   const [loadingTemplate, setLoadingTemplate] = useState(false);
+
+  // Authentication & Demo Lock State
+  const isSignedIn = useAuthStore((s) => s.isSignedIn);
+  const authToken = useAuthStore((s) => s.token);
+  const [demoSessionToken, setDemoSessionToken] = useState(null);
+  const [demoRemainingSeconds, setDemoRemainingSeconds] = useState(1800); // 30 minutes
+  const [isDemoExpired, setIsDemoExpired] = useState(false);
+  const [isWipingData, setIsWipingData] = useState(false);
+
+  const formatDemoTime = (totalSec) => {
+    const mins = Math.floor(Math.max(0, totalSec) / 60);
+    const secs = Math.max(0, totalSec) % 60;
+    return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
+  };
+
+  // Helper to end session and wipe demo data permanently
+  const endSessionAndWipe = async (reason = "manual") => {
+    setIsWipingData(true);
+    const targetToken = demoSessionToken;
+    const targetId = customDraftId || activeTemplateId;
+    const endpoint = `${API_BASE}/preview/demo/session/end?session_token=${encodeURIComponent(targetToken || "")}&template_id=${encodeURIComponent(targetId || "")}&reason=${encodeURIComponent(reason)}`;
+
+    if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+      try {
+        navigator.sendBeacon(endpoint, "");
+      } catch (e) { }
+    } else {
+      try {
+        await fetch(endpoint, { method: "POST", keepalive: true });
+      } catch (e) { }
+    }
+  };
+
+  const handleBackToMarketplace = async () => {
+    if (hasUnfinalizedChanges) {
+      setShowExitConfirmModal(true);
+      return;
+    }
+    await endSessionAndWipe("back_nav");
+    navigate("/marketplace");
+  };
+
+  const handleDemoTimeout = async () => {
+    setIsDemoExpired(true);
+    await endSessionAndWipe("timeout_30m");
+  };
+
+  // 1. Initialize 30-minute Demo Session on mount if authenticated
+  useEffect(() => {
+    if (!isSignedIn) return;
+    const targetId = customDraftId || activeTemplateId;
+    if (!targetId || targetId === "default") return;
+
+    let timer = null;
+    let pollInterval = null;
+
+    const startSession = async () => {
+      try {
+        const headers = { "Content-Type": "application/json" };
+        if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+
+        const res = await fetch(`${API_BASE}/preview/demo/session/start`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ template_id: targetId }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setDemoSessionToken(data.session_token);
+          if (typeof data.remaining_seconds === "number") {
+            setDemoRemainingSeconds(data.remaining_seconds);
+          }
+        }
+      } catch (err) {
+        console.warn("Could not start demo session:", err);
+      }
+    };
+
+    startSession();
+
+    // Local countdown timer (1s interval)
+    timer = setInterval(() => {
+      setDemoRemainingSeconds((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          handleDemoTimeout();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    // Periodic backend status sync (every 60s)
+    pollInterval = setInterval(async () => {
+      if (!demoSessionToken) return;
+      try {
+        const res = await fetch(`${API_BASE}/preview/demo/session/status?session_token=${encodeURIComponent(demoSessionToken)}`);
+        if (res.ok) {
+          const sData = await res.json();
+          if (sData.expired) {
+            handleDemoTimeout();
+          } else if (typeof sData.remaining_seconds === "number") {
+            setDemoRemainingSeconds(sData.remaining_seconds);
+          }
+        }
+      } catch (e) { }
+    }, 60000);
+
+    return () => {
+      if (timer) clearInterval(timer);
+      if (pollInterval) clearInterval(pollInterval);
+    };
+  }, [isSignedIn, activeTemplateId, customDraftId, authToken]);
+
+  // 2. Beacon on window close / tab navigation
+  useEffect(() => {
+    const handleUnload = () => {
+      endSessionAndWipe("tab_closed");
+    };
+    window.addEventListener("beforeunload", handleUnload);
+    window.addEventListener("pagehide", handleUnload);
+    window.addEventListener("popstate", () => endSessionAndWipe("back_nav"));
+    return () => {
+      window.removeEventListener("beforeunload", handleUnload);
+      window.removeEventListener("pagehide", handleUnload);
+    };
+  }, [demoSessionToken, customDraftId, activeTemplateId]);
 
   // Cart integration
   const addToCart = useCartStore((s) => s.addItem);
@@ -465,7 +595,6 @@ export default function PreviewPage() {
   // Cart state
   const [addedToCart, setAddedToCart] = useState(false);
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
-  const [customDraftId, setCustomDraftId] = useState(null);
   const templateId = customDraftId || activeTemplateId;
 
   const handleAddToCart = () => {
@@ -553,6 +682,7 @@ export default function PreviewPage() {
       if (res.ok && data.success) {
         setAssetTimestamp(Date.now());
         setIframeKey((k) => k + 1);
+        setHasUnfinalizedChanges(true);
         setNotice(`✓ Replaced photo "${selectedAssetForUpload.filename}"! Code remains 100% intact.`);
         setTimeout(() => setNotice(""), 4000);
         await fetchProjectAssets();
@@ -583,6 +713,9 @@ export default function PreviewPage() {
   const [canvasViewport, setCanvasViewport] = useState("desktop"); // "desktop" | "laptop" | "tablet" | "mobile"
   const [canvasBg, setCanvasBg] = useState("light"); // "light" | "dark" | "grid"
   const [notice, setNotice] = useState("");
+  const [hasUnfinalizedChanges, setHasUnfinalizedChanges] = useState(false);
+  const [isRevoking, setIsRevoking] = useState(false);
+  const [showExitConfirmModal, setShowExitConfirmModal] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [iframeKey, setIframeKey] = useState(0);
@@ -943,6 +1076,7 @@ export default function PreviewPage() {
   // Field Edit Handler: Natural Backspace & Typing
   // ─────────────────────────────────────────────────────────────────────────
   const handleFieldChange = (key, value) => {
+    setHasUnfinalizedChanges(true);
     setSectionProps((prev) => ({
       ...prev,
       [currentSection.id]: {
@@ -950,6 +1084,29 @@ export default function PreviewPage() {
         [key]: value
       }
     }));
+
+    // If changing themeColor, instantly propagate to all live preview iframes
+    if (key === "themeColor" && typeof value === "string") {
+      try {
+        const iframes = document.querySelectorAll("iframe");
+        iframes.forEach((frame) => {
+          try {
+            frame.contentWindow?.postMessage(
+              { type: "UPDATE_THEME_COLOR", color: value },
+              "*"
+            );
+            if (frame.contentDocument) {
+              frame.contentDocument.documentElement.style.setProperty("--accent-gold", value);
+              frame.contentDocument.documentElement.style.setProperty("--accent-amber", value);
+              frame.contentDocument.documentElement.style.setProperty("--primary", value);
+              frame.contentDocument.documentElement.style.setProperty("--primary-color", value);
+              frame.contentDocument.documentElement.style.setProperty("--accent", value);
+              frame.contentDocument.documentElement.style.setProperty("--theme-color", value);
+            }
+          } catch (_) { }
+        });
+      } catch (_) { }
+    }
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -980,6 +1137,7 @@ export default function PreviewPage() {
 
   const handleEraseSectionContent = (secId, e) => {
     if (e) e.stopPropagation();
+    setHasUnfinalizedChanges(true);
     setSectionProps((prev) => {
       const current = prev[secId] || {};
       const cleared = {};
@@ -996,6 +1154,7 @@ export default function PreviewPage() {
 
   const handleDeleteSection = (secId, e) => {
     if (e) e.stopPropagation();
+    setHasUnfinalizedChanges(true);
     const target = sections.find((s) => s.id === secId);
     if (!target) return;
     if (sections.length === 1) {
@@ -1013,6 +1172,7 @@ export default function PreviewPage() {
 
   const handleAddSection = (sec) => {
     if (sections.some((s) => s.id === sec.id)) return;
+    setHasUnfinalizedChanges(true);
     const updated = [...sections, sec];
     setSections(updated);
     setSelectedSectionId(sec.id);
@@ -1022,6 +1182,7 @@ export default function PreviewPage() {
   };
 
   const handleApplyBusinessPreset = (preset) => {
+    setHasUnfinalizedChanges(true);
     const presetData = preset.data[currentSection.id];
     if (presetData) {
       setSectionProps((prev) => ({
@@ -1056,6 +1217,48 @@ export default function PreviewPage() {
   };
 
   // Save manual edit to backend and reload live template
+  // ─────────────────────────────────────────────────────────────────────────
+  // Apply Theme Color directly into Website Code (CSS files & disk)
+  // ─────────────────────────────────────────────────────────────────────────
+  const handleApplyThemeColorToProject = async (newColor) => {
+    setHasUnfinalizedChanges(true);
+    if (!effectiveTemplateId || effectiveTemplateId === "default") {
+      setNotice("Theme color preview updated in memory.");
+      return;
+    }
+    try {
+      const res = await api.post(`/preview/live/${effectiveTemplateId}/apply-theme-color`, {
+        primary_color: newColor
+      });
+      // Broadcast postMessage to all iframes
+      const iframes = document.querySelectorAll("iframe");
+      iframes.forEach((frame) => {
+        try {
+          frame.contentWindow?.postMessage(
+            { type: "UPDATE_THEME_COLOR", color: newColor },
+            "*"
+          );
+        } catch (_) {}
+      });
+      // Update local state across all sections
+      setSectionProps((prev) => {
+        const next = { ...prev };
+        Object.keys(next).forEach((k) => {
+          next[k] = { ...next[k], themeColor: newColor };
+        });
+        return next;
+      });
+      setNotice(`✓ Theme color ${newColor} permanently applied to website code (index.css)!`);
+      setTimeout(() => setNotice(""), 6000);
+      return res;
+    } catch (err) {
+      console.warn("Could not apply theme color to code:", err);
+      setNotice(`Could not save theme color: ${err?.message || "Please try again."}`);
+      setTimeout(() => setNotice(""), 5000);
+      throw err;
+    }
+  };
+
   const [savingManual, setSavingManual] = useState(false);
   const handleSaveManual = async () => {
     setSavingManual(true);
@@ -1100,7 +1303,7 @@ export default function PreviewPage() {
         const res = await api.post(`/preview/live/${targetId}/edit-manual`, {
           business_name: sectionProps.navbar?.brandName || brand.business_name,
           about: sectionProps.about?.story || sectionProps.about?.description || sectionProps.hero?.subheadline || brand.tagline,
-          primary_color: sectionProps.navbar?.themeColor || brand.primary_color,
+          primary_color: sectionProps[currentSection?.id]?.themeColor || sectionProps.navbar?.themeColor || sectionProps.hero?.themeColor || brand.primary_color,
           secondary_color: brand.secondary_color,
           contact_email: sectionProps.contact?.email || brand.contact_email,
           contact_phone: sectionProps.contact?.phone || brand.contact_phone,
@@ -1109,11 +1312,16 @@ export default function PreviewPage() {
         const newDraftId = res?.template_id || res?.data?.template_id;
         if (!newDraftId) throw new Error("The save endpoint did not return a draft ID.");
         setCustomDraftId(newDraftId);
+        if (initialSectionPropsRef) {
+          initialSectionPropsRef.current = JSON.parse(JSON.stringify(sectionProps));
+        }
+        setHasUnfinalizedChanges(false);
         navigate(`/preview?template=${newDraftId}&mode=live`, { replace: true });
         setViewMode("live");
         setIframeKey((prev) => prev + 1);
         setShowSaveSuccess(true);
-        setNotice("✓ Saved to your private project draft! Viewable in Buyer Dashboard.");
+        setNotice("✓ Finalized & saved to your private project draft!");
+        return true;
       } else {
         setNotice("Preview changes are local to this session. Select a template to save a draft.");
       }
@@ -1123,6 +1331,66 @@ export default function PreviewPage() {
     } finally {
       setSavingManual(false);
       setTimeout(() => setNotice(""), 6000);
+    }
+  };
+  const handleFinalizeChanges = async () => {
+    const res = await handleSaveManual();
+    if (res !== false) {
+      setHasUnfinalizedChanges(false);
+    }
+    return res;
+  };
+
+  const handleRevokeChanges = async () => {
+    setIsRevoking(true);
+    try {
+      const targetId = customDraftId || effectiveTemplateId;
+      if (targetId && targetId !== "default") {
+        try {
+          await api.post(`/preview/live/${targetId}/revoke`);
+        } catch (backendErr) {
+          console.warn("Backend revoke warning:", backendErr);
+        }
+      }
+      if (initialSectionPropsRef.current) {
+        setSectionProps(JSON.parse(JSON.stringify(initialSectionPropsRef.current)));
+      }
+      const origColor =
+        initialSectionPropsRef.current?.navbar?.themeColor ||
+        initialSectionPropsRef.current?.hero?.themeColor ||
+        brand?.primary_color ||
+        "#4F46E5";
+      const iframes = document.querySelectorAll("iframe");
+      iframes.forEach((frame) => {
+        try {
+          frame.contentWindow?.postMessage({ type: "UPDATE_THEME_COLOR", color: origColor }, "*");
+        } catch (_) {}
+      });
+      setIframeKey((prev) => prev + 1);
+      setHasUnfinalizedChanges(false);
+      setShowSaveSuccess(false);
+      setNotice("↩️ Revoked all unfinalized changes. Restored original template state.");
+    } catch (err) {
+      console.warn("Could not revoke changes:", err);
+      setNotice(`Could not revoke changes: ${err?.message || "Please try again."}`);
+    } finally {
+      setIsRevoking(false);
+      setTimeout(() => setNotice(""), 5000);
+    }
+  };
+
+  const handleRevokeAndExit = async () => {
+    await handleRevokeChanges();
+    await endSessionAndWipe("back_nav");
+    setShowExitConfirmModal(false);
+    navigate("/marketplace");
+  };
+
+  const handleFinalizeAndExit = async () => {
+    const res = await handleFinalizeChanges();
+    if (res !== false) {
+      setShowExitConfirmModal(false);
+      navigate("/marketplace");
     }
   };
 
@@ -1179,6 +1447,7 @@ export default function PreviewPage() {
     ]);
     setAiInput("");
     setIsAiProcessing(true);
+    setHasUnfinalizedChanges(true);
     setAiLogs(["Sending your request to the editor..."]);
     await persistBuildMessage("user", promptToRun);
 
@@ -1271,12 +1540,81 @@ export default function PreviewPage() {
 
   const effectiveTemplateId = customDraftId || activeTemplateId;
   const pageRouteParam = activePage && activePage !== "index.html" ? activePage : "";
+  // 🔒 Lock Check: Require sign-in to access interactive demo
+  if (!isSignedIn) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-card border border-border rounded-2xl p-8 shadow-2xl text-center relative overflow-hidden">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center mx-auto mb-5 shadow-inner">
+            <Shield className="w-8 h-8" />
+          </div>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-500 mb-3 border border-amber-500/30">
+            🔒 Interactive Demo Locked
+          </div>
+          <h2 className="text-2xl font-bold tracking-tight text-foreground mb-2">
+            Sign in to Access Live Demo
+          </h2>
+          <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
+            Sign in to launch your interactive 30-minute sandbox preview. Try out full-stack features, edit live with AI, test endpoints, and preview on all devices.
+          </p>
+          <div className="p-3.5 rounded-xl bg-muted/50 border border-border/80 text-left mb-6 space-y-1.5 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2 text-foreground font-semibold">
+              <Clock className="w-3.5 h-3.5 text-primary" />
+              <span>30-Minute Security Sandbox</span>
+            </div>
+            <p className="leading-normal">
+              When you exit, navigate back, close the tab, or after 30 minutes, all temporary details you entered inside the generated website are <strong>permanently deleted</strong>.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3">
+            <button
+              type="button"
+              onClick={() => navigate(`/sign-in?redirect=${encodeURIComponent(location.pathname + location.search)}`)}
+              className="w-full py-2.5 px-4 rounded-xl font-semibold text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-md flex items-center justify-center gap-2"
+            >
+              Sign In to Unlock Demo
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleBackToMarketplace}
+              className="w-full py-2.5 px-4 rounded-xl font-medium text-sm border border-border hover:bg-accent transition-all text-muted-foreground"
+            >
+              Back to Marketplace
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const liveServerUrl = effectiveTemplateId && effectiveTemplateId !== "default"
-    ? `${API_BASE}/preview/live/${effectiveTemplateId}/${pageRouteParam}${pageRouteParam ? "" : "/"}?v=${iframeKey}`
+    ? `${API_BASE}/preview/live/${effectiveTemplateId}${pageRouteParam ? `/${pageRouteParam}` : "/"}?v=${iframeKey}`
     : null;
 
   return (
     <div className="sb-fullpage-root">
+      {/* 30-Minute Demo Expired Kick-Back Modal */}
+      {isDemoExpired && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="max-w-md w-full bg-card border border-border rounded-2xl p-6 text-center shadow-2xl">
+            <div className="w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 flex items-center justify-center mx-auto mb-4">
+              <Clock className="w-6 h-6" />
+            </div>
+            <h3 className="text-xl font-bold mb-2">30-Minute Demo Ended</h3>
+            <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
+              Your interactive demo session has reached the 30-minute limit. All data, form submissions, and edits created inside the demo website have been permanently deleted.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate("/marketplace")}
+              className="w-full py-2.5 px-4 rounded-xl font-semibold text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
+            >
+              Return to Marketplace
+            </button>
+          </div>
+        </div>
+      )}
       {/* ═══════════════════════════════════════════════════════════════════════
          TOP HEADER: No "Storybook Studio" Name!
          Shows: Back button, Active Template Logo/Title, 2 Mode Buttons:
@@ -1287,7 +1625,7 @@ export default function PreviewPage() {
           {/* Back Navigation Button */}
           <button
             type="button"
-            onClick={() => navigate("/marketplace")}
+            onClick={handleBackToMarketplace}
             className="sb-ghost-btn text-xs font-semibold py-1.5 px-3"
             title="Return to marketplace"
           >
@@ -1390,16 +1728,36 @@ export default function PreviewPage() {
             <span className="hidden sm:inline">{isCopied ? "Copied!" : "Copy"}</span>
           </button>
 
+          {hasUnfinalizedChanges && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs font-bold animate-pulse">
+              <AlertCircle className="w-3.5 h-3.5" />
+              <span className="hidden lg:inline">Draft Unsaved</span>
+            </div>
+          )}
+
           <button
             type="button"
-            onClick={handleSaveManual}
+            onClick={handleFinalizeChanges}
             disabled={savingManual}
             className="sb-primary-gradient-btn"
             title="Save and compile edits to website"
           >
             <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
-            <span>{savingManual ? "Saving..." : "Save & Apply"}</span>
+            <span>{savingManual ? "Saving..." : "Save & Finalize"}</span>
           </button>
+
+          {hasUnfinalizedChanges && (
+            <button
+              type="button"
+              onClick={handleRevokeChanges}
+              disabled={isRevoking}
+              className="sb-ghost-btn text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 border border-rose-500/20"
+              title="Revoke changes and restore original template"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Revoke</span>
+            </button>
+          )}
 
           {templateData && (
             <>
@@ -1709,46 +2067,56 @@ export default function PreviewPage() {
               <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               <h2 className="font-bold text-sm text-foreground flex items-center gap-2">
                 <span>{currentSection.name}</span>
-                <span className="text-xs text-pink-500 font-normal">· Designed Output View</span>
+                <span className="text-xs text-pink-500 font-normal">
+                  {viewMode === "live" ? "· Real Live Demo" : "· Designed Output View"}
+                </span>
               </h2>
             </div>
 
             {/* Viewport Presets and Background Theme */}
             <div className="flex items-center gap-3">
-              {/* Viewport Width Buttons */}
-              <div className="sb-viewport-switcher">
-                <button
-                  type="button"
-                  onClick={() => setCanvasViewport("desktop")}
-                  className={cn("sb-tool-btn", canvasViewport === "desktop" && "active")}
-                  title="Desktop View"
-                >
-                  <Monitor className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCanvasViewport("laptop")}
-                  className={cn("sb-tool-btn", canvasViewport === "laptop" && "active")}
-                  title="Laptop View (1024px)"
-                >
-                  <Laptop className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCanvasViewport("tablet")}
-                  className={cn("sb-tool-btn", canvasViewport === "tablet" && "active")}
-                  title="Tablet View (768px)"
-                >
-                  <Tablet className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCanvasViewport("mobile")}
-                  className={cn("sb-tool-btn", canvasViewport === "mobile" && "active")}
-                  title="Mobile View (375px)"
-                >
-                  <Smartphone className="w-3.5 h-3.5" />
-                </button>
+              {/* Viewport Width Buttons & Device Indicators */}
+              <div className="flex items-center gap-2">
+                <div className="sb-viewport-switcher">
+                  <button
+                    type="button"
+                    onClick={() => setCanvasViewport("desktop")}
+                    className={cn("sb-tool-btn", canvasViewport === "desktop" && "active")}
+                    title="Desktop Monitor (100% Fluid)"
+                  >
+                    <Monitor className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCanvasViewport("laptop")}
+                    className={cn("sb-tool-btn", canvasViewport === "laptop" && "active")}
+                    title="MacBook Laptop (1024px)"
+                  >
+                    <Laptop className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCanvasViewport("tablet")}
+                    className={cn("sb-tool-btn", canvasViewport === "tablet" && "active")}
+                    title="iPad Tablet (768px)"
+                  >
+                    <Tablet className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCanvasViewport("mobile")}
+                    className={cn("sb-tool-btn", canvasViewport === "mobile" && "active")}
+                    title="iPhone Mobile (393px)"
+                  >
+                    <Smartphone className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <span className="text-[11px] font-semibold text-muted-foreground hidden lg:inline px-2 py-0.5 rounded-full bg-muted/60 border border-border/50 select-none">
+                  {canvasViewport === "mobile" ? "iPhone 16 Pro (393 × 852)" :
+                    canvasViewport === "tablet" ? "iPad Air (768 × 1024)" :
+                      canvasViewport === "laptop" ? "MacBook Pro (1024 × 640)" :
+                        "Desktop (Fluid)"}
+                </span>
               </div>
 
               {/* Canvas Background Buttons */}
@@ -1791,42 +2159,149 @@ export default function PreviewPage() {
             </div>
           </div>
 
-          {/* Canvas Area */}
+          {/* Canvas Area with Smooth Resizing & Hardware Device Frames */}
           <div className={cn("sb-stage-canvas-area", `sb-bg-${canvasBg}`)}>
-            {viewMode === "live" && liveServerUrl ? (
+            {/* Viewport Outer Scroll & Alignment Container */}
+            <div className={cn(
+              "w-full h-full transition-all duration-300 flex flex-col items-center",
+              canvasViewport === "desktop" ? "justify-center p-4 overflow-hidden" : "justify-start py-6 px-3 overflow-y-auto"
+            )}>
+              {/* Responsive Hardware Device Outer Wrapper */}
               <div
-                className="w-full h-full p-4 transition-all duration-300 mx-auto"
-                style={{
-                  maxWidth:
-                    canvasViewport === "mobile" ? "375px" :
-                    canvasViewport === "tablet" ? "768px" :
-                    canvasViewport === "laptop" ? "1024px" : "100%",
-                  height: "100%"
-                }}
+                className={cn(
+                  "relative mx-auto transition-all duration-300 flex flex-col select-none",
+                  canvasViewport === "mobile" && "bg-[#181d28] p-[10px] rounded-[52px] shadow-[0_25px_70px_-15px_rgba(0,0,0,0.85),0_0_0_1px_rgba(255,255,255,0.12),inset_0_0_0_2px_rgba(0,0,0,0.5)]",
+                  canvasViewport === "tablet" && "bg-[#181d28] p-[14px] rounded-[38px] shadow-[0_25px_70px_-15px_rgba(0,0,0,0.85),0_0_0_1px_rgba(255,255,255,0.1)]",
+                  canvasViewport === "laptop" && "w-full bg-[#0f172a] p-[10px] pb-0 rounded-t-2xl border-[2px] border-b-0 border-[#334155] shadow-2xl",
+                  canvasViewport === "desktop" && "w-full h-full rounded-2xl border border-border shadow-2xl overflow-hidden bg-white"
+                )}
+                style={
+                  canvasViewport === "mobile"
+                    ? { width: "393px", height: "852px", maxWidth: "100%", maxHeight: "calc(100vh - 170px)" }
+                    : canvasViewport === "tablet"
+                    ? { width: "768px", height: "1024px", maxWidth: "100%", maxHeight: "calc(100vh - 170px)" }
+                    : canvasViewport === "laptop"
+                    ? { width: "100%", maxWidth: "1024px" }
+                    : { width: "100%", height: "100%" }
+                }
               >
-                <iframe
-                  key={iframeKey}
-                  src={liveServerUrl}
-                  title="Live Demo"
-                  sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full rounded-2xl border border-border shadow-2xl bg-white"
-                />
+                {/* 1. Mobile Physical Side Buttons */}
+                {canvasViewport === "mobile" && (
+                  <>
+                    <div className="absolute -left-[12px] top-[115px] w-[3px] h-[26px] bg-slate-600 rounded-l-sm pointer-events-none" />
+                    <div className="absolute -left-[12px] top-[155px] w-[3px] h-[48px] bg-slate-600 rounded-l-sm pointer-events-none" />
+                    <div className="absolute -left-[12px] top-[215px] w-[3px] h-[48px] bg-slate-600 rounded-l-sm pointer-events-none" />
+                    <div className="absolute -right-[12px] top-[165px] w-[3px] h-[72px] bg-slate-600 rounded-r-sm pointer-events-none" />
+                  </>
+                )}
+
+                {/* 2. Laptop FaceTime Camera Notch */}
+                {canvasViewport === "laptop" && (
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-4 bg-black rounded-b-lg flex items-center justify-center gap-2 z-30 pointer-events-none">
+                    <span className="w-2 h-2 rounded-full bg-[#111] border border-[#222]" />
+                    <span className="w-1 h-1 rounded-full bg-emerald-500/80 shadow-[0_0_4px_#10b981]" />
+                  </div>
+                )}
+
+                {/* 3. Inner Screen Display Box */}
+                <div
+                  className={cn(
+                    "relative w-full overflow-hidden flex flex-col transition-all duration-300",
+                    canvasViewport === "mobile" && "h-full bg-black rounded-[42px] border border-white/5 shadow-inner",
+                    canvasViewport === "tablet" && "h-full bg-black rounded-[24px] border border-white/5 shadow-inner",
+                    canvasViewport === "laptop" && "rounded-t-md bg-white shadow-inner",
+                    canvasViewport === "desktop" && "h-full bg-white"
+                  )}
+                  style={
+                    canvasViewport === "laptop"
+                      ? { height: "640px", maxHeight: "calc(100vh - 240px)" }
+                      : undefined
+                  }
+                >
+                  {/* Dynamic Island for Mobile */}
+                  {canvasViewport === "mobile" && (
+                    <>
+                      <div className="absolute top-2.5 left-1/2 -translate-x-1/2 z-30 pointer-events-none flex items-center justify-between px-3 w-[120px] h-[26px] bg-black rounded-full border border-white/10 shadow-md">
+                        <span className="w-2.5 h-2.5 rounded-full bg-[#0d131f] border border-[#1e293b]" />
+                        <span className="w-2 h-2 rounded-full bg-[#052e16] border border-[#14532d]" />
+                      </div>
+                      <div className="absolute top-0 left-0 right-0 h-10 px-7 flex items-center justify-between text-white/90 text-[11px] font-semibold tracking-tight z-20 pointer-events-none select-none bg-gradient-to-b from-black/70 via-black/30 to-transparent">
+                        <span>9:41</span>
+                        <div className="flex items-center gap-1.5 text-white/80">
+                          <span className="text-[10px]">5G</span>
+                          <div className="w-4 h-2.5 border border-white/80 rounded-sm p-[1px] flex items-center">
+                            <div className="w-full h-full bg-white rounded-2xs" />
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {/* iPad Status Bar & Camera Dot for Tablet */}
+                  {canvasViewport === "tablet" && (
+                    <>
+                      <div className="absolute top-[6px] left-1/2 -translate-x-1/2 z-30 pointer-events-none">
+                        <div className="w-2.5 h-2.5 rounded-full bg-black border border-white/20" />
+                      </div>
+                      <div className="h-7 px-5 flex items-center justify-between text-white/80 text-[11px] font-semibold tracking-tight z-20 pointer-events-none select-none bg-gradient-to-b from-black/60 to-transparent">
+                        <span>iPad &bull; 9:41 AM</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px]">100%</span>
+                          <div className="w-4 h-2.5 border border-white/80 rounded-sm p-[1px] flex items-center">
+                            <div className="w-full h-full bg-emerald-400 rounded-2xs" />
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {/* ── Screen Content Viewport (PERSISTENT IFRAME - NEVER RELOADS ON RESIZE) ── */}
+                  <div
+                    className={cn(
+                      "w-full h-full overflow-hidden bg-white transition-all duration-300 flex-1",
+                      canvasViewport === "mobile" && "pt-8 pb-3",
+                      canvasViewport === "tablet" && "pb-2"
+                    )}
+                  >
+                    {viewMode === "live" && liveServerUrl ? (
+                      <iframe
+                        key={iframeKey}
+                        src={liveServerUrl}
+                        title="Live Demo Preview"
+                        sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full border-none bg-white"
+                      />
+                    ) : (
+                      <div className="w-full h-full overflow-y-auto">
+                        {renderDesignedOutputView(currentSection.id, currentProps)}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Mobile Home Indicator */}
+                  {canvasViewport === "mobile" && (
+                    <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
+                      <div className="w-32 h-1 bg-white/50 rounded-full shadow-sm" />
+                    </div>
+                  )}
+
+                  {/* Tablet Home Indicator */}
+                  {canvasViewport === "tablet" && (
+                    <div className="absolute bottom-1 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
+                      <div className="w-40 h-1 bg-white/40 rounded-full" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Laptop Chassis Base Deck */}
+                {canvasViewport === "laptop" && (
+                  <div className="relative w-[104%] -ml-[2%] h-4 bg-gradient-to-b from-[#334155] via-[#1e293b] to-[#0f172a] rounded-b-xl border-t border-[#475569] shadow-2xl flex items-center justify-center pointer-events-none">
+                    <div className="w-24 h-1.5 bg-[#475569] rounded-full shadow-inner -mt-1" />
+                  </div>
+                )}
               </div>
-            ) : (
-              <div
-                className="sb-canvas-stage-full transition-all duration-300 mx-auto"
-                style={{
-                  maxWidth:
-                    canvasViewport === "mobile" ? "375px" :
-                    canvasViewport === "tablet" ? "768px" :
-                    canvasViewport === "laptop" ? "1024px" : "100%",
-                  width: "100%"
-                }}
-              >
-                {renderDesignedOutputView(currentSection.id, currentProps)}
-              </div>
-            )}
+            </div>
           </div>
         </main>
 
@@ -1853,12 +2328,46 @@ export default function PreviewPage() {
                 <p className="text-[11px] text-muted-foreground mt-1">
                   Click any field to edit. Use backspace &amp; typing to update live.
                 </p>
-
               </div>
+
+              {/* Status & Quick Action Banner */}
+              {hasUnfinalizedChanges && (
+                <div className="p-3 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div>
+                      <p className="text-[11px] font-bold text-amber-400 leading-tight">Testing Live Edits</p>
+                      <p className="text-[10px] text-muted-foreground truncate">Verify in preview before finalizing</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleFinalizeChanges}
+                      disabled={savingManual}
+                      className="py-1 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] flex items-center gap-1 shadow cursor-pointer"
+                      title="Finalize & permanently save changes to project"
+                    >
+                      <Check className="w-3 h-3" />
+                      <span>{savingManual ? "Saving..." : "Finalize Save"}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRevokeChanges}
+                      disabled={isRevoking}
+                      className="py-1 px-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 font-bold text-[10px] flex items-center gap-1 cursor-pointer"
+                      title="Revoke all changes and revert back to original state"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Revoke</span>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Editable Component Fields with Template-Accurate Names */}
               <div className="sb-right-content-body space-y-4 flex-1 overflow-y-auto p-4">
-                {renderFriendlyFields(currentSection.id, currentProps, handleFieldChange)}
+                {renderFriendlyFields(currentSection.id, currentProps, handleFieldChange, effectiveTemplateId, handleApplyThemeColorToProject)}
 
                 {/* Row Actions */}
                 <div className="pt-4 border-t border-border/50 space-y-2">
@@ -1881,15 +2390,30 @@ export default function PreviewPage() {
                     </button>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={handleSaveManual}
-                    disabled={savingManual}
-                    className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-pink-500 to-indigo-600 hover:from-pink-600 hover:to-indigo-700 text-white font-bold text-xs shadow-lg shadow-pink-500/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
-                  >
-                    <Zap className="w-4 h-4 fill-amber-300 text-amber-300" />
-                    <span>{savingManual ? "Saving..." : "Save & Apply to Live Website"}</span>
-                  </button>
+                  {/* Finalize Save & Revoke Action Pair */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleFinalizeChanges}
+                      disabled={savingManual}
+                      className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white font-bold text-xs shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                      title="Permanently finalize all edits to project code"
+                    >
+                      <Zap className="w-4 h-4 fill-amber-300 text-amber-300" />
+                      <span>{savingManual ? "Saving..." : "Save & Finalize to Project"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleRevokeChanges}
+                      disabled={isRevoking || !hasUnfinalizedChanges}
+                      className="py-2.5 px-3 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-40"
+                      title="Revoke all changes and revert back to original state"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Revoke</span>
+                    </button>
+                  </div>
 
                   {/* Post-Save actions: Add to Cart + Go to Dashboard */}
                   {showSaveSuccess && templateData && (
@@ -1927,6 +2451,132 @@ export default function PreviewPage() {
                 </div>
               </div>
             </div>
+          ) : editorMode === "assets" ? (
+            /* REPLACE PHOTOS & MEDIA PANEL */
+            <div className="flex flex-col h-full overflow-hidden">
+              <div className="p-4 border-b border-border/50 bg-card/60 flex-shrink-0">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-extrabold text-sm text-foreground flex items-center gap-1.5">
+                    <Image className="w-4 h-4 text-emerald-400" />
+                    <span>Replace Photos &amp; Media</span>
+                  </h3>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400">
+                    {projectAssets.length} Images Detected
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Click any image to replace it with your own photo. Live code remains 100% intact.
+                </p>
+              </div>
+
+              {hasUnfinalizedChanges && (
+                <div className="p-3 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span className="text-[11px] font-bold text-amber-400 truncate">Testing Photo Replacements</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleFinalizeChanges}
+                      disabled={savingManual}
+                      className="py-1 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] flex items-center gap-1 shadow cursor-pointer"
+                    >
+                      <Check className="w-3 h-3" />
+                      <span>Finalize</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRevokeChanges}
+                      disabled={isRevoking}
+                      className="py-1 px-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 font-bold text-[10px] flex items-center gap-1 cursor-pointer"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Revoke</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="sb-right-content-body space-y-3 flex-1 overflow-y-auto p-4">
+                {loadingAssets ? (
+                  <div className="flex items-center justify-center p-8 text-xs text-muted-foreground gap-2">
+                    <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
+                    <span>Scanning project images...</span>
+                  </div>
+                ) : projectAssets.length === 0 ? (
+                  <div className="text-center p-6 text-xs text-muted-foreground border border-dashed border-border rounded-xl">
+                    <Image className="w-8 h-8 text-muted-foreground/50 mx-auto mb-2" />
+                    <p className="font-semibold text-foreground">No media assets found</p>
+                    <p className="text-[11px] mt-1">This template may use external CDN images or SVG icons.</p>
+                  </div>
+                ) : (
+                  projectAssets.map((asset, idx) => (
+                    <div key={idx} className="p-3 rounded-xl border border-border/70 bg-card/50 hover:border-emerald-500/40 transition-all space-y-2">
+                      <div className="flex items-center gap-3">
+                        <div className="w-14 h-14 rounded-lg overflow-hidden bg-black/40 border border-border flex items-center justify-center shrink-0">
+                          <img
+                            src={`${API_BASE}/preview/live/${templateId}/${asset.rel_path}?t=${assetTimestamp}`}
+                            alt={asset.filename}
+                            className="w-full h-full object-cover"
+                            onError={(e) => { e.target.style.display = 'none'; }}
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold text-foreground truncate">{asset.filename}</p>
+                          <p className="text-[10px] text-muted-foreground truncate font-mono">{asset.rel_path}</p>
+                          <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground">
+                            {asset.width && asset.height && <span>{asset.width} × {asset.height}</span>}
+                            <span className="capitalize px-1.5 py-0.2 rounded bg-muted text-muted-foreground font-semibold">{asset.role || "Image"}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleTriggerReplaceAsset(asset)}
+                        disabled={replacingAssetPath === asset.rel_path}
+                        className="w-full py-1.5 px-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        {replacingAssetPath === asset.rel_path ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Uploading...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>Replace This Photo</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  ))
+                )}
+
+                <div className="pt-4 border-t border-border/50 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleFinalizeChanges}
+                      disabled={savingManual || !hasUnfinalizedChanges}
+                      className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white font-bold text-xs shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-40"
+                    >
+                      <Check className="w-4 h-4" />
+                      <span>Save &amp; Finalize Photos</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRevokeChanges}
+                      disabled={isRevoking || !hasUnfinalizedChanges}
+                      className="py-2.5 px-3 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-40"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Revoke</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           ) : (
             /* AI EDIT PANEL: Prompt Assistant & Autonomous Debugger */
             <div className="sb-ai-panel overflow-y-auto">
@@ -1944,6 +2594,38 @@ export default function PreviewPage() {
                   Describe a change in natural language to update a saved template draft.
                 </p>
               </div>
+
+              {hasUnfinalizedChanges && (
+                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    <span>Testing AI Changes in Preview</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Review generated edits in canvas above. Click <strong>Finalize Save</strong> to apply them permanently, or <strong>Revoke</strong> to revert back.
+                  </p>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleFinalizeChanges}
+                      disabled={savingManual}
+                      className="flex-1 py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1 shadow cursor-pointer"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Finalize AI Save</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRevokeChanges}
+                      disabled={isRevoking}
+                      className="py-1.5 px-2.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 font-bold text-xs flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Revoke</span>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* AI Prompt Input */}
               <div className="space-y-2">
@@ -2035,8 +2717,28 @@ export default function PreviewPage() {
                 </div>
               </div>
 
-              {/* Autonomous AI Debugger */}
-              <div className="pt-3 border-t border-border/50">
+              {/* Autonomous AI Debugger & Finalize Actions */}
+              <div className="pt-3 border-t border-border/50 space-y-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleFinalizeChanges}
+                    disabled={savingManual || !hasUnfinalizedChanges}
+                    className="flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer disabled:opacity-40"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Save &amp; Finalize AI</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRevokeChanges}
+                    disabled={isRevoking || !hasUnfinalizedChanges}
+                    className="py-2 px-3 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-40"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Revoke</span>
+                  </button>
+                </div>
                 <button
                   type="button"
                   onClick={handleRunAIDebugger}
@@ -2051,6 +2753,62 @@ export default function PreviewPage() {
           )}
         </aside>
       </div>
+
+      {/* Hidden File Input for Image Replacements */}
+      <input
+        type="file"
+        ref={assetFileInputRef}
+        onChange={handleAssetFileSelected}
+        accept="image/*"
+        className="hidden"
+      />
+
+      {/* Exit Confirmation Modal: Revoke vs Finalize */}
+      {showExitConfirmModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-card border border-border/80 rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 animate-in zoom-in-95">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <div className="text-center space-y-1">
+              <h3 className="font-extrabold text-base text-foreground">Unfinalized Changes Detected</h3>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                You have modified elements in the live preview that have not been finalized. Would you like to finalize and save them, or revoke all changes to return to the original state?
+              </p>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <button
+                type="button"
+                onClick={handleFinalizeAndExit}
+                disabled={savingManual}
+                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer"
+              >
+                <Check className="w-4 h-4" />
+                <span>{savingManual ? "Saving..." : "Finalize & Save Changes, Then Exit"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleRevokeAndExit}
+                disabled={isRevoking}
+                className="w-full py-2.5 px-4 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Revoke All Changes &amp; Exit to Marketplace</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowExitConfirmModal(false)}
+                className="w-full py-2 px-4 rounded-xl border border-border bg-muted/40 hover:bg-muted text-muted-foreground text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer"
+              >
+                <span>Keep Editing</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Multi-Page: Add Subpage Modal */}
       {showAddPageModal && (
@@ -2373,8 +3131,8 @@ function renderDesignedOutputView(sectionId, props) {
         <div className={cn(
           "grid gap-5 text-left",
           cardsList.length === 2 ? "grid-cols-1 md:grid-cols-2" :
-          cardsList.length >= 3 && cardsList.length <= 4 ? "grid-cols-1 md:grid-cols-2" :
-          "grid-cols-1 md:grid-cols-3"
+            cardsList.length >= 3 && cardsList.length <= 4 ? "grid-cols-1 md:grid-cols-2" :
+              "grid-cols-1 md:grid-cols-3"
         )}>
           {cardsList.map((card, idx) => (
             <div
@@ -2499,15 +3257,50 @@ function renderDesignedOutputView(sectionId, props) {
   // 📄 6. GENERAL CONTENT / ABOUT / STORY / FEATURE SECTION
   return (
     <div className="w-full max-w-5xl mx-auto p-6 sm:p-10 space-y-6 text-left bg-card rounded-2xl border border-border shadow-xl">
-      <div className="max-w-2xl space-y-3">
+      <div className="space-y-3">
         {props.badgeText && (
-          <span className="text-xs font-bold text-pink-500 uppercase tracking-widest">{props.badgeText}</span>
+          <span className="text-xs font-bold text-pink-500 uppercase tracking-widest inline-block px-2.5 py-0.5 rounded bg-pink-500/10 border border-pink-500/20">{props.badgeText}</span>
         )}
-        <h2 className="text-2xl sm:text-3xl font-black text-foreground">{props.title || props.headline || "Section"}</h2>
-        <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
-          {props.story || props.description || props.subheadline}
-        </p>
+        <h2 className="text-2xl sm:text-3xl font-black text-foreground tracking-tight">{props.title || props.headline || "Section"}</h2>
+        {(props.subtitle || props.subheadline) && (
+          <p className="text-xs sm:text-sm font-semibold text-pink-400 font-mono tracking-wide">
+            {props.subtitle || props.subheadline}
+          </p>
+        )}
+        {(props.story || props.description) && (
+          <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed whitespace-pre-line">
+            {props.story || props.description}
+          </p>
+        )}
       </div>
+
+      {/* Render Extracted Text Items / Records / Capabilities */}
+      {Array.isArray(props.textItems) && props.textItems.length > 0 && (
+        <div className="pt-6 border-t border-border/50 space-y-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-pink-500" />
+              Extracted Template Items ({props.textItems.length})
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {props.textItems.map((ti, tIdx) => (
+              <div
+                key={ti.id || tIdx}
+                className="p-4 rounded-xl border border-border bg-card/70 hover:border-pink-500/50 shadow-sm transition-all space-y-1.5"
+              >
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="px-2 py-0.5 rounded bg-muted text-muted-foreground border border-border font-mono font-bold text-[10px]">
+                    {ti.label || "ITEM"}
+                  </span>
+                  <span className="text-muted-foreground/60 text-[10px] font-mono">#{tIdx + 1}</span>
+                </div>
+                <p className="text-xs font-bold text-foreground break-words leading-snug">{ti.text || "—"}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {(props.mission || props.teamCount) && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-border/50">
@@ -2692,10 +3485,18 @@ const ADDITIONAL_COLOR_SWATCHES = [
  * Enhanced ThemeColorPicker — Supports Application Primary & Secondary presets,
  * 12 Curated Colors, and Format Switching (HEX, RGB, HSL).
  */
-function ThemeColorPicker({ value, onChange, label = "Theme Accent Color" }) {
+function ThemeColorPicker({
+  value,
+  onChange,
+  label = "Theme Accent Color",
+  templateId = null,
+  onApplyColor = null
+}) {
   const currentColor = value || "#4f46e5";
   const [format, setFormat] = useState("HEX"); // "HEX" | "RGB" | "HSL"
   const [copied, setCopied] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
+  const [isApplied, setIsApplied] = useState(false);
   const [localInput, setLocalInput] = useState(() => getFormattedColor(currentColor, "HEX"));
 
   useEffect(() => {
@@ -2707,12 +3508,36 @@ function ThemeColorPicker({ value, onChange, label = "Theme Accent Color" }) {
     setLocalInput(getFormattedColor(currentColor, fmt));
   };
 
+  const dispatchLiveIframeColor = (cleanHex) => {
+    try {
+      const iframes = document.querySelectorAll("iframe");
+      iframes.forEach((frame) => {
+        try {
+          frame.contentWindow?.postMessage(
+            { type: "UPDATE_THEME_COLOR", color: cleanHex },
+            "*"
+          );
+          if (frame.contentDocument) {
+            frame.contentDocument.documentElement.style.setProperty("--accent-gold", cleanHex);
+            frame.contentDocument.documentElement.style.setProperty("--accent-amber", cleanHex);
+            frame.contentDocument.documentElement.style.setProperty("--primary", cleanHex);
+            frame.contentDocument.documentElement.style.setProperty("--primary-color", cleanHex);
+            frame.contentDocument.documentElement.style.setProperty("--accent", cleanHex);
+            frame.contentDocument.documentElement.style.setProperty("--accent-color", cleanHex);
+            frame.contentDocument.documentElement.style.setProperty("--theme-color", cleanHex);
+          }
+        } catch (_) { }
+      });
+    } catch (_) { }
+  };
+
   const handleInputChange = (e) => {
     const raw = e.target.value;
     setLocalInput(raw);
     const parsedHex = normalizeToHex(raw);
     if (/^#[0-9a-fA-F]{6}$/.test(parsedHex)) {
       onChange("themeColor", parsedHex);
+      dispatchLiveIframeColor(parsedHex);
     }
   };
 
@@ -2724,6 +3549,28 @@ function ThemeColorPicker({ value, onChange, label = "Theme Accent Color" }) {
     const cleanHex = normalizeToHex(hex);
     onChange("themeColor", cleanHex);
     setLocalInput(getFormattedColor(cleanHex, format));
+    dispatchLiveIframeColor(cleanHex);
+  };
+
+  const handleApplyColorToCode = async (hexToApply) => {
+    const cleanHex = normalizeToHex(hexToApply || currentColor);
+    setIsApplying(true);
+    try {
+      if (onApplyColor) {
+        await onApplyColor(cleanHex);
+      } else if (templateId && templateId !== "default") {
+        await api.post(`/preview/live/${templateId}/apply-theme-color`, {
+          primary_color: cleanHex
+        });
+        dispatchLiveIframeColor(cleanHex);
+      }
+      setIsApplied(true);
+      setTimeout(() => setIsApplied(false), 3000);
+    } catch (err) {
+      console.warn("Could not apply color to code:", err);
+    } finally {
+      setIsApplying(false);
+    }
   };
 
   const handleCopy = () => {
@@ -2754,7 +3601,7 @@ function ThemeColorPicker({ value, onChange, label = "Theme Accent Color" }) {
               type="button"
               onClick={() => handleFormatChange(fmt)}
               className={cn(
-                "px-2 py-0.5 rounded-md transition-all",
+                "px-2 py-0.5 rounded-md transition-all cursor-pointer",
                 format === fmt
                   ? "bg-card text-foreground shadow-sm font-bold border border-border/40"
                   : "text-muted-foreground hover:text-foreground"
@@ -2774,16 +3621,16 @@ function ThemeColorPicker({ value, onChange, label = "Theme Accent Color" }) {
             Design Tokens
           </span>
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="sb-color-brand-grid">
           {/* Primary Preset */}
           <button
             type="button"
             onClick={() => handleSelectColor("#4f46e5")}
             className={cn(
-              "p-2.5 rounded-xl border text-left flex flex-col gap-1 transition-all relative group cursor-pointer",
+              "sb-color-brand-item",
               isPrimaryActive
                 ? "border-indigo-500 bg-indigo-500/10 ring-2 ring-indigo-500/30 shadow-sm"
-                : "border-border/70 bg-card hover:bg-muted/40 hover:border-indigo-500/40"
+                : "border-border/70 hover:bg-muted/40 hover:border-indigo-500/40"
             )}
           >
             <div className="flex items-center justify-between w-full">
@@ -2794,14 +3641,13 @@ function ThemeColorPicker({ value, onChange, label = "Theme Accent Color" }) {
                 />
                 <span className="text-xs font-bold text-foreground">Primary</span>
               </div>
-              {isPrimaryActive ? (
-                <Check className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
-              ) : (
-                <span className="text-[9px] font-semibold text-muted-foreground uppercase">Brand</span>
-              )}
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 uppercase">
+                Brand
+              </span>
             </div>
             <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground">
               <span>{format === "HEX" ? "#4F46E5" : format === "RGB" ? "rgb(79, 70, 229)" : "hsl(231, 58%, 55%)"}</span>
+              {isPrimaryActive && <Check className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />}
             </div>
           </button>
 
@@ -2810,10 +3656,10 @@ function ThemeColorPicker({ value, onChange, label = "Theme Accent Color" }) {
             type="button"
             onClick={() => handleSelectColor("#0ea5e9")}
             className={cn(
-              "p-2.5 rounded-xl border text-left flex flex-col gap-1 transition-all relative group cursor-pointer",
+              "sb-color-brand-item",
               isSecondaryActive
                 ? "border-sky-500 bg-sky-500/10 ring-2 ring-sky-500/30 shadow-sm"
-                : "border-border/70 bg-card hover:bg-muted/40 hover:border-sky-500/40"
+                : "border-border/70 hover:bg-muted/40 hover:border-sky-500/40"
             )}
           >
             <div className="flex items-center justify-between w-full">
@@ -2824,14 +3670,13 @@ function ThemeColorPicker({ value, onChange, label = "Theme Accent Color" }) {
                 />
                 <span className="text-xs font-bold text-foreground">Secondary</span>
               </div>
-              {isSecondaryActive ? (
-                <Check className="w-3.5 h-3.5 text-sky-500 flex-shrink-0" />
-              ) : (
-                <span className="text-[9px] font-semibold text-muted-foreground uppercase">Accent</span>
-              )}
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30 uppercase">
+                Accent
+              </span>
             </div>
             <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground">
               <span>{format === "HEX" ? "#0EA5E9" : format === "RGB" ? "rgb(14, 165, 233)" : "hsl(197, 71%, 52%)"}</span>
+              {isSecondaryActive && <Check className="w-3.5 h-3.5 text-sky-500 flex-shrink-0" />}
             </div>
           </button>
         </div>
@@ -2843,7 +3688,7 @@ function ThemeColorPicker({ value, onChange, label = "Theme Accent Color" }) {
           <span>Additional Curated Colors</span>
           <span className="text-[10px] text-muted-foreground font-mono">12 Colors</span>
         </div>
-        <div className="grid grid-cols-6 gap-2 pt-0.5">
+        <div className="sb-color-swatches-grid">
           {ADDITIONAL_COLOR_SWATCHES.map((sw) => {
             const isSelected = currentHex === sw.hex.toLowerCase();
             return (
@@ -2853,10 +3698,10 @@ function ThemeColorPicker({ value, onChange, label = "Theme Accent Color" }) {
                 onClick={() => handleSelectColor(sw.hex)}
                 title={`${sw.name} (${sw.hex})`}
                 className={cn(
-                  "w-full aspect-square rounded-lg border flex items-center justify-center transition-all relative group cursor-pointer",
+                  "sb-color-swatch-item",
                   isSelected
-                    ? "ring-2 ring-foreground/60 ring-offset-2 ring-offset-background scale-105 shadow-md"
-                    : "border-border/60 hover:scale-110 hover:shadow-sm"
+                    ? "ring-2 ring-foreground/80 ring-offset-2 ring-offset-background scale-105 shadow-md"
+                    : "hover:scale-110 hover:shadow-sm"
                 )}
                 style={{ backgroundColor: sw.hex }}
               >
@@ -2929,11 +3774,43 @@ function ThemeColorPicker({ value, onChange, label = "Theme Accent Color" }) {
           </div>
         </div>
       </div>
+
+      {/* 4. Action: Apply Color to Website Code & Preview */}
+      <div className="pt-2">
+        <button
+          type="button"
+          onClick={() => handleApplyColorToCode(currentColor)}
+          disabled={isApplying}
+          className={cn(
+            "w-full py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer border",
+            isApplied
+              ? "bg-emerald-600 text-white border-emerald-500 shadow-emerald-500/20"
+              : "bg-gradient-to-r from-indigo-600 via-indigo-500 to-pink-500 hover:opacity-95 text-white border-indigo-400/30"
+          )}
+        >
+          {isApplying ? (
+            <>
+              <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              <span>Updating Website Code &amp; CSS...</span>
+            </>
+          ) : isApplied ? (
+            <>
+              <Check className="w-3.5 h-3.5 stroke-[3]" />
+              <span>✓ Color Applied to Code (index.css) &amp; Live!</span>
+            </>
+          ) : (
+            <>
+              <Paintbrush className="w-3.5 h-3.5" />
+              <span>Apply Color to Website Code</span>
+            </>
+          )}
+        </button>
+      </div>
     </div>
   );
 }
 
-function renderFriendlyFields(sectionId, props, onChange) {
+function renderFriendlyFields(sectionId, props, onChange, templateId = null, onApplyThemeColor = null) {
   const sid = (sectionId || "").toLowerCase();
 
   // 🧭 1. NAVIGATION HEADER CONTROLS
@@ -2941,7 +3818,7 @@ function renderFriendlyFields(sectionId, props, onChange) {
     // Back-compat: convert old link1/link2/... keys → navLinks array
     let navLinks = Array.isArray(props.navLinks) ? [...props.navLinks] : [];
     if (navLinks.length === 0) {
-      ["link1","link2","link3","link4","link5","link6"].forEach((k) => {
+      ["link1", "link2", "link3", "link4", "link5", "link6"].forEach((k) => {
         if (props[k]) navLinks.push(props[k]);
       });
     }
@@ -3044,6 +3921,8 @@ function renderFriendlyFields(sectionId, props, onChange) {
           value={props.themeColor}
           onChange={onChange}
           label="Theme Accent Color"
+          templateId={templateId}
+          onApplyColor={onApplyThemeColor}
         />
         <div className="flex items-center justify-between pt-2">
           <span className="text-xs font-semibold text-foreground">Glassmorphism / Fixed Header</span>
@@ -3099,6 +3978,8 @@ function renderFriendlyFields(sectionId, props, onChange) {
           value={props.themeColor}
           onChange={onChange}
           label="Footer Accent Color"
+          templateId={templateId}
+          onApplyColor={onApplyThemeColor}
         />
       </div>
     );
@@ -3178,7 +4059,7 @@ function renderFriendlyFields(sectionId, props, onChange) {
               {props.textItems.map((ti, tIdx) => (
                 <div key={ti.id || tIdx} className="space-y-1">
                   <div className="flex items-center justify-between">
-                    <label className="text-[10px] text-muted-foreground uppercase font-mono">{ti.label || `Text #${tIdx+1}`}</label>
+                    <label className="text-[10px] text-muted-foreground uppercase font-mono">{ti.label || `Text #${tIdx + 1}`}</label>
                     <button
                       type="button"
                       onClick={() => {
@@ -3680,7 +4561,7 @@ function renderFriendlyFields(sectionId, props, onChange) {
               {props.textItems.map((ti, tIdx) => (
                 <div key={ti.id || tIdx} className="space-y-1">
                   <div className="flex items-center justify-between">
-                    <label className="text-[10px] text-muted-foreground uppercase font-mono">{ti.label || `Text #${tIdx+1}`}</label>
+                    <label className="text-[10px] text-muted-foreground uppercase font-mono">{ti.label || `Text #${tIdx + 1}`}</label>
                     <button
                       type="button"
                       onClick={() => {
@@ -3823,6 +4704,8 @@ function renderFriendlyFields(sectionId, props, onChange) {
           value={props.themeColor}
           onChange={onChange}
           label="Hero Button & Accent Color"
+          templateId={templateId}
+          onApplyColor={onApplyThemeColor}
         />
 
         {/* Stats */}
@@ -4106,7 +4989,7 @@ function renderFriendlyFields(sectionId, props, onChange) {
             {props.textItems.map((ti, tIdx) => (
               <div key={ti.id || tIdx} className="space-y-1">
                 <div className="flex items-center justify-between">
-                  <label className="text-[10px] text-muted-foreground uppercase font-mono">{ti.label || `Text #${tIdx+1}`}</label>
+                  <label className="text-[10px] text-muted-foreground uppercase font-mono">{ti.label || `Text #${tIdx + 1}`}</label>
                   <button
                     type="button"
                     onClick={() => {

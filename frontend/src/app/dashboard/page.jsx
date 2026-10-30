@@ -388,6 +388,21 @@ function Dashboard() {
   const [reportIssueDeployment, setReportIssueDeployment] = useState(null);
   const [isCodeStudioOpen, setIsCodeStudioOpen] = useState(false);
   const [codeStudioDeployment, setCodeStudioDeployment] = useState(null);
+  const [isSelfHealingDeployment, setIsSelfHealingDeployment] = useState(false);
+
+  const handleTriggerDeploymentSelfHeal = async () => {
+    if (!selectedDeployment?.id || isSelfHealingDeployment) return;
+    setIsSelfHealingDeployment(true);
+    try {
+      const res = await api.post(`/deployments/${selectedDeployment.id}/self-heal`, {}, authToken ?? undefined);
+      alert(`🩺 ${res.message || "Autonomous Self-Healing initiated! Codebase is being audited, repaired, and redeployed."}`);
+      refetchDeployments();
+    } catch (err) {
+      alert("Self-healing notice: " + (err.message || "Failed to trigger self-heal"));
+    } finally {
+      setIsSelfHealingDeployment(false);
+    }
+  };
   const [codeStudioIncident, setCodeStudioIncident] = useState(null);
 
   const openReportIssueModal = (deploy) => {
@@ -709,12 +724,17 @@ function Dashboard() {
   });
   const recommendedTemplates = marketplaceTemplatesRes?.items || [];
 
-  // Fetch Deployments
+  // Fetch Deployments with adaptive real-time polling
   const { data: deploymentsData = [], isLoading: deploymentsLoading, refetch: refetchDeployments } = useQuery({
     queryKey: ["deployments"],
     queryFn: () => api.get("/deployments", authToken ?? undefined),
     enabled: !!authToken,
-    staleTime: 1000 * 60 * 5,
+    staleTime: 1000 * 2,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const hasActive = Array.isArray(data) && data.some(d => d.status === "building" || d.status === "queued" || d.status === "deploying" || d.status === "created");
+      return hasActive ? 1500 : 8000;
+    },
     placeholderData: (prev) => prev,
   });
 
@@ -746,28 +766,28 @@ function Dashboard() {
   // Live continuous log polling for build and live runtime telemetry
   useEffect(() => {
     let intervalId;
-    if (isConsoleOpen && selectedDeployment) {
+    if (isConsoleOpen && selectedDeployment?.id) {
       const fetchLogs = async () => {
+        if (isConsoleStreamPaused) return;
         try {
           const data = await api.get(`/deployments/${selectedDeployment.id}`, authToken ?? undefined);
-          setActiveConsoleLogs(data.logs || "");
-          setActiveConsoleStatus(data.status);
-          setSelectedDeployment(prev => prev ? { ...prev, ...data } : data);
-          if (data.status !== activeConsoleStatus) {
-            refetchDeployments();
+          if (data) {
+            setActiveConsoleLogs(data.logs || "");
+            setActiveConsoleStatus(data.status);
+            setSelectedDeployment(prev => prev ? { ...prev, ...data } : data);
           }
         } catch (err) {
-          console.error("Failed to fetch logs:", err);
+          console.error("Failed to fetch deployment logs:", err);
         }
       };
 
       fetchLogs();
-      intervalId = setInterval(fetchLogs, 1800);
+      intervalId = setInterval(fetchLogs, 1400);
     }
     return () => {
       if (intervalId) clearInterval(intervalId);
     };
-  }, [isConsoleOpen, selectedDeployment?.id, authToken, refetchDeployments, activeConsoleStatus]);
+  }, [isConsoleOpen, selectedDeployment?.id, authToken, isConsoleStreamPaused]);
 
   // Auto-scroll build console to bottom
   useEffect(() => {
@@ -3672,6 +3692,19 @@ function Dashboard() {
                                       </a>
                                       <button
                                         type="button"
+                                        onClick={() => {
+                                          setSelectedDeployment(deploy);
+                                          setActiveConsoleLogs(deploy.logs || "");
+                                          setActiveConsoleStatus(deploy.status);
+                                          setIsConsoleOpen(true);
+                                        }}
+                                        className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg border border-slate-700 flex items-center gap-1 transition-all cursor-pointer"
+                                        title="Inspect real-time logs"
+                                      >
+                                        <Terminal className="w-3 h-3 text-indigo-400" /> Logs
+                                      </button>
+                                      <button
+                                        type="button"
                                         onClick={() => handleVerifyDomain(deploy.id)}
                                         disabled={isVerifying}
                                         className="px-2.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 text-xs font-bold rounded-lg border border-emerald-500/30 flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
@@ -3841,6 +3874,59 @@ function Dashboard() {
                                   <span className="font-semibold">{new Date(deploy.updated_at || deploy.created_at).toLocaleDateString()} {new Date(deploy.updated_at || deploy.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                 </div>
                               </div>
+
+                              {/* Real-time Inline Build & Runtime Telemetry Stream */}
+                              <div className="rounded-xl bg-[#070b14] border border-slate-800/90 p-3 font-mono text-[11px] text-slate-300 space-y-1.5 shadow-inner">
+                                <div className="flex items-center justify-between text-[10px] pb-1.5 border-b border-slate-800/80">
+                                  <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-slate-400">
+                                    <span className={`w-2 h-2 rounded-full ${isBuilding ? "bg-amber-400 animate-ping" : isLive ? "bg-emerald-400 animate-pulse" : deploy.status === "failed" ? "bg-red-400" : "bg-slate-400"}`} />
+                                    <span className="text-slate-300 font-extrabold">{isBuilding ? "LIVE COMPILATION STREAM" : "REALTIME TELEMETRY"}</span>
+                                  </div>
+                                  <span className="text-indigo-400 font-mono text-[10px] bg-indigo-950/60 px-1.5 py-0.5 rounded border border-indigo-800/40 font-bold">
+                                    {deploy.current_version || "v1.0"}
+                                  </span>
+                                </div>
+                                <div className="max-h-24 overflow-y-auto space-y-1 pt-0.5 pr-1 text-[11px] leading-relaxed scrollbar-thin">
+                                  {(() => {
+                                    const logLines = (deploy.logs || "").split("\n").filter(l => l.trim().length > 0);
+                                    if (logLines.length === 0) {
+                                      return (
+                                        <div className="text-slate-500 italic py-1 flex items-center gap-1.5">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-slate-600 animate-pulse" />
+                                          {isBuilding ? "Connecting to build worker stream..." : "No execution logs recorded yet."}
+                                        </div>
+                                      );
+                                    }
+                                    const recent = logLines.slice(-3);
+                                    return recent.map((rawLine, idx) => {
+                                      const clean = stripAnsi(rawLine);
+                                      const isErr = clean.includes("[ERROR]") || clean.includes("❌") || clean.includes("failed");
+                                      const isAudit = clean.includes("[AUDIT]");
+                                      const isHeal = clean.includes("[HEAL]") || clean.includes("[SELF-HEAL]");
+                                      const isSucc = clean.includes("[SUCCESS]") || clean.includes("LIVE");
+                                      return (
+                                        <div
+                                          key={idx}
+                                          className={`truncate px-1.5 py-0.5 rounded ${
+                                            isErr
+                                              ? "bg-red-500/15 text-red-300 font-semibold border-l-2 border-red-500"
+                                              : isAudit
+                                              ? "text-cyan-300 bg-cyan-950/20"
+                                              : isHeal
+                                              ? "text-purple-300 font-semibold bg-purple-950/20"
+                                              : isSucc
+                                              ? "text-emerald-400 font-semibold"
+                                              : "text-slate-300"
+                                          }`}
+                                          title={clean}
+                                        >
+                                          {clean}
+                                        </div>
+                                      );
+                                    });
+                                  })()}
+                                </div>
+                              </div>
                             </div>
 
                             <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex flex-col gap-2.5">
@@ -3863,10 +3949,15 @@ function Dashboard() {
                                     setActiveConsoleStatus(deploy.status);
                                     setIsConsoleOpen(true);
                                   }}
-                                  disabled
-                                  className="flex-1 btn-deploy-action opacity-50 cursor-not-allowed"
+                                  className="flex-1 btn-deploy-action flex items-center justify-center gap-1.5 cursor-pointer font-bold text-xs py-2 px-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-slate-800 dark:text-slate-200 shadow-sm"
+                                  title="Open real-time build & runtime console"
                                 >
-                                  <Terminal className="w-3.5 h-3.5 text-indigo-600" /> {isBuilding ? "View Build" : "Logs"}
+                                  {isBuilding ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
+                                  ) : (
+                                    <Terminal className="w-3.5 h-3.5 text-indigo-500" />
+                                  )}
+                                  <span>{isBuilding ? "View Live Build" : "Realtime Logs"}</span>
                                 </button>
                               </div>
 
@@ -7010,6 +7101,9 @@ function Dashboard() {
                     const low = clean.toLowerCase();
                     return low.includes("[error]") || low.includes("runtime error") || low.includes("failed") || low.includes("rejection") || clean.startsWith("❌");
                   }
+                  if (consoleFilter === "audit") {
+                    return clean.includes("[AUDIT]") || clean.includes("[HEAL]") || clean.includes("[SELF-HEAL]");
+                  }
                   if (consoleFilter === "browser") {
                     return clean.includes("[BROWSER") || clean.includes("[CLIENT BOOT]");
                   }
@@ -7069,6 +7163,22 @@ function Dashboard() {
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
+                          {/* Autonomous Self-Heal Button */}
+                          <button
+                            type="button"
+                            disabled={isSelfHealingDeployment}
+                            onClick={handleTriggerDeploymentSelfHeal}
+                            className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 shadow-md shadow-purple-600/20 border-none cursor-pointer disabled:opacity-50"
+                            title="Audit codebase, fix build/runtime errors permanently, and redeploy"
+                          >
+                            {isSelfHealingDeployment ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                            )}
+                            {isSelfHealingDeployment ? "Self-Healing..." : "Self-Heal Website"}
+                          </button>
+
                           {liveTargetUrl && (
                             <a
                               href={liveTargetUrl}
@@ -7107,6 +7217,13 @@ function Dashboard() {
                             className={`px-2.5 py-1 rounded-lg font-medium transition-all border-none cursor-pointer ${consoleFilter === "errors" ? "bg-red-600 text-white shadow-sm" : errorLines.length > 0 ? "bg-red-500/10 text-red-400 hover:bg-red-500/20" : "bg-transparent text-slate-400 hover:text-white"}`}
                           >
                             ❌ Errors ({errorLines.length})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConsoleFilter("audit")}
+                            className={`px-2.5 py-1 rounded-lg font-medium transition-all border-none cursor-pointer ${consoleFilter === "audit" ? "bg-purple-600 text-white shadow-sm" : "bg-transparent text-slate-400 hover:text-white"}`}
+                          >
+                            🩺 Audit & Self-Heal
                           </button>
                           <button
                             type="button"
@@ -7255,6 +7372,8 @@ function Dashboard() {
                               if (!clean.trim()) return null;
 
                               const isError = clean.includes("[ERROR]") || clean.includes("❌") || clean.includes("RUNTIME ERROR") || clean.includes("UNHANDLED REJECTION");
+                              const isAudit = clean.includes("[AUDIT]");
+                              const isHeal = clean.includes("[HEAL]") || clean.includes("[SELF-HEAL]");
                               const isBrowserWarn = clean.includes("[BROWSER WARN]") || clean.includes("[WARN]");
                               const isBrowserLog = clean.includes("[BROWSER LOG]") || clean.includes("[BROWSER INFO]");
                               const isClientBoot = clean.includes("[CLIENT BOOT]");

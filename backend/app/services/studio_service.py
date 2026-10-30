@@ -1156,8 +1156,10 @@ Write a thorough, clear specification with headings for:
      * Note that a static HTML/CSS mirror (index.html, etc.) is packaged alongside for instant live canvas preview in AI Site Studio.
    - If static HTML: Detail semantic HTML5, CSS3, and vanilla JS structure.
 5. Exact Page-by-Page Scope & Component/Section Details
+   - NON-LAZY ALL-DATA MANDATE: Detail every section with full, rich content using ALL provided owner answers and skills.
+   - 1:1 ASSET UTILIZATION: If owner-uploaded gallery or portfolio images are provided, explicitly require a dedicated card for EVERY single uploaded photograph without omitting or repeating any image.
 6. Real Content & Working Actions (use owner answers for email, mobile, phone, address, and amenities/skills)
-7. Image Placement & Motion System
+7. Image Placement & Motion System (detail the exact placement of every uploaded photo: profile photo in About/Bio, logo in Header/Footer, and all uploaded photos in the gallery/showcase with zero duplicates)
 8. Acceptance Criteria
 
 Make the site distinctive, polished, responsive, and visibly animated with a coherent motion system and reduced-motion support. Use owner answers as source of truth. Never invent facts, credentials, testimonials, prices, results, or backend behavior. Avoid generic filler, broken links/images, repeated card grids, and browser-default styling. No code fences. Output only the editable prompt, plain text, 900-6500 words maximum (prefer 1200-2200 words)."""
@@ -1347,17 +1349,73 @@ Specify exact palette, typography, spacing, layout grid, components, responsive 
                 asset_path = f"assets/{stem}{extension}"
                 local_asset_paths[asset_url] = asset_path
                 packaged_uploads.append((asset_path, content))
-            image_context_lines = [
-                f"- Owner uploaded {asset['role']} image file: {local_asset_paths.get(asset['url'], asset['url'])} (alt: {str(asset.get('alt') or asset['role'])[:200]}). CRITICAL: You MUST render this image in the appropriate section using <img src=\"{local_asset_paths.get(asset['url'], asset['url'])}\">."
-                for asset in safe_assets
-            ]
-            image_context_lines.extend(
-                f"- Illustrative stock photo: {asset['url']} (alt: {asset.get('alt', 'illustrative stock image')}; credit: {asset.get('credit', asset.get('source_name', 'stock source'))}; source: {asset.get('source_url', 'source URL unavailable')}). Do not present this as the owner's real work, team, or portrait."
-                for asset in stock_assets
-            )
+            profile_assets: list[dict[str, str]] = []
+            logo_assets: list[dict[str, str]] = []
+            hero_assets: list[dict[str, str]] = []
+            gallery_work_assets: list[dict[str, str]] = []
+
+            for asset in safe_assets:
+                role_raw = str(asset.get("role") or "").lower()
+                path = local_asset_paths.get(asset["url"], asset["url"])
+                alt = str(asset.get("alt") or asset.get("role") or "owner image")[:200]
+                item_info = {"path": path, "alt": alt, "role": str(asset.get("role") or "gallery")}
+                if any(k in role_raw for k in ("portrait", "profile", "avatar", "person", "headshot")):
+                    profile_assets.append(item_info)
+                elif "logo" in role_raw:
+                    logo_assets.append(item_info)
+                elif any(k in role_raw for k in ("hero", "banner", "cover")):
+                    hero_assets.append(item_info)
+                else:
+                    gallery_work_assets.append(item_info)
+
+            image_context_sections: list[str] = []
+            if profile_assets:
+                image_context_sections.append("### 👤 PROFILE / ABOUT / AUTHOR PORTRAITS (MANDATORY IN ABOUT/BIO):")
+                for p in profile_assets:
+                    image_context_sections.append(
+                        f"  - <img src=\"{p['path']}\" alt=\"{p['alt']}\"> -> CRITICAL: Use exclusively in the About / Biography / Profile section as the person's portrait. NEVER replace with a placeholder avatar."
+                    )
+            if logo_assets:
+                image_context_sections.append("### 🏷️ BRAND LOGO ASSETS (MANDATORY IN NAV / FOOTER):")
+                for l in logo_assets:
+                    image_context_sections.append(
+                        f"  - <img src=\"{l['path']}\" alt=\"{l['alt']}\"> -> CRITICAL: Use in the top navigation bar and footer."
+                    )
+            if hero_assets:
+                image_context_sections.append("### 🌟 HERO / BANNER ASSETS (MANDATORY IN HERO):")
+                for h in hero_assets:
+                    image_context_sections.append(
+                        f"  - <img src=\"{h['path']}\" alt=\"{h['alt']}\"> -> CRITICAL: Use in the hero / primary header banner section."
+                    )
+            if gallery_work_assets:
+                image_context_sections.append(
+                    f"### 📸 MANDATORY GALLERY / WORK / SHOWCASE ASSETS ({len(gallery_work_assets)} UNIQUE IMAGES PROVIDED BY USER):\n"
+                    f"CRITICAL 1:1 NON-LAZY RULE: The user provided {len(gallery_work_assets)} unique photographs/work items. You MUST generate at least {len(gallery_work_assets)} individual cards/items in the gallery/portfolio/showcase grid. EVERY SINGLE ONE of these {len(gallery_work_assets)} images MUST be rendered in its own distinct card. STRICTLY FORBIDDEN to duplicate any image or reuse the same image across multiple cards when there are other images in this list! Distribute them across filter tabs so every category has unique images."
+                )
+                for idx, g in enumerate(gallery_work_assets, 1):
+                    image_context_sections.append(
+                        f"  - [GALLERY ITEM {idx} of {len(gallery_work_assets)}]: <img src=\"{g['path']}\" alt=\"{g['alt']}\">"
+                    )
+
+            if stock_assets:
+                image_context_sections.append("### 🖼️ ILLUSTRATIVE STOCK ASSETS:")
+                for asset in stock_assets:
+                    image_context_sections.append(
+                        f"  - Illustrative stock photo: {asset['url']} (alt: {asset.get('alt', 'illustrative stock image')}; credit: {asset.get('credit', asset.get('source_name', 'stock source'))}; source: {asset.get('source_url', 'source URL unavailable')}). Do not present this as the owner's real work, team, or portrait."
+                    )
+
             remaining_slots = max(0, 16 - len(safe_assets))
-            image_context_lines.extend(f"- User-selected image URL: {url}" for url in safe_urls[:remaining_slots])
-            image_context = "\n".join(image_context_lines) or "No owner-selected images. Use relevant, clearly illustrative remote stock images and descriptive alt text; never claim they depict the owner or their customers."
+            if safe_urls and remaining_slots > 0:
+                image_context_sections.append("### 🔗 USER-SELECTED IMAGE URLS:")
+                for url in safe_urls[:remaining_slots]:
+                    image_context_sections.append(f"  - User-selected image URL: {url}")
+
+            image_context = "\n".join(image_context_sections) or "No owner-selected images. Use relevant, clearly illustrative remote stock images and descriptive alt text; never claim they depict the owner or their customers."
+            # Release DB session before starting heavy LLM generation to prevent serverless idle timeouts
+            try:
+                await db.commit()
+            except Exception:
+                pass
             # ── React / Next.js frontend for full-stack stacks ──────────────
             react_files: dict[str, str] = {}
             stack_info = SUPPORTED_STACKS.get(stack, {})
@@ -1407,14 +1465,24 @@ Full sitemap for consistent navigation: {json.dumps(compact_sitemap, ensure_asci
 Owner answers relevant to this page: {json.dumps(answers, ensure_ascii=False)[:3500]}
 UI Designer system: {design[:2500]}
 User and automatically sourced image assets: {image_context}
-CRITICAL CONTENT ACCURACY DIRECTIVE:
+CRITICAL CONTENT ACCURACY & ANTI-LAZINESS DIRECTIVE:
+- NON-LAZY ALL-DATA MANDATE: You must NEVER be lazy, skip content, or output minimal placeholder cards. You must faithfully use ALL data, skills, equipment, answers, and images provided by the user.
+- 1:1 GALLERY & SHOWCASE ITEM CREATION:
+  * If the asset inventory lists N unique gallery/work/project photos, you MUST generate at least N distinct card/article elements in the gallery or showcase section.
+  * ZERO DUPLICATION: Strictly FORBID reusing the same image path across multiple cards when there are unused images in the asset inventory. Each card MUST showcase a distinct image until all provided images are displayed.
+  * BALANCED CATEGORY FILTERING: Distribute the unique images across all filter tabs/categories evenly so every category contains rich, distinct items and no category shows duplicate images.
+- PROFILE PHOTO MANDATE:
+  * If a profile/portrait image is provided (e.g. assets/profile-photo.png), you MUST place it in the About / Biography / Photographer Profile section. NEVER use camera gear or a random gallery image as the person's portrait when a profile photo is provided.
 - You MUST faithfully use the user's EXACT provided skills, tools, and background from 'Owner answers' and 'User-approved build prompt'.
-- If the user provided specific skills (e.g. Python, SQL, React, DevOps), you MUST display those exact skills. NEVER replace them with generic industry tropes or invent unverified metrics, years of experience, or certifications.
+- If the user provided specific skills (e.g. Python, SQL, React, DevOps, or Telephoto lenses, BIF tracking), you MUST display those exact skills. NEVER replace them with generic industry tropes or invent unverified metrics.
 - If the user provided only ONE work experience or role, feature that single role thoroughly with deep impact and real technical skills. NEVER invent fake past companies or extra timeline jobs to fill space.
 - If an owner-uploaded image is provided in 'User and automatically sourced image assets', you MUST embed it directly using an <img> tag referencing its relative file path (e.g. <img src="assets/profile-photo.png" alt="...">). Never replace it with a text avatar or omit it.
 - CRITICAL CONTACT & MESSAGING DIRECTIVE:
   * If an email is provided in 'Owner answers' or brief, the contact form and email links MUST use that exact email. NEVER use fake placeholder emails like 'info@example.com'.
-  * For contact forms: Wire the form to submit to the owner's email address (e.g. action="https://api.web3forms.com/submit" or a working submission script that sends to that email, or mailto: fallback). Include a direct clickable button: <a href="mailto:OWNER_EMAIL">Email Me</a>.
+  * For contact forms: Wire the form submission handler with intelligent deployment mode detection:
+    1. If running in Studio Canvas demo preview (window.self !== window.top || window.location.pathname.includes('/preview/live/')), simulate the submission with feedback text indicating demo preview mode so testing does not spam the owner's inbox.
+    2. If running in Live Deployed mode (standalone site or deployed domain), dispatch the message via FormSubmit (https://formsubmit.co/ajax/OWNER_EMAIL) to deliver real emails directly to the owner's inbox with confirmed delivery status and a 1-click mailto fallback.
+  * Include a direct clickable button/link: <a href="mailto:OWNER_EMAIL">Email Me</a>.
   * If a mobile/phone number is provided in 'Owner answers' or brief:
     1. Render a 1-click WhatsApp chat button: <a href="https://wa.me/CLEAN_PHONE?text=Hi%2C%20I%20saw%20your%20portfolio%20and%20would%20like%20to%20connect!" target="_blank" rel="noopener">Chat on WhatsApp</a>.
     2. Render a 1-click SMS button: <a href="sms:CLEAN_PHONE?body=Hi%2C%20I%20would%20like%20to%20connect!">Send SMS</a>.
@@ -1435,8 +1503,8 @@ Page plan: {json.dumps(page, ensure_ascii=False)[:3500]}
 Sitemap: {json.dumps(compact_sitemap, ensure_ascii=False)[:1800]}
 Design system: {design[:1800]}
 Owner details: {json.dumps(answers, ensure_ascii=False)[:2500]}
-Images: {image_context[:2500]}
-Rules: Use semantic, responsive HTML with a complete head, body, style, and script where needed. Match the named page only. Include working relative navigation, accessible focus, alt text, and reduced-motion support. Do not invent facts. Limit section count and prose so the full document fits in one response. Return HTML only and include the exact closing </body></html> tags."""
+Images: {image_context[:10000]}
+Rules: Use semantic, responsive HTML with a complete head, body, style, and script where needed. Match the named page only. Include working relative navigation, accessible focus, alt text, and reduced-motion support. NON-LAZY MANDATE: You MUST render all uploaded images from 'Images' inventory 1:1 with zero duplicate images across cards. Distribute evenly across category filters. Return HTML only and include the exact closing </body></html> tags."""
                 html = ""
                 best_raw_html = ""
                 for attempt in range(3):

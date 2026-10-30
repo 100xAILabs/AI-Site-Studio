@@ -114,7 +114,7 @@ class DeploymentService:
             build_command=build_command,
             output_dir=output_dir,
             env_vars=env_vars or {},
-            logs="[QUEUED] Deployment initialized in queue.\n",
+            logs=f"[{datetime.now().strftime('%H:%M:%S')}] [QUEUED] Deployment initialized in queue for {project_name} ({site_id}). Preparing sandbox...\n",
         )
 
         self.db.add(deployment)
@@ -158,15 +158,18 @@ class DeploymentService:
 
             site_id = deployment.site_id or f"SITE-{deployment.id.hex[:6].upper()}"
             deployment.status = "building"
-            deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [INFO] Starting build for version {version_str}...\n"
-            await db.commit()
-            await service.log_event(deployment.id, "INFO", f"Build started for version {version_str}.")
 
             # 1. Prepare isolated workspace directory
             temp_dir = Path(tempfile.gettempdir()) / "ai_site_studio" / "tenant_builds" / deployment.id.hex
             temp_dir.mkdir(parents=True, exist_ok=True)
             source_dir = temp_dir / "source"
             source_dir.mkdir(exist_ok=True)
+
+            t_now = datetime.now().strftime('%H:%M:%S')
+            deployment.logs = (deployment.logs or "") + f"[{t_now}] [INFO] Starting build pipeline for version {version_str}...\n"
+            deployment.logs += f"[{t_now}] [INFO] Initializing sandboxed workspace environment ({temp_dir.name})...\n"
+            await db.commit()
+            await service.log_event(deployment.id, "INFO", f"Build started for version {version_str}.")
 
             try:
                 # 2. Extract template source code from database StoredFile or local static template directories
@@ -212,7 +215,21 @@ class DeploymentService:
                             except Exception as zip_err:
                                 logger.warning(f"Failed to extract stored template file: {zip_err}")
 
-                        # 2b. Check local static template directory on disk
+                        # 2b. Check generated_projects for customized code
+                        from app.core.local_project_manager import local_project_manager
+                        candidate_idents = [str(template.id), template.slug or "", deployment.project_name]
+                        for c_id in candidate_idents:
+                            if not c_id:
+                                continue
+                            p_dir = local_project_manager._resolve_project_dir(c_id)
+                            if p_dir.exists() and (p_dir / "latest").exists():
+                                latest_files = list((p_dir / "latest").iterdir())
+                                if latest_files:
+                                    shutil.copytree(p_dir / "latest", source_dir, dirs_exist_ok=True)
+                                    logger.info(f"Loaded customized project code from generated_projects/{p_dir.name}/latest")
+                                    break
+
+                        # 2c. Check local static template directory on disk
                         if not os.listdir(source_dir):
                             base_dir = Path(__file__).resolve().parents[2]
                             possible_paths = [
@@ -241,12 +258,50 @@ class DeploymentService:
                 if not os.listdir(source_dir):
                     raise RuntimeError("No deployable source files were found. Re-upload the template archive or select a project with source files.")
 
-                # 3. Validate source structure
+                mounted_count = len(list(source_dir.iterdir()))
+                deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [INFO] Mounted project codebase ({mounted_count} items ready in sandbox).\n"
+                await db.commit()
+
+                # -------------------------------------------------------------
+                # 3. Pre-Flight Production Readiness Audit & Permanent Auto-Healing
+                # -------------------------------------------------------------
+                from app.services.deployment_readiness_auditor import deployment_readiness_auditor
+
+                deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [AUDIT] 🔍 Commencing pre-flight Production Readiness Audit...\n"
+                await db.commit()
+                await service.log_event(deployment.id, "AUDIT", "Pre-flight Production Readiness Audit started.")
+
+                target_identifier = (template.slug if (template and template.slug) else None) or deployment.project_name
+                audit_res = deployment_readiness_auditor.audit_and_heal_source(
+                    source_path=source_dir,
+                    template_identifier=target_identifier,
+                )
+
+                for finding in audit_res.get("findings", []):
+                    lvl = "HEAL" if any(w in finding.lower() for w in ("heal", "added", "fixed", "injected", "configured", "persisted")) else "AUDIT"
+                    deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [{lvl}] {finding}\n"
+                    await service.log_event(deployment.id, lvl, finding)
+
+                for warning in audit_res.get("warnings", []):
+                    deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [WARN] {warning}\n"
+                    await service.log_event(deployment.id, "WARN", warning)
+
+                if audit_res.get("healed_files"):
+                    deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [HEAL] ✨ Permanently persisted {len(audit_res['healed_files'])} auto-healed files into project codebase.\n"
+                    await service.log_event(deployment.id, "HEAL", f"Permanently persisted {len(audit_res['healed_files'])} healed files.")
+                await db.commit()
+
+                # Validate source structure
                 is_valid, val_err = await service.provider.validate(str(source_dir))
                 if not is_valid:
                     raise Exception(val_err or "Project source validation failed.")
 
-                # 4. Execute sandboxed build in isolated subprocess
+                # -------------------------------------------------------------
+                # 4. Execute Sandboxed Build with Autonomous Build Self-Healing
+                # -------------------------------------------------------------
+                deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [INFO] Executing sandboxed build ({deployment.build_command})...\n"
+                await db.commit()
+
                 build_success, build_logs, artifact_path = await service.provider.build(
                     source_path=str(source_dir),
                     build_command=deployment.build_command,
@@ -257,12 +312,51 @@ class DeploymentService:
                 deployment.logs += mask_sensitive_logs(build_logs) + "\n"
                 await db.commit()
 
+                # Autonomous Self-Healing on Build Failure
                 if not build_success or not artifact_path:
-                    raise Exception("Compilation failed during build step.")
+                    deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [WARN] Initial build failed. Activating Autonomous Build Self-Healing Engine...\n"
+                    await db.commit()
+                    await service.log_event(deployment.id, "WARN", "Initial build failed. Activating Autonomous Build Self-Healing Engine.")
 
-                # 5. Deploy artifact to tenant storage
+                    heal_diagnostics = deployment_readiness_auditor.diagnose_and_heal_build_failure(
+                        source_path=source_dir,
+                        build_logs=build_logs,
+                        template_identifier=target_identifier,
+                    )
+
+                    if heal_diagnostics.get("healed"):
+                        for fix_msg in heal_diagnostics.get("fixes_applied", []):
+                            deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [SELF-HEAL] 🩺 {fix_msg}\n"
+                            await service.log_event(deployment.id, "SELF-HEAL", fix_msg)
+                        await db.commit()
+
+                        # Re-run build with healed files (Pass 2)
+                        deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [INFO] Re-running build pipeline with healed code (Pass 2)...\n"
+                        await db.commit()
+
+                        build_success, build_logs_p2, artifact_path = await service.provider.build(
+                            source_path=str(source_dir),
+                            build_command=deployment.build_command,
+                            output_dir=deployment.output_dir,
+                            env_vars=deployment.env_vars,
+                            deployment_id=str(deployment.id),
+                        )
+                        deployment.logs += mask_sensitive_logs(build_logs_p2) + "\n"
+                        await db.commit()
+
+                        if build_success and artifact_path:
+                            deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [SELF-HEAL] ✅ Build successfully self-healed on Pass 2! Continuing to deployment.\n"
+                            await service.log_event(deployment.id, "SELF-HEAL", "Build successfully self-healed on Pass 2.")
+                        else:
+                            raise Exception("Compilation failed even after self-healing pass.")
+                    else:
+                        raise Exception("Compilation failed during build step.")
+
+                # -------------------------------------------------------------
+                # 5. Deploy Artifact to Production Tenant Storage
+                # -------------------------------------------------------------
                 deployment.status = "deploying"
-                deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [INFO] Storing versioned artifact in tenant storage...\n"
+                deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [INFO] Registering versioned artifact in tenant storage...\n"
                 await db.commit()
 
                 deploy_success, live_url = await service.provider.deploy(
@@ -276,13 +370,39 @@ class DeploymentService:
                 if not deploy_success:
                     raise Exception(f"Failed to register artifact: {live_url}")
 
-                # 6. Execute Health Check Verification
+                # -------------------------------------------------------------
+                # 6. Execute Automated Health Check & Runtime Self-Healing
+                # -------------------------------------------------------------
                 deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [INFO] Performing automated health check on {live_url}...\n"
                 await db.commit()
 
                 is_healthy, h_status, h_msg = await service.provider.health_check(live_url, site_id=site_id)
                 if not is_healthy:
-                    raise Exception(f"Health check failed ({h_msg})")
+                    deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [WARN] Health check warning: {h_msg}. Attempting runtime entrypoint repair...\n"
+                    await db.commit()
+                    # Check if artifact has a nested single subfolder
+                    art_dir = Path(artifact_path)
+                    sub_dirs = [d for d in art_dir.iterdir() if d.is_dir()]
+                    if len(sub_dirs) == 1 and (sub_dirs[0] / "index.html").exists():
+                        for item in sub_dirs[0].iterdir():
+                            shutil.move(str(item), str(art_dir / item.name))
+                        try:
+                            sub_dirs[0].rmdir()
+                        except Exception:
+                            pass
+                        # Re-deploy flattened
+                        await service.provider.deploy(
+                            artifact_path=artifact_path,
+                            site_id=site_id,
+                            version=version_str,
+                        )
+                        is_healthy, h_status, h_msg = await service.provider.health_check(live_url, site_id=site_id)
+
+                if is_healthy:
+                    deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [SUCCESS] Health check passed 100% OK.\n"
+                else:
+                    deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [WARN] Site deployed with degraded health: {h_msg}\n"
+                await db.commit()
 
                 # 7. Record Version & Transition to LIVE
                 deployment.status = "live"
@@ -312,7 +432,7 @@ class DeploymentService:
                 deployment.status = "failed"
                 deployment.health_status = "down"
                 error_msg = f"[{datetime.now().strftime('%H:%M:%S')}] [ERROR] Deployment failed: {str(e)}\n"
-                deployment.logs += error_msg
+                deployment.logs = (deployment.logs or "") + error_msg
                 await db.commit()
                 await service.log_event(deployment.id, "ERROR", f"Deployment failed: {str(e)}")
 

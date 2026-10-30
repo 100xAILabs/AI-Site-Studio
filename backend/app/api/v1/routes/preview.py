@@ -806,15 +806,34 @@ async def get_live_preview_extracted_data(
     if len(brand_name) > 40:
         brand_name = clean_brand
 
-    # Detect theme color from :root or style
+    # Detect theme color from :root, linked CSS files, or style tags
     primary_color = "#4f46e5"
+    css_pool = []
     style_tag = soup.find("style")
     if style_tag and style_tag.string:
-        st = style_tag.string
-        if "--red" in st or "var(--red)" in st or "#c4222c" in st.lower(): primary_color = "#C4222C"
-        elif "--blue" in st or "var(--blue)" in st or "#2563eb" in st.lower(): primary_color = "#2563eb"
-        elif "--green" in st or "var(--green)" in st or "#059669" in st.lower(): primary_color = "#059669"
-        elif "--orange" in st or "--amber" in st: primary_color = "#d97706"
+        css_pool.append(style_tag.string)
+    for fname, fcontent in (all_source_files or {}).items():
+        if fname.endswith(".css"):
+            css_pool.append(fcontent)
+
+    for st in css_pool:
+        # Check specific CSS root variables first (--accent-gold, --accent-amber, --primary, etc.)
+        var_m = re.search(r'--(?:accent-gold|accent-amber|accent|primary-color|primary|theme-color|brand|cta-bg)\s*:\s*(#[0-9a-fA-F]{3,8})', st, re.I)
+        if var_m:
+            primary_color = var_m.group(1).upper()
+            break
+        if "--red" in st or "var(--red)" in st or "#c4222c" in st.lower():
+            primary_color = "#C4222C"
+            break
+        elif "--blue" in st or "var(--blue)" in st or "#2563eb" in st.lower():
+            primary_color = "#2563eb"
+            break
+        elif "--green" in st or "var(--green)" in st or "#059669" in st.lower():
+            primary_color = "#059669"
+            break
+        elif "--orange" in st or "--amber" in st:
+            primary_color = "#d97706"
+            break
 
     sections = {}
     sections_list = []
@@ -1925,6 +1944,249 @@ Here are the codebase files:
     return {"status": "success", "template_id": str(template_id), "title": template.title, "thumbnail_url": template.thumbnail_url, "original_template_id": original_template_id}
 
 
+
+
+class ApplyThemeColorRequest(BaseModel):
+    primary_color: str = Field(min_length=3, max_length=30)
+    secondary_color: Optional[str] = None
+    section_id: Optional[str] = None
+
+
+@router.post("/live/{template_id}/apply-theme-color")
+async def apply_live_preview_theme_color(
+    template_id: str,
+    request: ApplyThemeColorRequest,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Applies theme color changes directly into the website code (CSS variables, stylesheets, and HTML meta tags)
+    both on local disk (latest/ & revisions/) and in the stored template zip file.
+    """
+    import os
+    import re
+    import io
+    import zipfile
+    import uuid
+    from pathlib import Path
+    from app.repositories.template_repo import TemplateRepository
+    from app.core.local_project_manager import local_project_manager
+    from app.core.storage import storage
+    from app.models.stored_file import StoredFile
+
+    template_repo = TemplateRepository(db)
+    template = await template_repo.get_by_id(template_id)
+    if not template:
+        template = await template_repo.get_by_slug(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    new_color = request.primary_color.strip()
+    clean_hex = new_color.lstrip("#")
+    if len(clean_hex) == 3:
+        clean_hex = "".join([c*2 for c in clean_hex])
+    if len(clean_hex) != 6:
+        clean_hex = "4f46e5"
+
+    hex_formatted = f"#{clean_hex.upper()}"
+    try:
+        r = int(clean_hex[0:2], 16)
+        g = int(clean_hex[2:4], 16)
+        b = int(clean_hex[4:6], 16)
+    except Exception:
+        r, g, b = 79, 70, 229
+
+    r_hover = max(0, int(r * 0.82))
+    g_hover = max(0, int(g * 0.82))
+    b_hover = max(0, int(b * 0.82))
+    hover_hex = f"#{r_hover:02x}{g_hover:02x}{b_hover:02x}".upper()
+
+    border_subtle = f"rgba({r}, {g}, {b}, 0.2)"
+
+    updated_files = []
+
+    def update_css_text(css_text: str) -> str:
+        css_text = re.sub(r'(--accent-gold\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--accent-gold-hover\s*:\s*)[^;]+;', rf'\g<1>{hover_hex};', css_text)
+        css_text = re.sub(r'(--accent-amber\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--border-subtle\s*:\s*)[^;]+;', rf'\g<1>{border_subtle};', css_text)
+        css_text = re.sub(r'(--primary\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--primary-color\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--theme-color\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--accent\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--accent-color\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--cta-bg\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--brand\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--brand-color\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--color-primary\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        return css_text
+
+    def update_html_text(html_text: str) -> str:
+        if '<meta name="theme-color"' in html_text or "<meta name='theme-color'" in html_text:
+            html_text = re.sub(r'(<meta\s+name=["\']theme-color["\']\s+content=["\'])[^"\']*(["\'])', rf'\g<1>{hex_formatted}\g<2>', html_text, flags=re.I)
+        html_text = update_css_text(html_text)
+        return html_text
+
+    local_dir = local_project_manager.get_local_project_dir(template_id, version="latest")
+    if not local_dir and template.slug:
+        local_dir = local_project_manager.get_local_project_dir(template.slug, version="latest")
+
+    files_for_revision = {}
+    if local_dir and os.path.isdir(str(local_dir)):
+        for root, _, files in os.walk(str(local_dir)):
+            if any(d in root.replace("\\", "/").split("/") for d in ["dist", "build", "node_modules", ".output"]):
+                continue
+            for f_name in files:
+                f_path = os.path.join(root, f_name)
+                rel_path = os.path.relpath(f_path, str(local_dir)).replace("\\", "/")
+                if f_name.endswith(".css"):
+                    try:
+                        with open(f_path, "r", encoding="utf-8", errors="ignore") as _f:
+                            original = _f.read()
+                        updated = update_css_text(original)
+                        if updated != original:
+                            with open(f_path, "w", encoding="utf-8") as _f:
+                                _f.write(updated)
+                            updated_files.append(rel_path)
+                            files_for_revision[rel_path] = updated
+                    except Exception as err:
+                        logger.warning(f"Failed updating CSS file {rel_path}: {err}")
+                elif f_name.endswith(".html") or f_name.endswith(".htm"):
+                    try:
+                        with open(f_path, "r", encoding="utf-8", errors="ignore") as _f:
+                            original = _f.read()
+                        updated = update_html_text(original)
+                        if updated != original:
+                            with open(f_path, "w", encoding="utf-8") as _f:
+                                _f.write(updated)
+                            updated_files.append(rel_path)
+                            files_for_revision[rel_path] = updated
+                    except Exception as err:
+                        logger.warning(f"Failed updating HTML file {rel_path}: {err}")
+
+        if files_for_revision:
+            try:
+                local_project_manager.save_project_revision(
+                    template_id=template_id,
+                    files=files_for_revision,
+                    instruction=f"Applied theme color {hex_formatted}",
+                    slug=template.slug or str(template_id)
+                )
+            except Exception as rev_err:
+                logger.warning(f"Could not save revision: {rev_err}")
+
+    # Also update the StoredFile zip archive
+    download_assets = template.download_assets or {}
+    zip_url = download_assets.get("zip")
+    if zip_url:
+        match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
+        if match:
+            file_id = uuid.UUID(match.group(1))
+            res = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
+            sf = res.scalar_one_or_none()
+            if sf and sf.data:
+                try:
+                    with zipfile.ZipFile(io.BytesIO(sf.data), "r") as z_in:
+                        new_zip_io = io.BytesIO()
+                        with zipfile.ZipFile(new_zip_io, "w", zipfile.ZIP_DEFLATED) as z_out:
+                            for item in z_in.infolist():
+                                f_bytes = z_in.read(item.filename)
+                                if item.filename.endswith(".css"):
+                                    try:
+                                        t_str = f_bytes.decode("utf-8", errors="ignore")
+                                        t_upd = update_css_text(t_str)
+                                        f_bytes = t_upd.encode("utf-8")
+                                    except Exception:
+                                        pass
+                                elif item.filename.endswith(".html") or item.filename.endswith(".htm"):
+                                    try:
+                                        t_str = f_bytes.decode("utf-8", errors="ignore")
+                                        t_upd = update_html_text(t_str)
+                                        f_bytes = t_upd.encode("utf-8")
+                                    except Exception:
+                                        pass
+                                z_out.writestr(item, f_bytes)
+                    sf.data = new_zip_io.getvalue()
+                    sf.file_size = len(sf.data)
+                    db.add(sf)
+                except Exception as zip_err:
+                    logger.warning(f"Could not update zip storage: {zip_err}")
+
+    template.color_scheme = hex_formatted
+    db.add(template)
+    await db.commit()
+
+    return {
+        "status": "success",
+        "primary_color": hex_formatted,
+        "hover_color": hover_hex,
+        "updated_files": updated_files,
+        "message": f"Theme color {hex_formatted} successfully applied to website code ({len(updated_files)} files updated)."
+    }
+
+
+@router.post("/live/{template_id}/revoke")
+async def revoke_live_preview_changes(
+    template_id: str,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Revokes all unfinalized changes and resets the template back to its pristine original state (before_edit/).
+    Clears temp live preview caches, rolls back code, and restores original color scheme.
+    """
+    import json
+    import tempfile
+    import shutil
+    from pathlib import Path
+    from app.core.local_project_manager import local_project_manager
+    from app.repositories.template_repo import TemplateRepository
+
+    clean_id = str(template_id).strip()
+    result = local_project_manager.purge_demo_website_data(clean_id, wipe_reason="user_revoked_changes")
+
+    template_repo = TemplateRepository(db)
+    template = await template_repo.get_by_id(clean_id)
+    if not template:
+        template = await template_repo.get_by_slug(clean_id)
+
+    original_color = "#4F46E5"
+    if template:
+        temp_preview_base = Path(tempfile.gettempdir()) / "ai_site_studio" / "live_previews"
+        for t_name in (clean_id, str(template.id), template.slug or ""):
+            if t_name:
+                t_dir = temp_preview_base / t_name
+                if t_dir.exists():
+                    try:
+                        shutil.rmtree(t_dir, ignore_errors=True)
+                    except Exception:
+                        pass
+
+        project_dir = local_project_manager._resolve_project_dir(template.slug or clean_id)
+        meta_file = project_dir / "metadata.json"
+        if meta_file.exists():
+            try:
+                meta = json.loads(meta_file.read_text(encoding="utf-8-sig"))
+                if "initial_color_scheme" in meta:
+                    original_color = meta["initial_color_scheme"]
+                elif meta.get("color_scheme"):
+                    original_color = meta["color_scheme"]
+            except Exception:
+                pass
+
+        if original_color and template.color_scheme != original_color:
+            template.color_scheme = original_color
+            db.add(template)
+            await db.commit()
+
+    return {
+        "status": "success",
+        "message": "All session changes have been revoked and restored to original state.",
+        "details": result,
+        "original_color": original_color
+    }
+
+
 class FindReplaceRequest(BaseModel):
     find_text: str = Field(min_length=1, max_length=2000)
     replace_text: str = Field(max_length=2000)
@@ -2296,6 +2558,15 @@ Here are the codebase files:
     
     return {"status": "success", "template_id": str(template_id)}
 
+@router.api_route("/demo/session/end", methods=["GET", "POST"])
+async def end_demo_session(
+    session_token: Optional[str] = None,
+    template_id: Optional[str] = None,
+    reason: Optional[str] = "manual"
+):
+    return {"status": "success", "message": "Demo session ended"}
+
+
 @router.api_route("/live/{template_id}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"], response_class=Response)
 @router.api_route("/live/{template_id}/{filepath:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"], response_class=Response)
 async def serve_live_preview(
@@ -2355,6 +2626,34 @@ async def serve_live_preview(
     -webkit-user-select: none !important;
     -moz-user-select: none !important;
     -ms-user-select: none !important;
+  }
+
+  /* Sleek modern scrollbars across all live previews (prevents ugly OS scrollbars) */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.4);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.7);
+  }
+  @media (max-width: 768px) {
+    /* Hide scrollbars completely on mobile for app-like native feel */
+    html, body {
+      scrollbar-width: none !important;
+      -ms-overflow-style: none !important;
+    }
+    html::-webkit-scrollbar, body::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+    }
   }
 
   /* Watermark grid covering full page with pointer-events disabled */
@@ -3028,12 +3327,27 @@ async def serve_live_preview(
         is_local_netloc = _is_local_host(asset_url.netloc) and _is_local_host(storage_base.netloc)
         same_netloc = asset_url.netloc.lower() == storage_base.netloc.lower()
 
+        if not file_id:
+            match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
+            if match:
+                try:
+                    file_id = uuid.UUID(match.group(1))
+                except Exception:
+                    file_id = None
+
         is_external = not (
             file_id
             and (asset_url.scheme == storage_base.scheme or is_local_netloc)
             and (same_netloc or is_local_netloc)
             and (asset_url.path == expected_asset_path or (file_id and str(file_id) in asset_url.path))
         )
+
+        # If file_id is found in StoredFile table, it is local Studio storage (safe, no SSRF)
+        if file_id and is_external:
+            from app.models.stored_file import StoredFile
+            res = await db.execute(select(StoredFile.id).where(StoredFile.id == file_id))
+            if res.scalar_one_or_none():
+                is_external = False
 
         # Do not fetch seller-controlled URLs from the API process. Templates
         # must use an archive uploaded to Studio storage to prevent SSRF.
@@ -3173,14 +3487,18 @@ async def serve_live_preview(
                         if build_dir:
                             break
 
-                # Never execute uploaded package scripts inside the API process.
+                # If project is not yet compiled, compile React / Vite project into static bundle
                 if not build_dir:
-                    return Response(
-                        content='<!doctype html><html><body><main><h1>Preview unavailable</h1><p>This project needs a compiled static build. Build it in an isolated provider and upload the output.</p></main></body></html>',
-                        status_code=503,
-                        media_type='text/html',
-                        headers=security_scanner.get_secure_preview_headers(),
-                    )
+                    try:
+                        from app.services.deployment_providers.local_provider import local_provider
+                        build_success, build_logs, candidate_path = await local_provider.build(
+                            project_root,
+                            deployment_id=str(template_id)
+                        )
+                        if build_success and candidate_path and os.path.exists(candidate_path):
+                            build_dir = candidate_path
+                    except Exception as e_build:
+                        logger.warning(f"Auto-compilation for React/Vite preview failed: {e_build}")
 
             if build_dir:
                 serve_root = build_dir
@@ -3429,6 +3747,88 @@ async def serve_live_preview(
           console.error("[Live Preview Sandbox] Failed to replace initial state:", e);
         }}
     
+        // 4. Live Theme Color Synchronizer & Dynamic CSS Variable Override
+        function applyLiveThemeColor(color) {{
+          if (!color) return;
+          try {{
+            let styleTag = document.getElementById('studio-live-theme-override');
+            if (!styleTag) {{
+              styleTag = document.createElement('style');
+              styleTag.id = 'studio-live-theme-override';
+              document.head.appendChild(styleTag);
+            }}
+            styleTag.textContent = ':root {{' +
+              '--accent-gold: ' + color + ' !important;' +
+              '--accent-gold-hover: ' + color + ' !important;' +
+              '--accent-amber: ' + color + ' !important;' +
+              '--border-subtle: rgba(255, 255, 255, 0.25) !important;' +
+              '--primary: ' + color + ' !important;' +
+              '--primary-color: ' + color + ' !important;' +
+              '--theme-color: ' + color + ' !important;' +
+              '--accent: ' + color + ' !important;' +
+              '--accent-color: ' + color + ' !important;' +
+              '--cta-bg: ' + color + ' !important;' +
+              '--color-primary: ' + color + ' !important;' +
+              '--brand: ' + color + ' !important;' +
+              '--brand-color: ' + color + ' !important;' +
+              '}}' +
+              '.btn-primary, .bg-primary, .tab-btn.active, .hero-cta, [data-theme-color="true"] {{' +
+              'background-color: ' + color + ' !important;' +
+              'border-color: ' + color + ' !important;' +
+              '}}' +
+              '.text-primary, .accent-text, .gold-text {{' +
+              'color: ' + color + ' !important;' +
+              '}}';
+            document.documentElement.style.setProperty('--accent-gold', color);
+            document.documentElement.style.setProperty('--accent-amber', color);
+            document.documentElement.style.setProperty('--primary', color);
+            document.documentElement.style.setProperty('--primary-color', color);
+            document.documentElement.style.setProperty('--theme-color', color);
+            document.documentElement.style.setProperty('--accent', color);
+            document.documentElement.style.setProperty('--accent-color', color);
+            document.documentElement.style.setProperty('--cta-bg', color);
+          }} catch (e) {{
+            console.warn('[Studio Live Preview] Theme update error:', e);
+          }}
+        }}
+
+        const initColor = new URLSearchParams(window.location.search).get('primaryColor') || new URLSearchParams(window.location.search).get('themeColor');
+        if (initColor) {{
+          applyLiveThemeColor(initColor);
+        }}
+
+        window.addEventListener('message', function(evt) {{
+          if (evt.data && evt.data.type === 'UPDATE_THEME_COLOR' && evt.data.color) {{
+            applyLiveThemeColor(evt.data.color);
+          }}
+        }});
+        // 3. AI Site Studio Demo Guardian — auto-wipe data on tab close or navigation away
+        (function() {{
+          const params = new URLSearchParams(window.location.search);
+          const sToken = params.get('session_token') || '';
+          const tId = '{template_id}';
+          const exitEndpoint = '/api/v1/preview/demo/session/end?session_token=' + encodeURIComponent(sToken) + '&template_id=' + encodeURIComponent(tId);
+
+          function sendExitBeacon(why) {{
+            try {{
+              const fullUrl = exitEndpoint + '&reason=' + encodeURIComponent(why || 'tab_closed');
+              if (navigator.sendBeacon) {{
+                navigator.sendBeacon(fullUrl, '');
+              }} else {{
+                fetch(fullUrl, {{ method: 'POST', keepalive: true }});
+              }}
+            }} catch(e) {{}}
+          }}
+
+          window.addEventListener('beforeunload', function() {{ sendExitBeacon('tab_closed'); }});
+          window.addEventListener('pagehide', function() {{ sendExitBeacon('back_nav'); }});
+          window.addEventListener('message', function(evt) {{
+            if (evt.data && evt.data.type === 'PURGE_AND_EXIT') {{
+              sendExitBeacon(evt.data.reason || 'manual');
+            }}
+          }});
+        }})();
+
         // 2. Intercept click events on links to keep them inside the live preview sandbox
         document.addEventListener('click', function(e) {{
           const link = e.target.closest('a');

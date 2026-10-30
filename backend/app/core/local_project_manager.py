@@ -404,5 +404,108 @@ class LocalProjectManager:
         }
 
 
+    def purge_demo_website_data(
+        self,
+        identifier,
+        wipe_reason: str = "timeout_30m",
+    ):
+        """
+        Permanently purge all data, user edits, uploaded assets, and revisions
+        created during a live demo session on the generated website.
+
+        Strictly resets 'latest/' back to the pristine 'before_edit/' state,
+        deletes all 'revisions/', removes any database files created in the generated project,
+        and purges temp live preview caches in tempfile.
+        Ensures ONLY the generated website data is touched.
+        """
+        import tempfile
+        clean_id = str(identifier).strip()
+        project_dir = self._resolve_project_dir(clean_id)
+
+        result = {
+            "identifier": clean_id,
+            "project_found": False,
+            "revisions_deleted": 0,
+            "restored_from_before_edit": False,
+            "temp_cache_cleared": False,
+            "wipe_reason": wipe_reason,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        if project_dir.exists() and project_dir.is_dir():
+            result["project_found"] = True
+            before_edit_dir = project_dir / "before_edit"
+            latest_dir = project_dir / "latest"
+            revisions_dir = project_dir / "revisions"
+
+            # 1. Delete all revisions generated during the session
+            if revisions_dir.exists() and revisions_dir.is_dir():
+                try:
+                    rev_count = len(list(revisions_dir.iterdir()))
+                    shutil.rmtree(revisions_dir, ignore_errors=True)
+                    revisions_dir.mkdir(parents=True, exist_ok=True)
+                    result["revisions_deleted"] = rev_count
+                    logger.info("[LocalProjectManager] Purged %d revisions for %s", rev_count, clean_id)
+                except Exception as e:
+                    logger.error("[LocalProjectManager] Failed to clear revisions: %s", e)
+
+            # 2. Reset 'latest/' back to 'before_edit/' pristine snapshot
+            if before_edit_dir.exists() and before_edit_dir.is_dir():
+                try:
+                    if latest_dir.exists():
+                        shutil.rmtree(latest_dir, ignore_errors=True)
+                    shutil.copytree(before_edit_dir, latest_dir)
+                    result["restored_from_before_edit"] = True
+                    logger.info("[LocalProjectManager] Restored latest/ from before_edit/ for %s", clean_id)
+                except Exception as e:
+                    logger.error("[LocalProjectManager] Failed to restore before_edit: %s", e)
+
+            # 3. Clean up any db or sqlite files that might have been created inside the project
+            if latest_dir.exists():
+                for db_file in latest_dir.rglob("*.db"):
+                    try:
+                        db_file.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                for db_file in latest_dir.rglob("*.sqlite*"):
+                    try:
+                        db_file.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+
+            # 4. Reset metadata.json
+            meta_file = project_dir / "metadata.json"
+            if meta_file.exists():
+                try:
+                    meta = json.loads(meta_file.read_text(encoding="utf-8-sig"))
+                    meta["current_revision"] = 0
+                    meta["revisions"] = [r for r in meta.get("revisions", []) if r.get("revision") == 0]
+                    meta["last_demo_wipe"] = {
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "reason": wipe_reason,
+                    }
+                    meta_file.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+                except Exception as e:
+                    logger.warning("[LocalProjectManager] Could not update metadata.json after wipe: %s", e)
+
+        # 5. Clear temp live preview directories
+        temp_preview_base = Path(tempfile.gettempdir()) / "ai_site_studio" / "live_previews"
+        if temp_preview_base.exists():
+            targets = [clean_id]
+            if project_dir.exists():
+                targets.append(project_dir.name)
+            for target_name in targets:
+                target_dir = temp_preview_base / target_name
+                if target_dir.exists():
+                    try:
+                        shutil.rmtree(target_dir, ignore_errors=True)
+                        result["temp_cache_cleared"] = True
+                        logger.info("[LocalProjectManager] Purged temp preview cache at %s", target_dir)
+                    except Exception as e:
+                        logger.warning("[LocalProjectManager] Failed to clear temp preview cache: %s", e)
+
+        return result
+
+
 local_project_manager = LocalProjectManager()
 

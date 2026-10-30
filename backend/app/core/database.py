@@ -32,14 +32,14 @@ if is_sqlite:
 else:
     engine_kwargs.update({
         "pool_pre_ping": True,
-        "pool_recycle": 120,  # Recycle connections every 2 mins to prevent PostgreSQL serverless idle timeouts
+        "pool_recycle": 60,  # Recycle connections every 60s to prevent PostgreSQL serverless idle timeouts
         "pool_size": 10,
         "max_overflow": 20,
         "pool_timeout": 30,
         "connect_args": {
             "statement_cache_size": 0,
             "prepared_statement_cache_size": 0,
-            "command_timeout": 60,
+            "command_timeout": 120,
             "server_settings": {
                 "application_name": "ai_site_studio",
             },

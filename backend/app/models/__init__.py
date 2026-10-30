@@ -24,6 +24,7 @@ from app.models.project import Project
 from app.models.withdrawal_request import WithdrawalRequest, WithdrawalStatus
 from app.models.template_view import TemplateAccountView
 from app.models.studio_build import StudioBuild, StudioBuildMessage, StudioBuildEvent
+from app.models.demo_session import DemoSession
 
 __all__ = [
     "User", "UserRole",
@@ -52,5 +53,6 @@ __all__ = [
     "WithdrawalStatus",
     "TemplateAccountView",
     "StudioBuild", "StudioBuildMessage", "StudioBuildEvent",
+    "DemoSession",
 ]
 

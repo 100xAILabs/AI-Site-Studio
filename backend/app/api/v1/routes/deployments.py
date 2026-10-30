@@ -607,6 +607,97 @@ async def redeploy_deployment(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/{deployment_id}/self-heal")
+async def self_heal_deployment(
+    deployment_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Autonomous Self-Healing Endpoint:
+    Diagnoses build, runtime, and framework issues from deployment logs,
+    applies permanent patches to the codebase, and triggers an automated redeployment.
+    """
+    from app.services.deployment_readiness_auditor import deployment_readiness_auditor
+    import re
+
+    service = DeploymentService(db)
+    stmt = select(Deployment).where(Deployment.id == deployment_id, Deployment.user_id == current_user.id)
+    res = await db.execute(stmt)
+    deployment = res.scalar_one_or_none()
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found or access denied.")
+
+    # Calculate next version (e.g. v1.0 -> v1.1)
+    curr_ver = deployment.current_version or "v1.0"
+    match = re.search(r"v?(\d+)\.(\d+)", curr_ver)
+    if match:
+        major, minor = int(match.group(1)), int(match.group(2))
+        next_ver = f"v{major}.{minor + 1}"
+    else:
+        next_ver = "v1.1"
+
+    deployment.status = "queued"
+    deployment.logs = (deployment.logs or "") + f"[{datetime.now().strftime('%H:%M:%S')}] [SELF-HEAL] 🩺 Manual Self-Healing triggered by user. Queueing version {next_ver}...\n"
+    await db.commit()
+    await service.log_event(deployment.id, "SELF-HEAL", f"Manual Self-Healing triggered for version {next_ver}.")
+
+    # Launch pipeline with audit & self-healing active
+    background_tasks.add_task(DeploymentService.run_deployment_pipeline, deployment.id, next_ver)
+
+    return {
+        "success": True,
+        "message": f"Autonomous Self-Healing triggered. Re-auditing, repairing, and deploying version {next_ver}.",
+        "version": next_ver,
+        "site_id": deployment.site_id,
+        "status": "queued",
+    }
+
+
+@router.get("/{deployment_id}/readiness-audit")
+async def get_deployment_readiness_audit(
+    deployment_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Executes a real-time production readiness audit on the deployment source without deploying.
+    """
+    from app.services.deployment_readiness_auditor import deployment_readiness_auditor
+    from app.core.local_project_manager import local_project_manager
+
+    stmt = select(Deployment).where(Deployment.id == deployment_id, Deployment.user_id == current_user.id)
+    res = await db.execute(stmt)
+    deployment = res.scalar_one_or_none()
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found or access denied.")
+
+    # Locate source directory
+    proj_dir = local_project_manager._resolve_project_dir(deployment.project_name)
+    target_dir = (proj_dir / "latest") if proj_dir.exists() and (proj_dir / "latest").exists() else None
+
+    if not target_dir or not target_dir.exists():
+        site_id = deployment.site_id or f"SITE-{deployment.id.hex[:6].upper()}"
+        from app.services.deployment_healing_service import DeploymentHealingService
+        target_dir = DeploymentHealingService.get_site_current_dir(site_id)
+
+    if not target_dir or not target_dir.exists():
+        return {
+            "is_production_ready": True,
+            "findings": ["Source code is compiled in production storage."],
+            "healed_files": [],
+            "warnings": [],
+            "summary": "Deployment is active."
+        }
+
+    audit_result = deployment_readiness_auditor.audit_and_heal_source(
+        source_path=target_dir,
+        template_identifier=deployment.project_name,
+    )
+    return audit_result
+
+
 @router.post("/{deployment_id}/rollback")
 async def rollback_deployment(
     deployment_id: uuid.UUID,

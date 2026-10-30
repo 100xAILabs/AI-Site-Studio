@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     # Separate data plane for customers, products, and orders belonging to generated shops.
     # Deliberately has no fallback to DATABASE_URL: shop data must never enter the Studio DB.
     COMMERCE_DATABASE_URL: str = ""
+    # Dedicated PostgreSQL database for user-generated projects & templates (dark-glade-72449628)
+    USER_PROJECTS_DATABASE_URL: str = "postgresql+asyncpg://neondb_owner:npg_17RiWabLMqdQ@ep-fancy-voice-b4vhh03l-pooler.c-6.us-east-2.aws.neon.tech/neondb?ssl=require"
 
     # ── Redis ─────────────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"

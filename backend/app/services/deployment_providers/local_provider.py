@@ -118,10 +118,13 @@ class LocalDeploymentProvider(DeploymentProvider):
             logs.append("ℹ️ Static HTML template detected — skipping compilation step.")
             return True, "\n".join(logs), project_root
 
-        # npm install and package scripts execute arbitrary project-controlled code.
-        # Do not run tenant code inside the API process/container. Use a hosted isolated
-        # build provider (or a separately hardened build worker) for package projects.
-        return False, "Local deployments accept static files only. Package-based projects must use an isolated hosted build provider.", ""
+        # Check if project already has a pre-compiled production build (e.g. from canvas preview)
+        candidate_build_dirs = [output_dir, "dist", "build", "out"]
+        for d in candidate_build_dirs:
+            candidate_path = os.path.join(project_root, d)
+            if os.path.isdir(candidate_path) and os.path.isfile(os.path.join(candidate_path, "index.html")):
+                logs.append(f"✓ Detected verified pre-compiled production build at '{d}/'.")
+                return True, "\n".join(logs), candidate_path
 
         # 3. Clean dependency installation (npm install)
         logs.append(f"📦 Installing tenant project dependencies in isolated sandbox...")

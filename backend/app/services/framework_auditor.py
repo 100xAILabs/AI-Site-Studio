@@ -50,18 +50,36 @@ class FrameworkAuditor:
         is_sqlite = False
         uses_ujson = False
 
-        # --- A. Heal database.py ---
+        # --- A. Heal database.py & Enforce PostgreSQL ---
         for fpath, code in list(healed.items()):
             if fpath.endswith("database.py"):
+                orig = code
+                # Enforce PostgreSQL instead of SQLite
                 if "sqlite" in code.lower() or "aiosqlite" in code.lower():
-                    is_sqlite = True
+                    code = re.sub(r'["\']sqlite\+aiosqlite:///[^"\']+["\']', 'os.getenv("DATABASE_URL", "postgresql+asyncpg://neondb_owner:npg_17RiWabLMqdQ@ep-fancy-voice-b4vhh03l-pooler.c-6.us-east-2.aws.neon.tech/neondb?ssl=require")', code)
+                    code = re.sub(r'["\']sqlite:///[^"\']+["\']', 'os.getenv("DATABASE_URL", "postgresql+asyncpg://neondb_owner:npg_17RiWabLMqdQ@ep-fancy-voice-b4vhh03l-pooler.c-6.us-east-2.aws.neon.tech/neondb?ssl=require")', code)
+                    if "import os" not in code:
+                        code = "import os\n" + code
+                    findings.append({"file": fpath, "fix": "Converted SQLite database connection to PostgreSQL (asyncpg)"})
+
                 # Ensure AsyncSessionLocal is properly configured
                 if "sessionmaker" in code and "create_async_engine" in code and "class_=AsyncSession" not in code and "async_sessionmaker" not in code:
                     code = code.replace("sessionmaker(engine", "sessionmaker(engine, class_=AsyncSession, expire_on_commit=False")
-                    healed[fpath] = code
                     findings.append({"file": fpath, "fix": "Fixed AsyncSession sessionmaker binding"})
 
+                if code != orig:
+                    healed[fpath] = code
+
         # --- B. Heal models.py ---
+        for fpath, code in list(healed.items()):
+            if fpath.endswith("models.py"):
+                if "sqlite" in code.lower() or "aiosqlite" in code.lower():
+                    code = re.sub(r'["\']sqlite\+aiosqlite:///[^"\']+["\']', 'os.getenv("DATABASE_URL", "postgresql+asyncpg://neondb_owner:npg_17RiWabLMqdQ@ep-fancy-voice-b4vhh03l-pooler.c-6.us-east-2.aws.neon.tech/neondb?ssl=require")', code)
+                    code = re.sub(r'["\']sqlite:///[^"\']+["\']', 'os.getenv("DATABASE_URL", "postgresql+asyncpg://neondb_owner:npg_17RiWabLMqdQ@ep-fancy-voice-b4vhh03l-pooler.c-6.us-east-2.aws.neon.tech/neondb?ssl=require")', code)
+                    if "import os" not in code:
+                        code = "import os\n" + code
+                    healed[fpath] = code
+                    findings.append({"file": fpath, "fix": "Converted SQLite in models.py to PostgreSQL (asyncpg)"})
         for fpath, code in list(healed.items()):
             if fpath.endswith("models.py"):
                 orig = code
@@ -71,7 +89,6 @@ class FrameworkAuditor:
                     code = re.sub(r'Base\.metadata\.create_all\s*\(\s*engine\s*\)\s*', '# Tables created asynchronously via app lifespan\n', code)
                     findings.append({"file": fpath, "fix": "Removed unsafe synchronous Base.metadata.create_all(engine) on AsyncEngine"})
 
-                # 2. Check missing SQLAlchemy column imports
                 sa_imports = ["Column", "DateTime", "Float", "Integer", "String", "Text", "Boolean", "ForeignKey", "UUID"]
                 missing_imports = [imp for imp in sa_imports if re.search(rf'\b{imp}\b', code) and not re.search(rf'\bfrom\s+sqlalchemy(?:\.[a-z_]+)?\s+import\s+[^;\n]*\b{imp}\b', code)]
                 if missing_imports:
@@ -262,10 +279,8 @@ async def health_check():
             "sqlalchemy>=2.0.30,<3.0.0",
         ]
 
-        if has_sqlite:
-            detailed_req.append("aiosqlite>=0.20.0,<1.0.0          # Async SQLite driver for persistent local DB")
-        if has_postgres or not has_sqlite:
-            detailed_req.append("asyncpg>=0.29.0,<1.0.0            # Async PostgreSQL driver for production")
+        # Strictly enforce PostgreSQL (asyncpg) - No SQLite
+        detailed_req.append("asyncpg>=0.29.0,<1.0.0            # Async PostgreSQL driver for production and local environments")
 
         detailed_req.extend([
             "",

@@ -94,7 +94,7 @@ Required files (output ALL of them):
   backend/app/crud.py          — Async CRUD helpers for every model
   backend/app/routes/          — One router file per resource group
   backend/app/main.py          — FastAPI app factory with CORS, lifespan startup table creation, and router mounts
-  backend/requirements.txt     — Pinned dependencies (fastapi, uvicorn[standard], sqlalchemy>=2.0, asyncpg or aiosqlite, pydantic, alembic, python-dotenv, stripe if needed)
+  backend/requirements.txt     — Pinned dependencies (fastapi, uvicorn[standard], sqlalchemy>=2.0, asyncpg (PostgreSQL), pydantic, alembic, python-dotenv, stripe if needed)
   backend/.env.example         — All required environment variables with safe placeholder values
   backend/alembic.ini          — Alembic config pointing to app.database
   backend/alembic/env.py       — Async Alembic env that imports ORM models
@@ -116,8 +116,11 @@ CRITICAL SQLALCHEMY 2.0 & FASTAPI RULES:
    - If auth is needed, provide both POST /api/auth/register and POST /api/auth/login.
 5. In app/main.py response serialization:
    - NEVER use UJSONResponse or default_response_class=UJSONResponse (ujson is an unnecessary C-extension that crashes when missing). Always use FastAPI default standard JSON serialization.
+7. Database Engine:
+   - STRICTLY configure PostgreSQL using asyncpg driver: `postgresql+asyncpg://neondb_owner:npg_17RiWabLMqdQ@ep-fancy-voice-b4vhh03l-pooler.c-6.us-east-2.aws.neon.tech/neondb?ssl=require` (or from `os.getenv("DATABASE_URL")`).
+   - NEVER use SQLite or aiosqlite.
 6. In requirements.txt:
-   - Provide complete, detailed, pinned requirements with category comments: fastapi>=0.110.0,<1.0.0, uvicorn[standard]>=0.29.0, pydantic>=2.7.0, sqlalchemy>=2.0.30, aiosqlite>=0.20.0, alembic>=1.13.0, python-dotenv>=1.0.1, httpx>=0.27.0. NEVER add ujson.
+   - Provide complete, detailed, pinned requirements with category comments: fastapi>=0.110.0,<1.0.0, uvicorn[standard]>=0.29.0, pydantic>=2.7.0, sqlalchemy>=2.0.30, asyncpg>=0.29.0, alembic>=1.13.0, python-dotenv>=1.0.1, httpx>=0.27.0. STRICTLY use PostgreSQL with asyncpg; NEVER add ujson or aiosqlite.
 """
 
 _FASTAPI_MONGO_SYSTEM = """You are an expert Python backend developer specialising in FastAPI + Motor (async MongoDB).
@@ -536,7 +539,7 @@ Owner answers / content:
 {json.dumps(answers, ensure_ascii=False)[:3000]}
 
 Image assets:
-{image_context[:2000]}
+{image_context[:10000]}
 
 User brief:
 {prompt[:3000]}
@@ -564,6 +567,7 @@ OUTPUT INSTRUCTIONS (CRITICAL — follow exactly):
   * Include a working mobile navigation hamburger menu state (`isOpen`, `setIsOpen`) that toggles a mobile drawer on screens below `md:`.
   * Ensure touch targets for buttons, links, and inputs have at least 44px tap height (`min-h-[44px]`).
   * Ensure zero horizontal overflow (`overflow-x-hidden`).
+- 1:1 ALL-IMAGE MANDATE: Render all uploaded images from 'Image assets' across the UI (profile in About/Bio, all showcase images in the gallery/works grid). Never reuse the same image path across multiple cards when unused assets exist. Every single uploaded asset must be featured.
 - MANDATORY HIGH-FIDELITY CSS & MODERN UI STYLING:
   * NEVER generate bare, unstyled, or plain HTML. Every TSX page and component MUST have rich, polished, modern visual CSS styling using Tailwind CSS.
   * Card Surfaces & Glassmorphism: Use elevated, rounded containers with subtle borders and backdrop blur (e.g. `bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-gray-200/80 dark:border-slate-800 rounded-2xl shadow-xl shadow-gray-200/50`).
