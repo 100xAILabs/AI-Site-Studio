@@ -128,18 +128,7 @@ export default function TemplateCard({
                 <Eye className="overlay-icon" />
                 Preview
               </button>
-              {!isSeller && isTemplateFree ? (
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    window.location.href = `/marketplace/${templateSlug}`;
-                  }}
-                  className="overlay-btn-cart add-to-cart"
-                >
-                  <Download className="overlay-icon" /> View &amp; Download
-                </button>
-              ) : !isSeller && (
+              {!isSeller && (
                 <button
                   onClick={handleAddToCart}
                   className={cn(
@@ -261,7 +250,7 @@ export default function TemplateCard({
                   {template.framework}
                 </span>
               )}
-              <span>{template.pages_count} pages</span>
+              <span>{Math.max(template.included_pages?.length || 0, template.pages_count || 1)} pages</span>
             </div>
 
             {/* Price Row */}
@@ -283,36 +272,21 @@ export default function TemplateCard({
 
             {/* Action Bar (Mobile & Tablet) */}
             <div className="card-mobile-action-bar">
-                  {!isSeller && isTemplateFree ? (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    window.location.href = `/marketplace/${templateSlug}`;
-                  }}
-                  className="card-mobile-cart-btn"
-                  aria-label="View and download this free template"
-                >
-                  <Download className="card-cart-icon" /> Free Download
-                </button>
-              ) : !isSeller && (
-                <button
-                  type="button"
-                  onClick={handleAddToCart}
-                  className={cn(
-                    "card-mobile-cart-btn",
-                    isInCart && "in-cart"
-                  )}
-                  aria-label={isInCart ? "Item added to cart" : "Add item to cart"}
-                >
-                  {isInCart ? (
-                    <><Check className="card-cart-icon" /> Added</>
-                  ) : (
-                    <><ShoppingCart className="card-cart-icon" /> Add to Cart</>
-                  )}
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={handleAddToCart}
+                className={cn(
+                  "card-mobile-cart-btn",
+                  isInCart && "in-cart"
+                )}
+                aria-label={isInCart ? "Item added to cart" : "Add item to cart"}
+              >
+                {isInCart ? (
+                  <><Check className="card-cart-icon" /> Added</>
+                ) : (
+                  <><ShoppingCart className="card-cart-icon" /> Add to Cart</>
+                )}
+              </button>
             </div>
           </div>
         </div>

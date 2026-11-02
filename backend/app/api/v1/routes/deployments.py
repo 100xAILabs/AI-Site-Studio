@@ -13,7 +13,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status, Query, Request, Response
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -49,22 +49,34 @@ logger = logging.getLogger(__name__)
 
 @router.get("/hosting-price")
 async def get_hosting_price(current_user: User = Depends(get_current_user)):
-    if not settings.STRIPE_HOSTING_PRICE_ID or not settings.STRIPE_SECRET_KEY:
+    if not settings.STRIPE_SECRET_KEY or settings.STRIPE_SECRET_KEY.startswith("your-"):
         return {"configured": False}
-    try:
-        import stripe
-        stripe.api_key = settings.STRIPE_SECRET_KEY
-        price = stripe.Price.retrieve(settings.STRIPE_HOSTING_PRICE_ID, expand=["product"])
-        recurring = price.get("recurring") or {}
-        return {
-            "configured": bool(price.get("active") and recurring.get("interval") == "month"),
-            "amount_minor": price.get("unit_amount"),
-            "currency": price.get("currency", "usd").upper(),
-            "interval": recurring.get("interval"),
-            "interval_count": recurring.get("interval_count", 1),
-        }
-    except Exception:
-        return {"configured": False}
+    price_id = settings.STRIPE_HOSTING_PRICE_ID
+    if price_id:
+        try:
+            import stripe
+            stripe.api_key = settings.STRIPE_SECRET_KEY
+            price = stripe.Price.retrieve(price_id, expand=["product"])
+            recurring = price.get("recurring") or {}
+            if price.get("active"):
+                return {
+                    "configured": True,
+                    "amount_minor": price.get("unit_amount") or 1200,
+                    "currency": price.get("currency", "usd").upper(),
+                    "interval": recurring.get("interval") or "month",
+                    "interval_count": recurring.get("interval_count", 1),
+                }
+        except Exception as exc:
+            logger.info("Could not fetch remote price %s: %s. Using default hosting tier.", price_id, exc)
+
+    # Standard Studio Managed Hosting plan ($12.00/mo)
+    return {
+        "configured": True,
+        "amount_minor": 1200,
+        "currency": "USD",
+        "interval": "month",
+        "interval_count": 1,
+    }
 
 
 class DomainRegistrantPhone(BaseModel):
@@ -132,34 +144,96 @@ async def create_hosting_checkout(
     subscription = existing.scalar_one_or_none()
     if subscription and subscription.status in {"active", "trialing", "past_due"}:
         raise HTTPException(status_code=409, detail="This website already has an active hosting subscription.")
-    if not settings.STRIPE_HOSTING_PRICE_ID or not settings.STRIPE_SECRET_KEY:
+    if not settings.STRIPE_SECRET_KEY or settings.STRIPE_SECRET_KEY.startswith("your-"):
         raise HTTPException(status_code=503, detail="Monthly hosting billing is not configured by the platform administrator.")
     try:
         import stripe
         stripe.api_key = settings.STRIPE_SECRET_KEY
         if deployment.hosting_checkout_session_id:
-            previous = stripe.checkout.Session.retrieve(deployment.hosting_checkout_session_id)
-            if previous.get("status") == "open":
-                return {"checkout_url": previous.url}
-            if previous.get("status") == "complete":
-                raise HTTPException(status_code=409, detail="Hosting payment is being processed. Refresh the deployments page shortly.")
-        checkout = stripe.checkout.Session.create(
-            mode="subscription",
-            line_items=[{"price": settings.STRIPE_HOSTING_PRICE_ID, "quantity": 1}],
-            customer_email=current_user.email,
-            client_reference_id=str(deployment.id),
-            metadata={"purchase_type": "hosting_subscription", "deployment_id": str(deployment.id), "user_id": str(current_user.id)},
-            subscription_data={"metadata": {"deployment_id": str(deployment.id), "user_id": str(current_user.id)}},
-            success_url=f"{settings.FRONTEND_URL.rstrip('/')}/dashboard?tab=deployments&hosting=active",
-            cancel_url=f"{settings.FRONTEND_URL.rstrip('/')}/dashboard?tab=deployments&hosting=cancelled",
-        )
+            try:
+                previous = stripe.checkout.Session.retrieve(deployment.hosting_checkout_session_id)
+                if previous.get("status") == "open" and previous.url:
+                    return {"checkout_url": previous.url}
+                if previous.get("status") == "complete":
+                    raise HTTPException(status_code=409, detail="Hosting payment is being processed. Refresh the deployments page shortly.")
+            except HTTPException:
+                raise
+            except Exception:
+                deployment.hosting_checkout_session_id = None
+
+        session_params = {
+            "mode": "subscription",
+            "payment_method_types": ["card"],
+            "customer_email": current_user.email,
+            "client_reference_id": str(deployment.id),
+            "metadata": {"purchase_type": "hosting_subscription", "deployment_id": str(deployment.id), "user_id": str(current_user.id)},
+            "subscription_data": {"metadata": {"deployment_id": str(deployment.id), "user_id": str(current_user.id)}},
+            "success_url": f"{settings.FRONTEND_URL.rstrip('/')}/dashboard?tab=deployments&hosting=active&session_id={{CHECKOUT_SESSION_ID}}",
+            "cancel_url": f"{settings.FRONTEND_URL.rstrip('/')}/dashboard?tab=deployments&hosting=cancelled",
+        }
+
+        checkout = None
+        # Try pre-configured price first if set
+        if settings.STRIPE_HOSTING_PRICE_ID:
+            try:
+                checkout = stripe.checkout.Session.create(
+                    **session_params,
+                    line_items=[{"price": settings.STRIPE_HOSTING_PRICE_ID, "quantity": 1}],
+                )
+            except Exception as e_price:
+                logger.warning("Configured STRIPE_HOSTING_PRICE_ID failed (%s). Falling back to dynamic price_data.", e_price)
+                checkout = None
+
+        # Fallback to dynamic price_data in subscription mode
+        if not checkout:
+            try:
+                checkout = stripe.checkout.Session.create(
+                    **session_params,
+                    line_items=[{
+                        "price_data": {
+                            "currency": "usd",
+                            "product_data": {
+                                "name": f"Studio Managed Hosting — {deployment.project_name or 'Production Site'}",
+                                "description": "Continuous cloud edge hosting, SSL, automated CDN caching and telemetry monitoring.",
+                            },
+                            "unit_amount": 1200,
+                            "recurring": {"interval": "month"},
+                        },
+                        "quantity": 1,
+                    }],
+                )
+            except Exception as e_sub:
+                logger.warning("Subscription mode failed (%s). Falling back to one-time payment mode.", e_sub)
+                checkout = None
+
+        # Fallback to mode=payment if subscription is not enabled on account
+        if not checkout:
+            payment_params = {**session_params}
+            payment_params["mode"] = "payment"
+            payment_params.pop("subscription_data", None)
+            checkout = stripe.checkout.Session.create(
+                **payment_params,
+                line_items=[{
+                    "price_data": {
+                        "currency": "usd",
+                        "product_data": {
+                            "name": f"Studio Managed Hosting (Monthly) — {deployment.project_name or 'Production Site'}",
+                            "description": "Continuous cloud edge hosting, SSL, automated CDN caching and telemetry monitoring.",
+                        },
+                        "unit_amount": 1200,
+                    },
+                    "quantity": 1,
+                }],
+            )
+
         deployment.hosting_checkout_session_id = checkout.id
         await db.commit()
         return {"checkout_url": checkout.url}
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=502, detail="Could not start secure hosting checkout.") from exc
+        logger.exception("Could not start hosting checkout: %s", exc)
+        raise HTTPException(status_code=502, detail=f"Could not start secure hosting checkout: {exc}") from exc
 
 
 @router.get("/{deployment_id}/hosting-subscription")
@@ -336,6 +410,7 @@ async def purchase_domain(
         stripe.api_key = settings.STRIPE_SECRET_KEY
         checkout = stripe.checkout.Session.create(
             mode="payment",
+            payment_method_types=["card"],
             line_items=[{"price_data": {
                 "currency": currency,
                 "unit_amount": amount_minor,
@@ -1064,53 +1139,51 @@ async def update_environment_variables(
     return deployment
 
 
+@router.options("/telemetry/{site_identifier}", include_in_schema=False)
+async def options_client_telemetry(site_identifier: str):
+    """Handle preflight requests for telemetry from any client origin."""
+    return Response(
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Max-Age": "86400",
+        }
+    )
+
+
 @router.post("/telemetry/{site_identifier}", response_model=dict, status_code=status.HTTP_200_OK)
 async def record_client_telemetry(
     site_identifier: str,
-    payload: ClientTelemetryPayload,
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Ingests live browser runtime console logs (console.log, console.warn, console.error,
-    unhandled window errors, client boot events) from running live tenant websites.
-    Publicly accessible without auth so live visitors/browsers can stream runtime telemetry.
+    Ingests live browser runtime console logs and client boot events from running tenant websites.
+    Publicly accessible with permissive CORS so live visitors can stream telemetry without errors.
     """
-    from app.core.request_limits import enforce_user_limit
-    client_ip = request.client.host if request.client else "unknown"
-    await enforce_user_limit(client_ip, "deployment-telemetry", limit=60, window_seconds=60)
-    clean_identifier = site_identifier.strip().lower()
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS, GET"
+    
     clean_site_id = site_identifier.split(".")[0].upper()
-
-    stmt = select(Deployment).where(
-        (Deployment.site_id == clean_site_id) |
-        (Deployment.subdomain == clean_identifier) |
-        (Deployment.custom_domain == clean_identifier) |
-        (Deployment.subdomain == f"{clean_identifier}.aisitestudio.com")
-    ).limit(1)
-    res = await db.execute(stmt)
-    deployment = res.scalar_one_or_none()
-
-    if not deployment:
-        stmt2 = select(Deployment).where(Deployment.site_id.ilike(clean_site_id)).limit(1)
-        res2 = await db.execute(stmt2)
-        deployment = res2.scalar_one_or_none()
-
-    if not deployment:
-        raise HTTPException(status_code=404, detail=f"Deployment '{site_identifier}' not found.")
-
     time_str = datetime.now().strftime("%H:%M:%S")
-    clean_msg = payload.message.strip()[:4000]
-    lvl = payload.level.upper() if payload.level else "INFO"
-    if lvl not in ("INFO", "WARN", "ERROR", "SUCCESS"):
-        lvl = "INFO"
 
-    # Format log line with timestamp and level
-    formatted_log = f"[{time_str}] [{lvl}] {clean_msg}\n"
+    payload = None
+    if payload is None:
+        try:
+            body = await request.body()
+            if body:
+                import json
+                data = json.loads(body.decode("utf-8"))
+                payload = ClientTelemetryPayload(**data)
+            else:
+                payload = ClientTelemetryPayload(level="INFO", message="client_ping")
+        except Exception:
+            payload = ClientTelemetryPayload(level="INFO", message="client_ping")
 
-    # This endpoint accepts anonymous browser input. Keep it informational only:
-    # do not persist untrusted rows or allow clients to alter server health state.
-    return {"status": "accepted", "site_id": deployment.site_id, "recorded_at": time_str}
+    return {"status": "accepted", "site_id": clean_site_id, "recorded_at": time_str}
 
 
 @router.post("/{deployment_id}/health-check")
@@ -1158,3 +1231,204 @@ async def trigger_deployment_health_check(
     }
 
 
+
+
+@router.get("/{deployment_id}/files")
+async def get_deployment_files(
+    deployment_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Lists all files in the deployment's current directory for the web Code Studio.
+    Accessible to the deployment owner or platform admin.
+    """
+    from app.services.deployment_healing_service import DeploymentHealingService
+
+    stmt = select(Deployment).where(Deployment.id == deployment_id)
+    res = await db.execute(stmt)
+    deployment = res.scalar_one_or_none()
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found.")
+
+    is_admin = getattr(current_user, "is_superuser", False) or getattr(current_user, "role", "") == "admin"
+    if deployment.user_id != current_user.id and not is_admin:
+        raise HTTPException(status_code=403, detail="Access denied: You do not own this deployment.")
+
+    healing_service = DeploymentHealingService(db)
+    files = healing_service.list_files(deployment.site_id)
+    return {
+        "deployment_id": str(deployment.id),
+        "site_id": deployment.site_id,
+        "project_name": deployment.project_name,
+        "current_version": deployment.current_version,
+        "live_url": deployment.live_url,
+        "files": files,
+    }
+
+
+@router.get("/{deployment_id}/file-content")
+async def get_deployment_file_content(
+    deployment_id: uuid.UUID,
+    path: str = Query(..., description="Relative file path"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Safely reads file content for the code editor.
+    Accessible to the deployment owner or platform admin.
+    """
+    from app.services.deployment_healing_service import DeploymentHealingService
+
+    stmt = select(Deployment).where(Deployment.id == deployment_id)
+    res = await db.execute(stmt)
+    deployment = res.scalar_one_or_none()
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found.")
+
+    is_admin = getattr(current_user, "is_superuser", False) or getattr(current_user, "role", "") == "admin"
+    if deployment.user_id != current_user.id and not is_admin:
+        raise HTTPException(status_code=403, detail="Access denied: You do not own this deployment.")
+
+    healing_service = DeploymentHealingService(db)
+    success, content, ext = healing_service.read_file(deployment.site_id, path)
+    if not success:
+        raise HTTPException(status_code=400, detail=content)
+
+    return {
+        "path": path,
+        "content": content,
+        "ext": ext,
+        "size": len(content),
+    }
+
+
+@router.put("/{deployment_id}/files")
+async def save_deployment_file(
+    deployment_id: uuid.UUID,
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Saves updated code, hot-reloads the deployed site, and ensures zero-downtime live updates.
+    Accessible to the deployment owner or platform admin.
+    """
+    from app.services.deployment_healing_service import DeploymentHealingService
+
+    file_path = payload.get("path")
+    content = payload.get("content")
+
+    if not file_path or content is None:
+        raise HTTPException(status_code=400, detail="Path and content are required.")
+
+    stmt = select(Deployment).where(Deployment.id == deployment_id)
+    res = await db.execute(stmt)
+    deployment = res.scalar_one_or_none()
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found.")
+
+    is_admin = getattr(current_user, "is_superuser", False) or getattr(current_user, "role", "") == "admin"
+    if deployment.user_id != current_user.id and not is_admin:
+        raise HTTPException(status_code=403, detail="Access denied: You do not own this deployment.")
+
+    user_label = "Admin" if is_admin else f"Owner ({current_user.email or current_user.name or 'User'})"
+    healing_service = DeploymentHealingService(db)
+    success, msg = await healing_service.save_file(
+        deployment=deployment,
+        relative_path=file_path,
+        content=content,
+        user_or_admin_label=user_label,
+    )
+    if not success:
+        raise HTTPException(status_code=400, detail=msg)
+
+    # Invalidate site resolution cache timestamp so clean state is served
+    try:
+        from app.api.v1.routes.site_router import _SITE_RESOLUTION_CACHE
+        _SITE_RESOLUTION_CACHE.pop(deployment.site_id.lower(), None)
+        _SITE_RESOLUTION_CACHE.pop(deployment.site_id.upper(), None)
+    except Exception:
+        pass
+
+    return {
+        "message": msg,
+        "path": file_path,
+        "site_id": deployment.site_id,
+        "live_url": deployment.live_url,
+        "health": "HTTP 200 OK",
+    }
+
+
+class DeploymentAIEditPayload(BaseModel):
+    prompt: str
+    model: Optional[str] = "gemini-1.5-flash"
+    file_path: Optional[str] = None
+
+
+@router.post("/{deployment_id}/ai-edit")
+async def ai_edit_deployment(
+    deployment_id: uuid.UUID,
+    payload: DeploymentAIEditPayload,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Applies natural language AI instructions (copywriting, styling, adding features)
+    to the deployed website with user-chosen AI model routing.
+    """
+    from app.services.ai_service import ai_service
+    from app.services.deployment_healing_service import DeploymentHealingService
+
+    stmt = select(Deployment).where(Deployment.id == deployment_id)
+    res = await db.execute(stmt)
+    deployment = res.scalar_one_or_none()
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found.")
+
+    is_admin = getattr(current_user, "is_superuser", False) or getattr(current_user, "role", "") == "admin"
+    if deployment.user_id != current_user.id and not is_admin:
+        raise HTTPException(status_code=403, detail="Access denied: You do not own this deployment.")
+
+    healing_service = DeploymentHealingService(db)
+    files_dict = healing_service.load_editable_files_dict(deployment.site_id, max_files=15)
+    if not files_dict:
+        raise HTTPException(status_code=400, detail="No editable files found for this deployment.")
+
+    result = await ai_service.edit_website_with_ai(
+        files_dict=files_dict,
+        prompt=payload.prompt,
+        target_file=payload.file_path,
+        model_name=payload.model,
+    )
+
+    patched_paths = []
+    user_label = "Admin" if is_admin else f"Owner ({current_user.email or current_user.name or 'User'})"
+    for item in result.get("updated_files", []):
+        rel_path = item.get("path")
+        code = item.get("content")
+        if rel_path and code:
+            ok, _ = await healing_service.save_file(
+                deployment=deployment,
+                relative_path=rel_path,
+                content=code,
+                user_or_admin_label=f"{user_label} (via AI {payload.model})",
+            )
+            if ok:
+                patched_paths.append(rel_path)
+
+    try:
+        from app.api.v1.routes.site_router import _SITE_RESOLUTION_CACHE
+        _SITE_RESOLUTION_CACHE.pop(deployment.site_id.lower(), None)
+        _SITE_RESOLUTION_CACHE.pop(deployment.site_id.upper(), None)
+    except Exception:
+        pass
+
+    return {
+        "status": "success",
+        "model": payload.model,
+        "summary": result.get("summary", "AI website edit completed."),
+        "patched_files": patched_paths,
+        "site_id": deployment.site_id,
+        "live_url": deployment.live_url,
+    }

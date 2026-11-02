@@ -19,6 +19,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
+from app.models.template import Template
 from app.models.order import Order, OrderItem, OrderStatus
 from app.models.payment import Payment, PaymentGateway, PaymentStatus
 from app.models.deployment import Deployment, Domain
@@ -248,9 +249,19 @@ async def initiate_payment(
                 order_id=str(order.id),
             )
         if existing_payment.gateway_order_id:
+            checkout_url = None
+            if existing_payment.gateway_order_id.startswith("cs_"):
+                import stripe
+                stripe.api_key = settings.STRIPE_SECRET_KEY
+                try:
+                    sess = stripe.checkout.Session.retrieve(existing_payment.gateway_order_id)
+                    checkout_url = sess.url
+                except Exception:
+                    pass
             return PaymentInitResponse(
                 gateway=PaymentGateway.STRIPE,
                 gateway_order_id=existing_payment.gateway_order_id,
+                checkout_url=checkout_url,
                 amount=int(order.total * 100),
                 currency="USD",
                 key_id=(
@@ -417,33 +428,102 @@ async def initiate_payment(
 
         import stripe
         stripe.api_key = settings.STRIPE_SECRET_KEY
-        intent = stripe.PaymentIntent.create(
-            amount=int(order.total * 100),  # cents
-            currency="usd",
-            metadata={"order_id": str(order.id)},
-            payment_method_types=["card"],
-        )
+        frontend_url = settings.FRONTEND_URL.rstrip("/")
+        
+        line_items = []
+        for item in (order.items or []):
+            item_title = "Website Template"
+            if hasattr(item, "template") and item.template:
+                item_title = item.template.title
+            elif getattr(item, "template_id", None):
+                tpl = await db.get(Template, item.template_id)
+                if tpl:
+                    item_title = tpl.title
+            line_items.append({
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {
+                        "name": item_title,
+                        "description": "Full production source code package with commercial license",
+                    },
+                    "unit_amount": int(float(item.price) * 100),
+                },
+                "quantity": 1,
+            })
 
-        payment = Payment(
-            order_id=order.id,
-            gateway=PaymentGateway.STRIPE,
-            gateway_payment_id=intent.id,
-            gateway_order_id=intent.client_secret,
-            amount=order.total,
-            currency="USD",
-        )
-        db.add(payment)
-        await db.flush()
-        await db.commit()
+        if not line_items:
+            line_items.append({
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {
+                        "name": f"Template Order {str(order.id)[:8]}",
+                        "description": "Marketplace digital template download",
+                    },
+                    "unit_amount": int(float(order.total) * 100),
+                },
+                "quantity": 1,
+            })
 
-        return PaymentInitResponse(
-            gateway=PaymentGateway.STRIPE,
-            gateway_order_id=intent.client_secret,
-            amount=int(order.total * 100),
-            currency="USD",
-            key_id=settings.STRIPE_PUBLISHABLE_KEY,
-            order_id=str(order.id),
-        )
+        try:
+            session = stripe.checkout.Session.create(
+                payment_method_types=["card"],
+                line_items=line_items,
+                mode="payment",
+                metadata={"order_id": str(order.id), "purchase_type": "marketplace_order"},
+                success_url=f"{frontend_url}/checkout?payment=stripe_success&order_id={order.id}&session_id={{CHECKOUT_SESSION_ID}}",
+                cancel_url=f"{frontend_url}/checkout?payment=stripe_cancel&order_id={order.id}",
+            )
+
+            payment = Payment(
+                order_id=order.id,
+                gateway=PaymentGateway.STRIPE,
+                gateway_payment_id=session.payment_intent or session.id,
+                gateway_order_id=session.id,
+                amount=order.total,
+                currency="USD",
+            )
+            db.add(payment)
+            await db.flush()
+            await db.commit()
+
+            return PaymentInitResponse(
+                gateway=PaymentGateway.STRIPE,
+                gateway_order_id=session.id,
+                checkout_url=session.url,
+                amount=int(order.total * 100),
+                currency="USD",
+                key_id=settings.STRIPE_PUBLISHABLE_KEY,
+                order_id=str(order.id),
+            )
+        except Exception as e_session:
+            logger.warning(f"Could not create Stripe Checkout Session, falling back to PaymentIntent: {e_session}")
+            intent = stripe.PaymentIntent.create(
+                amount=int(order.total * 100),
+                currency="usd",
+                metadata={"order_id": str(order.id)},
+                payment_method_types=["card"],
+            )
+
+            payment = Payment(
+                order_id=order.id,
+                gateway=PaymentGateway.STRIPE,
+                gateway_payment_id=intent.id,
+                gateway_order_id=intent.client_secret,
+                amount=order.total,
+                currency="USD",
+            )
+            db.add(payment)
+            await db.flush()
+            await db.commit()
+
+            return PaymentInitResponse(
+                gateway=PaymentGateway.STRIPE,
+                gateway_order_id=intent.client_secret,
+                amount=int(order.total * 100),
+                currency="USD",
+                key_id=settings.STRIPE_PUBLISHABLE_KEY,
+                order_id=str(order.id),
+            )
 
 
 async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Optional[str] = None):
@@ -603,6 +683,42 @@ async def verify_payment(
             order_id=str(order.id),
         )
 
+    # 1.5 Stripe Checkout Session direct verification
+    if data.gateway == PaymentGateway.STRIPE and (data.gateway_payment_id or data.gateway_order_id):
+        session_id = data.gateway_payment_id if (data.gateway_payment_id and data.gateway_payment_id.startswith("cs_")) else (data.gateway_order_id if (data.gateway_order_id and data.gateway_order_id.startswith("cs_")) else None)
+        if session_id:
+            import stripe
+            stripe.api_key = settings.STRIPE_SECRET_KEY
+            try:
+                stripe_sess = stripe.checkout.Session.retrieve(session_id)
+                if stripe_sess.payment_status in ("paid", "no_payment_required"):
+                    if not payment:
+                        payment = Payment(
+                            order_id=order.id,
+                            gateway=PaymentGateway.STRIPE,
+                            status=PaymentStatus.CAPTURED,
+                            gateway_order_id=session_id,
+                            gateway_payment_id=stripe_sess.payment_intent or session_id,
+                            amount=order.total,
+                            currency="USD",
+                        )
+                        db.add(payment)
+                    else:
+                        payment.status = PaymentStatus.CAPTURED
+                        payment.gateway_payment_id = stripe_sess.payment_intent or session_id
+                    
+                    order.status = OrderStatus.COMPLETED
+                    await _fulfill_order_licenses(db, order, user_email=current_user.email if current_user else None)
+                    await db.flush()
+                    await db.commit()
+                    return PaymentVerifyResponse(
+                        success=True,
+                        message="Payment verified successfully via Stripe Checkout.",
+                        order_id=str(order.id),
+                    )
+            except Exception as e_stripe:
+                logger.warning(f"Could not verify session with Stripe: {e_stripe}")
+
     # 2. Simulated card flow (Stripe/Razorpay test mode only)
     is_card_mock = (
         data.gateway in (PaymentGateway.STRIPE, PaymentGateway.RAZORPAY)
@@ -759,7 +875,26 @@ async def stripe_webhook(
     if event["type"] in {"checkout.session.completed", "checkout.session.async_payment_succeeded"}:
         checkout_session = event["data"]["object"]
         metadata = checkout_session.get("metadata") or {}
-        if metadata.get("purchase_type") == "domain_registration":
+        if metadata.get("purchase_type") == "marketplace_order" or (metadata.get("order_id") and metadata.get("purchase_type") != "hosting_subscription" and metadata.get("purchase_type") != "domain_registration"):
+            order_id_str = metadata.get("order_id")
+            if order_id_str:
+                try:
+                    order_uuid = uuid.UUID(order_id_str)
+                    order_res = await db.execute(select(Order).where(Order.id == order_uuid))
+                    order = order_res.scalar_one_or_none()
+                    if order and order.status != OrderStatus.COMPLETED:
+                        order.status = OrderStatus.COMPLETED
+                        pay_res = await db.execute(select(Payment).where(Payment.order_id == order.id))
+                        payment = pay_res.scalar_one_or_none()
+                        if payment:
+                            payment.status = PaymentStatus.CAPTURED
+                            payment.gateway_payment_id = checkout_session.get("payment_intent") or checkout_session.get("id")
+                            payment.gateway_response = event
+                        await _fulfill_order_licenses(db, order)
+                        await db.commit()
+                except Exception as ex:
+                    logger.error(f"Error fulfilling Stripe checkout order: {ex}")
+        elif metadata.get("purchase_type") == "domain_registration":
             from app.services.domain_purchase_service import fulfill_domain_checkout
             await fulfill_domain_checkout(checkout_session, db)
         elif metadata.get("purchase_type") == "hosting_subscription":

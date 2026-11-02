@@ -196,6 +196,12 @@ class DeploymentService:
                                     return None
                             return None
 
+                        # 2-pre. If redeploying an existing deployment, prioritize the current customized deployment files
+                        existing_site_dir = Path(__file__).resolve().parents[2] / "static" / "deployments" / site_id / "current"
+                        if existing_site_dir.exists() and any(existing_site_dir.iterdir()):
+                            shutil.copytree(existing_site_dir, source_dir, dirs_exist_ok=True)
+                            logger.info(f"Loaded existing customized site files from static/deployments/{site_id}/current")
+
                         # 2a. Check database StoredFile zip blob if linked
                         source_file_uuid = _extract_uuid(getattr(template, "source_file_id", None))
                         if not source_file_uuid and isinstance(getattr(template, "download_assets", None), dict):

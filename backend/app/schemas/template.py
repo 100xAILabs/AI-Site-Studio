@@ -173,6 +173,7 @@ class TemplateResponse(BaseModel):
     color_scheme: Optional[str] = None
     framework: Optional[TemplateFramework] = None
     pages_count: int
+    included_pages: Optional[List[str]] = None
     has_dark_mode: bool
     is_responsive: bool
     is_rtl_supported: bool
@@ -225,6 +226,7 @@ class TemplateCardResponse(BaseModel):
     tags: Optional[List[str]] = None
     framework: Optional[TemplateFramework] = None
     pages_count: int
+    included_pages: Optional[List[str]] = None
     has_dark_mode: bool
     is_featured: bool
     is_bestseller: bool

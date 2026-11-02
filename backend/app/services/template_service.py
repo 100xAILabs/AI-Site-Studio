@@ -35,16 +35,17 @@ class TemplateService:
     ) -> TemplateListResponse:
         templates, total = await self.repo.list_with_filters(filters, current_user)
 
-        # Get user interaction flags in bulk via parallel gathering
+        # Get user interaction flags sequentially (AsyncSession is single-concurrency)
         favorited_ids: set = set()
         wishlisted_ids: set = set()
         if current_user:
-            import asyncio
-            fav_task = self.favorites.get_favorited_ids(current_user.id)
-            wish_task = self.wishlist.get_wishlisted_ids(current_user.id)
-            fav_res, wish_res = await asyncio.gather(fav_task, wish_task)
-            favorited_ids = set(fav_res)
-            wishlisted_ids = set(wish_res)
+            try:
+                fav_res = await self.favorites.get_favorited_ids(current_user.id)
+                wish_res = await self.wishlist.get_wishlisted_ids(current_user.id)
+                favorited_ids = set(fav_res)
+                wishlisted_ids = set(wish_res)
+            except Exception as e_fav:
+                pass
 
         cards = [
             TemplateCardResponse(
@@ -62,7 +63,8 @@ class TemplateService:
                     "category_id": t.category_id,
                     "tags": t.tags,
                     "framework": t.framework,
-                    "pages_count": t.pages_count,
+                    "pages_count": max(len(t.included_pages or []), t.pages_count or 1),
+                    "included_pages": t.included_pages,
                     "has_dark_mode": t.has_dark_mode,
                     "is_featured": t.is_featured,
                     "is_bestseller": t.is_bestseller,
@@ -93,12 +95,15 @@ class TemplateService:
         cached_catalog: dict,
         current_user: User,
     ) -> TemplateListResponse:
-        import asyncio
-        fav_task = self.favorites.get_favorited_ids(current_user.id)
-        wish_task = self.wishlist.get_wishlisted_ids(current_user.id)
-        fav_res, wish_res = await asyncio.gather(fav_task, wish_task)
-        favorited_ids = set(fav_res)
-        wishlisted_ids = set(wish_res)
+        favorited_ids: set = set()
+        wishlisted_ids: set = set()
+        try:
+            fav_res = await self.favorites.get_favorited_ids(current_user.id)
+            wish_res = await self.wishlist.get_wishlisted_ids(current_user.id)
+            favorited_ids = set(fav_res)
+            wishlisted_ids = set(wish_res)
+        except Exception as e_fav:
+            pass
 
         items = []
         for raw in cached_catalog.get("items", []):

@@ -1,2 +1,2 @@
-// Marketplace templates are temporarily free; backend order creation is disabled in this mode.
-export const TEMPLATE_DOWNLOADS_FREE = true;
+// Marketplace live payment mode active. Orders, cart checkout, and payment gateways enabled.
+export const TEMPLATE_DOWNLOADS_FREE = false;

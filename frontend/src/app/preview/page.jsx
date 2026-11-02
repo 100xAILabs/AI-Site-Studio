@@ -1398,6 +1398,7 @@ export default function PreviewPage() {
   // AI Prompt Assistant State & Handlers
   // ─────────────────────────────────────────────────────────────────────────
   const [aiInput, setAiInput] = useState("");
+  const [selectedAiModel, setSelectedAiModel] = useState("gemini-1.5-flash");
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [aiLogs, setAiLogs] = useState([]);
   const [aiHistory, setAiHistory] = useState([
@@ -1454,7 +1455,7 @@ export default function PreviewPage() {
     const targetId = customDraftId || activeTemplateId;
     try {
       if (targetId !== "default") {
-        const res = await api.post(`/preview/live/${targetId}/edit-ai`, { prompt: promptToRun });
+        const res = await api.post(`/preview/live/${targetId}/edit-ai`, { prompt: promptToRun, model: selectedAiModel });
         const newDraftId = res?.template_id || res?.data?.template_id;
         if (!newDraftId) throw new Error("The editor did not return a saved draft.");
         setCustomDraftId(newDraftId);
@@ -1781,6 +1782,19 @@ export default function PreviewPage() {
               >
                 <ShoppingBag className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Buy Now</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const targetId = customDraftId || activeTemplateId;
+                  navigate(`/dashboard?tab=deployments&deployTemplate=${targetId}&autoOpen=true`);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:opacity-95 text-white text-xs font-bold shadow-lg shadow-emerald-500/20 transition-all border-0 cursor-pointer"
+                title="Deploy this website live with managed hosting"
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                <span className="hidden sm:inline">Deploy Live</span>
               </button>
             </>
           )}
@@ -2626,6 +2640,24 @@ export default function PreviewPage() {
                   </div>
                 </div>
               )}
+
+              {/* AI Engine Model Selection */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="sb-control-label">AI Engine Model</label>
+                  <span className="text-[10px] text-indigo-500 font-semibold font-mono">Active Engine</span>
+                </div>
+                <select
+                  value={selectedAiModel}
+                  onChange={(e) => setSelectedAiModel(e.target.value)}
+                  className="sb-control-input text-xs font-medium cursor-pointer"
+                >
+                  <option value="gemini-1.5-flash">⚡ Google Gemini 1.5 Flash (Ultra Fast)</option>
+                  <option value="gemini-1.5-pro">🧠 Google Gemini 1.5 Pro (Deep Reasoning)</option>
+                  <option value="gpt-4o">✨ OpenAI GPT-4o (Creative Copywriter)</option>
+                  <option value="ollama">💻 Local Ollama / CUDA AI (Offline GPU)</option>
+                </select>
+              </div>
 
               {/* AI Prompt Input */}
               <div className="space-y-2">

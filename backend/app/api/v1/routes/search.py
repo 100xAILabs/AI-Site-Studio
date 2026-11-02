@@ -47,7 +47,11 @@ async def search_templates(
     if semantic:
         results = await service.semantic_search(q, limit=page_size, category_filter=category, user=current_user)
     else:
-        results = await service.keyword_search(q, page=page, page_size=page_size)
+        from app.services.fast_catalog import fast_catalog
+        from app.schemas.template import TemplateFilterParams
+        fast_filters = TemplateFilterParams(q=q, category=category, page=page, page_size=page_size)
+        resp = await fast_catalog.get_response(db, fast_filters)
+        results = resp.items
 
     if cache_key and results:
         # Cache for 5 minutes (300 seconds)

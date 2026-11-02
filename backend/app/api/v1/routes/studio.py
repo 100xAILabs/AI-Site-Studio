@@ -48,9 +48,13 @@ class StudioPlanRequest(BaseModel):
 
 
 class StudioImageAsset(BaseModel):
-    role: Literal["portrait", "skills", "project", "team", "equipment", "general"]
+    role: str = Field(default="general", max_length=50)
     url: str = Field(min_length=1, max_length=2048)
-    alt: str = Field(default="", max_length=200)
+    alt: str = Field(default="", max_length=300)
+    title: str = Field(default="", max_length=200)
+    caption: str = Field(default="", max_length=500)
+    page_target: str = Field(default="", max_length=100)
+    section_target: str = Field(default="", max_length=100)
 
     @field_validator("url")
     @classmethod

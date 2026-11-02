@@ -156,6 +156,37 @@ function Checkout() {
         if (res?.rate) setLiveRate(res.rate);
       })
       .catch(() => {});
+
+    // Check if returning from Stripe Checkout
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const paymentParam = params.get("payment");
+      const orderIdParam = params.get("order_id");
+      const sessionIdParam = params.get("session_id");
+
+      if (paymentParam === "stripe_success" && orderIdParam) {
+        getToken().then(async (token) => {
+          if (!token) return;
+          setIsProcessing(true);
+          try {
+            const verifyRes = await api.post("/payment/verify", {
+              gateway: "stripe",
+              gateway_payment_id: sessionIdParam || "stripe_checkout",
+              gateway_order_id: sessionIdParam || orderIdParam,
+              order_id: orderIdParam,
+            }, token);
+            if (verifyRes?.success) {
+              const statusRes = await api.get(`/payment/status/${orderIdParam}`, token);
+              handleCompleteSuccessFlow({ id: orderIdParam, items: statusRes?.items || [] });
+            }
+          } catch (e) {
+            console.error("Stripe return verification error", e);
+          } finally {
+            setIsProcessing(false);
+          }
+        });
+      }
+    }
   }, []);
 
   // Real-time polling effect for UPI payment status
@@ -216,30 +247,7 @@ function Checkout() {
     }, 3000);
   };
 
-  if (isSeller && !TEMPLATE_DOWNLOADS_FREE) {
-    return (
-      <>
-        <Navbar />
-        <div className="checkout-restricted-page">
-          <div className="checkout-restricted-banner">
-            <div className="checkout-restricted-icon-box">
-              <ShieldCheck className="w-8 h-8 text-red-500" />
-            </div>
-            <h1 className="checkout-restricted-title">Purchase Restricted</h1>
-            <p className="checkout-restricted-desc">
-              As a registered Seller on Site Studio, you cannot purchase templates. If you want to buy templates, please sign in with a Buyer account.
-            </p>
-            <Link
-              href="/dashboard"
-              className="checkout-restricted-btn"
-            >
-              Go to Dashboard
-            </Link>
-          </div>
-        </div>
-      </>
-    );
-  }
+  // Sellers are permitted to purchase templates authored by other creators.
 
   // Create Order Mutation
   const createOrderMutation = useMutation({
@@ -408,6 +416,11 @@ function Checkout() {
         gateway: activeGateway,
       });
       setInitiatedPayment(payInfo);
+
+      if (activeGateway === "stripe" && payInfo?.checkout_url) {
+        window.location.href = payInfo.checkout_url;
+        return;
+      }
 
       const isRealRazorpay =
         activeGateway === "razorpay" &&
@@ -854,6 +867,48 @@ function Checkout() {
                         <><ShieldCheck className="w-4 h-4" /> Open Razorpay Payment Window ({inrAmountString})</>
                       )}
                     </button>
+                  </div>
+                </div>
+              ) : (paymentGateway === "stripe" && initiatedPayment?.checkout_url) ? (
+                <div className="checkout-paying-card">
+                  <div className="flex items-center justify-between border-b border-border/50 pb-4">
+                    <h3 className="font-bold text-lg flex items-center gap-2">
+                      <CreditCard className="w-5 h-5 text-primary" /> Stripe Official Checkout
+                    </h3>
+                    <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-500 font-bold uppercase border border-emerald-500/30">
+                      Live Gateway
+                    </span>
+                  </div>
+
+                  <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl space-y-3">
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Complete your payment securely via <strong>Credit / Debit Cards, Apple Pay, or Google Pay</strong> on Stripe's hosted checkout.
+                    </p>
+                    <div className="flex items-center justify-between pt-2 border-t border-primary/10 text-xs">
+                      <span className="text-muted-foreground">Order ID:</span>
+                      <span className="font-mono font-semibold">{initiatedOrder?.id?.slice(0, 13)}...</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Amount:</span>
+                      <span className="font-bold text-primary text-sm">{formatPrice(initiatedOrder?.total || total())}</span>
+                    </div>
+                  </div>
+
+                  <div className="checkout-action-row">
+                    <button
+                      type="button"
+                      onClick={() => setPaymentStep("cart")}
+                      className="checkout-cancel-btn"
+                    >
+                      Back to Cart / Change Gateway
+                    </button>
+                    <a
+                      href={initiatedPayment.checkout_url}
+                      className="checkout-verify-btn active bg-primary hover:bg-primary/95 shadow-primary/25 inline-flex items-center justify-center gap-2"
+                      style={{ textDecoration: 'none' }}
+                    >
+                      <ShieldCheck className="w-4 h-4" /> Open Stripe Checkout ({formatPrice(initiatedOrder?.total || total())})
+                    </a>
                   </div>
                 </div>
               ) : (

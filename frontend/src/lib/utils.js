@@ -135,10 +135,17 @@ export function slugify(text) {
  */
 export function debounce(fn, delay) {
   let timeout;
-  return (...args) => {
+  const debounced = (...args) => {
     clearTimeout(timeout);
     timeout = setTimeout(() => fn(...args), delay);
   };
+  debounced.cancel = () => {
+    if (timeout) {
+      clearTimeout(timeout);
+      timeout = null;
+    }
+  };
+  return debounced;
 }
 
 /**

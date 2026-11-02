@@ -6,7 +6,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { navigate } from "@/components/Link";
 const useRouter = () => ({
   push: (to) => navigate(to),
@@ -16,6 +16,7 @@ const useSearchParams = () => new URLSearchParams(window.location.search);
 import { useAppAuth } from "@/lib/auth";
 import {
   LayoutGrid, LayoutList, Search, X, Sparkles, SlidersHorizontal, Filter,
+  TrendingUp, ArrowRight, CornerDownLeft, Eye, Zap, Layers,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import Navbar from "@/components/layout/Navbar";
@@ -56,6 +57,32 @@ const QUICK_CATEGORIES = [
   { label: "Travel", value: "travel" },
   { label: "Fitness", value: "fitness" },
 ];
+
+const TRENDING_SEARCHES = [
+  "Crime Portfolio",
+  "Creative Agency",
+  "Hotel & Resort",
+  "SaaS Dashboard",
+  "React & Tailwind",
+  "Modern Portfolio",
+];
+
+function highlightSearchMatch(text, query) {
+  if (!query || !text) return text;
+  const escaped = query.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!escaped) return text;
+  const regex = new RegExp(`(${escaped})`, "gi");
+  const parts = text.split(regex);
+  return parts.map((part, i) =>
+    part.toLowerCase() === query.trim().toLowerCase() ? (
+      <strong key={i} style={{ color: "#f26445" }}>
+        {part}
+      </strong>
+    ) : (
+      part
+    )
+  );
+}
 
 function Marketplace() {
   const { getToken } = useAppAuth();
@@ -142,32 +169,158 @@ function Marketplace() {
   const favoriteMutation = useToggleFavorite(token ?? "");
   const wishlistMutation = useToggleWishlist(token ?? "");
 
-  // Debounced search
-  const debouncedSearch = debounce((value) => {
-    setFilter("q", value || undefined);
-    setFilter("semantic", undefined); // Typing normally resets semantic search
-  }, 350);
+  // Pre-fetch/cache full catalog in background to enable instantaneous client search (< 1ms)
+  const { data: fullCatalogData } = useTemplates({ page_size: 100 }, token);
+  const masterCatalog = useMemo(() => {
+    return fullCatalogData?.items?.length ? fullCatalogData.items : (data?.items ?? []);
+  }, [fullCatalogData?.items, data?.items]);
 
-  const handleSearch = (value) => {
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
+  const searchWrapperRef = useRef(null);
+
+  // Close suggestions dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (searchWrapperRef.current && !searchWrapperRef.current.contains(event.target)) {
+        setIsSearchFocused(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Instant Amazon-style suggestions matching searchInput (< 1ms)
+  const matchingSuggestions = useMemo(() => {
+    const raw = (searchInput || "").trim().toLowerCase();
+    if (!raw) return [];
+    const terms = raw.split(/\s+/).filter(Boolean);
+    return masterCatalog
+      .filter((t) => {
+        const title = (t.title || "").toLowerCase();
+        const desc = (t.short_description || "").toLowerCase();
+        const tags = (t.tags || []).map((x) => String(x).toLowerCase());
+        const dev = (t.developer_name || "").toLowerCase();
+        const fw = (t.framework || "").toLowerCase();
+        const ind = (t.industry || "").toLowerCase();
+        return terms.every(
+          (term) =>
+            title.includes(term) ||
+            desc.includes(term) ||
+            tags.some((tag) => tag.includes(term)) ||
+            dev.includes(term) ||
+            fw.includes(term) ||
+            ind.includes(term)
+        );
+      })
+      .slice(0, 5);
+  }, [searchInput, masterCatalog]);
+
+  // Instant Displayed Templates: filters instantaneously on every keystroke without waiting
+  const displayedTemplates = useMemo(() => {
+    if (filters.semantic) {
+      return data?.items ?? [];
+    }
+    const raw = (searchInput || "").trim().toLowerCase();
+    if (raw && raw !== (filters.q || "").trim().toLowerCase()) {
+      const terms = raw.split(/\s+/).filter(Boolean);
+      return masterCatalog.filter((item) => {
+        const title = (item.title || "").toLowerCase();
+        const desc = (item.short_description || "").toLowerCase();
+        const tags = (item.tags || []).map((t) => String(t).toLowerCase());
+        const dev = (item.developer_name || "").toLowerCase();
+        const fw = (item.framework || "").toLowerCase();
+        const ind = (item.industry || "").toLowerCase();
+        return terms.every(
+          (term) =>
+            title.includes(term) ||
+            desc.includes(term) ||
+            tags.some((tag) => tag.includes(term)) ||
+            dev.includes(term) ||
+            fw.includes(term) ||
+            ind.includes(term)
+        );
+      });
+    }
+    return data?.items ?? [];
+  }, [data?.items, masterCatalog, searchInput, filters.q, filters.semantic]);
+
+  // Fast 150ms memoized debounce to sync filters store and URL without stutter
+  const debouncedSearch = useMemo(
+    () =>
+      debounce((value) => {
+        setFilter("q", value || undefined);
+        setFilter("semantic", undefined);
+      }, 150),
+    [setFilter]
+  );
+
+  const handleSearchChange = (value) => {
     setSearchInput(value);
+    setIsSearchFocused(true);
+    setSelectedSuggestionIndex(-1);
     debouncedSearch(value);
   };
 
-  const triggerNormalSearch = (value) => {
+  const applySearchQuery = (val) => {
     debouncedSearch.cancel();
-    setFilter("q", value || undefined);
+    setSearchInput(val);
+    setFilter("q", val || undefined);
     setFilter("semantic", undefined);
+    setIsSearchFocused(false);
+    setSelectedSuggestionIndex(-1);
+  };
+
+  const handleClearSearch = () => {
+    debouncedSearch.cancel();
+    setSearchInput("");
+    setFilter("q", undefined);
+    setFilter("semantic", undefined);
+    setIsSearchFocused(false);
+    setSelectedSuggestionIndex(-1);
   };
 
   const triggerAISearch = () => {
     debouncedSearch.cancel();
+    setIsSearchFocused(false);
     if (searchInput) {
       setFilter("q", searchInput);
       setFilter("semantic", true);
     }
   };
 
-  const total = data?.total ?? 0;
+  // Keyboard navigation for Amazon-style autocomplete dropdown
+  const handleKeyDown = (e) => {
+    if (e.key === "Escape") {
+      setIsSearchFocused(false);
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setIsSearchFocused(true);
+      const maxIndex = matchingSuggestions.length;
+      setSelectedSuggestionIndex((prev) => Math.min(prev + 1, maxIndex));
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelectedSuggestionIndex((prev) => Math.max(prev - 1, -1));
+      return;
+    }
+    if (e.key === "Enter") {
+      if (selectedSuggestionIndex === 0 && searchInput.trim()) {
+        applySearchQuery(searchInput);
+      } else if (selectedSuggestionIndex > 0 && matchingSuggestions[selectedSuggestionIndex - 1]) {
+        const item = matchingSuggestions[selectedSuggestionIndex - 1];
+        navigate(`/preview?template=${item.id}`);
+      } else {
+        applySearchQuery(searchInput);
+      }
+    }
+  };
+
+  const isLocallyFiltering = !filters.semantic && searchInput.trim() && searchInput.trim() !== (filters.q || "").trim();
+  const total = isLocallyFiltering ? displayedTemplates.length : (data?.total ?? 0);
   const totalPages = data?.total_pages ?? 1;
 
   return (
@@ -200,9 +353,12 @@ function Marketplace() {
               {/* ── Toolbar ──────────────────────────────────────── */}
               <div className="marketplace-toolbar">
 
-                {/* Row 1 — Search bar + Semantic toggle */}
+                {/* Row 1 — Search bar + Amazon-Style Autocomplete Dropdown + Semantic toggle */}
                 <div className="toolbar-row">
-                  <div className={cn("marketplace-search-wrapper", filters.semantic && "ai-active")}>
+                  <div
+                    ref={searchWrapperRef}
+                    className={cn("marketplace-search-wrapper", filters.semantic && "ai-active")}
+                  >
                     <div className="marketplace-search">
                       <Search className="marketplace-search-icon" />
                       <input
@@ -210,25 +366,22 @@ function Marketplace() {
                         placeholder={
                           filters.semantic
                             ? "Describe your dream website (e.g., 'sleek dark dashboard for SaaS')..."
-                            : "Search templates..."
+                            : "Search templates (instant matches like Amazon)..."
                         }
                         value={searchInput}
-                        onChange={(e) => handleSearch(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            triggerNormalSearch(searchInput);
-                          }
-                        }}
+                        onFocus={() => setIsSearchFocused(true)}
+                        onChange={(e) => handleSearchChange(e.target.value)}
+                        onKeyDown={handleKeyDown}
                         className="marketplace-search-input"
+                        autoComplete="off"
+                        spellCheck="false"
                       />
                       {searchInput && (
                         <button
                           type="button"
-                          onClick={() => {
-                            handleSearch("");
-                            triggerNormalSearch("");
-                          }}
+                          onClick={handleClearSearch}
                           className="search-clear-btn"
+                          aria-label="Clear search"
                         >
                           <X className="search-clear-icon" />
                         </button>
@@ -244,6 +397,161 @@ function Marketplace() {
                       <Sparkles className={cn("ai-toggle-icon", filters.semantic && "glow-animation")} />
                       <span>Semantic Search</span>
                     </button>
+
+                    {/* ── Amazon-Style Instant Search & Autocomplete Dropdown ── */}
+                    {isSearchFocused && (
+                      <div className="amazon-search-dropdown">
+                        {/* State A: Input is empty -> Trending Searches & Popular Categories */}
+                        {!searchInput.trim() ? (
+                          <>
+                            <div className="amazon-dropdown-section">
+                              <div className="amazon-dropdown-section-title">
+                                <TrendingUp className="w-3.5 h-3.5" style={{ color: "#f26445" }} />
+                                <span>Trending Searches</span>
+                              </div>
+                              <div className="amazon-trending-pills">
+                                {TRENDING_SEARCHES.map((query) => (
+                                  <button
+                                    key={query}
+                                    type="button"
+                                    onClick={() => applySearchQuery(query)}
+                                    className="amazon-trending-pill"
+                                  >
+                                    <Search className="pill-icon" />
+                                    <span>{query}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="amazon-dropdown-section">
+                              <div className="amazon-dropdown-section-title">
+                                <Layers className="w-3.5 h-3.5 text-primary" />
+                                <span>Popular Categories</span>
+                              </div>
+                              <div className="amazon-category-grid">
+                                {QUICK_CATEGORIES.slice(1, 7).map((cat) => (
+                                  <div
+                                    key={cat.value}
+                                    className="amazon-category-item"
+                                    onClick={() => {
+                                      setFilter("category", cat.value);
+                                      setFilter("sub_category", undefined);
+                                      setIsSearchFocused(false);
+                                    }}
+                                  >
+                                    <span>{cat.label}</span>
+                                    <ArrowRight className="w-3 h-3 text-muted-foreground" />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          /* State B: User is typing -> Instant Template Matches & Query Scope */
+                          <>
+                            <div
+                              className={cn(
+                                "amazon-quick-search-row",
+                                selectedSuggestionIndex === 0 && "is-selected"
+                              )}
+                              onClick={() => applySearchQuery(searchInput)}
+                            >
+                              <div className="amazon-quick-search-left">
+                                <Search className="w-4 h-4 text-muted-foreground" />
+                                <span>
+                                  Search for <strong>&ldquo;{searchInput}&rdquo;</strong> in all templates
+                                </span>
+                              </div>
+                              <span className="amazon-key-hint">
+                                <CornerDownLeft className="w-3 h-3" /> Enter
+                              </span>
+                            </div>
+
+                            {matchingSuggestions.length > 0 ? (
+                              <div className="amazon-dropdown-section">
+                                <div className="amazon-dropdown-section-title">
+                                  <Zap className="w-3.5 h-3.5" style={{ color: "#eab308" }} />
+                                  <span>Instant Template Matches ({matchingSuggestions.length})</span>
+                                </div>
+                                <div className="amazon-matches-list">
+                                  {matchingSuggestions.map((item, idx) => {
+                                    const isSelected = selectedSuggestionIndex === idx + 1;
+                                    const priceText =
+                                      item.is_free || item.price === 0
+                                        ? "FREE"
+                                        : `$${item.price}`;
+                                    return (
+                                      <div
+                                        key={item.id}
+                                        className={cn("amazon-match-item", isSelected && "is-selected")}
+                                        onClick={() => navigate(`/preview?template=${item.id}`)}
+                                      >
+                                        <img
+                                          src={item.thumbnail_url || "/placeholder-card.png"}
+                                          alt={item.title}
+                                          className="amazon-match-thumb"
+                                          onError={(e) => {
+                                            e.target.style.display = "none";
+                                          }}
+                                        />
+                                        <div className="amazon-match-details">
+                                          <div className="amazon-match-title-row">
+                                            <span className="amazon-match-title">
+                                              {highlightSearchMatch(item.title, searchInput)}
+                                            </span>
+                                            {item.framework && (
+                                              <span className="amazon-match-badge">
+                                                {item.framework}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <span className="amazon-match-subtitle">
+                                            {item.short_description || item.industry || "Website Template"}
+                                          </span>
+                                        </div>
+                                        <div className="amazon-match-right">
+                                          <span
+                                            className={cn(
+                                              "amazon-match-price",
+                                              (item.is_free || item.price === 0) && "is-free"
+                                            )}
+                                          >
+                                            {priceText}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            className="amazon-match-view-btn"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              navigate(`/preview?template=${item.id}`);
+                                            }}
+                                          >
+                                            <Eye className="w-3 h-3" />
+                                            <span>Preview</span>
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="amazon-dropdown-section" style={{ padding: "1rem", textAlign: "center" }}>
+                                <p style={{ margin: 0, fontSize: "0.82rem", color: "#77766f" }}>
+                                  No instant card matches for <strong>&ldquo;{searchInput}&rdquo;</strong>. Press Enter to search catalog.
+                                </p>
+                              </div>
+                            )}
+
+                            <div className="amazon-dropdown-footer">
+                              <span>Instant search-as-you-type (<strong style={{ color: "#16a34a" }}>&lt; 1ms</strong>)</span>
+                              <span>Use ↑↓ arrows • Enter to select • Esc to close</span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
                 {/* Row 2 — Mobile & Tablet Action Row */}
@@ -318,7 +626,7 @@ function Marketplace() {
               {/* ── Result count ──────────────────────────────────── */}
               <div className="result-count-bar flex justify-between items-center flex-wrap gap-2" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
                 <p className="result-count-text">
-                  {isLoading ? "Loading…" : `${total.toLocaleString()} templates found`}
+                  {isLoading && displayedTemplates.length === 0 ? "Loading…" : `${total.toLocaleString()} templates found`}
                 </p>
                 {filters.developer && (
                   <div className="flex items-center gap-1.5 bg-primary/20 text-primary border border-primary/30 px-3 py-1 rounded-full text-xs font-semibold" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
@@ -336,8 +644,8 @@ function Marketplace() {
 
               {/* ── Template grid ─────────────────────────────────── */}
               <TemplateGrid
-                templates={data?.items ?? []}
-                isLoading={isLoading}
+                templates={displayedTemplates}
+                isLoading={isLoading && displayedTemplates.length === 0}
                 view={view}
                 onFavorite={(id) => token && favoriteMutation.mutate(id)}
                 onWishlist={(id) => token && wishlistMutation.mutate(id)}

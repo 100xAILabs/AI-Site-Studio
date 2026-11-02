@@ -1003,12 +1003,12 @@ npm run build`;
             </span>
           )}
         </div>
-        <span className="text-xs text-muted-foreground block font-medium mt-1">Free source download • Full commercial & personal use</span>
+        <span className="text-xs text-muted-foreground block font-medium mt-1">{isTemplateFree ? "Free source download • Full commercial & personal use" : "One-time payment • Full commercial & personal license"}</span>
       </div>
 
       {/* Action Buttons */}
       <div className="details-action-stack space-y-2">
-        {(user?.id === template?.seller_id || user?.role === "admin" || user?.role === "super_admin") ? (
+        {(user?.id && user?.id === template?.seller_id) ? (
           <>
             <button
               onClick={() => {
@@ -1019,32 +1019,26 @@ npm run build`;
             >
               <Edit3 className="w-4 h-4" /> Edit Template Details
             </button>
-            {isTemplateFree && (
-              <button type="button" onClick={handleFreeDownload} disabled={isDownloading} className="details-purchase-btn w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-primary text-primary-foreground text-sm disabled:opacity-60">
-                {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                {isDownloading ? "Preparing download…" : "Free Download"}
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleFreeDownload}
+              disabled={isDownloading}
+              className="details-purchase-btn w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-primary hover:bg-primary/95 text-primary-foreground shadow-md shadow-primary/20 transition-all text-sm disabled:opacity-60 cursor-pointer"
+            >
+              {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              {isDownloading ? "Preparing download…" : "Download Source Archive (Owner Access)"}
+            </button>
           </>
-        ) : isTemplateFree ? (
-          <button
-            type="button"
-            onClick={handleFreeDownload}
-            disabled={isDownloading}
-            className="details-purchase-btn w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-primary hover:bg-primary/95 text-primary-foreground shadow-md shadow-primary/20 transition-all text-sm disabled:opacity-60"
-          >
-            {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            {isDownloading ? "Preparing download…" : "Free Download"}
-          </button>
-        ) : isSeller ? (
-          <button disabled className="w-full py-3 bg-muted text-muted-foreground text-xs font-bold rounded-xl cursor-not-allowed">
-            Sellers cannot purchase templates
-          </button>
         ) : (
           <>
             <button
               onClick={handleAddToCart}
-              className={cn("details-purchase-btn w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md text-sm", isInCart ? "bg-green-500 hover:bg-green-600 text-white shadow-green-500/10" : "bg-primary hover:bg-primary/95 text-primary-foreground shadow-primary/20")}
+              className={cn(
+                "details-purchase-btn w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md text-sm cursor-pointer",
+                isInCart
+                  ? "bg-green-500 hover:bg-green-600 text-white shadow-green-500/20"
+                  : "bg-primary hover:bg-primary/95 text-primary-foreground shadow-primary/20"
+              )}
             >
               {isInCart ? (
                 <>
@@ -1062,8 +1056,35 @@ npm run build`;
             >
               Buy Now
             </button>
+            {isTemplateFree && (
+              <button
+                type="button"
+                onClick={handleFreeDownload}
+                disabled={isDownloading}
+                className="w-full py-2.5 px-3 rounded-xl font-semibold flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs transition-all cursor-pointer border border-slate-300 dark:border-slate-700"
+              >
+                {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                {isDownloading ? "Preparing download…" : "Free Source Code Download"}
+              </button>
+            )}
           </>
         )}
+
+        {/* 1-Click Deploy Live Website */}
+        <button
+          type="button"
+          onClick={() => {
+            if (!isSignedIn) {
+              navigate(`/sign-in?from=${encodeURIComponent(window.location.pathname)}`);
+              return;
+            }
+            navigate(`/dashboard?tab=deployments&deployTemplate=${template.id}&autoOpen=true`);
+          }}
+          className="w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:opacity-95 text-white shadow-md shadow-emerald-600/20 transition-all text-sm cursor-pointer border-0"
+        >
+          <Zap className="w-4 h-4 text-amber-300 fill-amber-300" />
+          Deploy Website Live
+        </button>
 
         <Link
           href={`/preview?template=${template.id}`}
@@ -3119,27 +3140,20 @@ npm run build`;
           >
             <Globe className="w-3.5 h-3.5" /> Demo
           </a>
-          {isTemplateFree ? (
-            <button type="button" onClick={handleFreeDownload} disabled={isDownloading} className="details-mobile-bottom-btn cart">
-              {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-              {isDownloading ? "Preparing…" : "Free Download"}
-            </button>
-          ) : !isSeller && (
-            <button
-              type="button"
-              onClick={handleAddToCart}
-              className={cn(
-                "details-mobile-bottom-btn cart",
-                isInCart && "in-cart"
-              )}
-            >
-              {isInCart ? (
-                <><Check className="w-3.5 h-3.5" /> Added</>
-              ) : (
-                <><ShoppingCart className="w-3.5 h-3.5" /> Add to Cart</>
-              )}
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={handleAddToCart}
+            className={cn(
+              "details-mobile-bottom-btn cart",
+              isInCart && "in-cart"
+            )}
+          >
+            {isInCart ? (
+              <><Check className="w-3.5 h-3.5" /> Added</>
+            ) : (
+              <><ShoppingCart className="w-3.5 h-3.5" /> Add to Cart</>
+            )}
+          </button>
         </div>
       </div>
     </>

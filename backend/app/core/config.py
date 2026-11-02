@@ -1,4 +1,4 @@
-﻿"""
+"""
 Application configuration via Pydantic Settings.
 
 All values are read from environment variables (or .env file).
@@ -24,7 +24,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
     
-    # ── App ───────────────────────────────────────────────────────────────────
+    # -- App -------------------------------------------------------------------
     APP_NAME: str = "Site Studio"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
@@ -40,9 +40,9 @@ class Settings(BaseSettings):
                 return True
         return bool(v)
     ENVIRONMENT: str = "development"  # development | staging | production
-    TEMPLATE_DOWNLOADS_FREE: bool = True
+    TEMPLATE_DOWNLOADS_FREE: bool = False
 
-    # ── Database ──────────────────────────────────────────────────────────────
+    # -- Database --------------------------------------------------------------
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_site_studio"
     # Separate data plane for customers, products, and orders belonging to generated shops.
     # Deliberately has no fallback to DATABASE_URL: shop data must never enter the Studio DB.
@@ -50,10 +50,10 @@ class Settings(BaseSettings):
     # Dedicated PostgreSQL database for user-generated projects & templates (dark-glade-72449628)
     USER_PROJECTS_DATABASE_URL: str = "postgresql+asyncpg://neondb_owner:npg_17RiWabLMqdQ@ep-fancy-voice-b4vhh03l-pooler.c-6.us-east-2.aws.neon.tech/neondb?ssl=require"
 
-    # ── Redis ─────────────────────────────────────────────────────────────────
+    # -- Redis -----------------------------------------------------------------
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # ── Security ──────────────────────────────────────────────────────────────
+    # -- Security --------------------------------------------------------------
     SECRET_KEY: str = "change-me-in-production-must-be-at-least-32-characters"
     OLD_SECRET_KEYS: str = ""  # Comma-separated list of older keys for token rotation
     ALGORITHM: str = "HS256"
@@ -89,7 +89,7 @@ class Settings(BaseSettings):
         return self
 
 
-    # ── OAuth (Google / Facebook) ─────────────────────────────────────────────
+    # -- OAuth (Google / Facebook) ---------------------------------------------
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
     FACEBOOK_CLIENT_ID: str = ""
@@ -101,13 +101,13 @@ class Settings(BaseSettings):
     ANTHROPIC_MODEL: str = "claude-sonnet-4-5"
 
 
-    # ── OpenAI ────────────────────────────────────────────────────────────────
+    # -- OpenAI ----------------------------------------------------------------
     OPENAI_API_KEY: str = ""
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     OPENAI_MODEL: str = "gpt-4o"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
 
-    # ── Gemini ────────────────────────────────────────────────────────────────
+    # -- Gemini ----------------------------------------------------------------
     GEMINI_API_KEY: str = ""
     # Comma/newline-separated Gemini keys, rotated to spread requests and
     # fail over quickly when a key is quota-limited. Keep keys in .env only.
@@ -151,12 +151,12 @@ class Settings(BaseSettings):
     ALT_MODEL_IMAGE_GENERATION: str = "dall-e-3"
     ALT_MODEL_OCR_DOCUMENT_UNDERSTANDING: str = "gpt-4o"
 
-    # ── Kimi (Moonshot AI) ────────────────────────────────────────────────────
+    # -- Kimi (Moonshot AI) ----------------------------------------------------
     KIMI_API_KEY: str = ""
     KIMI_BASE_URL: str = "https://api.moonshot.ai/v1"
     KIMI_MODEL: str = "kimi-k2.6"
 
-    # ── Multi-Model Swarm Provider Assignments ────────────────────────────────
+    # -- Multi-Model Swarm Provider Assignments --------------------------------
     # Primary AI provider across all features & agents:
     # Set to 'kimi', 'gemini', 'groq', 'ollama', 'openrouter', or another supported provider.
     # Studio agent provider order is scoped in studio_service; these defaults
@@ -179,7 +179,7 @@ class Settings(BaseSettings):
     AGENT_CODE_ASSISTANT_PROVIDER: str = "groq"
     AGENT_WEBSITE_CONTENT_GENERATION_PROVIDER: str = "groq"
 
-    # ── Ollama (Local AI Engine - Qwen / DeepSeek) ────────────────────────────
+    # -- Ollama (Local AI Engine - Qwen / DeepSeek) ----------------------------
     OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
     OLLAMA_MAX_OUTPUT_TOKENS: int = 8192
     OLLAMA_MODEL: str = "qwen3.5:9b"
@@ -193,17 +193,17 @@ class Settings(BaseSettings):
     OLLAMA_MODEL_CODE: str = "qwen3.5:9b,qwen2.5-coder:7b"
     OLLAMA_MODEL_CODE_FALLBACK: str = "qwen2.5:latest"
 
-    # ── OpenRouter (Free and Paid community & flagship models) ────────────────
+    # -- OpenRouter (Free and Paid community & flagship models) ----------------
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     OPENROUTER_MODEL: str = "deepseek/deepseek-chat:free"
 
-    # ── Groq (Ultra-fast inference) ───────────────────────────────────────────
+    # -- Groq (Ultra-fast inference) -------------------------------------------
     GROQ_API_KEY: str = ""
     GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
     GROQ_MODEL: str = "openai/gpt-oss-120b"
 
-    # ── Azure OpenAI ──────────────────────────────────────────────────────────
+    # -- Azure OpenAI ----------------------------------------------------------
     AZURE_OPENAI_API_KEY: str = ""
     AZURE_OPENAI_ENDPOINT: str = ""
     AZURE_OPENAI_API_VERSION: str = "2024-02-15-preview"
@@ -226,12 +226,12 @@ class Settings(BaseSettings):
 
 
 
-    # ── Qdrant ────────────────────────────────────────────────────────────────
+    # -- Qdrant ----------------------------------------------------------------
     QDRANT_URL: str = "http://localhost:6333"
     QDRANT_API_KEY: str = ""
     QDRANT_COLLECTION: str = "templates"
 
-    # ── Cloudflare R2 / AWS S3 (used when STORAGE_BACKEND in ('r2', 's3')) ────
+    # -- Cloudflare R2 / AWS S3 (used when STORAGE_BACKEND in ('r2', 's3')) ----
     R2_ACCOUNT_ID: str = ""
     R2_ACCESS_KEY_ID: str = ""
     R2_SECRET_ACCESS_KEY: str = ""
@@ -245,27 +245,27 @@ class Settings(BaseSettings):
     S3_ENDPOINT_URL: str = ""
     S3_PUBLIC_URL: str = ""
 
-    # ── File Storage ──────────────────────────────────────────────────────────
+    # -- File Storage ----------------------------------------------------------
     STORAGE_BACKEND: str = "postgres"  # "postgres", "r2", or "s3"
     STORAGE_BASE_URL: str = "http://localhost:8000/api/v1/files"
 
-    # ── Razorpay ──────────────────────────────────────────────────────────────
+    # -- Razorpay --------------------------------------------------------------
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
 
-    # ── Stripe ────────────────────────────────────────────────────────────────
+    # -- Stripe ----------------------------------------------------------------
     STRIPE_SECRET_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
     STRIPE_PUBLISHABLE_KEY: str = ""
-    STRIPE_HOSTING_PRICE_ID: str = ""
+    STRIPE_HOSTING_PRICE_ID: str = "price_1UXKrELCbq2D9IftDIrZXbYc"
     HOSTING_GRACE_PERIOD_DAYS: int = 3
     DEPLOYMENT_HOST_IP: str = ""
 
-    # ── UPI Direct Payment ────────────────────────────────────────────────────
+    # -- UPI Direct Payment ----------------------------------------------------
     UPI_MERCHANT_VPA: str = ""
     UPI_MERCHANT_NAME: str = "AI Site Studio"
 
-    # ── SMTP & Email Provider Settings ─────────────────────────────────────────
+    # -- SMTP & Email Provider Settings -----------------------------------------
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
     SMTP_USER: str = ""
@@ -281,7 +281,7 @@ class Settings(BaseSettings):
     TWILIO_AUTH_TOKEN: str = ""
     TWILIO_FROM_NUMBER: str = ""
 
-    # ── CORS ──────────────────────────────────────────────────────────────────
+    # -- CORS ------------------------------------------------------------------
     DEPLOYMENT_PROVIDER: str = "local"
     LOCAL_DEPLOYMENT_ENABLED: bool = False
     VERCEL_TOKEN: str = ""
@@ -296,15 +296,19 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:5173"
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 
-    # ── File Uploads ──────────────────────────────────────────────────────────
+    # -- File Uploads ----------------------------------------------------------
     MAX_UPLOAD_SIZE_MB: int = 50
     ALLOWED_IMAGE_TYPES: str = "image/jpeg,image/png,image/webp,image/gif"
     PIXABAY_API_KEY: str = ""
 
-    # ── Computed Properties ───────────────────────────────────────────────────
+    # -- Computed Properties ---------------------------------------------------
     @property
     def ALLOWED_ORIGINS_LIST(self) -> List[str]:
         origins = set()
+        origins.add("http://localhost:8000")
+        origins.add("http://127.0.0.1:8000")
+        origins.add("http://localhost:5173")
+        origins.add("http://127.0.0.1:5173")
         for o in self.ALLOWED_ORIGINS.split(","):
             cleaned = o.strip()
             if not cleaned:

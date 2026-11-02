@@ -479,6 +479,14 @@ function Dashboard() {
           setActiveTab("buyer-home");
         }
       }
+      const deployTpl = searchParams.get("deployTemplate");
+      const autoDeploy = searchParams.get("autoOpen");
+      if (deployTpl) {
+        setDeployTemplateId(deployTpl);
+        if (autoDeploy === "true") {
+          setIsDeployModalOpen(true);
+        }
+      }
     }
   }, [user, isAdmin, isSeller, searchParams]);
 
@@ -4057,16 +4065,14 @@ function Dashboard() {
                                 >
                                   <AlertTriangle className="w-3.5 h-3.5 text-amber-500" /> Report Issue
                                 </button>
-                                {isAdmin && (
-                                  <button
-                                    type="button"
-                                    onClick={() => openCodeStudio(deploy)}
-                                    className="btn-deploy-action"
-                                    title="Open Deployment Code Fix Studio"
-                                  >
-                                    <Code className="w-3.5 h-3.5 text-indigo-600" />
-                                  </button>
-                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => openCodeStudio(deploy)}
+                                  className="flex-1 btn-deploy-action text-indigo-600 dark:text-indigo-400 font-semibold hover:border-indigo-400"
+                                  title="Edit website code live, save changes, and redeploy"
+                                >
+                                  <Code className="w-3.5 h-3.5 text-indigo-600" /> Edit & Redeploy
+                                </button>
                               </div>
 
                               {deploy.provider === "local" && (
@@ -4080,15 +4086,51 @@ function Dashboard() {
                                   {deploy.hosting_subscription_period_end && <p className="text-[11px] text-slate-600">Paid through {new Date(deploy.hosting_subscription_period_end).toLocaleDateString()}{deploy.hosting_subscription_cancel_at_period_end ? " (cancelling at period end)" : ""}</p>}
                                   <div className="flex gap-2">
                                     {!["active", "trialing", "past_due"].includes(deploy.hosting_subscription_status) ? (
-                                      <button type="button" disabled={hostingActionId === deploy.id} onClick={async () => {
-                                        setHostingActionId(deploy.id);
-                                        try {
-                                          const result = await api.post(`/deployments/${deploy.id}/hosting-checkout`, {}, authToken ?? undefined);
-                                          window.location.assign(result.checkout_url);
-                                        } catch (error) { alert(error.message || "Could not start hosting checkout."); }
-                                        finally { setHostingActionId(""); }
-                                      }} className="flex-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-lg disabled:opacity-50">
-                                        {hostingActionId === deploy.id ? "Opening checkout…" : "Start Monthly Hosting"}
+                                      <button
+                                        type="button"
+                                        disabled={hostingActionId === deploy.id}
+                                        onClick={async () => {
+                                          setHostingActionId(deploy.id);
+                                          try {
+                                            const result = await api.post(`/deployments/${deploy.id}/hosting-checkout`, {}, authToken ?? undefined);
+                                            if (result?.checkout_url) {
+                                              window.location.assign(result.checkout_url);
+                                            } else {
+                                              alert("Checkout session could not be created. Please try again.");
+                                              setHostingActionId("");
+                                            }
+                                          } catch (error) {
+                                            alert(error.message || "Could not start hosting checkout.");
+                                            setHostingActionId("");
+                                          }
+                                        }}
+                                        className="flex-1 px-3 py-2 font-bold rounded-lg cursor-pointer transition-all disabled:opacity-60"
+                                        style={{
+                                          background: "linear-gradient(135deg, #4f46e5 0%, #3730a3 100%)",
+                                          color: "#ffffff",
+                                          padding: "8px 14px",
+                                          borderRadius: "8px",
+                                          fontWeight: "700",
+                                          fontSize: "12px",
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                          gap: "6px",
+                                          border: "1px solid #4338ca",
+                                          boxShadow: "0 2px 6px rgba(79, 70, 229, 0.3)",
+                                        }}
+                                      >
+                                        {hostingActionId === deploy.id ? (
+                                          <>
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                                            <span>Opening checkout…</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                                            <span>Start Monthly Hosting</span>
+                                          </>
+                                        )}
                                       </button>
                                     ) : (
                                       <button type="button" disabled={hostingActionId === deploy.id} onClick={async () => {

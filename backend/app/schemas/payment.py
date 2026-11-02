@@ -21,6 +21,7 @@ class PaymentInitResponse(BaseModel):
     currency: str
     key_id: str          # Razorpay key_id or Stripe publishable key
     order_id: str        # Our internal order ID
+    checkout_url: Optional[str] = None
     upi_uri: Optional[str] = None
     vpa: Optional[str] = None
     merchant_name: Optional[str] = None

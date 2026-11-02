@@ -38,6 +38,8 @@ from decimal import Decimal
 from urllib.parse import urlparse
 from datetime import datetime, timezone
 
+from app.services.fast_catalog import fast_catalog
+
 router = APIRouter()
 
 
@@ -128,51 +130,37 @@ async def list_templates(
         developer=developer,
     )
 
-    # Compute deterministic cache key for catalog query
-    filter_dict = {k: v for k, v in filters.model_dump(exclude_none=True).items() if k != "semantic"}
-    filter_str = json.dumps(filter_dict, sort_keys=True, default=str)
-    cache_key = f"templates:catalog:{hashlib.md5(filter_str.encode('utf-8')).hexdigest()}"
-
-    service = TemplateService(db)
-
-    # 1. Check Redis cache for public catalog (when not semantic search)
+    # Ultra-Fast In-Memory Engine for non-semantic search and catalog filters (< 1ms latency)
     if not filters.semantic:
-        cached_catalog = await cache_get(cache_key)
-        if cached_catalog is not None:
-            if settings.TEMPLATE_DOWNLOADS_FREE:
-                cached_catalog = {
-                    **cached_catalog,
-                    "items": [
-                        {**item, "price": 0, "original_price": None, "is_free": True, "is_on_sale": False}
-                        for item in cached_catalog.get("items", [])
-                    ],
-                }
-            if response:
-                response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=300"
-            if not current_user:
-                return TemplateListResponse.model_validate(cached_catalog)
-            # Authenticated user: enrich cached catalog with favorites & wishlist in parallel
-            return await service.enrich_with_user_interactions(cached_catalog, current_user)
+        favorited_ids = None
+        wishlisted_ids = None
+        if current_user:
+            from app.repositories.favorite_repo import FavoriteRepository, WishlistRepository
+            fav_repo = FavoriteRepository(db)
+            wish_repo = WishlistRepository(db)
+            try:
+                # Sequential await — AsyncSession cannot execute queries concurrently
+                fav_res = await fav_repo.get_favorited_ids(current_user.id)
+                wish_res = await wish_repo.get_wishlisted_ids(current_user.id)
+                favorited_ids = set(fav_res)
+                wishlisted_ids = set(wish_res)
+            except Exception as e_fav:
+                logger.warning(f"Failed to fetch user interaction IDs: {e_fav}")
 
+        fast_result = await fast_catalog.get_response(
+            db=db,
+            filters=filters,
+            favorited_ids=favorited_ids,
+            wishlisted_ids=wishlisted_ids,
+        )
+        if response:
+            response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=300"
+            response.headers["X-Search-Engine"] = "fast-in-memory"
+        return fast_result
+
+    # Semantic AI search fallback
+    service = TemplateService(db)
     result = await service.list_templates(filters, current_user)
-
-    # 2. Store in Redis cache for 3 minutes (180s)
-    if result and not filters.semantic:
-        raw_cards = []
-        for c in result.items:
-            dump = c.model_dump(mode="json")
-            dump["is_favorited"] = None
-            dump["is_wishlisted"] = None
-            raw_cards.append(dump)
-        to_cache = {
-            "items": raw_cards,
-            "total": result.total,
-            "page": result.page,
-            "page_size": result.page_size,
-            "total_pages": result.total_pages,
-        }
-        await cache_set(cache_key, to_cache, ttl=180)
-
     if response:
         response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=300"
     return result
@@ -494,7 +482,9 @@ async def create_template(
     """Create a new template and permanently link it to the uploading seller's account."""
     data.status = TemplateStatus.PUBLISHED
     service = TemplateService(db)
-    return await service.create_template(data, seller_id=current_user.id)
+    res = await service.create_template(data, seller_id=current_user.id)
+    fast_catalog.invalidate()
+    return res
 
 
 @router.patch("/{template_id}", response_model=TemplateResponse)
@@ -506,7 +496,9 @@ async def update_template(
 ):
     """Update an existing template."""
     service = TemplateService(db)
-    return await service.update_template(template_id, data, current_user)
+    res = await service.update_template(template_id, data, current_user)
+    fast_catalog.invalidate()
+    return res
 
 
 @router.post("/{template_id}/reupload", response_model=TemplateResponse)
@@ -627,6 +619,7 @@ async def reupload_template_zip(
         await cache_delete(CacheKeys.template(template.slug))
     await cache_delete(CacheKeys.template(str(t_uuid)))
     await cache_delete_pattern("templates:featured:*")
+    fast_catalog.invalidate()
 
     service = TemplateService(db)
     return await service.get_template_by_id(t_uuid)
@@ -641,6 +634,7 @@ async def delete_template(
     """Delete a template or studio project. Admins can delete any template; users can delete their own."""
     service = TemplateService(db)
     await service.delete_template(template_id, current_user)
+    fast_catalog.invalidate()
 
 
 @router.post("/{template_id}/download")

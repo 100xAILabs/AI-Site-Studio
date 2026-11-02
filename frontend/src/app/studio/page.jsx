@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, ImagePlus, LoaderCircle, Sparkles, WandSparkles } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, ImagePlus, LoaderCircle, Sparkles, WandSparkles, Trash2, Layers, Tag, Eye } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { useAppAuth } from "@/lib/auth";
 import { api, API_URL } from "@/lib/api";
@@ -204,7 +204,53 @@ export default function StudioPage() {
     }
   }
 
-  async function uploadPortfolioImages(role, fileList) {
+  function deduceImageTarget(field, fileName) {
+    const fieldRole = typeof field === "object" ? field?.role : field;
+    const fieldLabel = typeof field === "object" ? field?.label : "";
+    const fieldHint = typeof field === "object" ? field?.hint : "";
+    const combined = `${fieldRole || ""} ${fieldLabel || ""} ${fieldHint || ""} ${fileName || ""}`.toLowerCase();
+
+    const pages = (plan?.pages || []).filter((p) => p.included !== false || p.required);
+
+    for (const p of pages) {
+      const stem = p.filename.replace(/\.html$/, "").toLowerCase();
+      const pName = (p.name || "").toLowerCase();
+      if (combined.includes(stem) || (pName && combined.includes(pName))) {
+        return { page_target: p.filename, role: stem };
+      }
+    }
+
+    if (/\b(?:room|suite|bed|accommodation|stay|chamber)\b/i.test(combined)) {
+      const match = pages.find((p) => /room|suite|stay/i.test(p.filename + (p.name || "")));
+      return { page_target: match ? match.filename : "rooms.html", role: "rooms" };
+    }
+    if (/\b(?:dining|food|dish|restaurant|menu|chef|cuisine|eatery|bar|wine)\b/i.test(combined)) {
+      const match = pages.find((p) => /dining|restaurant|menu|food/i.test(p.filename + (p.name || "")));
+      return { page_target: match ? match.filename : "dining.html", role: "dining" };
+    }
+    if (/\b(?:amenit|spa|pool|gym|fitness|wellness|conference|boardroom|meeting)\b/i.test(combined)) {
+      const match = pages.find((p) => /amenit|spa|wellness|facility/i.test(p.filename + (p.name || "")));
+      return { page_target: match ? match.filename : "amenities.html", role: "amenities" };
+    }
+    if (/\b(?:contact|reach|location|map|address|concierge|reception|lobby)\b/i.test(combined)) {
+      const match = pages.find((p) => /contact|location/i.test(p.filename + (p.name || "")));
+      return { page_target: match ? match.filename : "contact.html", role: "contact" };
+    }
+    if (/\b(?:façade|facade|exterior|entrance|building|hero|banner|cover)\b/i.test(combined)) {
+      return { page_target: "index.html", role: "hero" };
+    }
+    if (/\b(?:logo|brand|signage)\b/i.test(combined)) {
+      return { page_target: "all", role: "logo" };
+    }
+    if (/\b(?:portrait|profile|avatar|team|staff|founder|headshot)\b/i.test(combined)) {
+      const match = pages.find((p) => /about|team/i.test(p.filename + (p.name || "")));
+      return { page_target: match ? match.filename : "index.html", role: "portrait" };
+    }
+
+    return { page_target: "index.html", role: fieldRole || "general" };
+  }
+
+  async function uploadPortfolioImages(fieldOrRole, fileList) {
     const files = Array.from(fileList || []).filter((file) => file.type.startsWith("image/"));
     if (!files.length) return;
     setUploadingImages(true);
@@ -222,7 +268,29 @@ export default function StudioPage() {
         });
         const result = await response.json().catch(() => ({}));
         if (!response.ok || !result.url) throw new Error(result.detail || `Could not upload ${file.name}.`);
-        setUploadedAssets((current) => [...current, { role, url: result.url, alt: file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ") }]);
+
+        const cleanName = file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ");
+        const { page_target, role } = deduceImageTarget(fieldOrRole, file.name);
+
+        let defaultTitle = cleanName;
+        if (/^images?\s*\(\d+\)$/i.test(cleanName) || /^unnamed$/i.test(cleanName)) {
+          const fieldLabel = typeof fieldOrRole === "object" ? fieldOrRole.label : "";
+          defaultTitle = fieldLabel ? `${fieldLabel} photo` : cleanName;
+        }
+
+        setUploadedAssets((current) => [
+          ...current,
+          {
+            url: result.url,
+            name: file.name,
+            role,
+            page_target,
+            title: defaultTitle,
+            alt: defaultTitle,
+            caption: "",
+            section_target: "content",
+          },
+        ]);
         setBuildPrompt("");
       }
     } catch (err) {
@@ -230,6 +298,13 @@ export default function StudioPage() {
     } finally {
       setUploadingImages(false);
     }
+  }
+
+  function updateUploadedAsset(index, updates) {
+    setUploadedAssets((current) =>
+      current.map((item, i) => (i === index ? { ...item, ...updates } : item))
+    );
+    setBuildPrompt("");
   }
 
   function updateAnswer(id, value) {
@@ -539,11 +614,142 @@ export default function StudioPage() {
                     <label key={`${field.role}-${field.label}`} className="block rounded-xl border border-white/10 bg-[#0c111b] p-3">
                       <span className="block text-xs font-semibold text-slate-200">{field.label}</span>
                       <span className="mt-1 block text-[11px] text-slate-500">{field.hint}</span>
-                      <input className="mt-2 block w-full text-xs text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-500/15 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-violet-200" type="file" accept="image/*" multiple={field.multiple} disabled={uploadingImages || uploadedAssets.length >= 16} onChange={(event) => { uploadPortfolioImages(field.role, event.target.files); event.target.value = ""; }} />
+                      <input className="mt-2 block w-full text-xs text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-500/15 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-violet-200" type="file" accept="image/*" multiple={field.multiple} disabled={uploadingImages || uploadedAssets.length >= 16} onChange={(event) => { uploadPortfolioImages(field, event.target.files); event.target.value = ""; }} />
                     </label>
                   ))}
                 </div>
-                {uploadedAssets.length > 0 && <div className="mt-3 space-y-2">{uploadedAssets.map((asset, index) => <div key={`${asset.url}-${index}`} className="flex items-center justify-between gap-2 rounded-lg bg-white/5 px-3 py-2 text-xs text-slate-300"><span className="truncate">{asset.alt} · {asset.role}</span><button type="button" onClick={() => { setUploadedAssets((current) => current.filter((_, itemIndex) => itemIndex !== index)); setBuildPrompt(""); }} className="text-slate-500 hover:text-white" aria-label={`Remove ${asset.alt}`}>Remove</button></div>)}</div>}
+                {uploadedAssets.length > 0 && (
+                  <div className="mt-5 space-y-3">
+                    <div className="flex items-center justify-between border-t border-white/10 pt-4">
+                      <span className="text-xs font-bold uppercase tracking-wider text-violet-300">
+                        Assigned Photos ({uploadedAssets.length}/16)
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        Customize title, page &amp; role
+                      </span>
+                    </div>
+                    <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1">
+                      {uploadedAssets.map((asset, index) => (
+                        <div
+                          key={`${asset.url}-${index}`}
+                          className="rounded-2xl border border-white/10 bg-[#0a0e17] p-3 text-xs transition hover:border-violet-500/30"
+                        >
+                          <div className="flex gap-3">
+                            <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-xl border border-white/15 bg-black/40">
+                              <img
+                                src={asset.url}
+                                alt={asset.title || asset.alt || "Uploaded visual"}
+                                className="h-full w-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = "none";
+                                }}
+                              />
+                            </div>
+
+                            <div className="flex-1 min-w-0 space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <input
+                                  type="text"
+                                  value={asset.title || ""}
+                                  onChange={(e) =>
+                                    updateUploadedAsset(index, {
+                                      title: e.target.value,
+                                      alt: e.target.value,
+                                    })
+                                  }
+                                  placeholder="Photo title (e.g. Deluxe Suite King Bed)"
+                                  className="w-full rounded-lg border border-white/10 bg-[#121826] px-2.5 py-1 text-xs font-semibold text-slate-200 outline-none focus:border-violet-400"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setUploadedAssets((current) =>
+                                      current.filter((_, itemIndex) => itemIndex !== index)
+                                    );
+                                    setBuildPrompt("");
+                                  }}
+                                  className="text-slate-500 hover:text-rose-400 transition flex-shrink-0 p-1"
+                                  title="Remove this image"
+                                  aria-label={`Remove ${asset.title || asset.alt}`}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[10px] text-slate-400 uppercase font-semibold mb-0.5">
+                                    Target Page
+                                  </label>
+                                  <select
+                                    value={asset.page_target || "index.html"}
+                                    onChange={(e) =>
+                                      updateUploadedAsset(index, {
+                                        page_target: e.target.value,
+                                      })
+                                    }
+                                    className="w-full rounded-md border border-white/10 bg-[#121826] px-2 py-1 text-[11px] text-violet-300 outline-none focus:border-violet-400"
+                                  >
+                                    <option value="index.html">Home (index.html)</option>
+                                    {(plan?.pages || [])
+                                      .filter((p) => p.filename !== "index.html" && (p.included !== false || p.required))
+                                      .map((p) => (
+                                        <option key={p.filename} value={p.filename}>
+                                          {p.name || p.filename} ({p.filename})
+                                        </option>
+                                      ))}
+                                    <option value="all">All Pages / Showcase</option>
+                                  </select>
+                                </div>
+
+                                <div>
+                                  <label className="block text-[10px] text-slate-400 uppercase font-semibold mb-0.5">
+                                    Category / Role
+                                  </label>
+                                  <select
+                                    value={asset.role || "general"}
+                                    onChange={(e) =>
+                                      updateUploadedAsset(index, {
+                                        role: e.target.value,
+                                      })
+                                    }
+                                    className="w-full rounded-md border border-white/10 bg-[#121826] px-2 py-1 text-[11px] text-emerald-300 outline-none focus:border-emerald-400"
+                                  >
+                                    <option value="hero">Hero / Banner</option>
+                                    <option value="rooms">Rooms / Suites</option>
+                                    <option value="dining">Dining / Dishes</option>
+                                    <option value="amenities">Amenities / Facilities</option>
+                                    <option value="contact">Exterior / Entrance</option>
+                                    <option value="portrait">Portrait / Person</option>
+                                    <option value="team">Team / Staff</option>
+                                    <option value="logo">Brand Logo</option>
+                                    <option value="project">Project / Work</option>
+                                    <option value="products">Product Catalog</option>
+                                    <option value="general">General Visual</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <div>
+                                <input
+                                  type="text"
+                                  value={asset.caption || ""}
+                                  onChange={(e) =>
+                                    updateUploadedAsset(index, {
+                                      caption: e.target.value,
+                                    })
+                                  }
+                                  placeholder="Specific details e.g. King bed with private ocean terrace"
+                                  className="w-full rounded-md border border-white/10 bg-[#080b12] px-2 py-1 text-[11px] text-slate-400 outline-none focus:border-violet-400"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {uploadingImages && <p className="mt-2 text-xs text-violet-200">Uploading images…</p>}
               </div>
 

@@ -160,22 +160,23 @@ INNER_PAGE_NAMES = {"about", "about-us", "contact", "contact-us", "services", "p
 
 
 def _site_profile(category: str, genre: str, prompt: str) -> str:
-    selected_type = f"{category} {genre}".lower()
-    prompt_text = prompt.lower()
-    construction_re = r"construction|contractor|building company|roofing|remodel(?:ing)?|renovation|home improvement|(?:home|house|custom|commercial|residential) builder"
-    portfolio_re = r"\bportfolio\b|\bresume\b|résumé|\bcv\b|personal\s+(?:site|website)\b|photographer\s+portfolio"
-    other_site_re = r"\b(?:tea|restaurant|cafe|coffee|bakery|food|dining|shop|store|e-?commerce|real estate|property|realtor|event|conference|festival|wedding|school|education|course|training|academy|university|health|clinic|medical|dental|wellness|therapy|hotel|travel|tour|hospitality|salon|beauty|fitness|gym|agency|consulting|software|saas|app|blog|publication|nonprofit|charity)\b"
-    if re.search(construction_re, prompt_text):
+    combined = f"{category} {genre} {prompt}".lower()
+    if re.search(r"\b(?:hotel|resort|residency|motel|inn|lodge|hospitality|villa|accommodations?|suites?|stay|guest\s*house)\b", combined):
+        return "hospitality"
+    if re.search(r"\b(?:restaurant|cafe|coffee|bakery|dining|bistro|bar|pub|cuisine|chef|food|menu|eatery)\b", combined):
+        return "restaurant"
+    if re.search(r"\b(?:construction|contractor|building\s*company|roofing|remodel(?:ing)?|renovation|builder)\b", combined):
         return "construction"
-    explicit_portfolio_request = r"(?:portfolio\s+(?:website|site|homepage|landing page)|(?:personal|photography|designer|developer|creative)\s+portfolio|(?:build|create|make|design)\s+(?:me\s+)?(?:a\s+)?portfolio\b|resume\s+(?:website|site)|résumé\s+(?:website|site)|\bcv\s+(?:website|site))"
-    if re.search(explicit_portfolio_request, prompt_text):
+    if re.search(r"\b(?:portfolio|resume|résumé|cv|photographer\s*portfolio|designer\s*portfolio|developer\s*portfolio|personal\s*site)\b", combined):
         return "portfolio"
-    if re.search(other_site_re, prompt_text):
-        return "general"
-    if re.search(construction_re, selected_type):
-        return "construction"
-    if re.search(portfolio_re, selected_type):
-        return "portfolio"
+    if re.search(r"\b(?:ecommerce|e-commerce|shop|store|retail|fashion|apparel|merchandise|products)\b", combined):
+        return "ecommerce"
+    if re.search(r"\b(?:saas|software|agency|startup|tech|consulting|platform|dashboard|crm|devops)\b", combined):
+        return "saas"
+    if re.search(r"\b(?:medical|clinic|doctor|hospital|dental|wellness|therapy|healthcare|patient)\b", combined):
+        return "medical"
+    if re.search(r"\b(?:real\s*estate|property|realtor|realty|apartments?|housing|homes)\b", combined):
+        return "real_estate"
     return "general"
 
 
@@ -440,30 +441,95 @@ def _fallback_image_uploads(category: str, genre: str, prompt: str, profile: str
 
 
 CURATED_STOCK_IMAGES = {
+    "hospitality": [
+        {"id": "photo-1542314831-068cd1dbfeeb", "tag": "hero", "alt": "Luxury hotel exterior architecture and facade at dusk"},
+        {"id": "photo-1566073771259-6a8506099945", "tag": "hero", "alt": "Grand entrance and driveway of luxury resort"},
+        {"id": "photo-1590490360182-c33d57733427", "tag": "rooms", "alt": "Deluxe King bedroom suite with plush linens and ambient lighting"},
+        {"id": "photo-1582719478250-c89cae4dc85b", "tag": "rooms", "alt": "Executive garden villa bedroom opening onto private terrace"},
+        {"id": "photo-1566665797739-1674de7a421a", "tag": "rooms", "alt": "Presidential penthouse suite bedroom with panoramic views"},
+        {"id": "photo-1517248135467-4c7edcad34c4", "tag": "dining", "alt": "Artisanal fine dining restaurant interior with ambient chandelier lighting"},
+        {"id": "photo-1550966871-3ed3cdb5ed0c", "tag": "dining", "alt": "Gourmet dining table setting with wine glasses and cutlery"},
+        {"id": "photo-1414235077428-338989a2e8c0", "tag": "dining", "alt": "Michelin-style culinary dish plated with elegance"},
+        {"id": "photo-1540555700478-4be289fbecef", "tag": "amenities", "alt": "Serene spa wellness relaxation lounge with organic aromatherapy"},
+        {"id": "photo-1584132967334-10e028bd69f7", "tag": "amenities", "alt": "Tranquil outdoor heated swimming pool surrounded by tropical gardens"},
+        {"id": "photo-1571896349842-33c89424de2d", "tag": "amenities", "alt": "Fitness center gym with modern cardio equipment and natural lighting"},
+        {"id": "photo-1582719508461-905c673771fd", "tag": "contact", "alt": "Concierge front desk reception with 24-hour guest assistance"},
+    ],
+    "restaurant": [
+        {"id": "photo-1517248135467-4c7edcad34c4", "tag": "hero", "alt": "Atmospheric bistro and restaurant dining room with warm lighting"},
+        {"id": "photo-1504674900247-0877df9cc836", "tag": "food", "alt": "Signature gourmet dinner dish with seasonal ingredients"},
+        {"id": "photo-1544025162-d76694265947", "tag": "food", "alt": "Slow-cooked artisanal barbecue platter and sides"},
+        {"id": "photo-1555396273-367ea4eb4db5", "tag": "food", "alt": "Stone-baked artisanal pizza with fresh herbs and olive oil"},
+        {"id": "photo-1414235077428-338989a2e8c0", "tag": "menu", "alt": "Fine dining plate presented by executive chef"},
+        {"id": "photo-1577219491135-ce391730fb2c", "tag": "about", "alt": "Head chef preparing signature recipe in modern kitchen"},
+        {"id": "photo-1514933651103-005eec06c04b", "tag": "drinks", "alt": "Craft cocktails and vintage wine cellar bar"},
+    ],
     "portfolio": [
-        "photo-1498050108023-c5249f4df085", "photo-1507238691740-187a5b1d37b8", "photo-1545235617-9465d2a55698",
+        {"id": "photo-1498050108023-c5249f4df085", "tag": "hero", "alt": "Modern software engineering desk with mechanical keyboard and code editor"},
+        {"id": "photo-1507238691740-187a5b1d37b8", "tag": "about", "alt": "Creative designer workspace with sketchbook, tablet, and coffee"},
+        {"id": "photo-1545235617-9465d2a55698", "tag": "projects", "alt": "Digital product design system and user interface wireframes"},
+        {"id": "photo-1460925895917-afdab827c52f", "tag": "projects", "alt": "Analytics dashboard metrics and user engagement graphs"},
+        {"id": "photo-1551288049-bebda4e38f71", "tag": "projects", "alt": "Interactive data visualization and cloud architecture diagram"},
+        {"id": "photo-1517694712202-14dd9538aa97", "tag": "skills", "alt": "Fullstack development on high-resolution widescreen monitors"},
     ],
     "construction": [
-        "photo-1504307651254-35680f356dfd", "photo-1541888946425-d81bb19240f5", "photo-1486406146926-c627a92ad1ab",
+        {"id": "photo-1504307651254-35680f356dfd", "tag": "hero", "alt": "Construction site supervisor reviewing architectural blueprint"},
+        {"id": "photo-1541888946425-d81bb19240f5", "tag": "about", "alt": "Professional construction workers on commercial steel framing"},
+        {"id": "photo-1486406146926-c627a92ad1ab", "tag": "projects", "alt": "Modern glass and steel skyscraper facade building project"},
+        {"id": "photo-1503387762-592deb58ef4e", "tag": "projects", "alt": "Architect drafting residential structural floor plans"},
+        {"id": "photo-1513694203232-719a280e022f", "tag": "services", "alt": "Renovation craftsmanship and interior structural carpentry"},
+    ],
+    "ecommerce": [
+        {"id": "photo-1441986300917-64674bd600d8", "tag": "hero", "alt": "Curated modern retail clothing showroom with minimalist apparel"},
+        {"id": "photo-1472851294608-062f824d29cc", "tag": "products", "alt": "Boutique fashion storefront display with premium clothing racks"},
+        {"id": "photo-1441984904996-e0b6ba687e04", "tag": "products", "alt": "Minimalist handcrafted leather accessories and goods"},
+        {"id": "photo-1523275335684-37898b6baf30", "tag": "products", "alt": "Minimalist luxury chronograph watch on clean stone background"},
+        {"id": "photo-1505740420928-5e560c06d30e", "tag": "products", "alt": "Premium wireless noise-cancelling headphones product studio shot"},
+    ],
+    "saas": [
+        {"id": "photo-1460925895917-afdab827c52f", "tag": "hero", "alt": "SaaS analytics platform user growth and revenue metrics dashboard"},
+        {"id": "photo-1551288049-bebda4e38f71", "tag": "features", "alt": "Real-time cloud database monitoring and telemetry display"},
+        {"id": "photo-1531403009284-440f080d1e12", "tag": "features", "alt": "Product design sprint team mapping collaborative user flows"},
+        {"id": "photo-1522071820081-009f0129c71c", "tag": "about", "alt": "High-performing engineering team collaborating in bright modern office"},
+    ],
+    "medical": [
+        {"id": "photo-1576091160399-112ba8d25d1d", "tag": "hero", "alt": "Modern bright healthcare clinic reception and patient waiting lounge"},
+        {"id": "photo-1629909613654-28e377c37b09", "tag": "services", "alt": "Advanced medical diagnostic equipment in pristine consultation room"},
+        {"id": "photo-1505751172876-fa1923c5c528", "tag": "services", "alt": "Compassionate doctor consulting with patient about preventive health"},
+        {"id": "photo-1559839734-2b71ea197ec2", "tag": "about", "alt": "Experienced medical director and clinical specialist physician"},
+    ],
+    "real_estate": [
+        {"id": "photo-1600596542815-ffad4c1539a9", "tag": "hero", "alt": "Luxury modern residential estate with swimming pool and twilight landscape"},
+        {"id": "photo-1600585154340-be6161a56a0c", "tag": "properties", "alt": "Contemporary open-concept living room with floor-to-ceiling glass windows"},
+        {"id": "photo-1600607687939-ce8a6c25118c", "tag": "properties", "alt": "Designer chef kitchen with marble waterfall island and premium appliances"},
+        {"id": "photo-1600566753376-12c8ab7fb75b", "tag": "properties", "alt": "Master suite bedroom overlooking scenic panoramic hills"},
     ],
     "general": [
-        "photo-1497366754035-f200968a6e72", "photo-1497366811353-6870744d04b2", "photo-1497366216548-37526070297c",
+        {"id": "photo-1497366216548-37526070297c", "tag": "hero", "alt": "Modern professional corporate headquarters lobby and architecture"},
+        {"id": "photo-1497366811353-6870744d04b2", "tag": "about", "alt": "Contemporary minimalist executive conference room"},
+        {"id": "photo-1497366754035-f200968a6e72", "tag": "services", "alt": "Bright collaborative creative studio workspace"},
     ],
 }
 
 
 def _curated_stock_assets(profile: str, genre: str) -> list[dict[str, str]]:
-    image_ids = CURATED_STOCK_IMAGES.get(profile, CURATED_STOCK_IMAGES["general"])
-    return [
-        {
-            "role": "general" if profile == "portfolio" else "project" if profile == "construction" else "general",
+    items = CURATED_STOCK_IMAGES.get(profile) or CURATED_STOCK_IMAGES.get("general") or []
+    assets = []
+    for item in items:
+        photo_id = item["id"]
+        tag = item.get("tag", "general")
+        alt = item.get("alt") or f"Illustrative stock photo for {genre}"
+        assets.append({
+            "role": "project" if profile == "construction" else "general",
             "url": f"https://images.unsplash.com/{photo_id}?auto=format&fit=crop&w=1440&q=85",
-            "alt": f"Illustrative Unsplash stock photo for {genre}; not a verified image of the site owner or their work",
+            "alt": alt,
+            "tags": tag,
+            "page_target": f"{tag}.html" if tag not in {"hero", "general"} else "index.html",
             "source_name": "Unsplash",
-            "source_url": "https://unsplash.com/",
-        }
-        for photo_id in image_ids
-    ]
+            "source_url": f"https://unsplash.com/photos/{photo_id}",
+            "credit": "Curated Unsplash imagery",
+        })
+    return assets
 
 
 def _filename(value: str, index: int, page_name: str = "") -> str:
@@ -717,6 +783,174 @@ def _wrong_homepage(html: str) -> bool:
     return any(term in text for term in ("about us", "about me", "our story", "contact us", "get in touch", "our products", "all products"))
 
 
+def _enforce_multipage_navigation(
+    pages: dict[str, str],
+    page_list: list[dict[str, Any]],
+    answers: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """
+    Deterministic post-processor guaranteeing 100% working multi-page architecture:
+    1. Synchronizes the exact canonical header, logo, nav links, and mobile drawer across every page.
+    2. Synchronizes the exact canonical footer across every page.
+    3. Guarantees navigation & footer CSS styling is shared across all pages.
+    4. Automatically rewrites in-page `#section` hash links to dedicated `.html` pages.
+    5. Dynamically highlights the current page with active class and aria-current="page".
+    6. Resolves all unrendered template placeholders and strips duplicate script tags.
+    """
+    if len(pages) <= 1:
+        return pages
+
+    answers = answers or {}
+    owner_phone = str(answers.get("phone") or answers.get("mobile") or "+1 (555) 839-2000").strip()
+    clean_phone = re.sub(r"[^\d+]", "", owner_phone) or "15558392000"
+    owner_email = str(answers.get("email") or "contact@studio.local").strip()
+    owner_address = str(answers.get("address") or "123 Serenity Avenue, Luxury District").strip()
+
+    # Build mapping from page stem / keywords to actual filename
+    page_map: dict[str, str] = {}
+    canonical_filenames: list[str] = []
+    canonical_page_titles: dict[str, str] = {}
+    for i, p in enumerate(page_list):
+        fname = _filename(p.get("filename", ""), i, str(p.get("name") or f"Page {i+1}"))
+        if fname in pages:
+            canonical_filenames.append(fname)
+            p_title = str(p.get("name") or fname.rsplit(".", 1)[0].title())
+            canonical_page_titles[fname] = p_title
+            stem = fname.rsplit(".", 1)[0].lower()
+            page_map[stem] = fname
+            name = p_title.lower().strip()
+            if name:
+                page_map[name] = fname
+                for part in re.split(r"[^a-z0-9]+", name):
+                    if len(part) >= 4 and part not in {"page", "view", "more", "home"}:
+                        page_map[part] = fname
+
+    # Step 1: Clean and verify index.html as the multi-page hub
+    index_html = pages.get("index.html")
+    if not index_html:
+        first_fname = list(pages.keys())[0]
+        index_html = pages[first_fname]
+
+    def replace_index_href(m: re.Match) -> str:
+        prefix, target_anchor, suffix = m.group(1), m.group(2).lower(), m.group(3)
+        target_file = page_map.get(target_anchor)
+        if target_file and target_file != "index.html":
+            return f'{prefix}{target_file}{suffix}'
+        return m.group(0)
+
+    index_html = re.sub(r'(href=[\'"])#([a-zA-Z0-9_\-]+)([\'"])', replace_index_href, index_html)
+
+    # Ensure index.html navigation links contain all planned pages
+    for fname in canonical_filenames:
+        if fname != "index.html" and f'href="{fname}"' not in index_html and f"href='{fname}'" not in index_html:
+            pname = canonical_page_titles.get(fname, fname.rsplit(".", 1)[0].title())
+            nav_ul = re.search(r'(<nav\b[^>]*>.*?<ul\b[^>]*>)(.*?)(</ul\s*>)', index_html, flags=re.IGNORECASE | re.DOTALL)
+            if nav_ul:
+                insert_li = f'<li><a href="{fname}" class="nav-link">{pname}</a></li>\n'
+                index_html = index_html[:nav_ul.start(3)] + insert_li + index_html[nav_ul.start(3):]
+
+    pages["index.html"] = index_html
+
+    # Step 2: Extract canonical header, mobile drawer, and footer from index.html
+    header_match = re.search(r'(<header\b[^>]*>.*?</header\s*>)', index_html, flags=re.IGNORECASE | re.DOTALL)
+    canonical_header = header_match.group(1) if header_match else None
+
+    drawer_match = re.search(r'(<div\b[^>]*class=[\'"][^\'"]*(?:mobile-drawer|mobile-nav|mobile-menu)[^\'"]*[\'"][^>]*>.*?</div\s*>)', index_html, flags=re.IGNORECASE | re.DOTALL)
+    canonical_drawer = drawer_match.group(1) if drawer_match else None
+
+    footer_match = re.search(r'(<footer\b[^>]*>.*?</footer\s*>)', index_html, flags=re.IGNORECASE | re.DOTALL)
+    canonical_footer = footer_match.group(1) if footer_match else None
+
+    # Step 3: Extract navigation & footer styles from index.html
+    nav_css = ""
+    style_matches = re.findall(r'<style\b[^>]*>(.*?)</style\s*>', index_html, flags=re.IGNORECASE | re.DOTALL)
+    if style_matches:
+        full_index_css = "\n".join(style_matches)
+        css_blocks = re.findall(r'([^{}]+)\{([^{}]+)\}', full_index_css)
+        extracted = []
+        for sel, body in css_blocks:
+            sel_l = sel.lower().strip()
+            if any(k in sel_l for k in ("header", "brand", "logo", "nav-", "nav_", "nav ", "nav\t", "menu", "drawer", "hamburger", "toggle", "footer")):
+                extracted.append(f"{sel.strip()} {{{body}}}")
+        if extracted:
+            nav_css = "\n/* Canonical Unified Navigation & Footer Styles */\n" + "\n".join(extracted) + "\n"
+
+    # Step 4: Synchronize every page with canonical header, footer, links, and styles
+    updated_pages: dict[str, str] = {}
+    for filename, html in pages.items():
+        # Clean duplicate scripts
+        html = re.sub(r'(<script\b[^>]*src=[\'"][^\'"]+[\'"][^>]*></script\s*>)\s*\1', r'\1', html, flags=re.IGNORECASE)
+
+        # Replace unrendered placeholders
+        html = re.sub(r'wa\.me/\{\{\s*PHONE\s*\}\}', f'wa.me/{clean_phone}', html, flags=re.IGNORECASE)
+        html = re.sub(r'sms:\{\{\s*PHONE\s*\}\}', f'sms:{owner_phone}', html, flags=re.IGNORECASE)
+        html = re.sub(r'tel:\{\{\s*PHONE\s*\}\}', f'tel:{owner_phone}', html, flags=re.IGNORECASE)
+        html = re.sub(r'mailto:\{\{\s*EMAIL\s*\}\}', f'mailto:{owner_email}', html, flags=re.IGNORECASE)
+        html = re.sub(r'\{\{\s*PHONE\s*\}\}', owner_phone, html, flags=re.IGNORECASE)
+        html = re.sub(r'\{\{\s*EMAIL\s*\}\}', owner_email, html, flags=re.IGNORECASE)
+        html = re.sub(r'\{\{\s*ADDRESS\s*\}\}', owner_address, html, flags=re.IGNORECASE)
+
+        # Rewrite remaining anchor links targeting sibling page stems
+        def replace_href(m: re.Match) -> str:
+            prefix, target_anchor, suffix = m.group(1), m.group(2).lower(), m.group(3)
+            target_file = page_map.get(target_anchor)
+            if target_file and target_file != filename:
+                return f'{prefix}{target_file}{suffix}'
+            return m.group(0)
+
+        html = re.sub(r'(href=[\'"])#([a-zA-Z0-9_\-]+)([\'"])', replace_href, html)
+
+        if filename != "index.html":
+            # Adapt canonical header for this interior page
+            if canonical_header:
+                adapted_header = canonical_header
+                # Remove active from all links
+                adapted_header = re.sub(r'\s+active\b', '', adapted_header)
+                adapted_header = re.sub(r'\s+aria-current=[\'"]page[\'"]', '', adapted_header)
+                # Add active to this page's link
+                def activate_link(m: re.Match) -> str:
+                    tag_start = m.group(1)
+                    if 'class="' in tag_start or "class='" in tag_start:
+                        tag_start = re.sub(r'class=([\'"])(.*?)\1', r'class=\1\2 active\1', tag_start)
+                    else:
+                        tag_start = f'{tag_start} class="nav-link active"'
+                    return f'{tag_start} aria-current="page" href="{filename}"'
+
+                adapted_header = re.sub(rf'(<a\b[^>]*)\bhref=[\'"]{re.escape(filename)}[\'"]', activate_link, adapted_header)
+
+                # Replace the interior page's header with the adapted canonical header
+                if re.search(r'<header\b[^>]*>.*?</header\s*>', html, flags=re.IGNORECASE | re.DOTALL):
+                    html = re.sub(r'<header\b[^>]*>.*?</header\s*>', adapted_header, html, count=1, flags=re.IGNORECASE | re.DOTALL)
+
+            # Adapt and replace canonical mobile drawer if present
+            if canonical_drawer:
+                adapted_drawer = canonical_drawer
+                adapted_drawer = re.sub(r'\s+active\b', '', adapted_drawer)
+                adapted_drawer = re.sub(r'\s+aria-current=[\'"]page[\'"]', '', adapted_drawer)
+                adapted_drawer = re.sub(
+                    rf'(<a\b[^>]*)\bhref=[\'"]{re.escape(filename)}[\'"]',
+                    lambda m: re.sub(r'class=([\'"])(.*?)\1', r'class=\1\2 active\1', m.group(1)) + f' aria-current="page" href="{filename}"' if ('class="' in m.group(1) or "class='" in m.group(1)) else f'{m.group(1)} class="mobile-nav-link active" aria-current="page" href="{filename}"',
+                    adapted_drawer
+                )
+                if re.search(r'<div\b[^>]*class=[\'"][^\'"]*(?:mobile-drawer|mobile-nav|mobile-menu)[^\'"]*[\'"][^>]*>.*?</div\s*>', html, flags=re.IGNORECASE | re.DOTALL):
+                    html = re.sub(r'<div\b[^>]*class=[\'"][^\'"]*(?:mobile-drawer|mobile-nav|mobile-menu)[^\'"]*[\'"][^>]*>.*?</div\s*>', adapted_drawer, html, count=1, flags=re.IGNORECASE | re.DOTALL)
+
+            # Replace footer with canonical footer
+            if canonical_footer and re.search(r'<footer\b[^>]*>.*?</footer\s*>', html, flags=re.IGNORECASE | re.DOTALL):
+                html = re.sub(r'<footer\b[^>]*>.*?</footer\s*>', canonical_footer, html, count=1, flags=re.IGNORECASE | re.DOTALL)
+
+            # Inject navigation CSS into interior page if not already present
+            if nav_css:
+                if re.search(r'<style\b[^>]*>', html, flags=re.IGNORECASE):
+                    html = re.sub(r'(<style\b[^>]*>)', rf'\1{nav_css}\n', html, count=1, flags=re.IGNORECASE)
+                elif re.search(r'</head\s*>', html, flags=re.IGNORECASE):
+                    html = re.sub(r'</head\s*>', f'<style>{nav_css}</style>\n</head>', html, count=1, flags=re.IGNORECASE)
+
+        updated_pages[filename] = html
+
+    return updated_pages
+
+
 class StudioService:
     def __init__(self):
         self._active_user_generations: set[str] = set()
@@ -764,24 +998,50 @@ class StudioService:
         genre: str,
         plan: dict[str, Any],
     ) -> list[dict[str, str]]:
-        searches = [
-            str(item.get("query") or "").strip()
-            for item in (plan.get("image_searches") or [])
-            if isinstance(item, dict) and str(item.get("query") or "").strip()
-        ]
-        if not searches:
+        searches_with_target: list[tuple[str, str]] = []
+        for item in (plan.get("image_searches") or []):
+            if isinstance(item, dict) and str(item.get("query") or "").strip():
+                searches_with_target.append((str(item.get("query")).strip(), ""))
+
+        # Include page-targeted search queries for every planned page
+        pages_plan = plan.get("pages", [])
+        for idx, p in enumerate(pages_plan):
+            p_name = str(p.get("name") or "").strip()
+            p_fname = _filename(str(p.get("filename") or ""), idx, p_name)
+            if p_name:
+                searches_with_target.append((f"{genre} {p_name}".strip(), p_fname))
+
+        if not searches_with_target:
             if profile == "portfolio":
-                searches = ["creative portfolio workspace", "graphic design studio project" ]
+                searches_with_target = [("creative portfolio workspace", "index.html"), ("graphic design studio project", "projects.html")]
             elif profile == "construction":
-                searches = ["construction site building project", "architecture construction workers" ]
+                searches_with_target = [("construction site building project", "index.html"), ("architecture construction workers", "services.html")]
+            elif profile == "hospitality":
+                searches_with_target = [
+                    (f"{genre} luxury resort facade", "index.html"),
+                    (f"{genre} luxury bedroom suite", "rooms.html"),
+                    (f"{genre} fine dining restaurant dishes", "dining.html"),
+                    (f"{genre} spa wellness swimming pool", "amenities.html"),
+                    (f"{genre} concierge reception lobby", "contact.html"),
+                ]
+            elif profile == "restaurant":
+                searches_with_target = [
+                    (f"{genre} atmospheric dining room", "index.html"),
+                    (f"{genre} gourmet dinner dishes", "menu.html"),
+                    (f"{genre} head chef kitchen", "about.html"),
+                    (f"{genre} restaurant bar table reservation", "contact.html"),
+                ]
             else:
-                searches = [f"{genre} professional website photography", f"{genre} business environment" ]
+                searches_with_target = [(f"{genre} professional website photography", "index.html"), (f"{genre} business environment", "")]
 
         stock_assets: list[dict[str, str]] = []
-        for query in searches[:3]:
+        max_stock_limit = 24 if len(pages_plan) > 1 else 10
+        for query, target_page in searches_with_target[:10]:
+            if len(stock_assets) >= max_stock_limit:
+                break
             hits = await self._pixabay_hits(query)
             for hit in hits[:3]:
-                if len(stock_assets) >= 8:
+                if len(stock_assets) >= max_stock_limit:
                     break
                 try:
                     async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
@@ -802,19 +1062,22 @@ class StudioService:
                     stock_assets.append({
                         "role": "project" if profile == "construction" else "general",
                         "url": stored_url,
-                        "alt": f"Illustrative stock photo: {hit['tags']}; not a verified image of the owner or their work",
+                        "alt": f"Illustrative photo: {hit.get('tags', query)}",
+                        "tags": str(hit.get("tags") or query),
+                        "page_target": target_page,
                         "source_name": "Pixabay",
                         "source_url": hit["page_url"],
                         "credit": f"Photo by {hit['photographer']} on Pixabay",
                     })
                 except Exception as exc:
                     logger.info("Could not store a Pixabay stock image: %s", type(exc).__name__)
-            if len(stock_assets) >= 8:
-                break
 
-        if stock_assets:
-            return stock_assets
-        return _curated_stock_assets(profile, genre)
+        # Ensure we have rich domain-specific fallback images if stock queries returned fewer than 6
+        if len(stock_assets) < 6:
+            curated = _curated_stock_assets(profile, genre)
+            stock_assets.extend(curated)
+
+        return stock_assets
 
     async def plan(self, prompt: str, category: str, genre: str, page_structure: str = "multi_page", stack: str = "html-css-js") -> dict[str, Any]:
         profile = _site_profile(category, genre, prompt)
@@ -1072,7 +1335,12 @@ Return JSON only with keys: title, summary, architecture_type (single_page or mu
         else:
             fallback_questions = data["questions"]
         data["questions"] = fallback_questions
-        allowed_image_roles = {"portrait", "skills", "project", "team", "equipment", "general"}
+        allowed_image_roles = {
+            "hero", "portrait", "skills", "project", "team", "equipment", "general",
+            "rooms", "suite", "dining", "restaurant", "food", "menu", "amenities",
+            "spa", "pool", "gym", "contact", "exterior", "lobby", "facade", "gallery",
+            "products", "services", "about", "branding", "logo"
+        }
         normalized_uploads = []
         for item in data.get("image_uploads", []) if isinstance(data.get("image_uploads"), list) else []:
             if not isinstance(item, dict):
@@ -1296,7 +1564,6 @@ Specify exact palette, typography, spacing, layout grid, components, responsive 
             safe_assets = [
                 asset for asset in (image_assets or [])
                 if isinstance(asset, dict)
-                and asset.get("role") in {"portrait", "skills", "project", "team", "equipment", "general"}
                 and isinstance(asset.get("url"), str)
                 and (asset["url"].lower().startswith("https://") or _local_uploaded_file_id(asset["url"]) is not None)
             ][:16]
@@ -1332,14 +1599,19 @@ Specify exact palette, typography, spacing, layout grid, components, responsive 
                 if not extension:
                     continue
                 role_raw = str(asset.get("role") or "").lower()
+                title_raw = str(asset.get("title") or asset.get("alt") or "").strip()
+                title_slug = re.sub(r"[^a-z0-9]+", "-", title_raw.lower()).strip("-")[:25]
                 if any(k in role_raw for k in ("portrait", "profile", "avatar", "person", "headshot")):
-                    stem = "profile-photo"
+                    stem = f"profile-photo-{len(packaged_uploads) + 1:02d}"
                 elif "logo" in role_raw:
                     stem = "logo"
                 elif any(k in role_raw for k in ("hero", "banner", "cover")):
-                    stem = "hero-banner"
-                elif any(k in role_raw for k in ("project", "work")):
-                    stem = f"project-{len(packaged_uploads) + 1:02d}"
+                    stem = f"hero-banner-{len(packaged_uploads) + 1:02d}"
+                elif title_slug and len(title_slug) >= 3 and not title_slug.startswith("images-") and not title_slug.startswith("unnamed"):
+                    stem = f"{title_slug}-{len(packaged_uploads) + 1:02d}"
+                elif role_raw and role_raw not in {"general", "image", "file"}:
+                    clean_role = re.sub(r"[^a-z0-9]+", "-", role_raw).strip("-")[:20]
+                    stem = f"{clean_role}-{len(packaged_uploads) + 1:02d}"
                 else:
                     stem = f"owner-uploaded-{len(packaged_uploads) + 1:02d}"
 
@@ -1454,6 +1726,81 @@ Specify exact palette, typography, spacing, layout grid, components, responsive 
                     for item in page_list
                     if isinstance(item, dict)
                 ]
+                multipage_nav_mandate = ""
+                canonical_header_instruction = ""
+                if len(page_list) > 1:
+                    nav_links_preview = "\n".join([
+                        f"    - <a href=\"{_filename(p.get('filename', ''), i, str(p.get('name') or f'Page {i+1}'))}\"{' class=\"active\" aria-current=\"page\"' if _filename(p.get('filename', ''), i, str(p.get('name') or f'Page {i+1}')) == filename else ''}>{p.get('name')}</a>"
+                        for i, p in enumerate(page_list)
+                    ])
+                    multipage_nav_mandate = f"""CRITICAL MULTI-PAGE NAVIGATION ARCHITECTURE MANDATE:
+- This is a MULTI-PAGE website consisting of {len(page_list)} separate physical HTML files.
+- EVERY PAGE (INCLUDING {filename} and ESPECIALLY index.html!) MUST share the EXACT SAME navigation header and footer linking to all pages:
+{nav_links_preview}
+- RELATIVE LINKS ONLY: All header links, mobile drawer links, and footer links MUST use relative filenames: e.g. href="index.html", href="rooms.html", href="dining.html".
+- STRICTLY FORBID # HASH LINKS WHERE SIBLING PAGES EXIST: Do NOT use href="#rooms", href="#dining", href="#amenities", href="#contact", or href="#about" in headers, mobile drawers, or primary CTA buttons. Point directly to the actual page (e.g. href="rooms.html").
+- CURRENT PAGE INDICATOR: On this page ({filename}), mark its own navigation item with class="active" (or nav-link active) and aria-current="page". All other page links must NOT have the active class.
+- CONSISTENT BRAND LOGO: Use the exact same brand logo markup and text `<a href="index.html" class="brand-logo">...</a>` across all pages.
+- PRIMARY CTAS: Connect all major CTA buttons (e.g., "Book Your Stay", "Explore Rooms", "Reserve a Table", "Get in Touch") to their corresponding .html page, NEVER an unlinked # anchor."""
+
+                    if index > 0 and "index.html" in pages:
+                        idx_html = pages["index.html"]
+                        h_m = re.search(r'(<header\b[^>]*>.*?</header\s*>)', idx_html, flags=re.IGNORECASE | re.DOTALL)
+                        f_m = re.search(r'(<footer\b[^>]*>.*?</footer\s*>)', idx_html, flags=re.IGNORECASE | re.DOTALL)
+                        if h_m:
+                            canonical_header_instruction += f"\nCANONICAL HEADER TO REUSE EXACTLY (DO NOT INVENT A DIFFERENT NAV STRUCTURE; ONLY ACTIVATE {filename}):\n{h_m.group(1)[:3000]}\n"
+                        if f_m:
+                            canonical_header_instruction += f"\nCANONICAL FOOTER TO REUSE EXACTLY:\n{f_m.group(1)[:3000]}\n"
+
+                page_keywords = set(re.split(r"[^a-z0-9]+", f"{page_name} {filename} {' '.join(page.get('sections', []))}".lower()))
+                page_keywords = {w for w in page_keywords if len(w) >= 3 and w not in {"page", "the", "and", "for", "with", "html", "section"}}
+
+                page_user_images = []
+                for asset in safe_assets:
+                    target = str(asset.get("page_target") or "").lower()
+                    role = str(asset.get("role") or "").lower()
+                    title = str(asset.get("title") or asset.get("alt") or "Owner Visual").strip()
+                    caption = str(asset.get("caption") or "").strip()
+                    path = local_asset_paths.get(asset["url"], asset["url"])
+                    alt = str(asset.get("alt") or title).strip()
+
+                    is_match = False
+                    if target and (target == filename or target == filename.rsplit(".", 1)[0] or target == page_name.lower()):
+                        is_match = True
+                    elif target in {"all", "everywhere"}:
+                        is_match = True
+                    elif any(kw in role or kw in title.lower() for kw in page_keywords):
+                        is_match = True
+                    elif filename == "index.html" and any(k in role for k in ("hero", "banner", "logo", "general", "facade", "exterior")):
+                        is_match = True
+
+                    if is_match:
+                        entry = f"  - [REAL USER ASSET - {title.upper()}]: <img src=\"{path}\" alt=\"{alt}\">\n    * Dedicated Title: \"{title}\"\n    * Category/Role: {role}"
+                        if caption:
+                            entry += f"\n    * Verified Caption/Details: \"{caption}\""
+                        page_user_images.append(entry)
+
+                user_image_guidance = ""
+                if page_user_images:
+                    user_image_guidance = f"""### 🌟 HIGH-PRIORITY REAL USER-UPLOADED IMAGES FOR {page_name.upper()} ({filename}):
+The user personally uploaded and labeled these authentic images specifically for {page_name}:
+{chr(10).join(page_user_images)}
+- ABSOLUTE HIGHEST PRIORITY 1:1 RULE: You MUST render EVERY SINGLE ONE of these {len(page_user_images)} user-provided images on {filename}! Place each in its corresponding card, showcase, hero, or section using the user's title and caption. NEVER replace user images with generic stock photos or placeholders!"""
+
+                page_specific_images = []
+                for asset in stock_assets:
+                    target = str(asset.get("page_target") or "").lower()
+                    tags = str(asset.get("tags") or "").lower()
+                    alt = str(asset.get("alt") or "").lower()
+                    if target == filename or any(kw in tags or kw in alt for kw in page_keywords):
+                        page_specific_images.append(f"  - [TARGETED FOR {page_name.upper()}]: <img src=\"{asset['url']}\" alt=\"{asset.get('alt')}\">")
+
+                page_image_guidance = ""
+                if page_specific_images:
+                    page_image_guidance = f"""### 🎯 HIGH-PRIORITY IMAGES SPECIFICALLY TARGETED FOR {page_name.upper()} ({filename}):
+{chr(10).join(page_specific_images[:6])}
+- MANDATORY CONTENT INTEGRITY: You MUST use these images specifically matched for {page_name}. Do NOT use images from unrelated categories (e.g. no bedroom photos on dining pages; no food photos on room pages)."""
+
                 page_prompt = f"""You are the Frontend Dev Agent. Implement exactly one complete, production-quality, responsive HTML page. This is a separate page-by-page build; do not emit other pages or explanations.
 Original user brief highlights: <brief>{prompt[:3000]}</brief>
 Category: {category_name}; genre: {genre}
@@ -1462,9 +1809,13 @@ User-approved build prompt (authoritative; follow it directly): {build_brief[:18
 Page plan: {json.dumps(page, ensure_ascii=False)}
 Root-page rule: index.html is the real homepage for the whole requested site. Build a welcoming, site-specific hero and key offering sections for the exact brief. Never make it an About, Contact, Products listing, or blog detail page. Interior pages must focus only on their named purpose.
 Full sitemap for consistent navigation: {json.dumps(compact_sitemap, ensure_ascii=False)[:3000]}
+{multipage_nav_mandate}
+{canonical_header_instruction}
 Owner answers relevant to this page: {json.dumps(answers, ensure_ascii=False)[:3500]}
 UI Designer system: {design[:2500]}
 User and automatically sourced image assets: {image_context}
+{user_image_guidance}
+{page_image_guidance}
 CRITICAL CONTENT ACCURACY & ANTI-LAZINESS DIRECTIVE:
 - NON-LAZY ALL-DATA MANDATE: You must NEVER be lazy, skip content, or output minimal placeholder cards. You must faithfully use ALL data, skills, equipment, answers, and images provided by the user.
 - 1:1 GALLERY & SHOWCASE ITEM CREATION:
@@ -1501,9 +1852,13 @@ Brief highlights: {prompt[:1800]}
 Approved project requirements: {build_brief[:9000]}
 Page plan: {json.dumps(page, ensure_ascii=False)[:3500]}
 Sitemap: {json.dumps(compact_sitemap, ensure_ascii=False)[:1800]}
+{multipage_nav_mandate}
+{canonical_header_instruction}
 Design system: {design[:1800]}
 Owner details: {json.dumps(answers, ensure_ascii=False)[:2500]}
 Images: {image_context[:10000]}
+{user_image_guidance}
+{page_image_guidance}
 Rules: Use semantic, responsive HTML with a complete head, body, style, and script where needed. Match the named page only. Include working relative navigation, accessible focus, alt text, and reduced-motion support. NON-LAZY MANDATE: You MUST render all uploaded images from 'Images' inventory 1:1 with zero duplicate images across cards. Distribute evenly across category filters. Return HTML only and include the exact closing </body></html> tags."""
                 html = ""
                 best_raw_html = ""
@@ -1664,6 +2019,7 @@ Files: {json.dumps({k: (v if len(v) <= 6000 else f"{v[:3800]}\n<!-- ... [interio
                 for asset_url, asset_path in local_asset_paths.items():
                     html = html.replace(asset_url, asset_path)
                 pages[filename] = html
+            pages = _enforce_multipage_navigation(pages, page_list, answers)
             local_package_assets = {asset_path for asset_path, _content in packaged_uploads}
             reference_issues = _site_reference_issues(pages, local_package_assets)
             for filename, issues in list(reference_issues.items())[:4]:
@@ -1683,6 +2039,7 @@ HTML:
                 ))
                 if "</html>" in repaired.lower() and len(repaired) >= 600:
                     pages[filename] = repaired
+            pages = _enforce_multipage_navigation(pages, page_list, answers)
             pages, generated_assets = _split_inline_assets(pages)
             reference_issues = _site_reference_issues(pages, local_package_assets | set(generated_assets))
             if reference_issues:

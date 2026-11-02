@@ -1446,6 +1446,87 @@ Return ONLY valid JSON. Do not include markdown code block notation (```json) or
             else:
                 raise RuntimeError(f"Gemini TTS API returned status {response.status_code}: {response.text}")
 
+    async def edit_website_with_ai(
+        self,
+        files_dict: dict,
+        prompt: str,
+        target_file: Optional[str] = None,
+        model_name: Optional[str] = "gemini-1.5-flash",
+    ) -> dict:
+        """
+        Applies natural language website modifications, copywriting updates, and theme redesigns
+        across the project files using the specified AI model.
+        """
+        preferred_provider = "gemini"
+        if model_name:
+            m_lower = model_name.lower()
+            if "gpt" in m_lower or "openai" in m_lower:
+                preferred_provider = "openai"
+            elif "ollama" in m_lower or "local" in m_lower:
+                preferred_provider = "ollama"
+            elif "kimi" in m_lower or "moonshot" in m_lower:
+                preferred_provider = "kimi"
+            elif "gemini" in m_lower or "google" in m_lower:
+                preferred_provider = "gemini"
+
+        files_summary = []
+        for file_path, content in files_dict.items():
+            if target_file and file_path != target_file and len(files_dict) > 1:
+                truncated = content[:2000] if len(content) > 2000 else content
+            else:
+                truncated = content[:15000] if len(content) > 15000 else content
+            files_summary.append(f"--- FILE: {file_path} ---\n{truncated}\n")
+
+        joined_files = "\n".join(files_summary)
+        active_focus = f"Focus particularly on {target_file}." if target_file else "Update the relevant files as requested."
+
+        system_prompt = f"""You are the Lead Full-Stack Web Architect and Creative Copywriter for AI Site Studio.
+A user wants to modify their live website with the following instruction:
+\"{prompt}\"
+{active_focus}
+
+### CURRENT WEBSITE FILES:
+{joined_files}
+
+### REQUIREMENTS:
+1. Understand the user's intent: whether it's updating marketing copy, changing headlines, redesigning colors/fonts in CSS, adding new sections, modifying forms, or translating text.
+2. Produce complete, production-ready, beautiful code for each modified file.
+3. Keep all navigation links, scripts, and existing functional IDs intact. Never truncate code with placeholders like '...rest of code...'.
+4. Return ONLY a valid JSON object with this exact structure:
+{{
+  \"summary\": \"Clear, concise 1-sentence summary of the changes made\",
+  \"updated_files\": [
+    {{
+      \"path\": \"relative/file/path.ext\",
+      \"content\": \"Full, complete updated file contents\"
+    }}
+  ]
+}}
+"""
+        response_text = await self._generate_content(
+            prompt=system_prompt,
+            response_mime_type="application/json",
+            feature_name="website_content_generation",
+            preferred_provider=preferred_provider,
+        )
+
+        try:
+            parsed = robust_json_loads(response_text)
+            if isinstance(parsed, dict) and "updated_files" in parsed:
+                return parsed
+            elif isinstance(parsed, dict) and "fixed_files" in parsed:
+                return {
+                    "summary": parsed.get("patch_summary", "Updated website files with AI."),
+                    "updated_files": parsed.get("fixed_files", [])
+                }
+        except Exception as e:
+            logger.warning(f"AI Edit JSON parsing failed: {e}. Raw: {response_text[:300]}")
+
+        return {
+            "summary": "AI edit completed.",
+            "updated_files": []
+        }
+
     async def diagnose_and_heal_website(
         self,
         files_dict: dict,

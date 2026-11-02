@@ -411,3 +411,397 @@
 .dfc-terminal-line {
   color: hsl(var(--muted-foreground));
 }
+
+
+/* ==========================================================================
+   Center Mode Switcher, Split Screen & Live Device Preview Panes
+   ========================================================================== */
+
+.dfc-view-switch {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background-color: hsl(var(--muted) / 0.5);
+  border: 1px solid hsl(var(--border));
+  padding: 0.2rem;
+  border-radius: 0.5rem;
+}
+
+.dfc-view-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 0.375rem;
+  color: hsl(var(--muted-foreground));
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dfc-view-pill:hover {
+  color: hsl(var(--foreground));
+}
+
+.dfc-view-pill.active {
+  background-color: hsl(var(--card));
+  color: hsl(var(--foreground));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.dfc-btn-redeploy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.95rem;
+  border-radius: 0.625rem;
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+  color: white;
+  border: none;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.25);
+  transition: all 0.15s ease;
+}
+
+.dfc-btn-redeploy:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(14, 165, 233, 0.4);
+}
+
+.dfc-btn-redeploy:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Split Panes */
+.dfc-editor-pane.split {
+  flex: 1 1 50%;
+  border-right: 1px solid hsl(var(--border));
+  min-width: 0;
+}
+
+.dfc-editor-pane.full {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Live Preview Pane */
+.dfc-preview-pane {
+  display: flex;
+  flex-direction: column;
+  background-color: hsl(var(--muted) / 0.15);
+  min-width: 0;
+}
+
+.dfc-preview-pane.split {
+  flex: 1 1 50%;
+}
+
+.dfc-preview-pane.full {
+  flex: 1;
+}
+
+.dfc-preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  background-color: hsl(var(--card));
+  border-bottom: 1px solid hsl(var(--border));
+  gap: 0.5rem;
+}
+
+.dfc-device-bar {
+  display: flex;
+  align-items: center;
+  background-color: hsl(var(--muted) / 0.5);
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.375rem;
+  padding: 0.15rem;
+}
+
+.dfc-device-btn {
+  padding: 0.25rem 0.45rem;
+  border-radius: 0.25rem;
+  color: hsl(var(--muted-foreground));
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.dfc-device-btn:hover {
+  color: hsl(var(--foreground));
+}
+
+.dfc-device-btn.active {
+  background-color: hsl(var(--card));
+  color: hsl(var(--primary));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.dfc-btn-refresh-preview {
+  padding: 0.35rem;
+  border-radius: 0.375rem;
+  background: transparent;
+  border: 1px solid hsl(var(--border));
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dfc-btn-refresh-preview:hover {
+  background-color: hsl(var(--muted) / 0.5);
+}
+
+.dfc-iframe-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem;
+  background: radial-gradient(circle, hsl(var(--muted) / 0.25) 10%, transparent 11%);
+  background-size: 16px 16px;
+  overflow: auto;
+}
+
+.dfc-iframe-wrapper {
+  width: 100%;
+  height: 100%;
+  background: #ffffff;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
+  transition: width 0.25s ease;
+}
+
+.dfc-iframe-wrapper.desktop {
+  width: 100%;
+  max-width: 100%;
+}
+
+.dfc-iframe-wrapper.tablet {
+  width: 768px;
+  max-width: 100%;
+}
+
+.dfc-iframe-wrapper.mobile {
+  width: 375px;
+  max-width: 100%;
+}
+
+.dfc-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+
+/* ==========================================================================
+   Visual Copy Editor, AI Model Selector & Sub-Tabs
+   ========================================================================== */
+
+.dfc-editor-subtabs {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background-color: hsl(var(--card));
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.dfc-subtab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: hsl(var(--muted-foreground));
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dfc-subtab-btn:hover {
+  background-color: hsl(var(--muted) / 0.5);
+  color: hsl(var(--foreground));
+}
+
+.dfc-subtab-btn.active {
+  background-color: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--border));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* Visual Copy Form */
+.dfc-visual-copy-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.25rem 1.5rem;
+  background-color: hsl(var(--background));
+}
+
+.dfc-visual-copy-header {
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.7);
+}
+
+.dfc-visual-copy-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 600px;
+}
+
+.dfc-input-label {
+  display: block;
+  font-size: 0.725rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: hsl(var(--muted-foreground));
+}
+
+.dfc-text-input {
+  width: 100%;
+  padding: 0.6rem 0.85rem;
+  border-radius: 0.5rem;
+  border: 1px solid hsl(var(--border));
+  background-color: hsl(var(--card));
+  color: hsl(var(--foreground));
+  font-size: 0.825rem;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.dfc-text-input:focus {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.15);
+}
+
+.dfc-btn-apply-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.25rem;
+  border-radius: 0.625rem;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+  border: none;
+  font-size: 0.825rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+  transition: all 0.15s ease;
+  margin-top: 0.5rem;
+}
+
+.dfc-btn-apply-copy:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.35);
+}
+
+/* AI Edit with Model Container */
+.dfc-ai-edit-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.25rem 1.5rem;
+  background-color: hsl(var(--background));
+  max-width: 640px;
+}
+
+.dfc-ai-edit-header {
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.7);
+}
+
+.dfc-model-select {
+  width: 100%;
+  padding: 0.6rem 0.85rem;
+  border-radius: 0.5rem;
+  border: 1px solid hsl(var(--border));
+  background-color: hsl(var(--card));
+  color: hsl(var(--foreground));
+  font-size: 0.825rem;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+}
+
+.dfc-model-select:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+.dfc-ai-prompt-textarea {
+  width: 100%;
+  padding: 0.75rem 2.5rem 0.75rem 0.85rem;
+  border-radius: 0.625rem;
+  border: 1px solid hsl(var(--border));
+  background-color: hsl(var(--card));
+  color: hsl(var(--foreground));
+  font-size: 0.825rem;
+  outline: none;
+  resize: none;
+  line-height: 1.5;
+}
+
+.dfc-ai-prompt-textarea:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+.dfc-ai-submit-btn {
+  position: absolute;
+  right: 0.5rem;
+  bottom: 0.65rem;
+  padding: 0.45rem;
+  border-radius: 0.4rem;
+  background-color: #6366f1;
+  color: white;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease;
+}
+
+.dfc-ai-submit-btn:hover:not(:disabled) {
+  background-color: #4f46e5;
+}
+
+.dfc-ai-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dfc-quick-prompt-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.85rem;
+  border-radius: 0.5rem;
+  border: 1px solid hsl(var(--border) / 0.8);
+  background-color: hsl(var(--card));
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dfc-quick-prompt-chip:hover:not(:disabled) {
+  border-color: #6366f1;
+  background-color: hsl(var(--muted) / 0.5);
+  transform: translateX(2px);
+}
