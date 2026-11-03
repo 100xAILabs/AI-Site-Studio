@@ -51,7 +51,8 @@
 }
 
 .app-root-container ::selection {
-  background-color: hsl(var(--primary) / 0.2);
+  background-color: hsl(var(--primary) / 0.15);
+  color: inherit;
 }
 
 .app-bg-glow {

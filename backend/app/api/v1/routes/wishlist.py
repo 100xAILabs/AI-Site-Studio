@@ -27,6 +27,7 @@ async def toggle_wishlist(
     """Toggle wishlist status for a template."""
     repo = WishlistRepository(db)
     added = await repo.toggle(current_user.id, template_id)
+    await db.commit()
     return MessageResponse(
         message="Added to wishlist" if added else "Removed from wishlist",
         success=True,

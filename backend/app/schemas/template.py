@@ -43,6 +43,8 @@ class TemplateBase(BaseModel):
     license_type: TemplateLicense = TemplateLicense.REGULAR
     is_featured: bool = False
     is_bestseller: bool = False
+    is_marketplace: bool = True
+    template_origin: str = "marketplace"
     developer_name: Optional[str] = None
     developer_avatar: Optional[str] = None
     included_pages: Optional[List[str]] = None
@@ -185,6 +187,8 @@ class TemplateResponse(BaseModel):
     is_featured: bool
     is_bestseller: bool
     is_new: bool
+    is_marketplace: bool = True
+    template_origin: str = "marketplace"
     downloads_count: int
     views_count: int
     likes_count: int
@@ -231,6 +235,8 @@ class TemplateCardResponse(BaseModel):
     is_featured: bool
     is_bestseller: bool
     is_new: bool
+    is_marketplace: bool = True
+    template_origin: str = "marketplace"
     downloads_count: int
     rating_avg: float
     rating_count: int

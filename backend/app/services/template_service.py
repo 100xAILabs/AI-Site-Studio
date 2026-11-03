@@ -287,6 +287,7 @@ class TemplateService:
                 detail="You can only update your own templates.",
             )
         template = await self.repo.update(template, data)
+        await self.db.commit()
         return TemplateResponse.model_validate(template)
 
     async def delete_template(
@@ -338,6 +339,7 @@ class TemplateService:
             pass
 
         await self.repo.delete(template)
+        await self.db.commit()
 
     async def get_featured_templates(self, limit: int = 8) -> List[TemplateCardResponse]:
         templates = await self.repo.get_featured(limit)

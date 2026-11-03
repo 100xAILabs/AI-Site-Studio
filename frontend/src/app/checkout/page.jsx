@@ -1032,7 +1032,17 @@ function Checkout() {
                             </div>
                             <div>
                               <h3 className="checkout-item-title">{item.title}</h3>
-                              <span className="checkout-item-license">Lifetime Access</span>
+                              <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                                <span className="checkout-item-license">Lifetime Access</span>
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border">
+                                  {item.framework === "react" ? "React + FastAPI" : "HTML5 / CSS / JS"}
+                                </span>
+                                {item.token_usage && (
+                                  <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                    {Number(item.token_usage).toLocaleString()} Tokens &bull; 20% fee &amp; taxes included
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
                           <div className="checkout-item-right">

@@ -23,6 +23,8 @@ import Onboarding from './app/onboarding/page.jsx'
 import AdminPanel from './app/admin/page.jsx'
 import TemplateDetailsPage from './app/marketplace/[slug]/page.jsx'
 import StudioPage from './app/studio/page.jsx'
+import StudioLaunchPage from './app/studio/launch/page.jsx'
+import StudioDeployPage from './app/studio/deploy/page.jsx'
 import PreviewPage from './app/preview/page.jsx'
 import StorybookPage from './app/storybook/page.jsx'
 import PricingPage from './app/pricing/page.jsx'
@@ -37,6 +39,7 @@ import TermsPage from './app/terms/page.jsx'
 
 
 import SupportButton from './components/support/SupportButton.jsx';
+import StudioBuildFloatingWidget from './components/studio/StudioBuildFloatingWidget.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 
 /** Handles the post-OAuth soft redirect without a full page reload */
@@ -89,6 +92,8 @@ function App() {
             <Route path="/" element={<Home />} />
             <Route path="/marketplace" element={<Marketplace />} />
             <Route path="/studio" element={<ProtectedRoute><StudioPage /></ProtectedRoute>} />
+            <Route path="/studio/launch" element={<ProtectedRoute><StudioLaunchPage /></ProtectedRoute>} />
+            <Route path="/studio/deploy" element={<ProtectedRoute><StudioDeployPage /></ProtectedRoute>} />
             <Route path="/marketplace/generate" element={<Navigate to="/studio" replace />} />
             <Route path="/marketplace/:slug" element={<TemplateDetailsPage />} />
             <Route path="/pricing" element={<PricingPage />} />
@@ -113,6 +118,7 @@ function App() {
           </Routes>
         </ErrorBoundary>
         <SupportButton />
+        <StudioBuildFloatingWidget />
         <Toaster richColors position="top-center" theme="dark" />
       </div>
     </BrowserRouter>

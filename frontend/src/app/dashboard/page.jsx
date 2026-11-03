@@ -18,6 +18,7 @@ import {
   LayoutDashboard,
   Code,
   Cpu,
+  Rocket,
   Globe,
   Download,
   Zap,
@@ -804,9 +805,9 @@ function Dashboard() {
     }
   }, [activeConsoleLogs, isConsoleOpen, isConsoleStreamPaused]);
 
-  // Published seller listings are kept separate from private Studio Project drafts.
+  // Published seller listings are kept separate from private Studio Project drafts using explicit is_marketplace separation.
   const sellerTemplatesList = Array.isArray(templateResponse)
-    ? templateResponse.filter(t => t.status === "published")
+    ? templateResponse.filter(t => t.is_marketplace === true && t.template_origin === "marketplace")
     : [];
 
   // 1. Downloaded & Purchased Templates (from completed orders)
@@ -829,9 +830,9 @@ function Dashboard() {
     category: "uploaded"
   }));
 
-  // 3. AI Studio & Custom Draft Projects
+  // 3. AI Studio & Custom Draft Projects (isolated from marketplace templates)
   const studioProjectsList = (templateResponse || [])
-    .filter(t => t.status === "draft")
+    .filter(t => t.is_marketplace === false || t.template_origin === "studio" || t.template_origin === "custom_draft" || t.status === "draft")
     .map(t => ({
       id: t.id,
       title: t.title || "AI Studio Project",
@@ -3469,20 +3470,39 @@ function Dashboard() {
 
                                   {/* Live Editor & Live Demo */}
                                   <div className="flex gap-2">
-                                    <Link
-                                      to={`/preview?template=${item.slug || item.id}`}
-                                      className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all text-decoration-none"
-                                    >
-                                      <Wand2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> {item.tags?.includes("studio-project") ? "Open in AI Studio" : "Editor"}
-                                    </Link>
-                                    {!item.tags?.includes("studio-project") && <a
-                                      href={`${API_BASE}/preview/live/${item.id}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all text-decoration-none text-center"
-                                    >
-                                      <ExternalLink className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Demo
-                                    </a>}
+                                    {(item.tags?.includes("studio-project") || item.template_origin === "studio") ? (
+                                      <>
+                                        <Link
+                                          to={`/studio/launch?template=${item.slug || item.id}`}
+                                          className="flex-1 py-2 bg-violet-600 hover:bg-violet-700 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all text-decoration-none shadow-sm"
+                                        >
+                                          <Rocket className="w-3.5 h-3.5" /> Launch Hub
+                                        </Link>
+                                        <Link
+                                          to={`/preview?template=${item.slug || item.id}`}
+                                          className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all text-decoration-none"
+                                        >
+                                          <Wand2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Edit
+                                        </Link>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Link
+                                          to={`/preview?template=${item.slug || item.id}`}
+                                          className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all text-decoration-none"
+                                        >
+                                          <Wand2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Editor
+                                        </Link>
+                                        <a
+                                          href={`${API_BASE}/preview/live/${item.id}`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all text-decoration-none text-center"
+                                        >
+                                          <ExternalLink className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Demo
+                                        </a>
+                                      </>
+                                    )}
                                   </div>
                                 </div>
                               </div>
@@ -3912,20 +3932,20 @@ function Dashboard() {
                                       const isAudit = clean.includes("[AUDIT]");
                                       const isHeal = clean.includes("[HEAL]") || clean.includes("[SELF-HEAL]");
                                       const isSucc = clean.includes("[SUCCESS]") || clean.includes("LIVE");
+                                      let lineStyle = "text-slate-300";
+                                      if (isErr) {
+                                        lineStyle = "bg-red-500/15 text-red-300 font-semibold border-l-2 border-red-500";
+                                      } else if (isAudit) {
+                                        lineStyle = "text-cyan-300 bg-cyan-950/20";
+                                      } else if (isHeal) {
+                                        lineStyle = "text-purple-300 font-semibold bg-purple-950/20";
+                                      } else if (isSucc) {
+                                        lineStyle = "text-emerald-400 font-semibold";
+                                      }
                                       return (
                                         <div
                                           key={idx}
-                                          className={`truncate px-1.5 py-0.5 rounded ${
-                                            isErr
-                                              ? "bg-red-500/15 text-red-300 font-semibold border-l-2 border-red-500"
-                                              : isAudit
-                                              ? "text-cyan-300 bg-cyan-950/20"
-                                              : isHeal
-                                              ? "text-purple-300 font-semibold bg-purple-950/20"
-                                              : isSucc
-                                              ? "text-emerald-400 font-semibold"
-                                              : "text-slate-300"
-                                          }`}
+                                          className={`truncate px-1.5 py-0.5 rounded ${lineStyle}`}
                                           title={clean}
                                         >
                                           {clean}

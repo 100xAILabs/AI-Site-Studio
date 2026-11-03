@@ -31,7 +31,11 @@ function getAssistantVoice() {
 
 export default function SupportButton() {
   const location = useLocation();
-  if (location.pathname.includes("/receipt")) {
+  if (
+    location.pathname.includes("/receipt") ||
+    location.pathname.startsWith("/preview") ||
+    location.pathname.startsWith("/storybook")
+  ) {
     return null;
   }
 

@@ -27,6 +27,7 @@ async def toggle_favorite(
     """Toggle favorite status for a template. Adds if not favorited, removes if already favorited."""
     repo = FavoriteRepository(db)
     added = await repo.toggle(current_user.id, template_id)
+    await db.commit()
     return MessageResponse(
         message="Added to favorites" if added else "Removed from favorites",
         success=True,

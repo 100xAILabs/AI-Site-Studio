@@ -21,7 +21,7 @@ import {
   Shield, AlertCircle, Edit3, Trash2, Eraser, Plus, Check,
   Copy, RotateCcw, ArrowLeft, Sliders, Globe, Bot, Send,
   CheckCircle2, Play, Code, Search, X, Wand2, ArrowUpRight,
-  ChevronRight, Eye, Phone, MapPin, Clock, ShoppingBag, ShoppingCart, Share2, Upload
+  ChevronRight, ChevronLeft, MoreVertical, Menu, Eye, Phone, MapPin, Clock, ShoppingBag, ShoppingCart, Share2, Upload
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -697,6 +697,9 @@ export default function PreviewPage() {
     }
   };
   const [mobilePanel, setMobilePanel] = useState("preview");
+  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
+  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
+  const [showMobileActionMenu, setShowMobileActionMenu] = useState(false);
 
   // Center Stage Viewport & Theme State
   const [viewMode, setViewMode] = useState(() => {
@@ -951,25 +954,28 @@ export default function PreviewPage() {
 
           // Dynamically load generated project pages into multi-page switcher
           if (data.changelog?.plan?.pages && Array.isArray(data.changelog.plan.pages) && data.changelog.plan.pages.length > 0) {
-            const dynamicPages = data.changelog.plan.pages.map((p) => {
+            const dynamicPages = data.changelog.plan.pages.map((p, idx) => {
               const fname = p.filename || `${(p.name || "page").toLowerCase().replace(/[^a-z0-9]+/g, "-")}.html`;
+              const isHome = idx === 0 || fname === "index.html" || (p.name || "").toLowerCase() === "home";
+              const targetFname = isHome ? "index.html" : fname;
               return {
-                id: fname,
-                title: p.name || fname.replace(".html", "").replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-                icon: fname === "index.html" ? "🏠" : "📄",
-                path: fname,
-                sectionKey: fname.replace(".html", ""),
+                id: targetFname,
+                title: isHome ? "Home" : (p.name || targetFname.replace(".html", "").replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())),
+                icon: isHome ? "🏠" : "📄",
+                path: targetFname,
+                sectionKey: targetFname.replace(".html", ""),
               };
             });
             setPages(dynamicPages);
           } else if (data.included_pages && Array.isArray(data.included_pages) && data.included_pages.length > 0) {
-            const dynamicPages = data.included_pages.map((pName) => {
+            const dynamicPages = data.included_pages.map((pName, idx) => {
               const clean = String(pName);
-              const fname = clean.endsWith(".html") ? clean : `${clean.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.html`;
+              const isHome = idx === 0 || clean.toLowerCase() === "home" || clean.toLowerCase() === (data.title || "").toLowerCase();
+              const fname = isHome ? "index.html" : (clean.endsWith(".html") ? clean : `${clean.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.html`);
               return {
                 id: fname,
-                title: clean.replace(".html", "").replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-                icon: fname === "index.html" ? "🏠" : "📄",
+                title: isHome ? "Home" : clean.replace(".html", "").replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+                icon: isHome ? "🏠" : "📄",
                 path: fname,
                 sectionKey: fname.replace(".html", ""),
               };
@@ -1624,15 +1630,27 @@ export default function PreviewPage() {
       <header className="sb-fullpage-header">
         <div className="flex items-center gap-3">
           {/* Back Navigation Button */}
-          <button
-            type="button"
-            onClick={handleBackToMarketplace}
-            className="sb-ghost-btn text-xs font-semibold py-1.5 px-3"
-            title="Return to marketplace"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Back to Marketplace</span>
-          </button>
+          {templateData?.template_origin === "studio" || templateData?.tags?.includes("studio-project") || searchParams.get("build") ? (
+            <button
+              type="button"
+              onClick={() => navigate(`/studio/launch?template=${encodeURIComponent(effectiveTemplateId || "")}`)}
+              className="sb-ghost-btn text-xs font-semibold py-1.5 px-3 border border-violet-500/30 text-violet-300 hover:text-white hover:bg-violet-500/20"
+              title="Return to Launch Hub"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Back to Launch Hub</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleBackToMarketplace}
+              className="sb-ghost-btn text-xs font-semibold py-1.5 px-3"
+              title="Return to marketplace"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Back to Marketplace</span>
+            </button>
+          )}
 
           {/* Template Title & Logo (No Storybook Studio Branding!) */}
           <div className="flex items-center gap-2.5 pl-2 border-l border-border/50">
@@ -1653,8 +1671,8 @@ export default function PreviewPage() {
             </div>
           </div>
 
-          {/* ⚡ The 2 Mode Buttons (Added Right Beside Template Title) */}
-          <div className="sb-header-modes ml-2">
+          {/* ⚡ The 2 Mode Buttons (Added Right Beside Template Title - Desktop only) */}
+          <div className="hidden md:inline-flex sb-header-modes ml-2">
             <button
               type="button"
               onClick={() => setEditorMode("manual")}
@@ -1689,124 +1707,245 @@ export default function PreviewPage() {
 
         {/* Notice Toast Banner */}
         {notice && (
-          <div className="px-3.5 py-1 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-400 text-xs font-semibold flex items-center gap-2 animate-fade-in">
+          <div className="hidden md:flex px-3.5 py-1 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-400 text-xs font-semibold items-center gap-2 animate-fade-in">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
             <span>{notice}</span>
           </div>
         )}
 
         {/* Right Header Actions */}
-        <div className="flex items-center gap-2.5">
-          {/* View Mode Toggle: Designed Output View vs Real Running Live Demo */}
-          <div className="sb-header-modes">
+        <div className="flex items-center gap-2">
+          {/* DESKTOP ACTIONS */}
+          <div className="hidden lg:flex items-center gap-2.5">
+            {/* View Mode Toggle: Designed Output View vs Real Running Live Demo */}
+            <div className="sb-header-modes">
+              <button
+                type="button"
+                onClick={() => setViewMode("designed")}
+                className={cn("sb-mode-pill-btn", viewMode === "designed" && "active-manual")}
+                title="Designed Section Output View"
+              >
+                <Code className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">Output View</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("live")}
+                className={cn("sb-mode-pill-btn", viewMode === "live" && "active-manual")}
+                title="Real Running Compiled Live Demo IFrame"
+              >
+                <Play className="w-3.5 h-3.5 text-emerald-400 fill-emerald-400" />
+                <span className="hidden md:inline">Real Live Demo</span>
+              </button>
+            </div>
+
             <button
               type="button"
-              onClick={() => setViewMode("designed")}
-              className={cn("sb-mode-pill-btn", viewMode === "designed" && "active-manual")}
-              title="Designed Section Output View"
+              onClick={handleCopyCode}
+              className="sb-ghost-btn text-xs"
+              title="Copy component data"
             >
-              <Code className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">Output View</span>
+              {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline">{isCopied ? "Copied!" : "Copy"}</span>
             </button>
+
+            {hasUnfinalizedChanges && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs font-bold animate-pulse">
+                <AlertCircle className="w-3.5 h-3.5" />
+                <span className="hidden lg:inline">Draft Unsaved</span>
+              </div>
+            )}
+
             <button
               type="button"
-              onClick={() => setViewMode("live")}
-              className={cn("sb-mode-pill-btn", viewMode === "live" && "active-manual")}
-              title="Real Running Compiled Live Demo IFrame"
+              onClick={handleFinalizeChanges}
+              disabled={savingManual}
+              className="sb-primary-gradient-btn"
+              title="Save and compile edits to website"
             >
-              <Play className="w-3.5 h-3.5 text-emerald-400 fill-emerald-400" />
-              <span className="hidden md:inline">Real Live Demo</span>
+              <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+              <span>{savingManual ? "Saving..." : "Save & Finalize"}</span>
             </button>
+
+            {hasUnfinalizedChanges && (
+              <button
+                type="button"
+                onClick={handleRevokeChanges}
+                disabled={isRevoking}
+                className="sb-ghost-btn text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 border border-rose-500/20"
+                title="Revoke changes and restore original template"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Revoke</span>
+              </button>
+            )}
+
+            {templateData && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleAddToCart}
+                  disabled={addedToCart || (templateData && isInCart?.(activeTemplateId))}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-emerald-500/50 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold transition-all disabled:opacity-60"
+                  title="Add to cart"
+                >
+                  <ShoppingCart className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">
+                    {addedToCart || isInCart?.(activeTemplateId) ? "In Cart ✓" : "Add to Cart"}
+                  </span>
+                </button>
+                {/* Tech Stack Badge */}
+                <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/5 border border-white/10 text-[11px] font-semibold text-slate-300">
+                  <Code className="w-3.5 h-3.5 text-violet-400" />
+                  <span>{templateData?.framework === "react" ? "React + FastAPI" : "HTML5 + CSS + JS"}</span>
+                </span>
+
+                <button
+                  type="button"
+                  onClick={handleBuyNow}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-bold shadow-lg shadow-amber-500/25 transition-all"
+                  title="Buy Now"
+                >
+                  <ShoppingBag className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Buy Now</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetId = customDraftId || activeTemplateId;
+                    navigate(`/dashboard?tab=deployments&deployTemplate=${targetId}&autoOpen=true`);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:opacity-95 text-white text-xs font-bold shadow-lg shadow-emerald-500/20 transition-all border-0 cursor-pointer"
+                  title="Deploy this website live with managed hosting"
+                >
+                  <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                  <span className="hidden sm:inline">Deploy Live</span>
+                </button>
+              </>
+            )}
           </div>
 
-          <button
-            type="button"
-            onClick={handleCopyCode}
-            className="sb-ghost-btn text-xs"
-            title="Copy component data"
-          >
-            {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            <span className="hidden sm:inline">{isCopied ? "Copied!" : "Copy"}</span>
-          </button>
-
-          {hasUnfinalizedChanges && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs font-bold animate-pulse">
-              <AlertCircle className="w-3.5 h-3.5" />
-              <span className="hidden lg:inline">Draft Unsaved</span>
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={handleFinalizeChanges}
-            disabled={savingManual}
-            className="sb-primary-gradient-btn"
-            title="Save and compile edits to website"
-          >
-            <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
-            <span>{savingManual ? "Saving..." : "Save & Finalize"}</span>
-          </button>
-
-          {hasUnfinalizedChanges && (
+          {/* MOBILE COMPACT ACTIONS (Clean single-row controls) */}
+          <div className="flex lg:hidden items-center gap-1.5">
             <button
               type="button"
-              onClick={handleRevokeChanges}
-              disabled={isRevoking}
-              className="sb-ghost-btn text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 border border-rose-500/20"
-              title="Revoke changes and restore original template"
+              onClick={handleFinalizeChanges}
+              disabled={savingManual}
+              className="sb-primary-gradient-btn py-1.5 px-2.5 text-xs flex items-center gap-1"
+              title="Save changes"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Revoke</span>
+              <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+              <span>{savingManual ? "Saving" : "Save"}</span>
             </button>
-          )}
 
-          {templateData && (
-            <>
+            {templateData && (
               <button
                 type="button"
                 onClick={handleAddToCart}
                 disabled={addedToCart || (templateData && isInCart?.(activeTemplateId))}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-emerald-500/50 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold transition-all disabled:opacity-60"
-                title="Add to cart"
+                className="p-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 transition-all disabled:opacity-60 relative"
+                title="Add to Cart"
               >
-                <ShoppingCart className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">
-                  {addedToCart || isInCart?.(activeTemplateId) ? "In Cart ✓" : "Add to Cart"}
-                </span>
+                <ShoppingCart className="w-4 h-4" />
+                {(addedToCart || isInCart?.(activeTemplateId)) && (
+                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full" />
+                )}
               </button>
+            )}
+
+            {/* Mobile Actions Dropdown Trigger */}
+            <div className="relative">
               <button
                 type="button"
-                onClick={handleBuyNow}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-bold shadow-lg shadow-amber-500/25 transition-all"
-                title="Buy Now"
+                onClick={() => setShowMobileActionMenu(!showMobileActionMenu)}
+                className="p-2 rounded-xl border border-border/60 bg-muted/40 hover:bg-muted text-foreground transition-all"
+                title="More Actions"
+                aria-label="More actions"
               >
-                <ShoppingBag className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Buy Now</span>
+                <MoreVertical className="w-4 h-4" />
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  const targetId = customDraftId || activeTemplateId;
-                  navigate(`/dashboard?tab=deployments&deployTemplate=${targetId}&autoOpen=true`);
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:opacity-95 text-white text-xs font-bold shadow-lg shadow-emerald-500/20 transition-all border-0 cursor-pointer"
-                title="Deploy this website live with managed hosting"
-              >
-                <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
-                <span className="hidden sm:inline">Deploy Live</span>
-              </button>
-            </>
-          )}
+              {showMobileActionMenu && (
+                <div
+                  className="absolute right-0 top-full mt-2 w-52 bg-card border border-border rounded-xl shadow-2xl p-1.5 z-50 space-y-1 animate-fade-in"
+                  onClick={() => setShowMobileActionMenu(false)}
+                >
+                  {templateData && (
+                    <button
+                      type="button"
+                      onClick={handleBuyNow}
+                      className="w-full text-left px-3 py-2 rounded-lg bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-400 hover:bg-amber-500/30 text-xs font-bold flex items-center gap-2"
+                    >
+                      <ShoppingBag className="w-3.5 h-3.5" />
+                      <span>Buy Template & License</span>
+                    </button>
+                  )}
+
+                  {templateData && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetId = customDraftId || activeTemplateId;
+                        navigate(`/dashboard?tab=deployments&deployTemplate=${targetId}&autoOpen=true`);
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-emerald-500/10 text-emerald-400 text-xs font-semibold flex items-center gap-2"
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      <span>Deploy Live</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setViewMode(viewMode === "live" ? "designed" : "live")}
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-muted text-foreground text-xs font-semibold flex items-center gap-2"
+                  >
+                    {viewMode === "live" ? <Code className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 text-emerald-400" />}
+                    <span>{viewMode === "live" ? "Switch to Output View" : "Switch to Live Demo"}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCopyCode}
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-muted text-foreground text-xs font-semibold flex items-center gap-2"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy Code</span>
+                  </button>
+
+                  {hasUnfinalizedChanges && (
+                    <button
+                      type="button"
+                      onClick={handleRevokeChanges}
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-rose-500/15 text-rose-400 text-xs font-semibold flex items-center gap-2"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Revoke Changes</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleResetSection}
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-muted text-muted-foreground text-xs font-semibold flex items-center gap-2"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset Section to Default</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </header>
 
       <nav className="sb-mobile-panel-switcher" aria-label="Editor panels">
         {[
-          { id: "sections", label: "Sections", icon: Layers },
-          { id: "preview", label: "Preview", icon: Eye },
-          { id: "edit", label: "Edit", icon: Sliders },
-        ].map(({ id, label, icon: Icon }) => (
+          { id: "sections", label: "Sections", icon: Layers, count: sections.length },
+          { id: "preview", label: "Live Preview", icon: Eye },
+          { id: "edit", label: "Edit Fields", icon: Sliders },
+        ].map(({ id, label, icon: Icon, count }) => (
           <button
             key={id}
             type="button"
@@ -1816,6 +1955,9 @@ export default function PreviewPage() {
           >
             <Icon className="w-4 h-4" />
             <span>{label}</span>
+            {count !== undefined && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted/80 font-mono">{count}</span>
+            )}
           </button>
         ))}
       </nav>
@@ -1829,7 +1971,11 @@ export default function PreviewPage() {
            LEFT COLUMN: Lively Filter Sections
            Inspects template code and only shows what is actually in this template!
         ───────────────────────────────────────────────────────────────────── */}
-        <aside className={cn("sb-sidebar-left", mobilePanel !== "sections" && "sb-mobile-hidden")}>
+        <aside className={cn(
+          "sb-sidebar-left transition-all duration-300",
+          leftSidebarCollapsed && "w-0 min-w-0 border-0 p-0 overflow-hidden",
+          mobilePanel !== "sections" && "sb-mobile-hidden"
+        )}>
           {/* Search Input */}
           <div className="sb-sidebar-search relative">
             <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -1843,13 +1989,23 @@ export default function PreviewPage() {
           </div>
 
           {/* Section Count Header */}
-          <div className="px-4 py-2 flex items-center justify-between border-b border-border/40 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-            <span>Template Sections ({sections.length})</span>
-            <span className="text-[10px] text-pink-500 font-semibold">Detected</span>
+          <div className="px-4 py-2 flex items-center justify-between border-b border-border/40 text-[11px] font-bold uppercase tracking-wider text-muted-foreground select-none">
+            <div className="flex items-center gap-1.5">
+              <span>Template Sections ({sections.length})</span>
+              <span className="text-[10px] text-pink-500 font-semibold">Detected</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setLeftSidebarCollapsed(true)}
+              className="hidden lg:flex p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              title="Collapse Sections Sidebar"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
           </div>
 
           {/* Section List (Only Sections In This Template!) */}
-          <div className="sb-sidebar-tree">
+          <div className="sb-sidebar-tree flex-1 overflow-y-auto p-2 pb-4">
             {loadingTemplate && (
               <p className="px-3 py-4 text-xs text-muted-foreground" role="status">
                 Loading template sections…
@@ -1871,7 +2027,12 @@ export default function PreviewPage() {
                         : "hover:bg-muted/50 text-foreground border border-transparent"
                     )}
                     onClick={() => {
-                      if (!isEditingThis) setSelectedSectionId(sec.id);
+                      if (!isEditingThis) {
+                        setSelectedSectionId(sec.id);
+                        if (mobilePanel === "sections") {
+                          setMobilePanel("edit");
+                        }
+                      }
                     }}
                   >
                     {/* Left: Icon & Name (or Inline Rename Input) */}
@@ -1899,7 +2060,7 @@ export default function PreviewPage() {
                           <button
                             type="button"
                             onClick={(e) => handleSaveRename(sec.id, e)}
-                            className="p-1 hover:bg-emerald-500/20 text-emerald-500 rounded"
+                            className="p-1 hover:bg-emerald-500/20 text-emerald-500 rounded cursor-pointer"
                             title="Save name"
                           >
                             <Check className="w-3.5 h-3.5" />
@@ -1907,7 +2068,7 @@ export default function PreviewPage() {
                           <button
                             type="button"
                             onClick={(e) => handleCancelRename(e)}
-                            className="p-1 hover:bg-rose-500/20 text-rose-500 rounded"
+                            className="p-1 hover:bg-rose-500/20 text-rose-500 rounded cursor-pointer"
                             title="Cancel"
                           >
                             <X className="w-3.5 h-3.5" />
@@ -1961,67 +2122,70 @@ export default function PreviewPage() {
                 );
               })}
             </div>
+          </div>
 
-            {/* "+ Add Section" & Photo Media Switcher */}
-            <div className="mt-4 pt-3 border-t border-border/50 space-y-2">
+          {/* DOCKED STICKY BOTTOM ACTIONS (Always 100% visible, never cut off!) */}
+          <div className="p-3 bg-card border-t border-border/50 shrink-0 space-y-2 z-10">
+            <button
+              type="button"
+              onClick={() => {
+                setEditorMode("assets");
+                setMobilePanel("edit");
+              }}
+              className={cn(
+                "w-full py-2.5 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer",
+                editorMode === "assets"
+                  ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400 shadow-sm"
+                  : "border-border/60 hover:border-emerald-500/40 bg-card/60 hover:bg-emerald-500/10 text-muted-foreground hover:text-emerald-400"
+              )}
+              title="Replace photos in this website with zero code changes"
+            >
+              <Image className="w-3.5 h-3.5" />
+              <span>Change Photos &amp; Media</span>
+            </button>
+            <div className="relative">
               <button
                 type="button"
-                onClick={() => setEditorMode("assets")}
-                className={cn(
-                  "w-full py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all",
-                  editorMode === "assets"
-                    ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400 shadow-sm"
-                    : "border-border/60 hover:border-emerald-500/40 bg-card/60 hover:bg-emerald-500/10 text-muted-foreground hover:text-emerald-400"
-                )}
-                title="Replace photos in this website with zero code changes"
+                onClick={() => setShowAddMenu(!showAddMenu)}
+                className="w-full py-2.5 px-3 rounded-xl border-2 border-dashed border-border hover:border-pink-500/50 hover:bg-pink-500/5 text-xs font-bold text-muted-foreground hover:text-pink-500 flex items-center justify-center gap-2 transition-all cursor-pointer"
               >
-                <Image className="w-3.5 h-3.5" />
-                <span>Change Photos &amp; Media</span>
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Add Section</span>
               </button>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowAddMenu(!showAddMenu)}
-                  className="w-full py-2 px-3 rounded-xl border-2 border-dashed border-border hover:border-pink-500/50 hover:bg-pink-500/5 text-xs font-bold text-muted-foreground hover:text-pink-500 flex items-center justify-center gap-2 transition-all"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>+ Add Section</span>
-                </button>
 
-                {showAddMenu && (
-                  <div className="absolute left-0 bottom-full mb-2 w-full bg-card border border-border rounded-xl shadow-2xl p-2 z-50 space-y-1">
-                    <div className="px-2 py-1 text-[10px] font-bold uppercase text-muted-foreground border-b border-border/50">
-                      Add / Restore Section
-                    </div>
-                    {[
-                      { id: "navbar", name: "Navigation Header", category: "Header & Nav", icon: Monitor },
-                      { id: "hero", name: "Hero Section", category: "Hero & Banner", icon: Zap },
-                      { id: "services", name: "Services & Features", category: "Content", icon: Layers },
-                      { id: "about", name: "About Us & Story", category: "Content", icon: FileText },
-                      { id: "pricing", name: "Pricing & Plans", category: "Conversion", icon: Sparkles },
-                      { id: "testimonials", name: "Customer Reviews", category: "Social Proof", icon: Star },
-                      { id: "contact", name: "Contact & Inquiries", category: "Conversion", icon: Mail },
-                      { id: "announcement", name: "Announcement Banner", category: "Header & Nav", icon: AlertCircle },
-                      { id: "footer", name: "Website Footer", category: "Footer & Legal", icon: Shield },
-                    ]
-                      .filter((s) => !sections.some((x) => x.id === s.id))
-                      .map((sec) => {
-                        const SecIcon = sec.icon;
-                        return (
-                          <button
-                            key={sec.id}
-                            type="button"
-                            onClick={() => handleAddSection(sec)}
-                            className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-pink-500/10 hover:text-pink-500 text-xs font-medium flex items-center gap-2 transition-colors"
-                          >
-                            <SecIcon className="w-3.5 h-3.5 text-pink-500" />
-                            <span>{sec.name}</span>
-                          </button>
-                        );
-                      })}
+              {showAddMenu && (
+                <div className="absolute left-0 bottom-full mb-2 w-full bg-card border border-border rounded-xl shadow-2xl p-2 z-50 space-y-1">
+                  <div className="px-2 py-1 text-[10px] font-bold uppercase text-muted-foreground border-b border-border/50">
+                    Add / Restore Section
                   </div>
-                )}
-              </div>
+                  {[
+                    { id: "navbar", name: "Navigation Header", category: "Header & Nav", icon: Monitor },
+                    { id: "hero", name: "Hero Section", category: "Hero & Banner", icon: Zap },
+                    { id: "services", name: "Services & Features", category: "Content", icon: Layers },
+                    { id: "about", name: "About Us & Story", category: "Content", icon: FileText },
+                    { id: "pricing", name: "Pricing & Plans", category: "Conversion", icon: Sparkles },
+                    { id: "testimonials", name: "Customer Reviews", category: "Social Proof", icon: Star },
+                    { id: "contact", name: "Contact & Inquiries", category: "Conversion", icon: Mail },
+                    { id: "announcement", name: "Announcement Banner", category: "Header & Nav", icon: AlertCircle },
+                    { id: "footer", name: "Website Footer", category: "Footer & Legal", icon: Shield },
+                  ]
+                    .filter((s) => !sections.some((x) => x.id === s.id))
+                    .map((sec) => {
+                      const SecIcon = sec.icon;
+                      return (
+                        <button
+                          key={sec.id}
+                          type="button"
+                          onClick={() => handleAddSection(sec)}
+                          className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-pink-500/10 hover:text-pink-500 text-xs font-medium flex items-center gap-2 transition-colors cursor-pointer"
+                        >
+                          <SecIcon className="w-3.5 h-3.5 text-pink-500" />
+                          <span>{sec.name}</span>
+                        </button>
+                      );
+                    })}
+                </div>
+              )}
             </div>
           </div>
         </aside>
@@ -2030,7 +2194,31 @@ export default function PreviewPage() {
            CENTER COLUMN: Expansive Stage
            Displays Real Designed Output View (or Real Running Live Demo IFrame)
         ───────────────────────────────────────────────────────────────────── */}
-        <main className={cn("sb-center-stage", mobilePanel !== "preview" && "sb-mobile-hidden")}>
+        <main className={cn("sb-center-stage relative", mobilePanel !== "preview" && "sb-mobile-hidden")}>
+          {/* Floating Expand Pills for Collapsed Sidebars */}
+          {leftSidebarCollapsed && (
+            <button
+              type="button"
+              onClick={() => setLeftSidebarCollapsed(false)}
+              className="hidden lg:flex absolute left-3 top-14 z-30 items-center gap-1.5 px-3 py-1.5 rounded-xl bg-card/95 backdrop-blur-md border border-border shadow-lg hover:border-primary/50 text-xs font-bold text-foreground transition-all cursor-pointer"
+              title="Expand Sections"
+            >
+              <ChevronRight className="w-3.5 h-3.5 text-pink-500" />
+              <span>Sections</span>
+            </button>
+          )}
+
+          {rightSidebarCollapsed && (
+            <button
+              type="button"
+              onClick={() => setRightSidebarCollapsed(false)}
+              className="hidden lg:flex absolute right-3 top-14 z-30 items-center gap-1.5 px-3 py-1.5 rounded-xl bg-card/95 backdrop-blur-md border border-border shadow-lg hover:border-primary/50 text-xs font-bold text-foreground transition-all cursor-pointer"
+              title="Expand Editor"
+            >
+              <span>Editor</span>
+              <ChevronLeft className="w-3.5 h-3.5 text-pink-500" />
+            </button>
+          )}
           {/* Multi-Page Visual Switcher Bar */}
           <div className="sb-page-switcher-bar">
             <div className="flex items-center gap-1.5 overflow-x-auto py-1 scrollbar-none flex-1">
@@ -2170,6 +2358,19 @@ export default function PreviewPage() {
                 <RotateCcw className="w-3 h-3" />
                 <span>Reset</span>
               </button>
+
+              {/* Desktop Right Sidebar Collapse Button */}
+              {!rightSidebarCollapsed && (
+                <button
+                  type="button"
+                  onClick={() => setRightSidebarCollapsed(true)}
+                  className="hidden lg:flex sb-ghost-btn text-xs py-1 px-2 items-center gap-1 cursor-pointer"
+                  title="Collapse Editor Panel"
+                >
+                  <span className="hidden xl:inline">Collapse</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </div>
 
@@ -2178,7 +2379,7 @@ export default function PreviewPage() {
             {/* Viewport Outer Scroll & Alignment Container */}
             <div className={cn(
               "w-full h-full transition-all duration-300 flex flex-col items-center",
-              canvasViewport === "desktop" ? "justify-center p-4 overflow-hidden" : "justify-start py-6 px-3 overflow-y-auto"
+              canvasViewport === "desktop" ? "justify-start p-0 overflow-hidden" : "justify-start py-6 px-3 overflow-y-auto"
             )}>
               {/* Responsive Hardware Device Outer Wrapper */}
               <div
@@ -2187,7 +2388,7 @@ export default function PreviewPage() {
                   canvasViewport === "mobile" && "bg-[#181d28] p-[10px] rounded-[52px] shadow-[0_25px_70px_-15px_rgba(0,0,0,0.85),0_0_0_1px_rgba(255,255,255,0.12),inset_0_0_0_2px_rgba(0,0,0,0.5)]",
                   canvasViewport === "tablet" && "bg-[#181d28] p-[14px] rounded-[38px] shadow-[0_25px_70px_-15px_rgba(0,0,0,0.85),0_0_0_1px_rgba(255,255,255,0.1)]",
                   canvasViewport === "laptop" && "w-full bg-[#0f172a] p-[10px] pb-0 rounded-t-2xl border-[2px] border-b-0 border-[#334155] shadow-2xl",
-                  canvasViewport === "desktop" && "w-full h-full rounded-2xl border border-border shadow-2xl overflow-hidden bg-white"
+                  canvasViewport === "desktop" && "w-full h-full rounded-none border-0 shadow-none overflow-hidden bg-white"
                 )}
                 style={
                   canvasViewport === "mobile"
@@ -2224,7 +2425,7 @@ export default function PreviewPage() {
                     canvasViewport === "mobile" && "h-full bg-black rounded-[42px] border border-white/5 shadow-inner",
                     canvasViewport === "tablet" && "h-full bg-black rounded-[24px] border border-white/5 shadow-inner",
                     canvasViewport === "laptop" && "rounded-t-md bg-white shadow-inner",
-                    canvasViewport === "desktop" && "h-full bg-white"
+                    canvasViewport === "desktop" && "h-full w-full bg-white rounded-none border-0 shadow-none"
                   )}
                   style={
                     canvasViewport === "laptop"
@@ -2274,7 +2475,8 @@ export default function PreviewPage() {
                     className={cn(
                       "w-full h-full overflow-hidden bg-white transition-all duration-300 flex-1",
                       canvasViewport === "mobile" && "pt-8 pb-3",
-                      canvasViewport === "tablet" && "pb-2"
+                      canvasViewport === "tablet" && "pb-2",
+                      canvasViewport === "desktop" && "p-0 m-0"
                     )}
                   >
                     {viewMode === "live" && liveServerUrl ? (
@@ -2282,7 +2484,7 @@ export default function PreviewPage() {
                         key={iframeKey}
                         src={liveServerUrl}
                         title="Live Demo Preview"
-                        sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
                         referrerPolicy="no-referrer"
                         className="w-full h-full border-none bg-white"
                       />
@@ -2324,24 +2526,38 @@ export default function PreviewPage() {
              IF editorMode === "manual": Shows Template's Actual Components & Fields
              IF editorMode === "ai": Shows AI Prompt Assistant
         ───────────────────────────────────────────────────────────────────── */}
-        <aside className={cn("sb-sidebar-right", mobilePanel !== "edit" && "sb-mobile-hidden")}>
+        <aside className={cn(
+          "sb-sidebar-right transition-all duration-300",
+          rightSidebarCollapsed && "w-0 min-w-0 border-0 p-0 overflow-hidden",
+          mobilePanel !== "edit" && "sb-mobile-hidden"
+        )}>
           {editorMode === "manual" ? (
             /* MANUAL EDIT PANEL: Template-Accurate Component Fields */
             <div className="flex flex-col h-full overflow-hidden">
               {/* Panel Header */}
-              <div className="p-4 border-b border-border/50 bg-card/60 flex-shrink-0">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-extrabold text-sm text-foreground flex items-center gap-1.5">
-                    <Sliders className="w-4 h-4 text-pink-500" />
-                    <span>{currentSection.name} Components</span>
-                  </h3>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400">
-                    Live Synced
-                  </span>
+              <div className="p-4 border-b border-border/50 bg-card/60 flex-shrink-0 flex items-center justify-between select-none">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between pr-2">
+                    <h3 className="font-extrabold text-sm text-foreground flex items-center gap-1.5 truncate">
+                      <Sliders className="w-4 h-4 text-pink-500 shrink-0" />
+                      <span className="truncate">{currentSection.name} Components</span>
+                    </h3>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 shrink-0">
+                      Live Synced
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1 truncate">
+                    Click any field to edit. Use backspace &amp; typing to update live.
+                  </p>
                 </div>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  Click any field to edit. Use backspace &amp; typing to update live.
-                </p>
+                <button
+                  type="button"
+                  onClick={() => setRightSidebarCollapsed(true)}
+                  className="hidden lg:flex p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0 ml-1"
+                  title="Collapse Editor Sidebar"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
               </div>
 
               {/* Status & Quick Action Banner */}
@@ -2380,7 +2596,7 @@ export default function PreviewPage() {
               )}
 
               {/* Editable Component Fields with Template-Accurate Names */}
-              <div className="sb-right-content-body space-y-4 flex-1 overflow-y-auto p-4">
+              <div className="sb-right-content-body space-y-4 flex-1 overflow-y-auto p-4 pb-28">
                 {renderFriendlyFields(currentSection.id, currentProps, handleFieldChange, effectiveTemplateId, handleApplyThemeColorToProject)}
 
                 {/* Row Actions */}
@@ -2389,7 +2605,7 @@ export default function PreviewPage() {
                     <button
                       type="button"
                       onClick={(e) => handleEraseSectionContent(currentSection.id, e)}
-                      className="flex-1 py-2 px-3 rounded-xl bg-muted/50 hover:bg-amber-500/15 text-amber-400 border border-border text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
+                      className="flex-1 py-2 px-3 rounded-xl bg-muted/50 hover:bg-amber-500/15 text-amber-400 border border-border text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <Eraser className="w-3.5 h-3.5" />
                       <span>Clear Text</span>
@@ -2397,35 +2613,10 @@ export default function PreviewPage() {
                     <button
                       type="button"
                       onClick={(e) => handleDeleteSection(currentSection.id, e)}
-                      className="flex-1 py-2 px-3 rounded-xl bg-muted/50 hover:bg-rose-500/15 text-rose-400 border border-border text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
+                      className="flex-1 py-2 px-3 rounded-xl bg-muted/50 hover:bg-rose-500/15 text-rose-400 border border-border text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       <span>Delete Section</span>
-                    </button>
-                  </div>
-
-                  {/* Finalize Save & Revoke Action Pair */}
-                  <div className="flex items-center gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={handleFinalizeChanges}
-                      disabled={savingManual}
-                      className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white font-bold text-xs shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
-                      title="Permanently finalize all edits to project code"
-                    >
-                      <Zap className="w-4 h-4 fill-amber-300 text-amber-300" />
-                      <span>{savingManual ? "Saving..." : "Save & Finalize to Project"}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleRevokeChanges}
-                      disabled={isRevoking || !hasUnfinalizedChanges}
-                      className="py-2.5 px-3 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-40"
-                      title="Revoke all changes and revert back to original state"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      <span>Revoke</span>
                     </button>
                   </div>
 
@@ -2439,7 +2630,7 @@ export default function PreviewPage() {
                         type="button"
                         onClick={handleAddToCart}
                         disabled={addedToCart || isInCart?.(activeTemplateId)}
-                        className="w-full py-2 px-3 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-60"
+                        className="w-full py-2 px-3 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-60 cursor-pointer"
                       >
                         <ShoppingCart className="w-3.5 h-3.5" />
                         {addedToCart || isInCart?.(activeTemplateId) ? "In Cart ✓" : "Add to Cart"}
@@ -2447,7 +2638,7 @@ export default function PreviewPage() {
                       <button
                         type="button"
                         onClick={handleBuyNow}
-                        className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-amber-500/20"
+                        className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-amber-500/20 cursor-pointer"
                       >
                         <ShoppingBag className="w-3.5 h-3.5" />
                         Buy Now — Go to Checkout
@@ -2455,13 +2646,40 @@ export default function PreviewPage() {
                       <button
                         type="button"
                         onClick={() => navigate("/dashboard")}
-                        className="w-full py-2 px-3 rounded-xl border border-border bg-muted/40 hover:bg-muted/70 text-muted-foreground text-xs font-semibold flex items-center justify-center gap-2 transition-all"
+                        className="w-full py-2 px-3 rounded-xl border border-border bg-muted/40 hover:bg-muted/70 text-muted-foreground text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer"
                       >
                         <ArrowUpRight className="w-3.5 h-3.5" />
                         View My Dashboard
                       </button>
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* DOCKED STICKY BOTTOM ACTION BAR (Always visible at all times!) */}
+              <div className="p-3 bg-card/95 backdrop-blur-md border-t border-border/60 shrink-0 z-20 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleFinalizeChanges}
+                    disabled={savingManual}
+                    className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white font-bold text-xs shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                    title="Permanently finalize all edits to project code"
+                  >
+                    <Zap className="w-4 h-4 fill-amber-300 text-amber-300" />
+                    <span>{savingManual ? "Saving..." : "Save & Finalize to Project"}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleRevokeChanges}
+                    disabled={isRevoking || !hasUnfinalizedChanges}
+                    className="py-2.5 px-3 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-40"
+                    title="Revoke all changes and revert back to original state"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Revoke</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -2593,16 +2811,26 @@ export default function PreviewPage() {
             </div>
           ) : (
             /* AI EDIT PANEL: Prompt Assistant & Autonomous Debugger */
-            <div className="sb-ai-panel overflow-y-auto">
+            <div className="sb-ai-panel overflow-y-auto pb-28">
               <div>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between select-none">
                   <h3 className="font-extrabold text-sm text-foreground flex items-center gap-1.5">
                     <Bot className="w-4 h-4 text-indigo-400" />
                     <span>AI Design Assistant</span>
                   </h3>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400">
-                    AI service
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400">
+                      AI service
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setRightSidebarCollapsed(true)}
+                      className="hidden lg:flex p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                      title="Collapse Editor Sidebar"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-1">
                   Describe a change in natural language to update a saved template draft.

@@ -1,0 +1,347 @@
+/* Studio Launch Hub - Serenity High-Fidelity Light Theme */
+
+html:has(.studio-launch-page),
+body:has(.studio-launch-page),
+.studio-launch-page {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  min-height: 100vh;
+  position: relative;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Subtle ambient backdrop aura */
+.studio-launch-page::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100vw;
+  height: 500px;
+  background: radial-gradient(circle 800px at 50% -120px, rgba(99, 102, 241, 0.08), rgba(16, 185, 129, 0.04), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.studio-launch-page main {
+  position: relative;
+  z-index: 10;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 5.75rem 1.25rem 4rem 1.25rem; /* Generous clearance to avoid fixed navbar overlap */
+}
+
+/* ── Top Navigation Bar ─────────────────────────────────────────── */
+.launch-top-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1.25rem;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.launch-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.825rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.launch-crumb-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: #64748b;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.launch-crumb-link:hover {
+  color: #0f172a;
+}
+
+.launch-crumb-separator {
+  color: #cbd5e1;
+}
+
+.launch-crumb-title {
+  color: #4f46e5;
+  font-weight: 700;
+  max-width: 240px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.launch-crumb-badge {
+  background: #ecfdf5;
+  color: #059669;
+  border: 1px solid #a7f3d0;
+  padding: 0.15rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.725rem;
+  font-weight: 700;
+}
+
+.launch-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.launch-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 0.625rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.launch-nav-btn-deploy {
+  background: #eef2ff;
+  color: #4f46e5;
+  border: 1px solid #c7d2fe;
+}
+
+.launch-nav-btn-deploy:hover {
+  background: #e0e7ff;
+  border-color: #a5b4fc;
+}
+
+.launch-nav-btn-dash {
+  background: #ffffff;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+.launch-nav-btn-dash:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+/* ── Hero Success Card ──────────────────────────────────────────── */
+.launch-hero-card {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 1.5rem !important;
+  padding: 2.5rem !important;
+  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.04), 0 20px 25px -5px rgba(99, 102, 241, 0.05) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.launch-hero-card::after {
+  content: "";
+  position: absolute;
+  top: -80px;
+  right: -80px;
+  width: 260px;
+  height: 260px;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.09), transparent 70%);
+  pointer-events: none;
+}
+
+/* Status Pill */
+.launch-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.85rem;
+  background: #ecfdf5;
+  color: #059669;
+  border: 1px solid #a7f3d0;
+  border-radius: 9999px;
+  font-size: 0.775rem;
+  font-weight: 700;
+  margin-bottom: 1.125rem;
+  letter-spacing: 0.01em;
+}
+
+/* Site Title & Description */
+.launch-site-title {
+  font-size: 2.15rem;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
+  margin: 0 0 0.85rem 0;
+}
+
+.launch-site-desc {
+  font-size: 0.95rem;
+  color: #475569;
+  line-height: 1.6;
+  max-width: 48rem;
+  margin: 0 0 1.5rem 0;
+}
+
+/* Meta Pills */
+.launch-meta-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 2.25rem;
+}
+
+.launch-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.85rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  font-size: 0.775rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.launch-meta-icon-violet { color: #6366f1; }
+.launch-meta-icon-indigo { color: #4f46e5; }
+.launch-meta-icon-emerald { color: #10b981; }
+
+/* ── Primary Action Buttons Stack ───────────────────────────────── */
+.launch-actions-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  width: 100%;
+}
+
+/* 1. Buy Template Button (Classified token pricing - NO amount shown on button) */
+.launch-btn-buy {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  padding: 0.95rem 1.5rem;
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  color: #ffffff !important;
+  border: 1px solid #059669;
+  border-radius: 0.875rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  text-decoration: none;
+}
+
+.launch-btn-buy:hover {
+  background: linear-gradient(135deg, #047857 0%, #059669 100%);
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45);
+  transform: translateY(-1.5px);
+}
+
+.launch-btn-buy:active {
+  transform: translateY(0);
+}
+
+/* 2. Deploy Button */
+.launch-btn-deploy {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  padding: 0.95rem 1.5rem;
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: #ffffff !important;
+  border: 1px solid #4f46e5;
+  border-radius: 0.875rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  text-decoration: none;
+}
+
+.launch-btn-deploy:hover {
+  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.45);
+  transform: translateY(-1.5px);
+}
+
+.launch-btn-deploy:active {
+  transform: translateY(0);
+}
+
+/* 3. Open Live Demo Button */
+.launch-btn-demo {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  padding: 0.85rem 1.5rem;
+  background: #f8fafc;
+  color: #1e293b !important;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 0.875rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+}
+
+.launch-btn-demo:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #0f172a !important;
+  transform: translateY(-1px);
+}
+
+/* 4. Edit in Live Canvas Button */
+.launch-btn-edit {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  padding: 0.85rem 1.5rem;
+  background: #ffffff;
+  color: #475569 !important;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.875rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+}
+
+.launch-btn-edit:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a !important;
+}
+
+/* Responsive adjust */
+@media (max-width: 640px) {
+  .studio-launch-page main {
+    padding-top: 5rem;
+  }
+  .launch-hero-card {
+    padding: 1.5rem !important;
+  }
+  .launch-site-title {
+    font-size: 1.6rem;
+  }
+}

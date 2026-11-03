@@ -2,11 +2,15 @@
 
 import asyncio
 import json
+import logging
 import re
+import time
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 from uuid import UUID
 from urllib.parse import urlsplit
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -20,7 +24,7 @@ from app.core.dependencies import get_current_user
 from app.core.request_limits import enforce_user_limit
 from app.models.user import User
 from app.models.studio_build import StudioBuild, StudioBuildEvent, StudioBuildMessage
-from app.services.studio_service import studio_service
+from app.services.studio_service import studio_service, detect_stack_from_prompt
 
 router = APIRouter()
 
@@ -44,7 +48,7 @@ class StudioPlanRequest(BaseModel):
     category: str = Field(min_length=1, max_length=100)
     genre: str = Field(min_length=1, max_length=100)
     page_structure: Literal["single_page", "multi_page"]
-    stack: str = Field(default="html-css-js", max_length=80)
+    stack: str = Field(default="auto", max_length=80)
 
 
 class StudioImageAsset(BaseModel):
@@ -66,7 +70,7 @@ class StudioImageAsset(BaseModel):
 
 class StudioGenerateRequest(BaseModel):
     prompt: str = Field(min_length=10, max_length=100000)
-    category_id: UUID
+    category_id: Optional[UUID] = None
     category: str = Field(min_length=1, max_length=100)
     genre: str = Field(min_length=1, max_length=100)
     build_prompt: str = Field(min_length=100, max_length=60000)
@@ -74,7 +78,19 @@ class StudioGenerateRequest(BaseModel):
     answers: dict[str, Any] = Field(default_factory=dict)
     image_urls: list[str] = Field(default_factory=list, max_length=16)
     image_assets: list[StudioImageAsset] = Field(default_factory=list, max_length=16)
-    stack: str = Field(default="html-css-js", max_length=80)
+    stack: str = Field(default="auto", max_length=80)
+
+    @field_validator("category_id", mode="before")
+    @classmethod
+    def validate_category_id(cls, value):
+        if value is None or str(value).strip() in {"", "none", "null", "undefined"}:
+            return None
+        if isinstance(value, UUID):
+            return value
+        try:
+            return UUID(str(value).strip())
+        except (ValueError, TypeError):
+            return None
 
     @field_validator("image_urls")
     @classmethod
@@ -94,7 +110,7 @@ class StudioPromptRequest(BaseModel):
     answers: dict[str, Any] = Field(default_factory=dict)
     image_urls: list[str] = Field(default_factory=list, max_length=16)
     image_assets: list[StudioImageAsset] = Field(default_factory=list, max_length=16)
-    stack: str = Field(default="html-css-js", max_length=80)
+    stack: str = Field(default="auto", max_length=80)
 
     @field_validator("image_urls")
     @classmethod
@@ -176,13 +192,14 @@ async def generate_studio_project(
     limit = 100 if settings.DEBUG else 30
     await enforce_user_limit(str(current_user.id), "studio-generate", limit=limit, window_seconds=3600)
 
+    resolved_stack = detect_stack_from_prompt(request.prompt, request.category, request.genre, requested_stack=request.stack or "auto")
     build = StudioBuild(
         user_id=current_user.id,
         title=str(request.plan.get("title") or request.genre)[:255],
         initial_prompt=request.prompt,
         category=request.category,
         site_type=request.genre,
-        stack=request.stack or "html-css-js",
+        stack=resolved_stack,
         status="running",
         current_phase="planning",
         plan=request.plan,
@@ -229,8 +246,9 @@ async def generate_studio_project(
                 build_prompt=request.build_prompt,
                 image_urls=request.image_urls,
                 image_assets=[asset.model_dump() for asset in request.image_assets],
-                stack=request.stack,
+                stack=resolved_stack,
             )
+            # Stream the generator events without arbitrary overall time limits, keeping connection warm via SSE keep-alives
             next_task = asyncio.create_task(gen.__anext__())
             while True:
                 done, _ = await asyncio.wait({next_task}, timeout=15.0)
@@ -271,6 +289,13 @@ async def generate_studio_project(
         except asyncio.CancelledError:
             if "next_task" in locals() and next_task and not next_task.done():
                 next_task.cancel()
+            logger.info("Studio generation cancelled for build %s (client disconnected).", build_id)
+            print(f"⚠️ [Studio Route] Generation cancelled/interrupted for build {build_id}", flush=True)
+            if "gen" in locals() and gen is not None:
+                try:
+                    await gen.aclose()
+                except Exception:
+                    pass
             try:
                 async with AsyncSessionLocal() as c_db:
                     cancelled_build = await c_db.get(StudioBuild, build_id)
@@ -285,6 +310,13 @@ async def generate_studio_project(
                 pass
             raise
         except Exception as exc:
+            logger.exception("[Studio Route] Generation stream failed for build %s: %s", build_id, exc)
+            print(f"❌ [Studio Route Error] Generation failed for build {build_id}: {exc}", flush=True)
+            if "gen" in locals() and gen is not None:
+                try:
+                    await gen.aclose()
+                except Exception:
+                    pass
             try:
                 async with AsyncSessionLocal() as f_db:
                     failed_build = await f_db.get(StudioBuild, build_id)

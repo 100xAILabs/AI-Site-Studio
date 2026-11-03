@@ -652,8 +652,21 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
     }
   }, [template, searchParams]);
   const previewSrc = (() => {
-    let base = template?.id ? `${API_URL}/preview/live/${template.id}/` : "";
-    if (template?.preview_url && !template.preview_url.includes("example.com") && !template.preview_url.includes("/preview/watermarked")) {
+    // Pure live website rendering endpoint: serves compiled HTML/CSS/JS with zero editor UI
+    const targetIdentifier = template?.id || template?.slug || slug;
+    let base = targetIdentifier ? `${API_URL}/preview/live/${targetIdentifier}/` : "";
+
+    // If a legitimate external production site is set, and NOT an internal studio editor route
+    if (
+      template?.preview_url &&
+      !template.preview_url.includes("/preview") &&
+      !template.preview_url.includes("/studio") &&
+      !template.preview_url.includes("localhost") &&
+      !template.preview_url.includes("127.0.0.1") &&
+      !template.preview_url.includes("preview.dev") &&
+      !template.preview_url.includes("example.com") &&
+      !template.preview_url.includes("preview/watermarked")
+    ) {
       base = template.preview_url;
     }
 
@@ -1004,6 +1017,45 @@ npm run build`;
           )}
         </div>
         <span className="text-xs text-muted-foreground block font-medium mt-1">{isTemplateFree ? "Free source download • Full commercial & personal use" : "One-time payment • Full commercial & personal license"}</span>
+      </div>
+
+      {/* Verified Tech Stack Badge */}
+      <div className="rounded-xl border border-border/70 bg-muted/40 p-3 mb-3 text-xs space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="flex items-center gap-1.5 font-semibold text-foreground">
+            <Cpu className="w-3.5 h-3.5 text-primary" />
+            <span>Verified Tech Stack</span>
+          </span>
+          <span className="font-bold text-primary">
+            {template?.framework === "react"
+              ? "React + FastAPI"
+              : template?.framework === "nextjs"
+              ? "Next.js + FastAPI"
+              : "HTML5 + CSS + JS"}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-1.5 pt-0.5">
+          <span className="px-2 py-0.5 rounded-md bg-background border border-border/80 text-[11px] font-medium text-foreground">
+            {template?.framework === "react" ? "React 18" : template?.framework === "nextjs" ? "Next.js 14" : "HTML5 & CSS3"}
+          </span>
+          {template?.framework === "react" || template?.framework === "nextjs" ? (
+            <>
+              <span className="px-2 py-0.5 rounded-md bg-background border border-border/80 text-[11px] font-medium text-foreground">
+                FastAPI (Python)
+              </span>
+              <span className="px-2 py-0.5 rounded-md bg-background border border-border/80 text-[11px] font-medium text-foreground">
+                PostgreSQL
+              </span>
+            </>
+          ) : (
+            <span className="px-2 py-0.5 rounded-md bg-background border border-border/80 text-[11px] font-medium text-foreground">
+              Vanilla JS
+            </span>
+          )}
+          <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+            1-Click Deploy Ready
+          </span>
+        </div>
       </div>
 
       {/* Action Buttons */}

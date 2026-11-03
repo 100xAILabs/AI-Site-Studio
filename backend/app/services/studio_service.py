@@ -8,8 +8,9 @@ import re
 import time
 import uuid
 import zipfile
+from decimal import Decimal
 from html.parser import HTMLParser
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Optional
 from urllib.parse import urlsplit
 
 import httpx
@@ -257,52 +258,108 @@ def _extract_prompt_details(prompt: str) -> dict[str, str]:
 
     return details
 
+HTML_STATIC_CATEGORIES = {
+    "portfolio", "personal", "resume", "cv", "showcase", "photography",
+    "artist", "restaurant", "cafe", "food", "menu", "bakery", "event",
+    "wedding", "conference", "landing page", "landing_page", "one page",
+    "brochure", "coming soon", "creative", "blog", "brochure website",
+    "business", "company", "agency", "corporate", "consulting", "services",
+    "technology", "healthcare", "real estate", "education", "travel",
+}
+
+PORTFOLIO_TERMS = (
+    "portfolio", "resume", "cv", "personal", "showcase", "photographer",
+    "photography", "artist", "freelancer", "developer portfolio", "designer portfolio",
+    "profile", "bio", "curriculum vitae", "software company", "company", "agency",
+)
+
+def detect_stack_from_prompt(prompt: str, category: str = "", genre: str = "", requested_stack: str = "auto") -> str:
+    """
+    Intelligently analyzes the user's prompt and requirements:
+    - Pure static showcase categories (Portfolio, Personal, Resume, CV, Photography, Restaurant, Cafe, Brochure, Event, Business, Agency, Software Company Showcases):
+      -> ALWAYS chooses 'html-css-js' (HTML5 + CSS + JavaScript).
+    - If the user lists developer skills (React, Python, Postgres, SQL, FastAPI, etc.) or bio/experience:
+      -> It is recognized as their skill/background, NEVER a full-stack website requirement.
+    - If anything explicitly requires an interactive application backend for the site itself (live database, user logins,
+      shopping cart checkout, admin CRUD dashboard):
+      -> Chooses 'react-fastapi-postgresql' (React + FastAPI + PostgreSQL).
+    - Default: 'html-css-js' (clean semantic HTML5, modern CSS, vanilla JS).
+    """
+    if requested_stack == "html-css-js":
+        return "html-css-js"
+
+    cat_lower = str(category or "").strip().lower()
+    genre_lower = str(genre or "").strip().lower()
+    prompt_lower = str(prompt or "").strip().lower()
+
+    # Rule 1: Check if the category or genre is strictly a static HTML showcase/presentation category
+    is_html_category = (
+        cat_lower in HTML_STATIC_CATEGORIES
+        or any(term in cat_lower for term in ("portfolio", "resume", "cv", "personal", "photograph", "showcase", "restaurant", "cafe", "menu", "bakery", "business", "company", "agency", "corporate", "service", "consulting"))
+        or any(term in genre_lower for term in PORTFOLIO_TERMS)
+        or any(term in genre_lower for term in ("restaurant", "cafe", "bakery", "event", "wedding", "brochure", "one page", "landing page", "business", "company", "agency", "corporate", "software company"))
+    )
+
+    # Rule 2: Check if prompt explicitly asks for a portfolio / resume / personal / company showcase site
+    is_portfolio_request = bool(re.search(
+        r"\b(?:portfolio|resume|résumé|cv|curriculum\s+vitae|personal\s+(?:site|website)|developer\s+portfolio|designer\s+portfolio|freelancer\s+portfolio|photographer\s+portfolio|artist\s+portfolio|my\s+projects?\s+showcase|show\s+what\s+we\s+do|show\s+the\s+user\s+what\s+they\s+do|software\s+company(?:\s+website)?|company\s+website|agency\s+website|business\s+website)\b",
+        prompt_lower,
+    ))
+
+    # Explicit backend requirements for the website application itself
+    explicit_backend_triggers = [
+        r"\b(?:user\s+login\s+system|user\s+authentication\s+system|user\s+registration\s+system|user\s+accounts?\s+with\s+(?:jwt|oauth|passwords?))\b",
+        r"\b(?:shopping\s+cart\s+with\s+(?:stripe|checkout|payment)|e-?commerce\s+store\s+with\s+order\s+management)\b",
+        r"\b(?:(?:hotel\s+)?booking\s+(?:system|engine)\s+with\s+(?:live\s+)?database|(?:room|table)\s+reservation\s+(?:system\s+with\s+database|database))\b",
+        r"\b(?:admin\s+crud\s+portal|saas\s+dashboard\s+with\s+database\s+crud)\b",
+        r"\b(?:build\s+a\s+full[\s\-]*stack\s+(?:web\s+)?app(?:lication)?\s+with\s+backend\s+and\s+database)\b",
+    ]
+    has_explicit_backend = any(bool(re.search(pat, prompt_lower)) for pat in explicit_backend_triggers)
+
+    # If it is a portfolio or static HTML category, guarantee html-css-js unless explicitly commanded with a backend app
+    if (is_html_category or is_portfolio_request) and not has_explicit_backend:
+        return "html-css-js"
+
+    # Rule 3: Strip developer skills, experience, and bio from prompt
+    # Users frequently say: "I am a React developer skilled in Python, SQL, PostgreSQL, FastAPI"
+    # These are DEVELOPER SKILLS, not instructions to build a fullstack SaaS app for their portfolio.
+    scrubbed_prompt = prompt_lower
+    skill_patterns = [
+        r"(?:skills?|technologies|tech\s+stack|tools?|languages?|proficiency)\s*[:\-\s]+[^\.\n;]+",
+        r"(?:skilled|experienced|proficient|worked|knowledge|background)\s+(?:in|with)\s+[^\.\n;]+",
+        r"(?:familiar|specializ(?:ed|ing))\s+(?:with|in)\s+[^\.\n;]+",
+        r"(?:projects?|apps?)\s+(?:built|developed|created)\s+(?:with|using|in)\s+[^\.\n;]+",
+        r"(?:full[\s\-]*stack|front[\s\-]*end|back[\s\-]*end|software|web|ui[\s\/]*ux|python|react|node|fastapi)\s+(?:developer|engineer|programmer|specialist|designer|creator|freelancer)",
+        r"\b(?:years?\s+of\s+experience|work\s+experience|career\s+highlights|job\s+history)\b[^\.\n;]*",
+        # Explicitly ignore tech names so skills like "React", "FastAPI", "Python", "PostgreSQL" in resumes never trigger fullstack
+        r"\b(?:react(?:\.?js)?|next(?:\.?js)?|vue(?:\.?js)?|angular|tailwind|typescript|javascript|html5?|css3?|python|fastapi|django|flask|postgresql?|postgres|sqlite3?|mongodb|mysql)\b",
+    ]
+    for sp in skill_patterns:
+        scrubbed_prompt = re.sub(sp, " ", scrubbed_prompt)
+
+    # Evaluate dynamic backend indicators against the scrubbed prompt + context
+    full_context = f"{scrubbed_prompt} {category} {genre}".lower()
+
+    backend_indicators = [
+        r"\b(?:live\s+database|postgres(?:ql)?\s+database|sqlite\s+database|mysql\s+database|database\s+schema|database\s+crud|table\s+schema|persist\s+data\s+to\s+db)\b",
+        r"\b(?:auth|authentication|user\s+login|log\s+in\s+portal|sign\s?in\s+portal|sign\s?up\s+portal|register\s+account|user\s+account\s+system|password\s+reset|jwt\s+tokens?|oauth2|rbac)\b",
+        r"\b(?:admin\s+panel|admin\s+dashboard|client\s+portal|management\s+portal|crm\s+system)\b",
+        r"\b(?:booking\s+system|reservation\s+system|reserve\s+online\s+with\s+database|table\s+booking\s+engine|room\s+booking\s+system)\b",
+        r"\b(?:shopping\s+cart|checkout\s+system|payment\s+gateway|stripe\s+checkout|process\s+payments?|order\s+management\s+system|inventory\s+system)\b",
+        r"\b(?:fastapi\s+backend|rest\s+api\s+endpoints?|server-side\s+api|backend\s+service\s+with\s+database)\b",
+    ]
+
+    for pattern in backend_indicators:
+        if re.search(pattern, full_context, re.IGNORECASE):
+            return "react-fastapi-postgresql"
+
+    # Default: Static website for displaying/showcasing
+    return "html-css-js"
+
+
 def _stack_guidance(stack: str) -> str:
-    stack_info = SUPPORTED_STACKS.get(stack) or SUPPORTED_STACKS.get("html-css-js", {})
-    frontend = stack_info.get("frontend")
-    backend = stack_info.get("backend")
-    db = stack_info.get("db")
-    label = stack_info.get("label", "Static (HTML / CSS / JS)")
-
-    if stack == "nextjs-fastapi-postgresql":
-        return f"""SELECTED TECH STACK: {label} (Next.js 14 App Router + FastAPI + PostgreSQL)
-FULL-STACK ARCHITECTURE SPECIFICATION:
-- Production Frontend: Next.js 14 App Router (TypeScript, Tailwind CSS, Lucide React icons)
-  * Root Layout: frontend/app/layout.tsx (fonts, global styles, sticky Navbar, Footer)
-  * Page Routes: frontend/app/page.tsx (Home), and frontend/app/<route>/page.tsx for each interior page (e.g. frontend/app/rooms/page.tsx, frontend/app/about/page.tsx)
-  * Client Components: frontend/components/ (Navbar, Footer, room cards, booking/inquiry forms, date pickers, modals)
-  * API Integration: frontend/lib/api.ts typed fetch wrapper connected to NEXT_PUBLIC_API_URL
-- Production Backend: FastAPI (Python 3.12) REST API
-  * Models: backend/app/models.py (SQLAlchemy 2.0 async mapped ORM models with PostgreSQL)
-  * Schemas: backend/app/schemas.py (Pydantic v2 validation models)
-  * REST Endpoints: backend/app/routes/ (e.g. GET /api/rooms, POST /api/bookings, POST /api/contact, GET /api/health)
-  * Database Connection: backend/app/database.py (async connection pool)
-  * Migrations: Alembic async migrations
-- Live Studio Browser Canvas Mirror:
-  * For instant in-browser live canvas editing and zero-install preview in AI Site Studio, a responsive static HTML mirror (index.html, etc.) is generated alongside the full-stack codebase.
-  * DO NOT restrict the project prompt to 'Plain HTML/CSS/JS only'. Clearly specify both the Next.js 14 App Router + FastAPI + PostgreSQL production codebase AND the preview mirror."""
-
-    if stack == "nextjs-nestjs-postgresql":
-        return f"""SELECTED TECH STACK: {label} (Next.js 14 App Router + NestJS + PostgreSQL - TypeScript End-to-End)
-FULL-STACK ARCHITECTURE SPECIFICATION:
-- Production Frontend: Next.js 14 App Router (TypeScript, Tailwind CSS, Lucide React icons)
-  * Root Layout: frontend/app/layout.tsx (fonts, global styles, sticky Navbar, Footer)
-  * Page Routes: frontend/app/page.tsx (Home), and frontend/app/<route>/page.tsx for each interior page
-  * Client Components: frontend/components/ (Navbar, Footer, interactive forms, modals, carousels)
-  * API Integration: frontend/lib/api.ts typed fetch wrapper connected to NEXT_PUBLIC_API_URL
-- Production Backend: NestJS Enterprise TypeScript REST API
-  * App Root: backend/src/app.module.ts, backend/src/main.ts (Bootstrap with CORS, ValidationPipe)
-  * Entities: backend/src/entities/ (TypeORM entity classes with PostgreSQL)
-  * DTOs: backend/src/dto/ (class-validator typed DTOs for request validation)
-  * Modules: backend/src/<resource>/ (module, controller, and service per resource group)
-  * Endpoints: POST /api/contact, POST /api/inquiries, POST /api/newsletter, GET /api/health
-  * Database: TypeORM async connection pool
-- Live Studio Browser Canvas Mirror:
-  * Responsive static HTML mirror (index.html, etc.) for zero-install preview in AI Site Studio.
-  * DO NOT restrict the project prompt to 'Plain HTML/CSS/JS only'. Document the Next.js + NestJS + PostgreSQL architecture."""
-
     if stack == "react-fastapi-postgresql":
-        return f"""SELECTED TECH STACK: {label} (React 18 + FastAPI + PostgreSQL - Emergent Standard)
+        return """SELECTED TECH STACK: React + FastAPI + PostgreSQL (Emergent Full-Stack Standard)
 FULL-STACK ARCHITECTURE SPECIFICATION:
 - Production Frontend: React 18 + TypeScript + Vite + Tailwind CSS + React Router v6
   * App Entry: frontend/src/main.tsx, frontend/src/App.tsx
@@ -316,66 +373,13 @@ FULL-STACK ARCHITECTURE SPECIFICATION:
   * Database: backend/app/database.py (async connection pool)
   * Migrations: Alembic async migrations
 - Live Studio Browser Canvas Mirror:
-  * Responsive static HTML mirror (index.html, etc.) for zero-install preview in AI Site Studio.
-  * DO NOT restrict the project prompt to 'Plain HTML/CSS/JS only'. Document the React + FastAPI + PostgreSQL architecture."""
-
-    if stack == "react-fastapi-mongodb":
-        return f"""SELECTED TECH STACK: {label} (React 18 + FastAPI + MongoDB - Emergent FARM Stack)
-FULL-STACK ARCHITECTURE SPECIFICATION:
-- Production Frontend: React 18 + TypeScript + Vite + Tailwind CSS + React Router v6
-  * App Entry: frontend/src/main.tsx, frontend/src/App.tsx
-  * Page Components: frontend/src/pages/<Page>.tsx
-  * Interactive UI Components: frontend/src/components/ (Navbar, Footer, interactive forms)
-  * API Integration: frontend/src/api/client.ts (Axios instance connected to VITE_API_URL)
-- Production Backend: FastAPI (Python 3.12) + Motor (Async MongoDB)
-  * Driver: Async Motor AsyncIOMotorClient in backend/app/database.py
-  * Models: backend/app/models.py (Pydantic v2 document models with Mongo ObjectId serialization)
-  * Schemas: backend/app/schemas.py (Request/response validation schemas)
-  * REST Endpoints: backend/app/routes/ (POST /api/contact, POST /api/inquiries, GET /api/health)
-  * Config: Pydantic Settings reading MONGO_URI and DATABASE_NAME
-- Live Studio Browser Canvas Mirror:
-  * Responsive static HTML mirror (index.html, etc.) for zero-install preview in AI Site Studio.
-  * DO NOT restrict the project prompt to 'Plain HTML/CSS/JS only'. Document the FARM stack architecture."""
-
-    if stack == "react-express-mongodb":
-        return f"""SELECTED TECH STACK: {label} (React 18 + Express.js + MongoDB - MERN Stack)
-FULL-STACK ARCHITECTURE SPECIFICATION:
-- Production Frontend: React 18 + TypeScript + Vite + Tailwind CSS + React Router v6
-  * App Entry: frontend/src/main.tsx, frontend/src/App.tsx
-  * Page Components: frontend/src/pages/<Page>.tsx
-  * Interactive UI Components: frontend/src/components/ (Navbar, Footer, interactive forms)
-  * API Integration: frontend/src/api/client.ts (Axios instance connected to VITE_API_URL)
-- Production Backend: Node.js Express.js REST API + Mongoose
-  * Server Entry: backend/src/server.js, backend/src/app.js (Express app factory with CORS & JSON body parser)
-  * Models: backend/src/models/ (Mongoose schemas and models)
-  * Routes: backend/src/routes/ (Express routers for /api/contact, /api/inquiries, /api/health)
-  * Middleware: backend/src/middleware/ (JWT auth verify, error handler)
-  * Database: backend/src/config/database.js (Mongoose connect)
-- Live Studio Browser Canvas Mirror:
-  * Responsive static HTML mirror (index.html, etc.) for zero-install preview in AI Site Studio.
-  * DO NOT restrict the project prompt to 'Plain HTML/CSS/JS only'. Document the MERN architecture."""
-
-    if stack == "react-django-postgresql":
-        return f"""SELECTED TECH STACK: {label} (React 18 + Django REST Framework + PostgreSQL)
-FULL-STACK ARCHITECTURE SPECIFICATION:
-- Production Frontend: React 18 + TypeScript + Vite + Tailwind CSS + React Router v6
-  * App Entry: frontend/src/main.tsx, frontend/src/App.tsx
-  * Page Components: frontend/src/pages/<Page>.tsx
-  * Interactive UI Components: frontend/src/components/
-  * API Integration: frontend/src/api/client.ts
-- Production Backend: Django 5 + Django REST Framework (DRF) + PostgreSQL
-  * Models: backend/<app_name>/models.py (Django ORM models)
-  * Serializers: backend/<app_name>/serializers.py (ModelSerializers)
-  * Views: backend/<app_name>/views.py (DRF ViewSets/APIViews)
-  * Routes: backend/<app_name>/urls.py and backend/config/urls.py
-- Live Studio Browser Canvas Mirror:
   * Responsive static HTML mirror (index.html, etc.) for zero-install preview in AI Site Studio."""
 
     return """SELECTED TECH STACK: Static Website (HTML5 / CSS3 / Vanilla JavaScript)
 ARCHITECTURE SPECIFICATION:
 - Semantic HTML5, modern vanilla CSS3, responsive layouts, zero external UI framework dependencies.
-- Filenames: index.html (Home) and clean interior page files."""
-
+- Complete standalone pages: index.html (Home) and clean interior page files.
+- Interactive mobile hamburger drawer, accessible navigation, and fluid responsive design."""
 
 def _fallback_image_uploads(category: str, genre: str, prompt: str, profile: str) -> list[dict[str, Any]]:
     """Return upload slots that match the actual brief when the planner omits them."""
@@ -463,6 +467,8 @@ CURATED_STOCK_IMAGES = {
         {"id": "photo-1414235077428-338989a2e8c0", "tag": "menu", "alt": "Fine dining plate presented by executive chef"},
         {"id": "photo-1577219491135-ce391730fb2c", "tag": "about", "alt": "Head chef preparing signature recipe in modern kitchen"},
         {"id": "photo-1514933651103-005eec06c04b", "tag": "drinks", "alt": "Craft cocktails and vintage wine cellar bar"},
+        {"id": "photo-1509440159596-0249088772ff", "tag": "bakery", "alt": "Artisanal freshly baked bread and golden pastry selection"},
+        {"id": "photo-1501339847302-ac426a4a7cbb", "tag": "coffee", "alt": "Specialty espresso coffee cup with delicate foam latte art"},
     ],
     "portfolio": [
         {"id": "photo-1498050108023-c5249f4df085", "tag": "hero", "alt": "Modern software engineering desk with mechanical keyboard and code editor"},
@@ -471,6 +477,10 @@ CURATED_STOCK_IMAGES = {
         {"id": "photo-1460925895917-afdab827c52f", "tag": "projects", "alt": "Analytics dashboard metrics and user engagement graphs"},
         {"id": "photo-1551288049-bebda4e38f71", "tag": "projects", "alt": "Interactive data visualization and cloud architecture diagram"},
         {"id": "photo-1517694712202-14dd9538aa97", "tag": "skills", "alt": "Fullstack development on high-resolution widescreen monitors"},
+        {"id": "photo-1534528741775-53994a69daeb", "tag": "portrait", "alt": "Professional creative professional portrait headshot"},
+        {"id": "photo-1522071820081-009f0129c71c", "tag": "experience", "alt": "Team engineering sprint and technical collaboration"},
+        {"id": "photo-1555066931-4365d14bab8c", "tag": "projects", "alt": "Syntax-highlighted backend code on developer workstation"},
+        {"id": "photo-1519389950473-47ba0277781c", "tag": "about", "alt": "Modern developer workstation with wireless tech accessories"},
     ],
     "construction": [
         {"id": "photo-1504307651254-35680f356dfd", "tag": "hero", "alt": "Construction site supervisor reviewing architectural blueprint"},
@@ -478,6 +488,7 @@ CURATED_STOCK_IMAGES = {
         {"id": "photo-1486406146926-c627a92ad1ab", "tag": "projects", "alt": "Modern glass and steel skyscraper facade building project"},
         {"id": "photo-1503387762-592deb58ef4e", "tag": "projects", "alt": "Architect drafting residential structural floor plans"},
         {"id": "photo-1513694203232-719a280e022f", "tag": "services", "alt": "Renovation craftsmanship and interior structural carpentry"},
+        {"id": "photo-1600585154340-be6161a56a0c", "tag": "projects", "alt": "Luxury modern finished residential architecture"},
     ],
     "ecommerce": [
         {"id": "photo-1441986300917-64674bd600d8", "tag": "hero", "alt": "Curated modern retail clothing showroom with minimalist apparel"},
@@ -485,29 +496,42 @@ CURATED_STOCK_IMAGES = {
         {"id": "photo-1441984904996-e0b6ba687e04", "tag": "products", "alt": "Minimalist handcrafted leather accessories and goods"},
         {"id": "photo-1523275335684-37898b6baf30", "tag": "products", "alt": "Minimalist luxury chronograph watch on clean stone background"},
         {"id": "photo-1505740420928-5e560c06d30e", "tag": "products", "alt": "Premium wireless noise-cancelling headphones product studio shot"},
+        {"id": "photo-1542291026-7eec264c27ff", "tag": "products", "alt": "Designer athletic performance sneakers studio showcase"},
+        {"id": "photo-1522335789203-aabd1fc54bc9", "tag": "products", "alt": "Natural organic skincare and cosmetic bottle packaging"},
     ],
     "saas": [
         {"id": "photo-1460925895917-afdab827c52f", "tag": "hero", "alt": "SaaS analytics platform user growth and revenue metrics dashboard"},
         {"id": "photo-1551288049-bebda4e38f71", "tag": "features", "alt": "Real-time cloud database monitoring and telemetry display"},
         {"id": "photo-1531403009284-440f080d1e12", "tag": "features", "alt": "Product design sprint team mapping collaborative user flows"},
         {"id": "photo-1522071820081-009f0129c71c", "tag": "about", "alt": "High-performing engineering team collaborating in bright modern office"},
+        {"id": "photo-1558494949-ef010cbdcc31", "tag": "services", "alt": "Cloud server datacenter racks with high availability infrastructure"},
+        {"id": "photo-1519389950473-47ba0277781c", "tag": "products", "alt": "Next-generation software platform interface on laptop screen"},
+        {"id": "photo-1531482615713-2afd69097998", "tag": "team", "alt": "Software company leadership team conducting client review"},
+        {"id": "photo-1498050108023-c5249f4df085", "tag": "tech", "alt": "Engineering lead building scalable distributed systems"},
+        {"id": "photo-1504384308090-c894fdcc538d", "tag": "solutions", "alt": "Modern high-tech software engineering studio office"},
     ],
     "medical": [
         {"id": "photo-1576091160399-112ba8d25d1d", "tag": "hero", "alt": "Modern bright healthcare clinic reception and patient waiting lounge"},
         {"id": "photo-1629909613654-28e377c37b09", "tag": "services", "alt": "Advanced medical diagnostic equipment in pristine consultation room"},
         {"id": "photo-1505751172876-fa1923c5c528", "tag": "services", "alt": "Compassionate doctor consulting with patient about preventive health"},
         {"id": "photo-1559839734-2b71ea197ec2", "tag": "about", "alt": "Experienced medical director and clinical specialist physician"},
+        {"id": "photo-1584515979956-d9f6e5d09982", "tag": "team", "alt": "Care team nurses and healthcare specialists conferring"},
     ],
     "real_estate": [
         {"id": "photo-1600596542815-ffad4c1539a9", "tag": "hero", "alt": "Luxury modern residential estate with swimming pool and twilight landscape"},
         {"id": "photo-1600585154340-be6161a56a0c", "tag": "properties", "alt": "Contemporary open-concept living room with floor-to-ceiling glass windows"},
         {"id": "photo-1600607687939-ce8a6c25118c", "tag": "properties", "alt": "Designer chef kitchen with marble waterfall island and premium appliances"},
         {"id": "photo-1600566753376-12c8ab7fb75b", "tag": "properties", "alt": "Master suite bedroom overlooking scenic panoramic hills"},
+        {"id": "photo-1512917774080-9991f1c4c750", "tag": "properties", "alt": "Contemporary architectural villa with Mediterranean garden"},
     ],
     "general": [
         {"id": "photo-1497366216548-37526070297c", "tag": "hero", "alt": "Modern professional corporate headquarters lobby and architecture"},
         {"id": "photo-1497366811353-6870744d04b2", "tag": "about", "alt": "Contemporary minimalist executive conference room"},
         {"id": "photo-1497366754035-f200968a6e72", "tag": "services", "alt": "Bright collaborative creative studio workspace"},
+        {"id": "photo-1522071820081-009f0129c71c", "tag": "team", "alt": "Professional team collaborating in contemporary workspace"},
+        {"id": "photo-1521737711867-e3b97375f902", "tag": "partnership", "alt": "Business executives shaking hands on successful contract"},
+        {"id": "photo-1486406146926-c627a92ad1ab", "tag": "building", "alt": "Modern metropolitan corporate tower reflection"},
+        {"id": "photo-1460925895917-afdab827c52f", "tag": "solutions", "alt": "Strategic financial growth and business analytics visualization"},
     ],
 }
 
@@ -953,7 +977,7 @@ def _enforce_multipage_navigation(
 
 class StudioService:
     def __init__(self):
-        self._active_user_generations: set[str] = set()
+        self._active_user_generations: dict[str, float] = {}
         self._pixabay_search_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 
     async def _pixabay_hits(self, query: str) -> list[dict[str, Any]]:
@@ -1035,7 +1059,7 @@ class StudioService:
                 searches_with_target = [(f"{genre} professional website photography", "index.html"), (f"{genre} business environment", "")]
 
         stock_assets: list[dict[str, str]] = []
-        max_stock_limit = 24 if len(pages_plan) > 1 else 10
+        max_stock_limit = 24 if len(pages_plan) > 1 else 12
         for query, target_page in searches_with_target[:10]:
             if len(stock_assets) >= max_stock_limit:
                 break
@@ -1044,42 +1068,33 @@ class StudioService:
                 if len(stock_assets) >= max_stock_limit:
                     break
                 try:
-                    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-                        response = await client.get(hit["image_url"])
-                    response.raise_for_status()
-                    content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
-                    content = response.content
-                    if content_type not in {"image/jpeg", "image/png", "image/webp"} or not content or len(content) > 8 * 1024 * 1024:
-                        continue
-                    extension = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}[content_type]
-                    stored_url = await storage.upload_file(
-                        db=db,
-                        file_content=content,
-                        folder="studio-stock",
-                        original_filename=f"pixabay-stock-{uuid.uuid4().hex[:12]}{extension}",
-                        content_type=content_type,
-                    )
-                    stock_assets.append({
-                        "role": "project" if profile == "construction" else "general",
-                        "url": stored_url,
-                        "alt": f"Illustrative photo: {hit.get('tags', query)}",
-                        "tags": str(hit.get("tags") or query),
-                        "page_target": target_page,
-                        "source_name": "Pixabay",
-                        "source_url": hit["page_url"],
-                        "credit": f"Photo by {hit['photographer']} on Pixabay",
-                    })
+                    raw_cdn_url = hit.get("image_url")
+                    if raw_cdn_url and str(raw_cdn_url).startswith("https://"):
+                        stock_assets.append({
+                            "role": "project" if profile == "construction" else "general",
+                            "url": raw_cdn_url,
+                            "alt": f"Illustrative photo: {hit.get('tags', query)}",
+                            "tags": str(hit.get("tags") or query),
+                            "page_target": target_page,
+                            "source_name": "Pixabay",
+                            "source_url": hit.get("page_url", "https://pixabay.com"),
+                            "credit": f"Photo by {hit.get('photographer', 'Pixabay contributor')} on Pixabay",
+                        })
                 except Exception as exc:
-                    logger.info("Could not store a Pixabay stock image: %s", type(exc).__name__)
+                    logger.info("Could not process Pixabay stock image: %s", exc)
 
-        # Ensure we have rich domain-specific fallback images if stock queries returned fewer than 6
-        if len(stock_assets) < 6:
-            curated = _curated_stock_assets(profile, genre)
-            stock_assets.extend(curated)
+        # Always guarantee rich domain-specific fallback images so pages are NEVER blank
+        curated = _curated_stock_assets(profile, genre)
+        for asset in curated:
+            if len(stock_assets) >= max_stock_limit:
+                break
+            if not any(a.get("url") == asset.get("url") for a in stock_assets):
+                stock_assets.append(asset)
 
         return stock_assets
 
-    async def plan(self, prompt: str, category: str, genre: str, page_structure: str = "multi_page", stack: str = "html-css-js") -> dict[str, Any]:
+    async def plan(self, prompt: str, category: str, genre: str, page_structure: str = "multi_page", stack: str = "auto") -> dict[str, Any]:
+        stack = detect_stack_from_prompt(prompt, category, genre, requested_stack=stack)
         profile = _site_profile(category, genre, prompt)
         profile_guidance = _profile_guidance(profile)
         stack_guidance = _stack_guidance(stack)
@@ -1395,8 +1410,9 @@ Return JSON only: {{\"primary\":\"#RRGGBB\",\"accent\":\"#RRGGBB\",\"background\
         answers: dict[str, Any],
         image_urls: list[str],
         image_assets: list[dict[str, str]],
-        stack: str = "html-css-js",
+        stack: str = "auto",
     ) -> str:
+        stack = detect_stack_from_prompt(prompt, category, genre, requested_stack=stack)
         profile_guidance = _profile_guidance(_site_profile(category, genre, prompt))
         stack_guidance = _stack_guidance(stack)
         request = f"""You are the Planning Agent. Create the complete, editable project prompt that will be shown to the user and then passed directly to code-generation agents.
@@ -1446,19 +1462,33 @@ Make the site distinctive, polished, responsive, and visibly animated with a coh
         db: AsyncSession,
         user: User,
         prompt: str,
-        category_id: uuid.UUID,
-        category_name: str,
-        genre: str,
-        plan: dict[str, Any],
-        answers: dict[str, Any],
-        image_urls: list[str],
+        category_id: Optional[uuid.UUID] = None,
+        category_name: str = "Website",
+        genre: str = "",
+        plan: dict[str, Any] = None,
+        answers: dict[str, Any] = None,
+        image_urls: list[str] = None,
         image_assets: list[dict[str, str]] | None = None,
         build_prompt: str = "",
         stack: str = "html-css-js",
     ) -> AsyncIterator[dict[str, Any]]:
-        category = await db.get(Category, category_id)
+        category = None
+        if category_id:
+            try:
+                category = await db.get(Category, category_id)
+            except Exception:
+                category = None
         if not category or not category.is_active:
-            raise ValueError("Choose an active marketplace category.")
+            from sqlalchemy import select
+            if category_name and category_name.strip():
+                clean_name = category_name.strip()
+                res = await db.execute(select(Category).where(Category.name.ilike(f"%{clean_name}%"), Category.is_active == True).limit(1))
+                category = res.scalar_one_or_none()
+            if not category:
+                res = await db.execute(select(Category).where(Category.is_active == True).order_by(Category.sort_order).limit(1))
+                category = res.scalar_one_or_none()
+            if not category:
+                raise ValueError("Choose an active marketplace category.")
         await db.commit()  # Release the DB connection while agents work.
         selected_pages = []
         for page in plan.get("pages", []) if isinstance(plan.get("pages"), list) else []:
@@ -1491,9 +1521,14 @@ Make the site distinctive, polished, responsive, and visibly animated with a coh
             return {"type": "agent", "agent": AGENTS[agent], "status": state, "detail": detail}
 
         user_key = str(user.id)
+        now_ts = time.monotonic()
         if user_key in self._active_user_generations:
-            raise ValueError("A Studio build is already running for this account. Wait for it to finish before starting another.")
-        self._active_user_generations.add(user_key)
+            elapsed_lock = now_ts - self._active_user_generations[user_key]
+            if elapsed_lock < 25.0:
+                raise ValueError("A Studio build is already initializing for this account. Please wait a moment.")
+            logger.info("Superseding previous build lock for user %s (lock age=%.1fs)", user_key, elapsed_lock)
+        self._active_user_generations[user_key] = now_ts
+        print(f"🚀 [Studio Service] Starting generation for user {user_key} | prompt='{prompt[:50]}...' | stack={stack}", flush=True)
         try:
             yield status("planning", "completed", "Using your reviewed build prompt directly as the source of truth.")
             build_brief = approved_build_prompt
@@ -1523,7 +1558,9 @@ Specify exact palette, typography, spacing, layout grid, components, responsive 
             # ----------------------------------------------------------------
             backend_files: dict[str, str] = {}
             architecture: dict[str, Any] = {}
-            is_fullstack = stack and stack != "html-css-js"
+            # Enforce strict stack detection to ensure portfolios and static categories stay HTML
+            stack = detect_stack_from_prompt(prompt, category=category_name, genre=genre, requested_stack=stack)
+            is_fullstack = (stack == "react-fastapi-postgresql")
 
             if is_fullstack:
                 yield {"type": "agent", "agent": AGENTS["architect"], "status": "running", "detail": f"Designing database schema and API routes for {stack} stack…"}
@@ -1720,7 +1757,16 @@ Specify exact palette, typography, spacing, layout grid, components, responsive 
             for index, page in enumerate(page_list):
                 page_name = str(page.get("name") or f"Page {index + 1}")
                 filename = _filename(page.get("filename", ""), index, page_name)
-                yield {"type": "page", "status": "running", "index": index + 1, "total": len(page_list), "name": page_name, "filename": filename}
+                yield {
+                    "type": "page",
+                    "agent": AGENTS["frontend"],
+                    "status": "running",
+                    "index": index + 1,
+                    "total": len(page_list),
+                    "name": page_name,
+                    "filename": filename,
+                    "detail": f"Generating {page_name} page ({filename}) [{index + 1}/{len(page_list)}]…",
+                }
                 compact_sitemap = [
                     {key: item.get(key) for key in ("name", "filename", "purpose") if item.get(key)}
                     for item in page_list
@@ -1795,11 +1841,22 @@ The user personally uploaded and labeled these authentic images specifically for
                     if target == filename or any(kw in tags or kw in alt for kw in page_keywords):
                         page_specific_images.append(f"  - [TARGETED FOR {page_name.upper()}]: <img src=\"{asset['url']}\" alt=\"{asset.get('alt')}\">")
 
+                # Guarantee every page gets at least 5 to 8 illustrative images so cards and sections are NEVER blank
+                if len(page_specific_images) < 5 and stock_assets:
+                    seen_urls = {item.split('src="')[1].split('"')[0] for item in page_specific_images if 'src="' in item}
+                    for asset in stock_assets:
+                        u = asset.get("url")
+                        if u and u not in seen_urls:
+                            seen_urls.add(u)
+                            page_specific_images.append(f"  - [SECTION/CARD IMAGE FOR {page_name.upper()}]: <img src=\"{u}\" alt=\"{asset.get('alt')}\">")
+                            if len(page_specific_images) >= 6:
+                                break
+
                 page_image_guidance = ""
                 if page_specific_images:
-                    page_image_guidance = f"""### 🎯 HIGH-PRIORITY IMAGES SPECIFICALLY TARGETED FOR {page_name.upper()} ({filename}):
-{chr(10).join(page_specific_images[:6])}
-- MANDATORY CONTENT INTEGRITY: You MUST use these images specifically matched for {page_name}. Do NOT use images from unrelated categories (e.g. no bedroom photos on dining pages; no food photos on room pages)."""
+                    page_image_guidance = f"""### 🎯 HIGH-PRIORITY VERIFIED IMAGES FOR {page_name.upper()} ({filename}):
+{chr(10).join(page_specific_images[:8])}
+- MANDATORY CONTENT INTEGRITY & NO BLANK CARDS RULE: You MUST render these verified image URLs using `<img src="..." alt="...">` in your Hero banner, feature/service cards, about section, showcase grid, and testimonials. NEVER leave image cards blank, empty, or unrendered!"""
 
                 page_prompt = f"""You are the Frontend Dev Agent. Implement exactly one complete, production-quality, responsive HTML page. This is a separate page-by-page build; do not emit other pages or explanations.
 Original user brief highlights: <brief>{prompt[:3000]}</brief>
@@ -1838,6 +1895,10 @@ CRITICAL CONTENT ACCURACY & ANTI-LAZINESS DIRECTIVE:
     1. Render a 1-click WhatsApp chat button: <a href="https://wa.me/CLEAN_PHONE?text=Hi%2C%20I%20saw%20your%20portfolio%20and%20would%20like%20to%20connect!" target="_blank" rel="noopener">Chat on WhatsApp</a>.
     2. Render a 1-click SMS button: <a href="sms:CLEAN_PHONE?body=Hi%2C%20I%20would%20like%20to%20connect!">Send SMS</a>.
     3. Render a Call link: <a href="tel:CLEAN_PHONE">Call</a>.
+- CRITICAL VISUAL INTEGRITY & NO BLANK CARDS MANDATE:
+  * When no user photos are uploaded, you MUST use the verified stock image URLs from 'HIGH-PRIORITY VERIFIED IMAGES' and 'User and automatically sourced image assets'.
+  * Every card, project showcase, service feature, about section, and hero banner MUST include a real, working <img src="..." alt="..."> tag.
+  * NEVER leave image cards blank, empty, or unrendered.
 - CRITICAL ALL-DEVICE & MOBILE RESPONSIVENESS MANDATE:
   * You MUST make this page 100% responsive and all-device friendly (mobile phones 320px-480px, tablets 768px-1024px, laptops, and wide desktops).
   * Always include `<meta name="viewport" content="width=device-width, initial-scale=1.0">` in the `<head>`.
@@ -1859,7 +1920,7 @@ Owner details: {json.dumps(answers, ensure_ascii=False)[:2500]}
 Images: {image_context[:10000]}
 {user_image_guidance}
 {page_image_guidance}
-Rules: Use semantic, responsive HTML with a complete head, body, style, and script where needed. Match the named page only. Include working relative navigation, accessible focus, alt text, and reduced-motion support. NON-LAZY MANDATE: You MUST render all uploaded images from 'Images' inventory 1:1 with zero duplicate images across cards. Distribute evenly across category filters. Return HTML only and include the exact closing </body></html> tags."""
+Rules: Use semantic, responsive HTML with a complete head, body, style, and script where needed. Match the named page only. Include working relative navigation, accessible focus, alt text, and reduced-motion support. NON-LAZY & NO-BLANK-CARDS MANDATE: Every card, hero section, and project showcase MUST render a working <img> tag using the provided URLs. Never leave cards blank or empty. Return HTML only and include the exact closing </body></html> tags."""
                 html = ""
                 best_raw_html = ""
                 for attempt in range(3):
@@ -1876,14 +1937,22 @@ Existing incomplete document (continue after its final character):
 {best_raw_html[-50000:]}
 """
                     provider_info: dict[str, str] = {}
+                    per_page_timeout = 120.0
                     raw_html = await ai_service._generate_content(
                         active_page_prompt, response_mime_type="text/plain", feature_name="website_frontend_generation",
                         preferred_provider="gemini", provider_order_override=CODE_PROVIDER_ORDER,
-                        request_timeout_seconds=600.0, max_local_model_attempts=2,
+                        request_timeout_seconds=per_page_timeout, max_local_model_attempts=2,
                         on_provider_success=lambda provider, model: provider_info.update(provider=provider, model=model),
                     )
                     if provider_info:
-                        yield {"type": "model", "stage": "frontend", "page": filename, **provider_info}
+                        yield {
+                            "type": "model",
+                            "agent": AGENTS["frontend"],
+                            "stage": "frontend",
+                            "page": filename,
+                            "detail": f"AI model ({provider_info.get('model', 'LLM')}) generated {filename} markup.",
+                            **provider_info,
+                        }
                     response_html = _clean_html(raw_html)
                     if attempt == 0 or "<html" not in best_raw_html.lower():
                         candidate_html = response_html
@@ -1908,7 +1977,16 @@ Existing incomplete document (continue after its final character):
                         f"({len(html)} characters; html_start={'<html' in html.lower()}, html_end={'</html>' in html.lower()})."
                     )
                 pages[filename] = html
-                yield {"type": "page", "status": "completed", "index": index + 1, "total": len(page_list), "name": page_name, "filename": filename}
+                yield {
+                    "type": "page",
+                    "agent": AGENTS["frontend"],
+                    "status": "completed",
+                    "index": index + 1,
+                    "total": len(page_list),
+                    "name": page_name,
+                    "filename": filename,
+                    "detail": f"{page_name} page ({filename}) complete ({len(html):,} chars).",
+                }
 
             yield status("seo", "running", "Reviewing metadata, headings, links, and accessibility.")
             seo_prompt = f"""You are the SEO & A11y Agent. Review these generated pages and return a concise JSON report. Identify only actionable errors. Ensure unique titles/descriptions, heading order, link clarity, image alt text, keyboard access, color contrast concerns, and reduced-motion. List filenames requiring changes in repair_pages.
@@ -1922,9 +2000,9 @@ Return JSON: {{\"summary\":\"...\",\"repair_pages\":[\"filename\"],\"findings\":
             ))
             yield status("seo", "completed", str(seo.get("summary") or "SEO and accessibility review complete.")[:250])
 
-            seo_repair_names = [n for n in seo.get("repair_pages", []) if n in pages][:3]
-            if not seo_repair_names:
-                seo_repair_names = list(dict.fromkeys(f.get("page") for f in seo.get("findings", []) if isinstance(f, dict) and f.get("page") in pages))[:3]
+            seo_repair_names = ([n for n in seo.get("repair_pages", []) if n in pages][:3]
+                                if not seo.get("repair_pages")
+                                else list(dict.fromkeys(f.get("page") for f in seo.get("findings", []) if isinstance(f, dict) and f.get("page") in pages))[:3])
             for filename in seo_repair_names:
                 issues = [f for f in seo.get("findings", []) if isinstance(f, dict) and f.get("page") == filename]
                 yield {"type": "page", "status": "repairing", "filename": filename, "name": filename[:-5].replace("-", " ").title()}
@@ -1933,7 +2011,7 @@ Return JSON: {{\"summary\":\"...\",\"repair_pages\":[\"filename\"],\"findings\":
                     repair_prompt + "\n" + STUDIO_CLINERULES, response_mime_type="text/plain",
                     feature_name="website_frontend_generation", preferred_provider="gemini",
                     provider_order_override=CODE_PROVIDER_ORDER,
-                    request_timeout_seconds=600.0, max_local_model_attempts=2,
+                    request_timeout_seconds=60.0, max_local_model_attempts=2,
                 ))
                 if "</html>" in repaired.lower() and len(repaired) >= 600:
                     pages[filename] = repaired
@@ -1997,7 +2075,7 @@ Files: {json.dumps({k: (v if len(v) <= 6000 else f"{v[:3800]}\n<!-- ... [interio
                     repair_prompt + "\n" + STUDIO_CLINERULES, response_mime_type="text/plain",
                     feature_name="website_frontend_generation", preferred_provider="gemini",
                     provider_order_override=CODE_PROVIDER_ORDER,
-                    request_timeout_seconds=600.0, max_local_model_attempts=2,
+                    request_timeout_seconds=60.0, max_local_model_attempts=2,
                 ))
                 if "</html>" in repaired.lower() and len(repaired) >= 600:
                     pages[filename] = repaired
@@ -2035,7 +2113,7 @@ HTML:
                     reference_repair_prompt, response_mime_type="text/plain",
                     feature_name="website_frontend_generation", preferred_provider="gemini",
                     provider_order_override=CODE_PROVIDER_ORDER,
-                    request_timeout_seconds=600.0, max_local_model_attempts=2,
+                    request_timeout_seconds=60.0, max_local_model_attempts=2,
                 ))
                 if "</html>" in repaired.lower() and len(repaired) >= 600:
                     pages[filename] = repaired
@@ -2112,6 +2190,14 @@ Audit: {json.dumps(audit, ensure_ascii=False)[:2000]}"""
             slug = f"{base_slug}-{uuid.uuid4().hex[:8]}"
             title = str(plan.get("title") or genre.title())[:255]
 
+            # Calculate classified pricing based on tokens used in multi-agent pipeline + 20% interest + taxes
+            total_agent_tokens = sum(max(1, len(content.split())) for content in pages.values()) + max(1, len(approved_build_prompt.split())) + max(1, len(design.split()))
+            classified_tokens = max(8000, int(total_agent_tokens * 2.2))
+            base_token_cost = round((classified_tokens / 1000.0) * 1.25, 2)
+            interest_20 = round(base_token_cost * 0.20, 2)
+            tax_amount = round((base_token_cost + interest_20) * 0.10, 2)
+            classified_price = Decimal(str(max(19.00, round(base_token_cost + interest_20 + tax_amount, 2))))
+
             # Use a fresh, pre-pinged session to prevent serverless database idle timeouts during long generations
             from app.core.database import AsyncSessionLocal
             async with AsyncSessionLocal() as save_db:
@@ -2121,11 +2207,11 @@ Audit: {json.dumps(audit, ensure_ascii=False)[:2000]}"""
                     slug=slug,
                     short_description=str(plan.get("summary") or "Private AI-generated website project.")[:500],
                     description=str(plan.get("summary") or "Private AI-generated website project."),
-                    price=0,
+                    price=classified_price,
                     price_currency="USD",
-                    is_free=True,
+                    is_free=False,
                     thumbnail_url=(safe_images[0] if safe_images else "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1200&q=85"),
-                    preview_url=f"{settings.FRONTEND_URL.rstrip('/')}/preview?template={slug}",
+                    preview_url=None,
                     gallery_images=safe_images or None,
                     category_id=category.id,
                     tags=["studio-project", "ai-generated", genre[:60]],
@@ -2141,10 +2227,26 @@ Audit: {json.dumps(audit, ensure_ascii=False)[:2000]}"""
                     is_ai_ready=True,
                     license_type=TemplateLicense.REGULAR,
                     status=TemplateStatus.DRAFT,
+                    is_marketplace=False,
+                    template_origin="studio",
                     developer_name=(user.full_name or user.username or "My Studio")[:200],
                     seller_id=user.id,
                     download_assets={"html": zip_url, "zip": zip_url},
-                    changelog={"private_studio_project": True, "plan": plan, "answers": answers, "architecture": architecture, "stack": stack, "design": design[:5000], "seo_a11y_review": seo, "test_audit": audit},
+                    changelog={
+                        "private_studio_project": True,
+                        "plan": plan,
+                        "answers": answers,
+                        "architecture": architecture,
+                        "stack": stack,
+                        "design": design[:5000],
+                        "seo_a11y_review": seo,
+                        "test_audit": audit,
+                        "token_usage": classified_tokens,
+                        "base_token_cost": float(base_token_cost),
+                        "interest_20_percent": float(interest_20),
+                        "tax_amount": float(tax_amount),
+                        "classified_price": float(classified_price),
+                    },
                     included_pages=[str(p.get("name") or p.get("filename")) for p in page_list],
                     seo_keywords=[genre[:100], category_name[:100], "custom website"],
                 )
@@ -2170,7 +2272,17 @@ Audit: {json.dumps(audit, ensure_ascii=False)[:2000]}"""
                 logger.warning("Could not persist local project files: %s", loc_exc)
 
             yield status("packaging", "completed", "Private project saved to your dashboard.")
-            yield {"type": "complete", "project": {"id": saved_project_id, "slug": saved_slug, "title": saved_title, "pages_count": saved_pages_count}}
+            yield {
+                "type": "complete",
+                "project": {
+                    "id": saved_project_id,
+                    "slug": saved_slug,
+                    "title": saved_title,
+                    "pages_count": saved_pages_count,
+                    "price": float(classified_price),
+                    "token_usage": classified_tokens,
+                },
+            }
         except Exception:
             try:
                 await db.rollback()
@@ -2179,7 +2291,7 @@ Audit: {json.dumps(audit, ensure_ascii=False)[:2000]}"""
             logger.exception("Studio project generation failed")
             raise
         finally:
-            self._active_user_generations.discard(user_key)
+            self._active_user_generations.pop(user_key, None)
 
 
     def _build_fallback_plan(self, prompt: str, category: str, genre: str, page_structure: str) -> dict[str, Any]:

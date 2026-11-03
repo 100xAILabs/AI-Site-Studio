@@ -30,7 +30,7 @@ _debugger = AIDebuggerService()
 
 SUPPORTED_STACKS = {
     "html-css-js": {
-        "label": "Static (HTML / CSS / JS)",
+        "label": "Static Website (HTML5 / CSS / JS)",
         "frontend": "vanilla",
         "backend": None,
         "db": None,
@@ -41,42 +41,13 @@ SUPPORTED_STACKS = {
         "backend": "fastapi",
         "db": "postgresql",
     },
-    "react-fastapi-mongodb": {
-        "label": "React + FastAPI + MongoDB",
-        "frontend": "react",
-        "backend": "fastapi",
-        "db": "mongodb",
-    },
-    "nextjs-fastapi-postgresql": {
-        "label": "Next.js + FastAPI + PostgreSQL",
-        "frontend": "nextjs",
-        "backend": "fastapi",
-        "db": "postgresql",
-    },
-    "nextjs-fastapi-mongodb": {
-        "label": "Next.js + FastAPI + MongoDB",
-        "frontend": "nextjs",
-        "backend": "fastapi",
-        "db": "mongodb",
-    },
-    "react-express-mongodb": {
-        "label": "React + Express.js + MongoDB",
-        "frontend": "react",
-        "backend": "express",
-        "db": "mongodb",
-    },
-    "nextjs-nestjs-postgresql": {
-        "label": "Next.js + NestJS + PostgreSQL",
-        "frontend": "nextjs",
-        "backend": "nestjs",
-        "db": "postgresql",
-    },
-    "react-django-postgresql": {
-        "label": "React + Django REST + PostgreSQL",
-        "frontend": "react",
-        "backend": "django",
-        "db": "postgresql",
-    },
+    # Legacy aliases normalized to React + FastAPI + PostgreSQL
+    "react-fastapi-mongodb": {"label": "React + FastAPI + PostgreSQL", "frontend": "react", "backend": "fastapi", "db": "postgresql"},
+    "nextjs-fastapi-postgresql": {"label": "React + FastAPI + PostgreSQL", "frontend": "react", "backend": "fastapi", "db": "postgresql"},
+    "nextjs-fastapi-mongodb": {"label": "React + FastAPI + PostgreSQL", "frontend": "react", "backend": "fastapi", "db": "postgresql"},
+    "react-express-mongodb": {"label": "React + FastAPI + PostgreSQL", "frontend": "react", "backend": "fastapi", "db": "postgresql"},
+    "nextjs-nestjs-postgresql": {"label": "React + FastAPI + PostgreSQL", "frontend": "react", "backend": "fastapi", "db": "postgresql"},
+    "react-django-postgresql": {"label": "React + FastAPI + PostgreSQL", "frontend": "react", "backend": "fastapi", "db": "postgresql"},
 }
 
 # ---------------------------------------------------------------------------

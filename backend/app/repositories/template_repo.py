@@ -128,6 +128,7 @@ class TemplateRepository:
             select(Template)
             .options(selectinload(Template.category))
             .where(
+                Template.is_marketplace == True,
                 Template.status == TemplateStatus.PUBLISHED,
                 Template.slug.notlike("%-custom-%"),
                 Template.title.notlike("%(Customized)%"),
@@ -438,6 +439,7 @@ class TemplateRepository:
             select(Template)
             .options(selectinload(Template.category))
             .where(
+                Template.is_marketplace == True,
                 Template.is_featured == True,
                 Template.status == TemplateStatus.PUBLISHED,
                 Template.slug.notlike("%-custom-%"),
@@ -454,6 +456,7 @@ class TemplateRepository:
             select(Template)
             .options(selectinload(Template.category))
             .where(
+                Template.is_marketplace == True,
                 Template.id.in_(ids),
                 Template.status == TemplateStatus.PUBLISHED,
                 Template.slug.notlike("%-custom-%"),
@@ -468,6 +471,7 @@ class TemplateRepository:
             select(func.count())
             .select_from(Template)
             .where(
+                Template.is_marketplace == True,
                 Template.status == TemplateStatus.PUBLISHED,
                 Template.slug.notlike("%-custom-%"),
                 Template.title.notlike("%(Customized)%"),

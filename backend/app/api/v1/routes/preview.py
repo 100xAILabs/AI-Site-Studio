@@ -184,6 +184,34 @@ async def get_preview_session(
 
 # Global locks to prevent parallel builds of the same template
 _build_locks = {}
+# In-memory template metadata cache for sub-millisecond preview serving
+_preview_template_cache: dict[str, dict] = {}
+
+
+async def _get_cached_preview_template(template_id: str, db: AsyncSession):
+    """Retrieve template from RAM cache if valid (5 min TTL) to avoid multi-second Neon Oregon DB round trips."""
+    import time
+    now = time.time()
+    cached = _preview_template_cache.get(template_id)
+    if cached and (now - cached.get("cached_at", 0)) < 300:
+        return cached["template"]
+
+    from app.repositories.template_repo import TemplateRepository
+    template_repo = TemplateRepository(db)
+    template = await template_repo.get_by_id_or_slug(template_id)
+    if template:
+        entry = {"template": template, "cached_at": now}
+        _preview_template_cache[template_id] = entry
+        if template.slug and template.slug != template_id:
+            _preview_template_cache[template.slug] = entry
+        if str(template.id) != template_id:
+            _preview_template_cache[str(template.id)] = entry
+    return template
+
+
+def invalidate_preview_template_cache(template_id: str):
+    """Purge cached template metadata from RAM on updates."""
+    _preview_template_cache.pop(template_id, None)
 
 
 @router.get("/live/{template_id}/assets")
@@ -2226,6 +2254,8 @@ async def edit_live_preview_find_replace(
             is_on_sale=template.is_on_sale,
             category_id=template.category_id,
             status=TemplateStatus.DRAFT,
+            is_marketplace=False,
+            template_origin="custom_draft",
             seller_id=current_user.id if current_user else template.seller_id,
             thumbnail_url=template.thumbnail_url,
             preview_url=template.preview_url,
@@ -2558,6 +2588,38 @@ Here are the codebase files:
     
     return {"status": "success", "template_id": str(template_id)}
 
+
+class DemoSessionStartRequest(BaseModel):
+    template_id: str
+
+
+@router.post("/demo/session/start")
+async def start_demo_session(
+    payload: DemoSessionStartRequest,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db)
+):
+    session_token = uuid.uuid4().hex
+    return {
+        "status": "success",
+        "session_token": session_token,
+        "remaining_seconds": 1800,
+        "template_id": payload.template_id
+    }
+
+
+@router.get("/demo/session/status")
+async def get_demo_session_status(
+    session_token: str,
+    db: AsyncSession = Depends(get_db)
+):
+    return {
+        "status": "success",
+        "expired": False,
+        "remaining_seconds": 1800
+    }
+
+
 @router.api_route("/demo/session/end", methods=["GET", "POST"])
 async def end_demo_session(
     session_token: Optional[str] = None,
@@ -2596,8 +2658,8 @@ async def serve_live_preview(
     from app.repositories.template_repo import TemplateRepository
     from app.services.security_scanner import security_scanner
     
-    template_repo = TemplateRepository(db)
-    template = await template_repo.get_by_id_or_slug(template_id)
+    # Fast in-memory template metadata lookup (avoids multi-second Neon Oregon cloud round trips)
+    template = await _get_cached_preview_template(template_id, db)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
@@ -3342,8 +3404,19 @@ async def serve_live_preview(
             and (asset_url.path == expected_asset_path or (file_id and str(file_id) in asset_url.path))
         )
 
-        # If file_id is found in StoredFile table, it is local Studio storage (safe, no SSRF)
-        if file_id and is_external:
+        # Check local filesystem first: if already extracted, skip slow remote DB round trips
+        preview_slug_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template.slug)) if template.slug else None
+        preview_id_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template.id))
+        
+        has_local_files = bool(
+            (local_dir and os.path.exists(str(local_dir)))
+            or (os.path.exists(preview_id_dir) and os.listdir(preview_id_dir))
+            or (preview_slug_dir and os.path.exists(preview_slug_dir) and os.listdir(preview_slug_dir))
+        )
+
+        if has_local_files:
+            is_external = False
+        elif file_id and is_external:
             from app.models.stored_file import StoredFile
             res = await db.execute(select(StoredFile.id).where(StoredFile.id == file_id))
             if res.scalar_one_or_none():
@@ -3359,6 +3432,10 @@ async def serve_live_preview(
             
         if local_dir and os.path.exists(str(local_dir)):
             preview_dir = str(local_dir)
+        elif os.path.exists(preview_id_dir) and os.listdir(preview_id_dir):
+            preview_dir = preview_id_dir
+        elif preview_slug_dir and os.path.exists(preview_slug_dir) and os.listdir(preview_slug_dir):
+            preview_dir = preview_slug_dir
         else:
             preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
             os.makedirs(preview_dir, exist_ok=True)
@@ -3629,11 +3706,40 @@ async def serve_live_preview(
                         full_path = str(nested_path)
     
         if not os.path.exists(full_path) or os.path.isdir(full_path):
-            # Fallback to index.html if file not found (e.g. client side routing)
-            if os.path.exists(index_file_path):
-                full_path = index_file_path
+            # 1. Clean URL resolution: check if appending .html or .htm matches a real page
+            if os.path.exists(full_path + ".html"):
+                full_path = full_path + ".html"
+            elif os.path.exists(full_path + ".htm"):
+                full_path = full_path + ".htm"
+            # 2. Directory route: check if directory contains index.html
+            elif os.path.isdir(full_path) and os.path.exists(os.path.join(full_path, "index.html")):
+                full_path = os.path.join(full_path, "index.html")
             else:
-                raise HTTPException(status_code=404, detail="Requested file not found in template")
+                # 3. Fuzzy & case-insensitive match against physical files in serve_root
+                base_clean = os.path.basename(full_path).lower().rstrip("/").replace("-", "").replace("_", "").replace(" ", "")
+                found_match = None
+                if base_clean:
+                    for root, dirs, files in os.walk(serve_root):
+                        dirs[:] = [d for d in dirs if d not in ["node_modules", ".git", "dist", "build"]]
+                        for f in files:
+                            f_clean = f.lower().replace("-", "").replace("_", "").replace(" ", "")
+                            if f_clean == f"{base_clean}.html" or f_clean == f"{base_clean}.htm" or f_clean == base_clean:
+                                found_match = os.path.join(root, f)
+                                break
+                            if f.lower().endswith((".html", ".htm")):
+                                f_stem = f_clean.rsplit(".", 1)[0]
+                                if (len(base_clean) >= 4 and base_clean in f_stem) or (len(f_stem) >= 4 and f_stem in base_clean):
+                                    found_match = os.path.join(root, f)
+                        if found_match:
+                            break
+
+                if found_match and os.path.exists(found_match):
+                    full_path = found_match
+                # 4. Fallback to index.html (SPA / client-side routing) only if genuinely not a subpage
+                elif os.path.exists(index_file_path):
+                    full_path = index_file_path
+                else:
+                    raise HTTPException(status_code=404, detail="Requested file not found in template")
                 
         mime_type, _ = mimetypes.guess_type(full_path)
         if not mime_type:

@@ -128,6 +128,12 @@ class Template(UUIDMixin, TimestampMixin, Base):
     is_bestseller: Mapped[bool] = mapped_column(Boolean, default=False)
     is_new: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    # ── Marketplace vs Private Studio Isolation ───────────────────────────────
+    # True only for genuine marketplace templates uploaded by approved sellers/admins.
+    # False for user-generated AI Studio websites and private customized preview drafts.
+    is_marketplace: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", index=True)
+    template_origin: Mapped[str] = mapped_column(String(50), default="marketplace", server_default="marketplace", index=True)
+
     # ── Statistics ────────────────────────────────────────────────────────────
     downloads_count: Mapped[int] = mapped_column(Integer, default=0)
     views_count: Mapped[int] = mapped_column(Integer, default=0)

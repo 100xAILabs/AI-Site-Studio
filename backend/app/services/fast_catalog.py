@@ -82,6 +82,7 @@ class FastCatalogManager:
                         select(Template)
                         .options(selectinload(Template.category))
                         .where(
+                            Template.is_marketplace == True,
                             Template.status == TemplateStatus.PUBLISHED,
                             Template.slug.notlike("%-custom-%"),
                             Template.title.notlike("%(Customized)%"),
@@ -145,6 +146,8 @@ class FastCatalogManager:
                         "is_featured": bool(t.is_featured),
                         "is_bestseller": bool(t.is_bestseller),
                         "is_new": bool(t.is_new),
+                        "is_marketplace": True,
+                        "template_origin": "marketplace",
                         "downloads_count": t.downloads_count or 0,
                         "rating_avg": float(t.rating_avg or 0.0),
                         "rating_count": t.rating_count or 0,

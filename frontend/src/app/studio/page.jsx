@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, ImagePlus, LoaderCircle, Sparkles, WandSparkles, Trash2, Layers, Tag, Eye } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, ImagePlus, LoaderCircle, Sparkles, WandSparkles, Trash2, Layers, Tag, Eye, Brain, Check, FileText, Cpu } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { useAppAuth } from "@/lib/auth";
 import { api, API_URL } from "@/lib/api";
+import { useStudioBuildStore } from "@/store/studioBuildStore";
 import "./Page.css";
 
 const AGENTS = [
@@ -20,15 +21,6 @@ const AGENTS = [
   "Packaging Agent",
 ];
 
-const STACK_OPTIONS = [
-  { value: "react-fastapi-postgresql", title: "React + FastAPI + PostgreSQL", badge: "Emergent Standard", description: "Async FastAPI REST API, SQLAlchemy 2.0 ORM, and React 18 TypeScript frontend." },
-  { value: "react-fastapi-mongodb", title: "React + FastAPI + MongoDB (FARM)", badge: "NoSQL Flexibility", description: "Emergent FARM stack: async Motor driver, MongoDB document schemas, and React UI." },
-  { value: "nextjs-fastapi-postgresql", title: "Next.js 14 + FastAPI + PostgreSQL", badge: "Next.js App Router", description: "Next.js 14 App Router client with Python FastAPI backend services." },
-  { value: "react-express-mongodb", title: "React + Express.js + MongoDB", badge: "MERN Stack", description: "Node.js Express REST API with Mongoose schemas and React Vite frontend." },
-  { value: "nextjs-nestjs-postgresql", title: "Next.js + NestJS + PostgreSQL", badge: "TypeScript End-to-End", description: "Enterprise NestJS modules, TypeORM entities, and Next.js frontend." },
-  { value: "html-css-js", title: "Static Website (HTML5 / CSS / JS)", badge: "Lightweight", description: "Zero-dependency static site with semantic HTML, custom CSS, and vanilla JS." },
-];
-
 export default function StudioPage() {
   const navigate = useNavigate();
   const { getToken } = useAppAuth();
@@ -36,9 +28,9 @@ export default function StudioPage() {
   const [categoryId, setCategoryId] = useState("");
   const [genre, setGenre] = useState("");
   const [pageStructure, setPageStructure] = useState("");
-  const [stack, setStack] = useState("react-fastapi-postgresql");
   const [prompt, setPrompt] = useState("");
   const [plan, setPlan] = useState(null);
+  const [currentStep, setCurrentStep] = useState(1);
   const [buildPrompt, setBuildPrompt] = useState("");
   const [loadingBuildPrompt, setLoadingBuildPrompt] = useState(false);
   const [answers, setAnswers] = useState({});
@@ -53,6 +45,85 @@ export default function StudioPage() {
   const [activeAgent, setActiveAgent] = useState("");
   const generationInFlight = useRef(false);
   const buildSessionId = useRef("");
+
+  const buildStore = useStudioBuildStore();
+  const isGenerating = buildStore.isBuilding || generating;
+  const currentActiveAgent = buildStore.activeAgent || activeAgent;
+  const currentEvents = buildStore.events?.length ? buildStore.events : events;
+
+  const autoDetectedStack = useMemo(() => {
+    const categoryName = (categories.find((c) => String(c.id) === String(categoryId))?.name || "").toLowerCase();
+    const catSlug = (categories.find((c) => String(c.id) === String(categoryId))?.slug || "").toLowerCase();
+    const genreLower = (genre || "").toLowerCase();
+    const promptLower = (prompt || "").toLowerCase();
+
+    // 1. Static HTML showcase categories (marketing, company, portfolio, brochure, presentation)
+    const htmlCategories = [
+      "portfolio", "personal", "resume", "cv", "showcase", "photography",
+      "artist", "restaurant", "cafe", "food", "menu", "bakery", "event",
+      "wedding", "conference", "landing page", "one page", "brochure",
+      "coming soon", "creative", "blog", "business", "company", "agency",
+      "corporate", "consulting", "services", "profile", "brochure website",
+    ];
+    const isHtmlCat = htmlCategories.some((c) => categoryName.includes(c) || catSlug.includes(c) || genreLower.includes(c));
+
+    // 2. Portfolio, showcase, or company informational request in prompt
+    const isShowcaseOrPortfolio = /\b(?:portfolio|resume|résumé|cv|curriculum\s+vitae|personal\s+(?:site|website)|developer\s+portfolio|designer\s+portfolio|freelancer\s+portfolio|photographer|showcase\s+my\s+work|showcase\s+our\s+work|show\s+what\s+we\s+do|show\s+the\s+user\s+what\s+they\s+do|software\s+company(?:\s+website)?|company\s+website|agency\s+website|startup\s+showcase|agency|consultancy)\b/i.test(promptLower);
+
+    // 3. Explicit backend command for the website application itself
+    const explicitBackendTriggers = /\b(?:user\s+login\s+system|user\s+authentication\s+system|user\s+registration\s+system|shopping\s+cart\s+with\s+(?:stripe|checkout|payment)|(?:hotel\s+)?booking\s+(?:system|engine)\s+with\s+(?:live\s+)?database|(?:room|table)\s+reservation\s+(?:system\s+with\s+database|database)|admin\s+crud\s+portal|saas\s+dashboard\s+with\s+database\s+crud|full[\s\-]*stack\s+(?:web\s+)?app(?:lication)?\s+with\s+database|build\s+a\s+full[\s\-]*stack\s+app)\b/i;
+    const hasExplicitBackend = explicitBackendTriggers.test(promptLower);
+
+    if ((isHtmlCat || isShowcaseOrPortfolio) && !hasExplicitBackend) {
+      return "html-css-js";
+    }
+
+    // 4. Scrub developer skills, experience, and bio from prompt
+    // "React", "Python", "SQL", "Postgres", "FastAPI" when describing developer skills MUST NOT trigger fullstack
+    let scrubbedPrompt = promptLower;
+    const skillScrubPatterns = [
+      /(?:skills?|technologies|tech\s+stack|tools?|languages?|proficiency)\s*[:\-][^\.\n;]+/g,
+      /(?:skilled|experienced|proficient|worked|knowledge|background)\s+(?:in|with)\s+[^\.\n;]+/g,
+      /(?:familiar|specializ(?:ed|ing))\s+(?:with|in)\s+[^\.\n;]+/g,
+      /(?:projects?|apps?)\s+(?:built|developed|created)\s+(?:with|using|in)\s+[^\.\n;]+/g,
+      /(?:full[\s\-]*stack|front[\s\-]*end|back[\s\-]*end|software|web|ui[\s\/]*ux|python|react|node|fastapi)\s+(?:developer|engineer|programmer|specialist|designer|creator|freelancer)/g,
+      /\b(?:years?\s+of\s+experience|work\s+experience|career\s+highlights|job\s+history)\b[^\.\n;]*/g,
+      /\b(?:react(?:\.?js)?|next(?:\.?js)?|vue(?:\.?js)?|angular|tailwind|typescript|javascript|html5?|css3?|python|fastapi|django|flask|postgresql?|sqlite3?|mongodb|mysql)\b/g,
+    ];
+    for (const pat of skillScrubPatterns) {
+      scrubbedPrompt = scrubbedPrompt.replace(pat, " ");
+    }
+
+    const fullText = `${scrubbedPrompt} ${genreLower} ${categoryName}`;
+    const dynamicBackendRegex = /\b(?:live\s+database|postgres(?:ql)?\s+database|sqlite\s+database|database\s+schema|database\s+crud|table\s+schema|persist\s+data\s+to\s+db|user\s+authentication|user\s+login|sign[\s\-]?in\s+portal|sign[\s\-]?up\s+portal|register\s+account|password\s+reset|jwt\s+tokens?|admin\s+panel|admin\s+dashboard|management\s+portal|crm\s+system|booking\s+system|reservation\s+system|shopping\s+cart|payment\s+gateway|stripe\s+checkout|process\s+payments?|order\s+management\s+system|fastapi\s+backend|rest\s+api\s+endpoints?|backend\s+service\s+with\s+database)\b/i;
+
+    return dynamicBackendRegex.test(fullText) ? "react-fastapi-postgresql" : "html-css-js";
+  }, [prompt, genre, categoryId, categories]);
+  const stack = autoDetectedStack;
+
+  const pipelineAgents = useMemo(() => {
+    if (stack === "html-css-js") {
+      return AGENTS.filter((a) => !["Architect Agent", "DB Schema Agent", "Backend Dev Agent"].includes(a));
+    }
+    return AGENTS;
+  }, [stack]);
+
+  // Restore state from store if available
+  useEffect(() => {
+    if (buildStore.plan && !plan) {
+      setPlan(buildStore.plan);
+      if (buildStore.prompt && !prompt) setPrompt(buildStore.prompt);
+      if (buildStore.currentStep) setCurrentStep(buildStore.currentStep);
+      if (buildStore.answers) setAnswers(buildStore.answers);
+      if (buildStore.buildPrompt) setBuildPrompt(buildStore.buildPrompt);
+      if (buildStore.uploadedAssets?.length) setUploadedAssets(buildStore.uploadedAssets);
+    }
+  }, [buildStore.plan]);
+
+  const changeStep = (newStep) => {
+    setCurrentStep(newStep);
+    buildStore.setCurrentStep(newStep);
+  };
 
   useEffect(() => {
     let alive = true;
@@ -76,6 +147,9 @@ export default function StudioPage() {
     event.preventDefault();
     setError("");
     setLoadingPlan(true);
+    buildStore.setPlanning(true);
+    buildStore.setPrompt(prompt);
+    buildStore.setProjectTitle(genre || prompt.slice(0, 30));
     try {
       const token = await getToken();
       const result = await api.post("/studio/plan", {
@@ -83,26 +157,31 @@ export default function StudioPage() {
         category: selectedCategory?.name || "Website",
         genre: genre.trim() || selectedCategory?.name || "Website",
         page_structure: effectivePageStructure,
-        stack: stack || "react-fastapi-postgresql",
+        stack: stack || "html-css-js",
       }, token);
-      setPlan({
+      const structuredPlan = {
         ...result.plan,
         pages: (result.plan.pages || []).map((page) => ({
           ...page,
           included: true,
           selected_sections: [...(page.sections || [])],
         })),
-      });
+      };
+      setPlan(structuredPlan);
+      buildStore.setPlan(structuredPlan);
       const prefilled = result.plan.prefilled_answers || {};
       setAnswers(prefilled);
+      buildStore.setAnswers(prefilled);
       const prefilledIds = Object.keys(prefilled).filter((k) => String(prefilled[k]).trim().length > 0);
       setCompletedQuestions(prefilledIds);
       setSkippedQuestions([]);
       setBuildPrompt("");
+      changeStep(2);
     } catch (err) {
       setError(err.message || "The Planning Agent could not create a plan.");
     } finally {
       setLoadingPlan(false);
+      buildStore.setPlanning(false);
     }
   }
 
@@ -120,7 +199,7 @@ export default function StudioPage() {
         answers,
         image_urls: [],
         image_assets: uploadedAssets,
-        stack: stack || "react-fastapi-postgresql",
+        stack: stack || "html-css-js",
       }, token);
       setBuildPrompt(result.build_prompt || "");
     } catch (err) {
@@ -131,76 +210,26 @@ export default function StudioPage() {
   }
 
   async function startGeneration() {
-    if (generationInFlight.current) return;
-    generationInFlight.current = true;
     setError("");
-    setEvents([]);
-    setActiveAgent(AGENTS[0]);
-    buildSessionId.current = "";
-    setGenerating(true);
     try {
       const token = await getToken();
-      const response = await fetch(`${API_URL}/studio/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          prompt,
-          category_id: categoryId,
-          category: selectedCategory?.name || "Website",
-          genre: genre.trim() || selectedCategory?.name || "Website",
-          build_prompt: buildPrompt,
-          plan,
-          answers,
-          image_urls: [],
-          image_assets: uploadedAssets,
-          stack: stack || "react-fastapi-postgresql",
-        }),
+      const effectiveCatId = categoryId || categories.find((c) => c.name?.toLowerCase() === (selectedCategory?.name || "").toLowerCase())?.id || categories[0]?.id || null;
+      const effectiveCatName = selectedCategory?.name || categories.find((c) => c.id === effectiveCatId)?.name || "Website";
+      await buildStore.startBuild({
+        prompt,
+        categoryId: effectiveCatId,
+        categoryName: effectiveCatName,
+        genre: genre.trim() || effectiveCatName || "Website",
+        buildPrompt,
+        plan,
+        answers,
+        uploadedAssets,
+        stack: stack || "html-css-js",
+        token,
+        navigate,
       });
-      if (!response.ok || !response.body) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.detail || "Could not start website generation.");
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let buildCompleted = false;
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-        const frames = buffer.split("\n\n");
-        buffer = frames.pop() || "";
-        for (const frame of frames) {
-          const line = frame.split("\n").find((part) => part.startsWith("data: "));
-          if (!line) continue;
-          const item = JSON.parse(line.slice(6));
-          if (item.type === "error") throw new Error(item.message || "Studio generation failed.");
-          if (item.type === "session") buildSessionId.current = item.build_id || "";
-          if (item.type === "agent") {
-            setActiveAgent(item.agent);
-            setEvents((current) => [...current, { ...item, key: `${item.agent}-${item.status}-${current.length}` }]);
-          } else if (item.type === "page") {
-            setActiveAgent("Frontend Dev Agent");
-            setEvents((current) => [...current, { ...item, key: `${item.filename}-${item.status}-${current.length}` }]);
-          } else if (item.type === "model") {
-            setEvents((current) => [...current, { ...item, key: `${item.page}-${item.provider}-${current.length}` }]);
-          } else if (item.type === "complete") {
-            buildCompleted = true;
-            const buildQuery = buildSessionId.current ? `&build=${encodeURIComponent(buildSessionId.current)}` : "";
-            navigate(`/preview?template=${encodeURIComponent(item.project.id)}&mode=live${buildQuery}`, { replace: true });
-            return;
-          }
-        }
-      }
-      if (!buildCompleted) {
-        throw new Error("Generation stream closed before completion. Your plan and prompt are preserved—please click 'Build my website' again.");
-      }
     } catch (err) {
       setError(err.message || "Studio generation failed. Your plan and answers are still here.");
-    } finally {
-      generationInFlight.current = false;
-      setGenerating(false);
     }
   }
 
@@ -443,7 +472,7 @@ export default function StudioPage() {
           <div className="studio-intro-copy">
             <div className="studio-eyebrow"><Sparkles size={14} /> YOUR PRIVATE AI WEBSITE STUDIO</div>
             <h1>From a rough idea<br /><span>to a complete website.</span></h1>
-            <p>Shape the plan, choose your stack, and let nine focused agents build your full-stack application and API.</p>
+            <p>Shape the plan, and let nine focused agents analyze your requirements and build your website or full-stack application.</p>
           </div>
           <div className="studio-agent-preview" aria-label="Studio workflow">
             <span className="studio-agent-orbit"><Sparkles size={22} /></span>
@@ -454,7 +483,50 @@ export default function StudioPage() {
           </div>
         </div>
 
-        {!plan ? (
+        {loadingPlan ? (
+          /* ── Planning Agent Loading Screen ── */
+          <div className="flex flex-col items-center justify-center rounded-3xl border border-violet-500/20 bg-gradient-to-b from-violet-950/30 via-[#0c111b] to-[#070b12] p-8 sm:p-14 text-center shadow-2xl relative overflow-hidden my-6">
+            <div className="absolute top-0 right-0 -mr-20 -mt-20 h-64 w-64 rounded-full bg-violet-600/15 blur-3xl pointer-events-none" />
+            <div className="relative mb-6">
+              <div className="flex h-20 w-20 items-center justify-center rounded-2xl border border-violet-400/30 bg-violet-500/10 shadow-lg shadow-violet-500/20">
+                <Brain className="h-9 w-9 text-violet-300 animate-pulse" />
+              </div>
+              <div className="absolute -inset-2 rounded-3xl bg-violet-500/10 blur-xl animate-pulse -z-10" />
+            </div>
+
+            <div className="inline-flex items-center gap-2 rounded-full border border-violet-500/30 bg-violet-500/10 px-3.5 py-1 text-xs font-bold text-violet-300 mb-3">
+              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+              <span>Planning Agent Active</span>
+            </div>
+
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-white">
+              Architecting Your Project Plan...
+            </h2>
+            <p className="mt-2 text-sm text-slate-400 max-w-lg leading-relaxed">
+              Analyzing requirements for <span className="text-violet-300 font-semibold">{genre || selectedCategory?.name || "your website"}</span> to design the page structure, section components, and creative direction.
+            </p>
+
+            <div className="mt-8 grid gap-2.5 w-full max-w-md text-left">
+              <div className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-3 text-xs text-slate-300">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">✓</span>
+                <span>Semantic requirement &amp; domain analysis</span>
+              </div>
+              <div className="flex items-center gap-3 rounded-xl border border-violet-500/20 bg-violet-500/10 p-3 text-xs text-violet-200">
+                <LoaderCircle className="h-4 w-4 shrink-0 animate-spin text-violet-400" />
+                <span className="font-medium">Evaluating full-stack vs static architecture</span>
+              </div>
+              <div className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-3 text-xs text-slate-400">
+                <span className="h-2 w-2 rounded-full bg-slate-600 ml-1.5 mr-1" />
+                <span>Synthesizing page blueprints &amp; section components</span>
+              </div>
+              <div className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-3 text-xs text-slate-400">
+                <span className="h-2 w-2 rounded-full bg-slate-600 ml-1.5 mr-1" />
+                <span>Curating design system, typography &amp; color palette</span>
+              </div>
+            </div>
+          </div>
+        ) : !plan ? (
+          /* ── Step 1: Initial Prompt & Details Form ── */
           <form onSubmit={buildPlan} className="grid gap-5 rounded-3xl border border-white/10 bg-white/[0.035] p-5 shadow-2xl shadow-black/20 sm:p-8">
             <div>
               <label className="mb-2 block text-sm font-semibold text-slate-200">What kind of website do you want?</label>
@@ -476,24 +548,6 @@ export default function StudioPage() {
                 ))}
               </div>
             </fieldset>
-            <fieldset>
-              <div className="mb-2 flex items-center justify-between">
-                <legend className="text-sm font-semibold text-slate-200">Architecture &amp; Tech Stack</legend>
-                <span className="rounded-full bg-violet-400/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-violet-300">Emergent Multi-Agent</span>
-              </div>
-              <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-                {STACK_OPTIONS.map((opt) => (
-                  <label key={opt.value} className={`cursor-pointer rounded-2xl border p-3.5 transition ${stack === opt.value ? "border-violet-400 bg-violet-400/10 shadow-lg shadow-violet-500/10" : "border-white/10 bg-[#0c111b] hover:border-white/20"}`}>
-                    <input className="sr-only" type="radio" name="tech-stack" value={opt.value} checked={stack === opt.value} onChange={() => setStack(opt.value)} />
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="block text-xs font-bold text-white">{opt.title}</span>
-                      <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[9px] font-semibold text-violet-300">{opt.badge}</span>
-                    </div>
-                    <span className="mt-1.5 block text-[11px] leading-4 text-slate-400">{opt.description}</span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-200">Marketplace category</label>
@@ -509,318 +563,471 @@ export default function StudioPage() {
             </div>
             {error && <p role="alert" className="rounded-xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">{error}</p>}
             <button disabled={loadingPlan || !categoryId || !effectivePageStructure || prompt.trim().length < 10} className="inline-flex w-fit items-center justify-center gap-2 rounded-xl bg-violet-500 px-5 py-3 text-sm font-bold text-white transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50">
-              {loadingPlan ? <LoaderCircle size={17} className="animate-spin" /> : <WandSparkles size={17} />}
-              {loadingPlan ? "Planning your site…" : "Plan my website"}
-              {!loadingPlan && <ArrowRight size={16} />}
+              <WandSparkles size={17} />
+              <span>Plan my website</span>
+              <ArrowRight size={16} />
             </button>
           </form>
-        ) : (
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.75fr)]">
-            <section className="space-y-6">
-              <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
-                <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-                  <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">Planning Agent · Proposal</p><h2 className="mt-2 text-2xl font-bold">{plan.title}</h2><p className="mt-2 text-sm leading-6 text-slate-400">{plan.summary}</p></div>
-                  <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-slate-300">{selectedPageCount} of {plan.pages.length} pages · {selectedPageCount === 1 ? "single page" : "multi page"}</span>
+        ) : isGenerating ? (
+          /* ── Step 5: Multi-Agent Live Generation Screen ── */
+          <div className="rounded-3xl border border-violet-500/20 bg-gradient-to-b from-violet-950/20 via-[#0c111b] to-[#070b12] p-6 sm:p-10 shadow-2xl">
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-500/20 border border-violet-400/30 text-violet-300">
+                  <LoaderCircle size={24} className="animate-spin text-violet-300" />
                 </div>
-                <div className="mb-4 flex items-center justify-between gap-3 border-b border-white/10 pb-3">
-                  <div><h3 className="text-sm font-bold">Required pages &amp; page parts</h3><p className="mt-1 text-xs text-slate-500">Home is required. Choose the other pages and the sections each page needs.</p></div>
-                  <span className="shrink-0 rounded-full bg-violet-400/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-violet-200">{selectedPageCount} selected</span>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-widest text-violet-300">Building In Progress</p>
+                  <h2 className="text-xl font-extrabold text-white">{currentActiveAgent || "Nine Focused Agents Working"}</h2>
                 </div>
+              </div>
+              <span className="rounded-full bg-violet-500/10 border border-violet-500/30 px-3 py-1 text-xs font-bold text-violet-300">
+                Multi-Agent Pipeline
+              </span>
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-2 mt-8">
+              {/* Agent Status List */}
+              <div className="rounded-2xl border border-white/10 bg-[#090d16] p-5">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Pipeline Execution</h3>
                 <div className="space-y-3">
-                  {plan.pages.map((page, index) => (
-                    <article key={page.filename} className={`rounded-2xl border bg-[#0c111b] p-4 ${page.included === false ? "border-white/5 opacity-60" : "border-white/10"}`}>
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <label className="flex cursor-pointer items-center gap-3">
-                          <input type="checkbox" checked={page.included !== false || page.required} disabled={!!page.required} onChange={() => togglePlanPage(page.filename)} className="h-4 w-4 accent-violet-400 disabled:cursor-not-allowed" aria-label={`${page.required ? "Required" : "Include"} ${page.name} page`} />
-                          <span className="font-semibold">{String(index + 1).padStart(2, "0")} · {page.name}</span>
-                        </label>
-                        <div className="flex items-center gap-2"><span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-wider ${page.required ? "bg-amber-300/10 text-amber-200" : "bg-white/5 text-slate-500"}`}>{page.required ? "Required" : page.included === false ? "Excluded" : "Optional"}</span><code className="text-xs text-violet-200">{page.filename}</code></div>
-                      </div>
-                      <p className="mt-2 text-sm text-slate-400">{page.purpose}</p>
-                      {!!page.sections?.length && <div className="mt-3"><p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Page parts</p><div className="flex flex-wrap gap-2">{page.sections.map((section) => {
-                        const selected = (page.selected_sections || page.sections).includes(section);
-                        return <button key={section} type="button" disabled={page.included === false} aria-pressed={selected} onClick={() => togglePageSection(page.filename, section)} className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${selected ? "border-violet-400/40 bg-violet-400/10 text-violet-100" : "border-white/10 bg-transparent text-slate-500 hover:text-slate-300"} disabled:cursor-not-allowed disabled:opacity-40`}>{selected ? "✓ " : "+ "}{section}</button>;
-                      })}</div></div>}
-                      {page.primary_action && <p className="mt-2 text-xs text-slate-400">Primary action: <span className="text-slate-200">{page.primary_action}</span></p>}
-                    </article>
-                  ))}
-                </div>
-                {plan.design_direction && <div className="mt-5 rounded-2xl border border-violet-400/15 bg-violet-400/[0.06] p-4"><h3 className="text-sm font-semibold text-violet-200">Creative direction</h3><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-300">{plan.design_direction}</p></div>}
-              </div>
-
-              <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
-                <div className="mb-4"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">UI Designer Agent · Visual concept</p><h2 className="mt-2 text-xl font-bold">A preview of the direction</h2><p className="mt-1 text-sm text-slate-400">This concept reflects the planned palette, layout, and imagery. Answer the Studio’s questions one at a time, then it will build the pages in sequence.</p></div>
-                <div className="overflow-hidden rounded-2xl border border-black/10 shadow-xl" style={{ backgroundColor: safeColor(palette.background, "#f3f4f6"), color: safeColor(palette.text, "#172033") }}>
-                  <div className="flex items-center justify-between border-b border-black/10 px-4 py-3 text-xs">
-                    <strong>{plan.title}</strong>
-                    <div className="hidden gap-4 sm:flex">{plan.pages.filter((page) => page.included !== false || page.required).slice(0, 3).map((page) => <span key={page.filename} className="opacity-70">{page.name}</span>)}</div>
-                  </div>
-                  <div className="grid min-h-[250px] items-center gap-5 p-5 sm:grid-cols-[1.05fr_0.95fr] sm:p-8">
-                    <div>
-                      <span className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: safeColor(palette.primary, "#6d4aff") }}>{genre || selectedCategory?.name || "Website"}</span>
-                      <h3 className="mt-3 text-3xl font-black leading-tight sm:text-4xl">{plan.preview?.headline || plan.title}</h3>
-                      <p className="mt-3 max-w-md text-sm leading-6 opacity-70">{plan.preview?.subheadline || plan.summary}</p>
-                      <span className="mt-5 inline-flex rounded-lg px-4 py-2 text-xs font-bold text-white" style={{ backgroundColor: safeColor(palette.primary, "#6d4aff") }}>{plan.preview?.primary_action || "Explore"}</span>
-                    </div>
-                    <div className="relative min-h-[160px] overflow-hidden rounded-2xl" style={{ background: `linear-gradient(135deg, ${safeColor(palette.primary, "#6d4aff")}55, ${safeColor(palette.accent, "#f28a64")}66)` }}>
-                      {previewImage && <img src={previewImage} alt="Selected visual direction" className="absolute inset-0 h-full w-full object-cover" />}
-                      <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${safeColor(palette.primary, "#6d4aff")}55, transparent 75%)` }} />
-                      <div className="absolute bottom-3 left-3 rounded-lg px-3 py-2 text-[10px] font-semibold text-white backdrop-blur" style={{ backgroundColor: `${safeColor(palette.surface, "#ffffff")}44` }}>{palette.image_treatment || "Image-led visual story"}</div>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-400">
-                  {[palette.heading_font, palette.body_font, palette.hero_layout].filter(Boolean).map((item) => <span key={item} className="rounded-full border border-white/10 px-2.5 py-1">{item}</span>)}
-                </div>
-              </div>
-
-              <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
-                <div className="mb-5"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">Build chat · one question at a time</p><h2 className="mt-2 text-xl font-bold">Let’s get the details right</h2><p className="mt-1 text-sm leading-6 text-slate-400">I’ll ask only what the plan still needs. Your answers shape the site and its pages.</p></div>
-                <div className="space-y-3">
-                  {(plan.questions || []).map((question, index) => {
-                    const id = question.id || `q-${index}`;
-                    const wasAnswered = completedQuestions.includes(id);
-                    const wasSkipped = skippedQuestions.includes(id);
-                    if (!wasAnswered && !wasSkipped) return null;
-                    return <div key={id} className="space-y-2">
-                      <div className="max-w-[88%] rounded-2xl rounded-bl-sm border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-slate-300">{question.question}</div>
-                      <div className="ml-auto max-w-[88%] rounded-2xl rounded-br-sm bg-violet-500/15 px-4 py-3 text-sm text-violet-100">{wasSkipped ? "Skip for now" : answers[id]}</div>
-                    </div>;
-                  })}
-                  {activeClarificationIndex >= 0 ? (() => {
-                    const question = clarificationQuestions[activeClarificationIndex];
-                    const id = question.id || `q-${activeClarificationIndex}`;
-                    const value = answers[id] || "";
-                    return <div className="space-y-3 pt-2" key={id}>
-                      <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.16em] text-violet-300"><span>Studio asks</span><span>{completedQuestions.length + skippedQuestions.length + 1} / {clarificationQuestions.length}</span></div>
-                      <label htmlFor={`active-${id}`} className="block rounded-2xl rounded-bl-sm border border-violet-400/20 bg-violet-400/[0.07] px-4 py-3 text-sm leading-6 text-slate-100">{question.question}{question.required && <span className="ml-1 text-violet-300">*</span>}</label>
-                      {question.input_type === "select" ? <select id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} className="w-full border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white"><option value="">Choose an answer</option>{(question.options || []).map((option) => <option key={option} value={option}>{option}</option>)}</select> : question.input_type === "textarea" ? <textarea id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} placeholder={question.placeholder || "Type your answer…"} rows={3} className="w-full border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white placeholder:text-slate-600" /> : <input id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} placeholder={question.placeholder || "Type your answer…"} className="w-full border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white placeholder:text-slate-600" />}
-                      <div className="flex justify-end gap-2">
-                        {!question.required && <button type="button" onClick={() => submitClarification(question, activeClarificationIndex)} className="rounded-xl border border-white/10 px-4 py-2.5 text-sm text-slate-300">Skip</button>}
-                        <button type="button" onClick={() => submitClarification(question, activeClarificationIndex)} disabled={!value.trim()} className="inline-flex items-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">Send answer <ArrowRight size={15} /></button>
-                      </div>
-                    </div>;
-                  })() : <p className="rounded-xl border border-emerald-400/15 bg-emerald-400/[0.06] px-4 py-3 text-sm text-emerald-200">That’s everything I need. Next I’ll build the pages in order, then open your live preview so you can keep editing by chat.</p>}
-                </div>
-              </div>
-            </section>
-
-            <aside className="space-y-6">
-              <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
-                <div className="flex items-center gap-2"><ImagePlus size={18} className="text-violet-300" /><h2 className="font-bold">Choose images</h2></div>
-                <p className="mt-2 text-sm leading-6 text-slate-400">Upload up to 16 images that match this project. No image links are needed: if you leave this empty, Studio automatically selects relevant illustrative stock photos.</p>
-                <div className="mt-4 space-y-3">
-                  {uploadFields.map((field) => (
-                    <label key={`${field.role}-${field.label}`} className="block rounded-xl border border-white/10 bg-[#0c111b] p-3">
-                      <span className="block text-xs font-semibold text-slate-200">{field.label}</span>
-                      <span className="mt-1 block text-[11px] text-slate-500">{field.hint}</span>
-                      <input className="mt-2 block w-full text-xs text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-500/15 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-violet-200" type="file" accept="image/*" multiple={field.multiple} disabled={uploadingImages || uploadedAssets.length >= 16} onChange={(event) => { uploadPortfolioImages(field, event.target.files); event.target.value = ""; }} />
-                    </label>
-                  ))}
-                </div>
-                {uploadedAssets.length > 0 && (
-                  <div className="mt-5 space-y-3">
-                    <div className="flex items-center justify-between border-t border-white/10 pt-4">
-                      <span className="text-xs font-bold uppercase tracking-wider text-violet-300">
-                        Assigned Photos ({uploadedAssets.length}/16)
-                      </span>
-                      <span className="text-[11px] text-slate-400">
-                        Customize title, page &amp; role
-                      </span>
-                    </div>
-                    <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1">
-                      {uploadedAssets.map((asset, index) => (
-                        <div
-                          key={`${asset.url}-${index}`}
-                          className="rounded-2xl border border-white/10 bg-[#0a0e17] p-3 text-xs transition hover:border-violet-500/30"
-                        >
-                          <div className="flex gap-3">
-                            <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-xl border border-white/15 bg-black/40">
-                              <img
-                                src={asset.url}
-                                alt={asset.title || asset.alt || "Uploaded visual"}
-                                className="h-full w-full object-cover"
-                                onError={(e) => {
-                                  e.currentTarget.style.display = "none";
-                                }}
-                              />
-                            </div>
-
-                            <div className="flex-1 min-w-0 space-y-2">
-                              <div className="flex items-center justify-between gap-2">
-                                <input
-                                  type="text"
-                                  value={asset.title || ""}
-                                  onChange={(e) =>
-                                    updateUploadedAsset(index, {
-                                      title: e.target.value,
-                                      alt: e.target.value,
-                                    })
-                                  }
-                                  placeholder="Photo title (e.g. Deluxe Suite King Bed)"
-                                  className="w-full rounded-lg border border-white/10 bg-[#121826] px-2.5 py-1 text-xs font-semibold text-slate-200 outline-none focus:border-violet-400"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setUploadedAssets((current) =>
-                                      current.filter((_, itemIndex) => itemIndex !== index)
-                                    );
-                                    setBuildPrompt("");
-                                  }}
-                                  className="text-slate-500 hover:text-rose-400 transition flex-shrink-0 p-1"
-                                  title="Remove this image"
-                                  aria-label={`Remove ${asset.title || asset.alt}`}
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                  <label className="block text-[10px] text-slate-400 uppercase font-semibold mb-0.5">
-                                    Target Page
-                                  </label>
-                                  <select
-                                    value={asset.page_target || "index.html"}
-                                    onChange={(e) =>
-                                      updateUploadedAsset(index, {
-                                        page_target: e.target.value,
-                                      })
-                                    }
-                                    className="w-full rounded-md border border-white/10 bg-[#121826] px-2 py-1 text-[11px] text-violet-300 outline-none focus:border-violet-400"
-                                  >
-                                    <option value="index.html">Home (index.html)</option>
-                                    {(plan?.pages || [])
-                                      .filter((p) => p.filename !== "index.html" && (p.included !== false || p.required))
-                                      .map((p) => (
-                                        <option key={p.filename} value={p.filename}>
-                                          {p.name || p.filename} ({p.filename})
-                                        </option>
-                                      ))}
-                                    <option value="all">All Pages / Showcase</option>
-                                  </select>
-                                </div>
-
-                                <div>
-                                  <label className="block text-[10px] text-slate-400 uppercase font-semibold mb-0.5">
-                                    Category / Role
-                                  </label>
-                                  <select
-                                    value={asset.role || "general"}
-                                    onChange={(e) =>
-                                      updateUploadedAsset(index, {
-                                        role: e.target.value,
-                                      })
-                                    }
-                                    className="w-full rounded-md border border-white/10 bg-[#121826] px-2 py-1 text-[11px] text-emerald-300 outline-none focus:border-emerald-400"
-                                  >
-                                    <option value="hero">Hero / Banner</option>
-                                    <option value="rooms">Rooms / Suites</option>
-                                    <option value="dining">Dining / Dishes</option>
-                                    <option value="amenities">Amenities / Facilities</option>
-                                    <option value="contact">Exterior / Entrance</option>
-                                    <option value="portrait">Portrait / Person</option>
-                                    <option value="team">Team / Staff</option>
-                                    <option value="logo">Brand Logo</option>
-                                    <option value="project">Project / Work</option>
-                                    <option value="products">Product Catalog</option>
-                                    <option value="general">General Visual</option>
-                                  </select>
-                                </div>
-                              </div>
-
-                              <div>
-                                <input
-                                  type="text"
-                                  value={asset.caption || ""}
-                                  onChange={(e) =>
-                                    updateUploadedAsset(index, {
-                                      caption: e.target.value,
-                                    })
-                                  }
-                                  placeholder="Specific details e.g. King bed with private ocean terrace"
-                                  className="w-full rounded-md border border-white/10 bg-[#080b12] px-2 py-1 text-[11px] text-slate-400 outline-none focus:border-violet-400"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {uploadingImages && <p className="mt-2 text-xs text-violet-200">Uploading images…</p>}
-              </div>
-
-              {generating ? (
-                <div className="rounded-3xl border border-violet-400/20 bg-violet-400/[0.06] p-5 sm:p-6">
-                  <div className="flex items-center gap-3"><LoaderCircle size={18} className="animate-spin text-violet-300" /><div><p className="text-xs uppercase tracking-widest text-violet-300">Working now</p><p className="mt-1 font-bold">{activeAgent}</p></div></div>
-                  <div className="mt-5 space-y-3">
-                    {AGENTS.map((name) => {
-                      const done = events.some((event) => event.agent === name && event.status === "completed");
-                      const failed = events.some((event) => event.agent === name && event.status === "failed");
-                      const active = activeAgent === name;
-                      return (
-                        <div key={name} className={`flex items-center gap-2 text-sm ${done ? "text-emerald-300" : failed ? "text-amber-300" : active ? "text-white" : "text-slate-600"}`}>
+                  {pipelineAgents.map((name) => {
+                    const currentIndex = pipelineAgents.indexOf(currentActiveAgent);
+                    const myIndex = pipelineAgents.indexOf(name);
+                    const failed = currentEvents.some((event) => event.agent === name && event.status === "failed");
+                    const isDoneExplicit = currentEvents.some((event) => event.agent === name && event.status === "completed");
+                    const done = !failed && (isDoneExplicit || (currentIndex > myIndex && currentIndex !== -1));
+                    const active = currentActiveAgent === name;
+                    return (
+                      <div key={name} className={`flex items-center justify-between rounded-xl p-2.5 text-xs transition ${done ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-300" : failed ? "bg-amber-500/10 border border-amber-500/20 text-amber-300" : active ? "bg-violet-500/20 border border-violet-500/40 text-white font-bold" : "text-slate-500 border border-transparent"}`}>
+                        <div className="flex items-center gap-2.5">
                           {done ? (
-                            <CheckCircle2 size={15} />
+                            <CheckCircle2 size={15} className="text-emerald-400" />
                           ) : failed ? (
                             <AlertCircle size={15} className="text-amber-300" />
                           ) : active ? (
-                            <LoaderCircle size={15} className="animate-spin" />
+                            <LoaderCircle size={15} className="animate-spin text-violet-300" />
                           ) : (
-                            <span className="h-3.5 w-3.5 rounded-full border border-current" />
+                            <span className="h-3.5 w-3.5 rounded-full border border-slate-700" />
                           )}
-                          {name}
+                          <span>{name}</span>
+                        </div>
+                        <span className="text-[10px] font-semibold uppercase opacity-75">
+                          {done ? "Completed" : active ? "Active" : failed ? "Warning" : "Queued"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Live Streaming Logs */}
+              <div className="flex flex-col rounded-2xl border border-white/10 bg-[#090d16] p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Live Agent Stream</h3>
+                  <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                </div>
+                <div className="flex-1 max-h-80 space-y-2 overflow-y-auto pr-1 font-mono text-[11px] text-slate-400">
+                  {currentEvents.length === 0 ? (
+                    <p className="text-slate-600 italic">Initializing multi-agent session...</p>
+                  ) : (
+                    currentEvents.map((event) => {
+                      const agentLabel = event.agent || (event.type === "page" ? "Frontend Dev Agent" : "Pipeline");
+                      const detailText = event.detail || (event.type === "page" && event.name ? `Building ${event.name} page (${event.filename || "HTML"})…` : event.name || event.message || event.type);
+                      return (
+                        <div key={event.key} className="rounded-lg bg-black/30 p-2 border border-white/5">
+                          <span className="text-violet-300 font-semibold">{agentLabel}:</span>{" "}
+                          <span className="text-slate-300">{detailText}</span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* ── Post-Plan Multi-Page Step Workflow ── */
+          <div className="space-y-6">
+            {/* Top Stepper Navigation */}
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (currentStep === 2) {
+                      setPlan(null);
+                      changeStep(1);
+                    } else {
+                      setCurrentStep((prev) => Math.max(1, prev - 1));
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3.5 py-2 text-xs font-semibold text-slate-300 hover:bg-white/10 hover:text-white transition"
+                >
+                  <ArrowLeft size={14} /> Back
+                </button>
+                <div>
+                  <span className="text-xs uppercase tracking-wider text-violet-400 font-bold">Project Plan</span>
+                  <h2 className="text-lg font-bold text-white truncate max-w-sm sm:max-w-md">{plan.title}</h2>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 rounded-2xl border border-white/10 bg-black/40 p-1.5">
+                {[
+                  { step: 2, label: "1. Pages & Design" },
+                  { step: 3, label: `2. Questions (${completedQuestions.length}/${clarificationQuestions.length})` },
+                  { step: 4, label: "3. Assets & Build" },
+                ].map((s) => (
+                  <button
+                    key={s.step}
+                    type="button"
+                    onClick={() => setCurrentStep(s.step)}
+                    className={`rounded-xl px-3.5 py-1.5 text-xs font-bold transition ${
+                      currentStep === s.step
+                        ? "bg-violet-600 text-white shadow-md shadow-violet-600/30"
+                        : "text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* ── STEP 2: Pages & Architecture Blueprint ── */}
+            {currentStep === 2 && (
+              <div className="space-y-6">
+                <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
+                  <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">Planning Agent · Proposal</p>
+                      <h2 className="mt-2 text-2xl font-bold">{plan.title}</h2>
+                      <p className="mt-2 text-sm leading-6 text-slate-400 max-w-3xl">{plan.summary}</p>
+                    </div>
+                    <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-slate-300">
+                      {selectedPageCount} of {plan.pages.length} pages · {selectedPageCount === 1 ? "single page" : "multi page"}
+                    </span>
+                  </div>
+
+                  <div className="mb-4 flex items-center justify-between gap-3 border-b border-white/10 pb-3">
+                    <div>
+                      <h3 className="text-sm font-bold">Included Pages &amp; Sections</h3>
+                      <p className="mt-1 text-xs text-slate-500">Home is required. Toggle other pages or select individual sections per page.</p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-violet-400/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-violet-200">
+                      {selectedPageCount} selected
+                    </span>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {plan.pages.map((page, index) => (
+                      <article key={page.filename} className={`rounded-2xl border bg-[#0c111b] p-4 transition ${page.included === false ? "border-white/5 opacity-60" : "border-white/10 hover:border-violet-500/30"}`}>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <label className="flex cursor-pointer items-center gap-3">
+                            <input type="checkbox" checked={page.included !== false || page.required} disabled={!!page.required} onChange={() => togglePlanPage(page.filename)} className="h-4 w-4 accent-violet-400 disabled:cursor-not-allowed" />
+                            <span className="font-semibold text-sm">{String(index + 1).padStart(2, "0")} · {page.name}</span>
+                          </label>
+                          <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${page.required ? "bg-amber-300/10 text-amber-200" : "bg-white/5 text-slate-500"}`}>
+                            {page.required ? "Required" : page.included === false ? "Excluded" : "Optional"}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-xs text-slate-400">{page.purpose}</p>
+                        {!!page.sections?.length && (
+                          <div className="mt-3">
+                            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Sections</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {page.sections.map((section) => {
+                                const selected = (page.selected_sections || page.sections).includes(section);
+                                return (
+                                  <button key={section} type="button" disabled={page.included === false} aria-pressed={selected} onClick={() => togglePageSection(page.filename, section)} className={`rounded-lg border px-2 py-1 text-[11px] transition ${selected ? "border-violet-400/40 bg-violet-400/10 text-violet-100" : "border-white/10 bg-transparent text-slate-500 hover:text-slate-300"} disabled:cursor-not-allowed disabled:opacity-40`}>
+                                    {selected ? "✓ " : "+ "}{section}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+
+                  {plan.design_direction && (
+                    <div className="mt-5 rounded-2xl border border-violet-400/15 bg-violet-400/[0.06] p-4">
+                      <h3 className="text-sm font-semibold text-violet-200">Creative Direction</h3>
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-300">{plan.design_direction}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Visual Concept */}
+                <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
+                  <div className="mb-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">UI Designer Agent · Visual Concept</p>
+                    <h2 className="mt-2 text-xl font-bold">Planned Visual Direction &amp; Color Scheme</h2>
+                  </div>
+                  <div className="overflow-hidden rounded-2xl border border-black/10 shadow-xl" style={{ backgroundColor: safeColor(palette.background, "#f3f4f6"), color: safeColor(palette.text, "#172033") }}>
+                    <div className="flex items-center justify-between border-b border-black/10 px-4 py-3 text-xs">
+                      <strong>{plan.title}</strong>
+                      <div className="hidden gap-4 sm:flex">{plan.pages.filter((page) => page.included !== false || page.required).slice(0, 3).map((page) => <span key={page.filename} className="opacity-70">{page.name}</span>)}</div>
+                    </div>
+                    <div className="grid min-h-[220px] items-center gap-5 p-5 sm:grid-cols-[1.05fr_0.95fr] sm:p-8">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: safeColor(palette.primary, "#6d4aff") }}>{genre || selectedCategory?.name || "Website"}</span>
+                        <h3 className="mt-3 text-2xl sm:text-3xl font-black leading-tight">{plan.preview?.headline || plan.title}</h3>
+                        <p className="mt-2 max-w-md text-xs sm:text-sm leading-relaxed opacity-70">{plan.preview?.subheadline || plan.summary}</p>
+                        <span className="mt-4 inline-flex rounded-lg px-4 py-2 text-xs font-bold text-white" style={{ backgroundColor: safeColor(palette.primary, "#6d4aff") }}>{plan.preview?.primary_action || "Explore"}</span>
+                      </div>
+                      <div className="relative min-h-[140px] overflow-hidden rounded-2xl" style={{ background: `linear-gradient(135deg, ${safeColor(palette.primary, "#6d4aff")}55, ${safeColor(palette.accent, "#f28a64")}66)` }}>
+                        {previewImage && <img src={previewImage} alt="Selected visual direction" className="absolute inset-0 h-full w-full object-cover" />}
+                        <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${safeColor(palette.primary, "#6d4aff")}55, transparent 75%)` }} />
+                        <div className="absolute bottom-3 left-3 rounded-lg px-3 py-1.5 text-[10px] font-semibold text-white backdrop-blur" style={{ backgroundColor: `${safeColor(palette.surface, "#ffffff")}44` }}>{palette.image_treatment || "Visual story"}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bottom Step Actions */}
+                <div className="flex items-center justify-between pt-4 border-t border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => { setPlan(null); changeStep(1); }}
+                    className="rounded-xl border border-white/10 bg-white/5 px-5 py-3 text-xs font-bold text-slate-300 hover:bg-white/10 hover:text-white transition"
+                  >
+                    ← Edit Project Brief
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => changeStep(3)}
+                    className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-6 py-3 text-xs font-bold text-white shadow-lg shadow-violet-600/25 hover:bg-violet-500 transition"
+                  >
+                    <span>Continue to Clarifications (Step 2)</span>
+                    <ArrowRight size={15} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── STEP 3: Clarification Questions ── */}
+            {currentStep === 3 && (
+              <div className="space-y-6">
+                <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-8">
+                  <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">Step 2 · Clarifications</p>
+                      <h2 className="mt-1 text-2xl font-bold">Answer key project questions</h2>
+                      <p className="mt-1 text-sm text-slate-400">Answer these targeted questions to help the agents tailor your copy and sections.</p>
+                    </div>
+                    <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-3.5 py-1 text-xs font-bold text-violet-300">
+                      {completedQuestions.length + skippedQuestions.length} of {clarificationQuestions.length} answered
+                    </span>
+                  </div>
+
+                  <div className="space-y-4 max-w-2xl mx-auto">
+                    {(plan.questions || []).map((question, index) => {
+                      const id = question.id || `q-${index}`;
+                      const wasAnswered = completedQuestions.includes(id);
+                      const wasSkipped = skippedQuestions.includes(id);
+                      if (!wasAnswered && !wasSkipped) return null;
+                      return (
+                        <div key={id} className="space-y-2">
+                          <div className="max-w-[90%] rounded-2xl rounded-bl-sm border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-slate-300">{question.question}</div>
+                          <div className="ml-auto max-w-[90%] rounded-2xl rounded-br-sm bg-violet-500/15 px-4 py-3 text-sm text-violet-100">{wasSkipped ? "Skip for now" : answers[id]}</div>
                         </div>
                       );
                     })}
-                  </div>
-                  <div className="mt-5 max-h-48 space-y-2 overflow-auto border-t border-white/10 pt-4">
-                    {events.slice(-10).map((event) => (
-                      <p key={event.key} className="text-xs leading-5 text-slate-400">
-                        {event.type === "page"
-                          ? `${event.status === "completed" ? "✓" : "•"} ${event.name}${event.index && event.total ? ` (${event.index}/${event.total})` : ""}`
-                          : event.type === "model"
-                            ? `Code model · ${event.page}: ${event.provider} / ${event.model}`
-                            : `${event.status === "completed" ? "✓" : event.status === "failed" ? "⚠" : "•"} ${event.agent}: ${event.detail}`}
-                      </p>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-6">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-violet-300">Step 3 · Generate &amp; review</p>
-                  <h2 className="mt-1 font-bold">Your editable project prompt</h2>
-                  <p className="mt-2 text-sm leading-6 text-slate-400">Click below to create the prompt. It will appear here as an editable chat message before the agents generate any code.</p>
-                  {error && <p role="alert" className="mt-3 rounded-xl border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-xs text-rose-200">{error}</p>}
-                  {!buildPrompt ? (
-                    <>
-                      {!clarificationsComplete && <p className="mt-3 rounded-xl border border-amber-300/15 bg-amber-300/5 px-3 py-2 text-xs leading-5 text-amber-100/80">Finish the one-at-a-time questions before building the site.</p>}
-                      {uploadingImages && <p className="mt-3 text-xs text-violet-200">Wait for image uploads to finish before creating the prompt.</p>}
-                      <button onClick={createBuildPrompt} disabled={!categoryId || !clarificationsComplete || uploadingImages || loadingBuildPrompt} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-violet-400 disabled:opacity-50">
-                      {loadingBuildPrompt ? <LoaderCircle size={16} className="animate-spin" /> : <WandSparkles size={16} />}
-                      {loadingBuildPrompt ? "Writing your project prompt…" : "Create my editable prompt"}
-                      </button>
-                    </>
-                  ) : (
-                    <div className="mt-5 space-y-3">
-                      <div className="flex justify-end"><div className="max-w-[90%] rounded-2xl rounded-br-md bg-violet-500/15 px-3 py-2.5 text-xs leading-5 text-violet-100"><span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-violet-300">Your request</span>{prompt}</div></div>
-                      <div className="rounded-2xl rounded-tl-md border border-white/10 bg-[#0c111b] p-3">
-                        <label htmlFor="approved-build-prompt" className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-emerald-300">Planning Agent · Editable build prompt</label>
-                        <textarea id="approved-build-prompt" value={buildPrompt} maxLength={60000} onChange={(event) => setBuildPrompt(event.target.value)} rows={18} className="w-full resize-y rounded-xl border border-white/10 bg-[#080b12] px-3 py-3 font-mono text-xs leading-5 text-slate-200 outline-none focus:border-violet-400/50" aria-label="Edit the full website build prompt" />
-                        <div className="mt-1 text-right text-[10px] text-slate-600">{buildPrompt.length.toLocaleString()}/60,000</div>
+
+                    {activeClarificationIndex >= 0 ? (() => {
+                      const question = clarificationQuestions[activeClarificationIndex];
+                      const id = question.id || `q-${activeClarificationIndex}`;
+                      const value = answers[id] || "";
+                      return (
+                        <div className="rounded-2xl border border-violet-400/20 bg-violet-400/[0.07] p-5 space-y-4" key={id}>
+                          <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-violet-300">
+                            <span>Studio Question #{completedQuestions.length + skippedQuestions.length + 1}</span>
+                            <span>{completedQuestions.length + skippedQuestions.length + 1} / {clarificationQuestions.length}</span>
+                          </div>
+                          <label htmlFor={`active-${id}`} className="block text-sm font-semibold text-white leading-relaxed">
+                            {question.question}{question.required && <span className="ml-1 text-violet-300">*</span>}
+                          </label>
+                          {question.input_type === "select" ? (
+                            <select id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white outline-none focus:border-violet-400">
+                              <option value="">Choose an answer</option>
+                              {(question.options || []).map((option) => <option key={option} value={option}>{option}</option>)}
+                            </select>
+                          ) : question.input_type === "textarea" ? (
+                            <textarea id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} placeholder={question.placeholder || "Type your answer…"} rows={4} className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-violet-400" />
+                          ) : (
+                            <input id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} placeholder={question.placeholder || "Type your answer…"} className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-violet-400" />
+                          )}
+                          <div className="flex justify-end gap-2.5 pt-2">
+                            {!question.required && (
+                              <button type="button" onClick={() => submitClarification(question, activeClarificationIndex)} className="rounded-xl border border-white/10 px-4 py-2.5 text-xs font-semibold text-slate-300 hover:bg-white/5 transition">
+                                Skip
+                              </button>
+                            )}
+                            <button type="button" onClick={() => submitClarification(question, activeClarificationIndex)} disabled={!value.trim()} className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-violet-600/30 hover:bg-violet-500 disabled:opacity-40 transition">
+                              <span>Next Answer</span>
+                              <ArrowRight size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })() : (
+                      <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.08] p-5 text-center">
+                        <CheckCircle2 className="h-8 w-8 text-emerald-400 mx-auto mb-2" />
+                        <h4 className="font-bold text-emerald-300">All questions answered!</h4>
+                        <p className="mt-1 text-xs text-slate-300">You are ready to upload images and review your project prompt.</p>
                       </div>
-                      <button onClick={createBuildPrompt} disabled={loadingBuildPrompt || !clarificationsComplete || uploadingImages} className="w-full rounded-xl border border-white/10 px-3 py-2.5 text-xs font-semibold text-slate-300 transition hover:bg-white/5 disabled:opacity-50">{loadingBuildPrompt ? "Regenerating…" : "Refresh build brief from chat"}</button>
-                      <button onClick={startGeneration} disabled={buildPrompt.trim().length < 100 || !clarificationsComplete || uploadingImages} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-violet-400 disabled:opacity-50"><WandSparkles size={16} /> Build my website</button>
-                      <p className="text-center text-[11px] text-slate-500">Studio generates and reviews each page in sequence. When it’s ready, you can refine the live site by chatting with the editor.</p>
-                    </div>
-                  )}
-                  <button onClick={() => { setPlan(null); setBuildPrompt(""); setError(""); }} className="mt-3 w-full rounded-xl border border-white/10 px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-white/5">Edit brief and plan</button>
+                    )}
+                  </div>
                 </div>
-              )}
-            </aside>
+
+                {/* Bottom Step Actions */}
+                <div className="flex items-center justify-between pt-4 border-t border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => changeStep(2)}
+                    className="rounded-xl border border-white/10 bg-white/5 px-5 py-3 text-xs font-bold text-slate-300 hover:bg-white/10 hover:text-white transition"
+                  >
+                    ← Back to Pages &amp; Blueprint
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => changeStep(4)}
+                    className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-6 py-3 text-xs font-bold text-white shadow-lg shadow-violet-600/25 hover:bg-violet-500 transition"
+                  >
+                    <span>Continue to Assets &amp; Build (Step 3)</span>
+                    <ArrowRight size={15} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── STEP 4: Assets & Build Prompt ── */}
+            {currentStep === 4 && (
+              <div className="space-y-6">
+                <div className="grid gap-6 lg:grid-cols-2">
+                  {/* Left: Image Assets */}
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
+                    <div className="flex items-center gap-2 mb-2">
+                      <ImagePlus size={18} className="text-violet-300" />
+                      <h3 className="font-bold text-base text-white">Choose Images &amp; Logos</h3>
+                    </div>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      Upload up to 16 images for your site. If left empty, Studio automatically uses relevant high-quality stock photos.
+                    </p>
+
+                    <div className="mt-4 space-y-2.5">
+                      {uploadFields.map((field) => (
+                        <label key={`${field.role}-${field.label}`} className="block rounded-xl border border-white/10 bg-[#0c111b] p-3 transition hover:border-violet-500/30">
+                          <span className="block text-xs font-semibold text-slate-200">{field.label}</span>
+                          <span className="mt-0.5 block text-[11px] text-slate-500">{field.hint}</span>
+                          <input className="mt-2 block w-full text-xs text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-500/15 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-violet-200" type="file" accept="image/*" multiple={field.multiple} disabled={uploadingImages || uploadedAssets.length >= 16} onChange={(event) => { uploadPortfolioImages(field, event.target.files); event.target.value = ""; }} />
+                        </label>
+                      ))}
+                    </div>
+
+                    {uploadedAssets.length > 0 && (
+                      <div className="mt-5 space-y-3">
+                        <div className="flex items-center justify-between border-t border-white/10 pt-4">
+                          <span className="text-xs font-bold uppercase tracking-wider text-violet-300">
+                            Uploaded Photos ({uploadedAssets.length}/16)
+                          </span>
+                        </div>
+                        <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                          {uploadedAssets.map((asset, index) => (
+                            <div key={`${asset.url}-${index}`} className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#0a0e17] p-2 text-xs">
+                              <img src={asset.url} alt="" className="h-10 w-10 rounded-lg object-cover" />
+                              <div className="flex-1 truncate">
+                                <p className="font-semibold text-white truncate">{asset.title || "Custom Photo"}</p>
+                                <p className="text-[10px] text-violet-300">{asset.role} · {asset.page_target || "index.html"}</p>
+                              </div>
+                              <button type="button" onClick={() => setUploadedAssets((curr) => curr.filter((_, i) => i !== index))} className="text-slate-500 hover:text-rose-400 p-1">
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Right: Editable Build Prompt */}
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <h3 className="font-bold text-base text-white">Full Build Brief</h3>
+                        <span className="rounded-full bg-violet-500/10 border border-violet-500/30 px-2.5 py-0.5 text-[10px] font-bold text-violet-300">Ready to Code</span>
+                      </div>
+                      <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                        The Planning Agent compiles your answers and architecture into a full blueprint for the code agents.
+                      </p>
+
+                      {!buildPrompt ? (
+                        <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-8 text-center">
+                          <FileText className="h-8 w-8 text-violet-400 mx-auto mb-2 opacity-60" />
+                          <p className="text-xs text-slate-400">Click below to generate and preview the editable code brief.</p>
+                          <button
+                            type="button"
+                            onClick={createBuildPrompt}
+                            disabled={loadingBuildPrompt}
+                            className="mt-4 inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-violet-500 transition"
+                          >
+                            {loadingBuildPrompt ? <LoaderCircle size={15} className="animate-spin" /> : <WandSparkles size={15} />}
+                            <span>{loadingBuildPrompt ? "Generating Brief..." : "Create Project Brief"}</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <textarea
+                            value={buildPrompt}
+                            maxLength={60000}
+                            onChange={(e) => setBuildPrompt(e.target.value)}
+                            rows={10}
+                            className="w-full resize-y rounded-xl border border-white/10 bg-[#080b12] p-3 font-mono text-xs leading-5 text-slate-200 outline-none focus:border-violet-400"
+                          />
+                          <button
+                            type="button"
+                            onClick={createBuildPrompt}
+                            disabled={loadingBuildPrompt}
+                            className="w-full rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-white/5 transition"
+                          >
+                            {loadingBuildPrompt ? "Updating..." : "Refresh from Q&amp;A"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-6 border-t border-white/10 mt-6 space-y-3">
+                      <button
+                        type="button"
+                        onClick={startGeneration}
+                        disabled={!buildPrompt || buildPrompt.trim().length < 50}
+                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 via-indigo-600 to-violet-700 py-3.5 px-4 text-sm font-extrabold text-white shadow-xl shadow-violet-600/30 hover:opacity-95 transition disabled:opacity-40 cursor-pointer"
+                      >
+                        <WandSparkles size={17} />
+                        <span>Build My Website</span>
+                        <ArrowRight size={16} />
+                      </button>
+                      <p className="text-center text-[11px] text-slate-500">
+                        Agents build, test, and package your site. Once complete, you will be taken to your Launch Hub.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bottom Step Actions */}
+                <div className="flex items-center justify-between pt-4 border-t border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => changeStep(3)}
+                    className="rounded-xl border border-white/10 bg-white/5 px-5 py-3 text-xs font-bold text-slate-300 hover:bg-white/10 hover:text-white transition"
+                  >
+                    ← Back to Questions
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>

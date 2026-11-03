@@ -198,6 +198,31 @@ async def init_db() -> None:
             except Exception:
                 pass  # Column already exists, safe to ignore
 
+        # Self-healing migration: Ensure templates table has marketplace segregation columns
+        template_columns_to_add = [
+            ("is_marketplace", "BOOLEAN DEFAULT TRUE"),
+            ("template_origin", "VARCHAR(50) DEFAULT 'marketplace'"),
+        ]
+        for col_name, col_type in template_columns_to_add:
+            try:
+                if conn.dialect.name == "sqlite":
+                    await conn.execute(text(f"ALTER TABLE templates ADD COLUMN {col_name} {col_type}"))
+                else:
+                    await conn.execute(text(f"ALTER TABLE templates ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
+            except Exception:
+                pass
+
+        if conn.dialect.name != "sqlite":
+            indexes_to_add = [
+                "CREATE INDEX IF NOT EXISTS ix_templates_is_marketplace ON templates (is_marketplace);",
+                "CREATE INDEX IF NOT EXISTS ix_templates_template_origin ON templates (template_origin);",
+            ]
+            for idx_sql in indexes_to_add:
+                try:
+                    await conn.execute(text(idx_sql))
+                except Exception:
+                    pass
+
     print("Database connected and tables verified")
 
     async with AsyncSessionLocal() as db:
@@ -246,5 +271,3 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
                 # Preserve the route's original exception if its connection was lost.
                 pass
             raise
-        finally:
-            await session.close()

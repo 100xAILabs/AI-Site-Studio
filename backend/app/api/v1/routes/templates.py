@@ -336,14 +336,22 @@ async def get_template(
 
 @router.patch("/{template_id}", response_model=TemplateResponse)
 async def update_template(
-    template_id: uuid.UUID,
+    template_id: str | uuid.UUID,
     data: TemplateUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Update template details by ID (price, description, title, framework, etc.)."""
+    try:
+        t_uuid = uuid.UUID(str(template_id))
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid template ID format"
+        )
+
     repo = TemplateRepository(db)
-    template = await repo.get_by_id(template_id)
+    template = await repo.get_by_id(t_uuid)
     if not template:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -365,11 +373,12 @@ async def update_template(
     updated = await repo.update(template, update_dict)
     await db.commit()
 
-    # Invalidate template details and featured caches
+    # Invalidate template details, featured caches, and FastCatalog
     if hasattr(template, "slug") and template.slug:
         await cache_delete(CacheKeys.template(template.slug))
     await cache_delete(CacheKeys.template(str(template.id)))
     await cache_delete_pattern("templates:featured:*")
+    fast_catalog.invalidate()
 
     return updated
 
@@ -481,22 +490,10 @@ async def create_template(
 ):
     """Create a new template and permanently link it to the uploading seller's account."""
     data.status = TemplateStatus.PUBLISHED
+    data.is_marketplace = True
+    data.template_origin = "marketplace"
     service = TemplateService(db)
     res = await service.create_template(data, seller_id=current_user.id)
-    fast_catalog.invalidate()
-    return res
-
-
-@router.patch("/{template_id}", response_model=TemplateResponse)
-async def update_template(
-    template_id: str | uuid.UUID,
-    data: TemplateUpdate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_seller_or_admin),
-):
-    """Update an existing template."""
-    service = TemplateService(db)
-    res = await service.update_template(template_id, data, current_user)
     fast_catalog.invalidate()
     return res
 
