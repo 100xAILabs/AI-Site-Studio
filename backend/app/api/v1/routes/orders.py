@@ -5,8 +5,8 @@ Orders routes.
 import uuid
 import random
 import string
-from typing import List
-from decimal import Decimal
+from typing import List, Optional, Tuple, Dict, Any
+from decimal import Decimal 
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,32 @@ from app.repositories.template_repo import TemplateRepository
 from app.schemas.order import OrderCreate, OrderResponse
 
 router = APIRouter()
+
+
+COUNTRY_TAX_RATES = {
+    "IN": {"name": "India", "rate": Decimal("0.18"), "label": "GST (18%)"},
+    "US": {"name": "United States", "rate": Decimal("0.08"), "label": "Sales Tax (8%)"},
+    "GB": {"name": "United Kingdom", "rate": Decimal("0.20"), "label": "VAT (20%)"},
+    "DE": {"name": "Germany", "rate": Decimal("0.19"), "label": "EU VAT (19%)"},
+    "FR": {"name": "France", "rate": Decimal("0.20"), "label": "EU VAT (20%)"},
+    "ES": {"name": "Spain", "rate": Decimal("0.21"), "label": "EU VAT (21%)"},
+    "IT": {"name": "Italy", "rate": Decimal("0.22"), "label": "EU VAT (22%)"},
+    "NL": {"name": "Netherlands", "rate": Decimal("0.21"), "label": "EU VAT (21%)"},
+    "CA": {"name": "Canada", "rate": Decimal("0.13"), "label": "HST/GST (13%)"},
+    "AU": {"name": "Australia", "rate": Decimal("0.10"), "label": "GST (10%)"},
+    "SG": {"name": "Singapore", "rate": Decimal("0.09"), "label": "GST (9%)"},
+    "JP": {"name": "Japan", "rate": Decimal("0.10"), "label": "JCT (10%)"},
+    "AE": {"name": "United Arab Emirates", "rate": Decimal("0.05"), "label": "VAT (5%)"},
+    "BR": {"name": "Brazil", "rate": Decimal("0.10"), "label": "Digital Tax (10%)"},
+}
+
+def calculate_country_tax(subtotal: Decimal, country_code: Optional[str] = None) -> tuple[Decimal, Decimal, str, float]:
+    code = (country_code or "US").upper()
+    info = COUNTRY_TAX_RATES.get(code, {"name": "Other", "rate": Decimal("0.10"), "label": "Digital Goods Tax (10%)"})
+    rate = info["rate"]
+    tax = (subtotal * rate).quantize(Decimal("0.01"))
+    total = subtotal + tax
+    return tax, total, info["label"], float(rate)
 
 
 def _generate_order_number() -> str:
@@ -68,17 +94,25 @@ async def create_order(
         raise HTTPException(status_code=400, detail="All items in an order must use the same supported currency (USD or INR).")
     primary_currency = currencies[0]
 
+    country_code = (data.country_code or getattr(current_user, "country", None) or "US").upper()
+    tax_amount, total_amount, tax_label, tax_rate_val = calculate_country_tax(subtotal, country_code)
+
     order = Order(
         user_id=current_user.id,
         order_number=_generate_order_number(),
         status=OrderStatus.PENDING,
         subtotal=subtotal,
         discount=Decimal("0"),
-        tax=Decimal("0"),
-        total=subtotal,
+        tax=tax_amount,
+        total=total_amount,
         coupon_code=data.coupon_code,
         notes=data.notes,
-        extra_metadata={"currency": primary_currency},
+        extra_metadata={
+            "currency": primary_currency,
+            "country_code": country_code,
+            "tax_label": tax_label,
+            "tax_rate": tax_rate_val,
+        },
     )
     db.add(order)
     await db.flush()

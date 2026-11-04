@@ -4,6 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { POPULAR_TEMPLATES_CATALOG, getFallbackTemplate } from "@/data/popularTemplatesData";
 
 // ── Query Keys ────────────────────────────────────────────────────────────
 
@@ -46,7 +47,19 @@ export function useTemplate(slug, token) {
   const qc = useQueryClient();
   return useQuery({
     queryKey: templateKeys.detail(slug),
-    queryFn: () => api.get(`/templates/${slug}`, token),
+    queryFn: async () => {
+      try {
+        const res = await api.get(`/templates/${slug}`, token);
+        if (res && res.id) return res;
+      } catch (err) {
+        const fallback = getFallbackTemplate(slug);
+        if (fallback) return fallback;
+        throw err;
+      }
+      const fallback = getFallbackTemplate(slug);
+      if (fallback) return fallback;
+      return null;
+    },
     staleTime: 1000 * 60 * 15, // 15 mins fresh
     gcTime: 1000 * 60 * 60,
     placeholderData: (prev) => prev,
@@ -59,7 +72,7 @@ export function useTemplate(slug, token) {
           if (match) return match;
         }
       }
-      return undefined;
+      return getFallbackTemplate(slug) || undefined;
     },
     enabled: !!slug,
   });
@@ -71,9 +84,17 @@ export function useTemplate(slug, token) {
 export function useFeaturedTemplates(limit = 8) {
   return useQuery({
     queryKey: [...templateKeys.featured(), limit],
-    queryFn: () =>
-      api.get(`/templates/featured?limit=${limit}`),
+    queryFn: async () => {
+      try {
+        const res = await api.get(`/templates/featured?limit=${limit}`);
+        if (Array.isArray(res) && res.length > 0) return res;
+      } catch {
+        // Fallback to real catalog
+      }
+      return POPULAR_TEMPLATES_CATALOG.slice(0, limit);
+    },
     staleTime: 1000 * 60 * 10,
+    initialData: () => POPULAR_TEMPLATES_CATALOG.slice(0, limit),
   });
 }
 

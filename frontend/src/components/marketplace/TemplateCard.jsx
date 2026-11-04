@@ -57,17 +57,19 @@ export default function TemplateCard({
   const { userCurrency, rates } = useCurrencyStore();
 
   const isSeller = isSignedIn && (user?.role === "seller" || user?.role === "SELLER");
-  const isTemplateFree = TEMPLATE_DOWNLOADS_FREE || template.is_free;
+  const effectivePrice = Number(template.price) > 0 ? Number(template.price) : (template.is_free ? 0 : 49);
+  const isTemplateFree = Boolean(template.is_free && effectivePrice === 0);
 
   const handleAddToCart = (e) => {
     e.preventDefault();
     e.stopPropagation();
     addToCart({
-      templateId: template.id,
-      title: template.title,
-      price: template.price,
+      templateId: template.id || template.slug,
+      title: template.title || template.displayName,
+      price: effectivePrice > 0 ? effectivePrice : 49,
       price_currency: template.price_currency || "USD",
-      thumbnail: template.thumbnail_url,
+      thumbnail: template.thumbnail_url || template.thumbnail,
+      framework: template.framework || "React 19 + Tailwind",
       licenseType: "regular",
     });
   };
@@ -76,9 +78,9 @@ export default function TemplateCard({
     ? discountPercent(template.original_price, template.price)
     : 0;
 
-    const templateSlug = template.slug || template.id;
+  const templateSlug = template.slug || template.id;
 
-    return (
+  return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}

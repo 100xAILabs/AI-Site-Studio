@@ -2,6 +2,180 @@
    Premium Footer — SERENITY Light Theme
 =================================================== */
 
+/* ========================================================
+   HOME STUDIO PAGE — DARK OBSIDIAN & NEON VIOLET THEME
+   ======================================================== */
+.home-studio-page {
+  background-color: #060814 !important;
+  color: #f8fafc !important;
+  min-height: 100vh;
+  width: 100%;
+  position: relative;
+  overflow-x: hidden;
+}
+
+.home-studio-main {
+  width: 100%;
+  padding-top: 5rem;
+  padding-bottom: 3rem;
+}
+
+/* Sections on HomePage */
+.home-studio-page .section {
+  background-color: #060814 !important;
+}
+
+.home-studio-page .section-title {
+  color: #ffffff !important;
+}
+
+.home-studio-page .section-subtitle {
+  color: #94a3b8 !important;
+}
+
+.home-studio-page .section-badge {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #c084fc !important;
+}
+
+/* Feature cards in FeaturesSection */
+.home-studio-page .feature-card {
+  background: #0b0e24 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5) !important;
+  transition: all 0.3s ease !important;
+}
+
+.home-studio-page .feature-card:hover {
+  transform: translateY(-4px) !important;
+  border-color: rgba(168, 85, 247, 0.45) !important;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.7), 0 0 25px rgba(139, 92, 246, 0.25) !important;
+}
+
+.home-studio-page .feature-title {
+  color: #ffffff !important;
+}
+
+.home-studio-page .feature-description {
+  color: #94a3b8 !important;
+}
+
+/* How It Works Steps in TestimonialsSection */
+.home-studio-page .step-card,
+.home-studio-page .how-it-works-card {
+  background: #0b0e24 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+
+.home-studio-page .step-title {
+  color: #ffffff !important;
+}
+
+.home-studio-page .step-desc {
+  color: #94a3b8 !important;
+}
+
+/* Pricing Card in PricingSection */
+.home-studio-page .pricing-card {
+  background: #0b0e24 !important;
+  border: 1px solid rgba(168, 85, 247, 0.3) !important;
+  color: #ffffff !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 35px rgba(139, 92, 246, 0.2) !important;
+}
+
+.home-studio-page .pricing-title,
+.home-studio-page .pricing-feature-text {
+  color: #ffffff !important;
+}
+
+.home-studio-page .pricing-desc {
+  color: #94a3b8 !important;
+}
+
+/* CTA Banner */
+.home-studio-page .cta-section-wrapper {
+  background-color: #060814 !important;
+  padding: 5rem 0 3rem !important;
+}
+
+.home-studio-page .cta-banner {
+  background: radial-gradient(circle at 50% 0%, rgba(139, 92, 246, 0.22) 0%, rgba(11, 14, 34, 0.95) 70%) !important;
+  border: 1px solid rgba(168, 85, 247, 0.35) !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(139, 92, 246, 0.2) !important;
+  border-radius: 28px !important;
+  padding: 60px 40px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  text-align: center !important;
+}
+
+.home-studio-page .cta-title {
+  color: #ffffff !important;
+  font-size: clamp(2rem, 4vw, 3.25rem) !important;
+  font-weight: 800 !important;
+  margin-bottom: 1rem !important;
+}
+
+.home-studio-page .cta-btn-primary {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+  padding: 0.85rem 2rem !important;
+  border-radius: 9999px !important;
+  font-size: 0.95rem !important;
+  font-weight: 600 !important;
+  color: #ffffff !important;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%) !important;
+  box-shadow: 0 4px 22px rgba(139, 92, 246, 0.5) !important;
+  text-decoration: none !important;
+  transition: all 0.25s ease !important;
+}
+
+.home-studio-page .cta-btn-primary:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 8px 30px rgba(139, 92, 246, 0.7) !important;
+}
+
+/* Footer */
+.home-studio-page .footer-wrap {
+  background-color: #050610 !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  margin-top: 3rem !important;
+}
+
+.home-studio-page .footer-col-title {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+.home-studio-page .footer-link-item {
+  color: #94a3b8 !important;
+}
+
+.home-studio-page .footer-link-item:hover {
+  color: #c084fc !important;
+}
+
+.home-studio-page .footer-social-btn {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #cbd5e1 !important;
+}
+
+.home-studio-page .footer-social-btn:hover {
+  background: rgba(139, 92, 246, 0.15) !important;
+  border-color: rgba(168, 85, 247, 0.5) !important;
+  color: #ffffff !important;
+}
+
+.home-studio-page .footer-bottom {
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  color: #64748b !important;
+}
+
 .footer-wrap {
   position: relative;
   margin-top: 6rem;
@@ -124,7 +298,181 @@
 =================================================== */
 
 @media(max-width:768px) {
-  .footer-wrap {
+  /* ========================================================
+   HOME STUDIO PAGE — DARK OBSIDIAN & NEON VIOLET THEME
+   ======================================================== */
+.home-studio-page {
+  background-color: #060814 !important;
+  color: #f8fafc !important;
+  min-height: 100vh;
+  width: 100%;
+  position: relative;
+  overflow-x: hidden;
+}
+
+.home-studio-main {
+  width: 100%;
+  padding-top: 5rem;
+  padding-bottom: 3rem;
+}
+
+/* Sections on HomePage */
+.home-studio-page .section {
+  background-color: #060814 !important;
+}
+
+.home-studio-page .section-title {
+  color: #ffffff !important;
+}
+
+.home-studio-page .section-subtitle {
+  color: #94a3b8 !important;
+}
+
+.home-studio-page .section-badge {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #c084fc !important;
+}
+
+/* Feature cards in FeaturesSection */
+.home-studio-page .feature-card {
+  background: #0b0e24 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5) !important;
+  transition: all 0.3s ease !important;
+}
+
+.home-studio-page .feature-card:hover {
+  transform: translateY(-4px) !important;
+  border-color: rgba(168, 85, 247, 0.45) !important;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.7), 0 0 25px rgba(139, 92, 246, 0.25) !important;
+}
+
+.home-studio-page .feature-title {
+  color: #ffffff !important;
+}
+
+.home-studio-page .feature-description {
+  color: #94a3b8 !important;
+}
+
+/* How It Works Steps in TestimonialsSection */
+.home-studio-page .step-card,
+.home-studio-page .how-it-works-card {
+  background: #0b0e24 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+
+.home-studio-page .step-title {
+  color: #ffffff !important;
+}
+
+.home-studio-page .step-desc {
+  color: #94a3b8 !important;
+}
+
+/* Pricing Card in PricingSection */
+.home-studio-page .pricing-card {
+  background: #0b0e24 !important;
+  border: 1px solid rgba(168, 85, 247, 0.3) !important;
+  color: #ffffff !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 35px rgba(139, 92, 246, 0.2) !important;
+}
+
+.home-studio-page .pricing-title,
+.home-studio-page .pricing-feature-text {
+  color: #ffffff !important;
+}
+
+.home-studio-page .pricing-desc {
+  color: #94a3b8 !important;
+}
+
+/* CTA Banner */
+.home-studio-page .cta-section-wrapper {
+  background-color: #060814 !important;
+  padding: 5rem 0 3rem !important;
+}
+
+.home-studio-page .cta-banner {
+  background: radial-gradient(circle at 50% 0%, rgba(139, 92, 246, 0.22) 0%, rgba(11, 14, 34, 0.95) 70%) !important;
+  border: 1px solid rgba(168, 85, 247, 0.35) !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(139, 92, 246, 0.2) !important;
+  border-radius: 28px !important;
+  padding: 60px 40px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  text-align: center !important;
+}
+
+.home-studio-page .cta-title {
+  color: #ffffff !important;
+  font-size: clamp(2rem, 4vw, 3.25rem) !important;
+  font-weight: 800 !important;
+  margin-bottom: 1rem !important;
+}
+
+.home-studio-page .cta-btn-primary {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+  padding: 0.85rem 2rem !important;
+  border-radius: 9999px !important;
+  font-size: 0.95rem !important;
+  font-weight: 600 !important;
+  color: #ffffff !important;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%) !important;
+  box-shadow: 0 4px 22px rgba(139, 92, 246, 0.5) !important;
+  text-decoration: none !important;
+  transition: all 0.25s ease !important;
+}
+
+.home-studio-page .cta-btn-primary:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 8px 30px rgba(139, 92, 246, 0.7) !important;
+}
+
+/* Footer */
+.home-studio-page .footer-wrap {
+  background-color: #050610 !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  margin-top: 3rem !important;
+}
+
+.home-studio-page .footer-col-title {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+.home-studio-page .footer-link-item {
+  color: #94a3b8 !important;
+}
+
+.home-studio-page .footer-link-item:hover {
+  color: #c084fc !important;
+}
+
+.home-studio-page .footer-social-btn {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #cbd5e1 !important;
+}
+
+.home-studio-page .footer-social-btn:hover {
+  background: rgba(139, 92, 246, 0.15) !important;
+  border-color: rgba(168, 85, 247, 0.5) !important;
+  color: #ffffff !important;
+}
+
+.home-studio-page .footer-bottom {
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  color: #64748b !important;
+}
+
+.footer-wrap {
     margin-top: 2.5rem;
   }
 

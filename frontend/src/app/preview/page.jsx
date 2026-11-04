@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useCartStore } from "@/store";
 import { useAuthStore } from "@/store/authStore";
+import { getFallbackTemplate } from "@/data/popularTemplatesData";
 import "./Page.css";
 import "../storybook/Page.css";
 
@@ -598,18 +599,23 @@ export default function PreviewPage() {
   const templateId = customDraftId || activeTemplateId;
 
   const handleAddToCart = () => {
-    if (!templateData) return;
     const targetId = customDraftId || activeTemplateId;
+    const catItem = getFallbackTemplate(targetId) || getFallbackTemplate(activeTemplateId);
+    const resolvedPrice = Number(templateData?.price) > 0 ? Number(templateData.price) : (catItem?.price || 49);
     const item = {
+      templateId: targetId,
       id: targetId,
       template_id: targetId,
       original_template_id: activeTemplateId,
-      title: templateData.title || brand.business_name,
-      price: templateData.price || 0,
-      thumbnail_url: templateData.thumbnail_url || "",
-      framework: templateData.framework || "React",
-      seller_id: templateData.seller_id,
-      is_free: templateData.is_free || false,
+      title: templateData?.title || catItem?.displayName || catItem?.title || brand?.business_name || `Template #${targetId}`,
+      price: resolvedPrice,
+      price_currency: templateData?.price_currency || catItem?.price_currency || "USD",
+      thumbnail: templateData?.thumbnail_url || templateData?.thumbnail || catItem?.thumbnail_url || "/landing/template_saas.png",
+      thumbnail_url: templateData?.thumbnail_url || catItem?.thumbnail_url || "/landing/template_saas.png",
+      framework: templateData?.framework || catItem?.framework || "React 19 + Tailwind",
+      seller_id: templateData?.seller_id,
+      licenseType: "regular",
+      is_free: false,
     };
     addToCart(item);
     setAddedToCart(true);
@@ -622,7 +628,7 @@ export default function PreviewPage() {
 
   const handleBuyNow = () => {
     handleAddToCart();
-    navigate("/cart");
+    navigate("/checkout");
   };
 
   // 2 Top Mode Buttons State: "manual" | "ai"
@@ -927,7 +933,7 @@ export default function PreviewPage() {
       Promise.all([
         api.get(`/templates/${activeTemplateId}`).catch((err) => {
           console.warn("Could not load template detail:", err);
-          return null;
+          return getFallbackTemplate(activeTemplateId) || null;
         }),
         api.get(`/preview/live/${activeTemplateId}/extracted-data`).catch((err) => {
           console.warn("Could not load extracted data:", err);

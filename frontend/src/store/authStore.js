@@ -48,8 +48,13 @@ function initWebSocketSession(token) {
   if (!token) {
     if (activeWs) {
       if (activeWsPingTimer) clearInterval(activeWsPingTimer);
-      try { activeWs.close(); } catch (e) {}
+      const prevWs = activeWs;
       activeWs = null;
+      if (prevWs.readyState === WebSocket.OPEN) {
+        try { prevWs.close(); } catch (e) {}
+      } else if (prevWs.readyState === WebSocket.CONNECTING) {
+        prevWs.onopen = () => { try { prevWs.close(); } catch (e) {} };
+      }
     }
     return;
   }
@@ -57,19 +62,39 @@ function initWebSocketSession(token) {
     const wsUrl = API_BASE.replace(/^http/, "ws") + "/ws/session";
     if (activeWs) {
       if (activeWsPingTimer) clearInterval(activeWsPingTimer);
-      try { activeWs.close(); } catch (e) {}
+      const prevWs = activeWs;
+      activeWs = null;
+      if (prevWs.readyState === WebSocket.OPEN) {
+        try { prevWs.close(); } catch (e) {}
+      } else if (prevWs.readyState === WebSocket.CONNECTING) {
+        prevWs.onopen = () => { try { prevWs.close(); } catch (e) {} };
+      }
     }
-    activeWs = new WebSocket(wsUrl);
-    activeWs.onopen = () => {
-      activeWs.send(JSON.stringify({ type: "auth", token }));
+    const ws = new WebSocket(wsUrl);
+    activeWs = ws;
+    ws.onopen = () => {
+      if (activeWs !== ws) {
+        try { ws.close(); } catch (e) {}
+        return;
+      }
+      try {
+        ws.send(JSON.stringify({ type: "auth", token }));
+      } catch (e) {}
       activeWsPingTimer = setInterval(() => {
         if (activeWs && activeWs.readyState === WebSocket.OPEN) {
-          activeWs.send("ping");
+          try { activeWs.send("ping"); } catch (e) {}
         }
       }, 30000);
     };
+    ws.onerror = () => {
+      // Gracefully silence connection drops when backend is offline or restarting
+    };
+    ws.onclose = () => {
+      if (activeWsPingTimer) clearInterval(activeWsPingTimer);
+      if (activeWs === ws) activeWs = null;
+    };
   } catch (e) {
-    console.warn("WebSocket session initialization notice:", e);
+    // Non-critical background session tracking
   }
 }
 
@@ -189,12 +214,12 @@ export const useAuthStore = create(
       },
 
       /** Email Login */
-      signInWithEmail: async ({ email, password }) => {
+      signInWithEmail: async ({ email, password, role }) => {
         try {
           const res = await fetch(`${API_BASE}/auth/login`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email, password })
+            body: JSON.stringify({ email, password, role })
           });
           
           if (res.status === 429) {
@@ -207,11 +232,13 @@ export const useAuthStore = create(
           }
           const data = await res.json();
           
-          if (data.status === "otp_required") {
-            return { requires_otp: true, email: data.email };
-          }
-          if (data.status === "registration_received") {
-            return { requires_otp: true, email };
+          if (data.status === "otp_required" || data.status === "registration_received") {
+            return {
+              requires_otp: true,
+              email: data.email || email,
+              sent: data.sent !== false,
+              message: data.message
+            };
           }
           
           set({ token: data.access_token, isSignedIn: true });
@@ -263,9 +290,15 @@ export const useAuthStore = create(
             body: JSON.stringify({ email })
           });
           if (!res.ok) {
-            throw new Error("Failed to resend code");
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || "Failed to resend code");
           }
-          return { success: true };
+          const data = await res.json().catch(() => ({}));
+          return {
+            success: true,
+            sent: data.sent !== false,
+            message: data.message || (data.sent === false ? "Could not deliver email. Please check that your email address is correct." : "Verification code resent successfully.")
+          };
         } catch (err) {
           console.error("Resend OTP failed:", err);
           throw err;
@@ -293,9 +326,14 @@ export const useAuthStore = create(
 
           const data = await res.json();
 
-          // Backend returns otp_required after new registration
-          if (data.status === "otp_required") {
-            return { requires_otp: true, email: data.email };
+          // Backend returns otp_required or registration_received after new registration
+          if (data.status === "otp_required" || data.status === "registration_received") {
+            return {
+              requires_otp: true,
+              email: data.email || email,
+              sent: data.sent !== false,
+              message: data.message
+            };
           }
 
           // If backend directly returns a token (fallback)

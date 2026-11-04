@@ -21,6 +21,7 @@ class OrderCreate(BaseModel):
     items: List[OrderItemCreate] = Field(min_length=1, max_length=50)
     coupon_code: Optional[str] = None
     notes: Optional[str] = None
+    country_code: Optional[str] = "US"
 
 
 class OrderItemResponse(BaseModel):

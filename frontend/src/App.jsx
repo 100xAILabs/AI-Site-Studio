@@ -101,6 +101,7 @@ function App() {
             <Route path="/contact" element={<ContactPage />} />
             <Route path="/get-started" element={<GetStarted />} />
             <Route path="/sign-in" element={<SignIn />} />
+            <Route path="/login" element={<Navigate to="/sign-in" replace />} />
             <Route path="/sign-up" element={<Navigate to="/register" replace />} />
             <Route path="/register" element={<Register />} />
             <Route path="/verify-otp" element={<VerifyOTPPage />} />
@@ -108,7 +109,8 @@ function App() {
             <Route path="/onboarding" element={<Onboarding />} />
             <Route path="/preview" element={<PreviewPage />} />
             <Route path="/storybook" element={<StorybookPage />} />
-            <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
+            <Route path="/cart" element={<Checkout />} />
+            <Route path="/checkout" element={<Checkout />} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/dashboard/receipt/:orderId" element={<ProtectedRoute><ReceiptPage /></ProtectedRoute>} />
             <Route path="/dashboard/payout-receipt/:withdrawalId" element={<ProtectedRoute><PayoutReceiptPage /></ProtectedRoute>} />

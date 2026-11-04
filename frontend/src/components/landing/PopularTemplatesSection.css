@@ -1,0 +1,288 @@
+/* Popular Templates Section — Big & Prominent Studio Architecture */
+
+.popular-templates-section {
+  position: relative;
+  background-color: transparent;
+  color: #ffffff;
+  padding: 3.5rem 0 5rem 0;
+  width: 100%;
+}
+
+.popular-templates-container {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+  width: 100%;
+}
+
+/* Section Grid: Left Copy & Right 4 Cards */
+.popular-templates-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 2.5rem;
+  align-items: center;
+}
+
+@media (max-width: 1100px) {
+  .popular-templates-grid {
+    grid-template-columns: 1fr;
+    gap: 2.25rem;
+  }
+}
+
+/* ========================================================
+   LEFT COLUMN: Copy & Browse CTA
+   ======================================================== */
+.popular-left-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.popular-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #c084fc;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.85rem;
+}
+
+.eyebrow-dash {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.popular-headline {
+  font-size: clamp(2.35rem, 3.2vw, 2.85rem);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  margin-bottom: 1.15rem;
+}
+
+@media (max-width: 768px) {
+  .popular-headline {
+    font-size: 2rem;
+  }
+}
+
+.popular-head-white {
+  color: #ffffff;
+}
+
+.popular-head-gradient {
+  background: linear-gradient(135deg, #a78bfa 0%, #c084fc 50%, #e879f9 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 20px rgba(192, 132, 252, 0.35));
+}
+
+.popular-description {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #94a3b8;
+  max-width: 310px;
+  margin-bottom: 2rem;
+}
+
+.popular-cta-wrapper {
+  margin-top: 0.25rem;
+}
+
+.popular-browse-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.8rem 1.75rem;
+  border-radius: 9999px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  text-decoration: none;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.popular-browse-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(168, 85, 247, 0.6);
+  box-shadow: 0 0 22px rgba(139, 92, 246, 0.35);
+  transform: translateY(-2px);
+}
+
+.popular-browse-arrow {
+  transition: transform 0.2s ease;
+}
+
+.popular-browse-btn:hover .popular-browse-arrow {
+  transform: translateX(3px);
+}
+
+/* ========================================================
+   RIGHT COLUMN: 4 Cards Grid — Big & High-Impact
+   ======================================================== */
+.popular-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.25rem;
+}
+
+@media (max-width: 1280px) {
+  .popular-cards-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .popular-cards-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.popular-template-card {
+  border-radius: 16px;
+  overflow: hidden;
+  background: #0b0e22;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.popular-template-card:hover {
+  transform: translateY(-6px);
+  border-color: rgba(168, 85, 247, 0.45);
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.7), 0 0 25px rgba(139, 92, 246, 0.25);
+}
+
+.popular-card-link {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  text-decoration: none;
+  color: inherit;
+}
+
+/* Preview Visual Box — Full Image Height */
+.popular-card-preview {
+  position: relative;
+  height: 225px;
+  overflow: hidden;
+  background: #080a1c;
+}
+
+.popular-card-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  display: block;
+}
+
+.popular-template-card:hover .popular-card-image {
+  transform: scale(1.06);
+}
+
+/* Bottom Info Bar */
+.popular-card-bottom-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.15rem;
+  background: #090c1f;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.popular-card-category-tag {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #cbd5e1;
+}
+
+.popular-heart-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.popular-heart-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: scale(1.15);
+}
+
+.popular-heart-btn.active {
+  animation: heartPop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes heartPop {
+  0% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.3);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* ========================================================
+   TOP HIGH-SELLING BESTSELLER BADGE & PRICE TAG
+   ======================================================== */
+.popular-bestseller-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.65rem;
+  background: rgba(11, 14, 34, 0.88);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 9999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #fbbf24;
+  letter-spacing: 0.02em;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.bestseller-dot {
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 0.6rem;
+}
+
+.bestseller-sales-text {
+  color: #e2e8f0;
+  font-weight: 600;
+}
+
+.popular-card-price-tag {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #c084fc;
+  margin-left: auto;
+  margin-right: 0.65rem;
+  letter-spacing: -0.01em;
+}
+
+
+

@@ -160,6 +160,20 @@ async def get_exchange_rates(base: str = "USD"):
     return AllRatesResponse(base=base.upper(), rates=rates, symbols=symbols)
 
 
+@router.get("/tax-rates")
+async def get_country_tax_rates():
+    """Return supported country tax rates and definitions."""
+    from app.api.v1.routes.orders import COUNTRY_TAX_RATES
+    return {
+        code: {
+            "name": val["name"],
+            "rate": float(val["rate"]),
+            "label": val["label"]
+        }
+        for code, val in COUNTRY_TAX_RATES.items()
+    }
+
+
 
 @router.post("/initiate", response_model=PaymentInitResponse)
 async def initiate_payment(

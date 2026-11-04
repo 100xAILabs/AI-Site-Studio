@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * Checkout Page - high-fidelity payment flow using Razorpay and Stripe gateways (React JSX).
+ * Checkout & Shopping Cart Page - High-fidelity marketplace cart matching design mockup.
+ * Supports automated country tax calculation, UPI QR, Razorpay, and Stripe checkout.
  */
 
 export const dynamic = "force-dynamic";
@@ -18,48 +19,81 @@ import { QRCodeSVG } from "qrcode.react";
 import {
   CreditCard,
   ShoppingBag,
+  ShoppingCart,
   ShieldCheck,
   Trash2,
   Loader2,
   ArrowRight,
+  ArrowLeft,
   Download,
-  QrCode,
   ScanQrCode,
   CheckCircle2,
   Copy,
-  ExternalLink,
   Smartphone,
   Check,
   Clock,
   RotateCcw,
   Lock,
+  Globe,
+  MapPin,
+  Tag,
+  Sparkles,
+  Crown,
+  HelpCircle,
+  Shield,
+  Zap,
+  Headphones,
+  ChevronRight,
+  X,
+  AlertCircle,
+  Plus,
+  Minus,
+  ClipboardList,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { useCartStore } from "@/store";
 import { api } from "@/lib/api";
 import { cn, formatPrice, formatConvertedPrice } from "@/lib/utils";
 import { useCurrencyStore } from "@/store/currencyStore";
+import { COUNTRY_TAX_RATES, detectBrowserCountry } from "@/lib/tax";
 import Image from "@/components/Image";
-import "./Page.css";
 import Link from "@/components/Link";
-import { TEMPLATE_DOWNLOADS_FREE } from "@/lib/marketplaceConfig";
+import "./Page.css";
 
-// Toggle external card gateways (Razorpay / Stripe)
 const ENABLE_EXTERNAL_GATEWAYS = true;
 
-function Checkout() {
+export default function Checkout() {
   const qc = useQueryClient();
   const { getToken } = useAppAuth();
   const { user } = useAppUser();
   const { userCurrency, rates } = useCurrencyStore();
   const router = useRouter();
-  const { items, removeItem, clearCart, total } = useCartStore();
+
+  const {
+    items,
+    addItem,
+    removeItem,
+    clearCart,
+    updateQuantity,
+    grossSubtotal,
+    discountAmount,
+    subtotal,
+    getTaxDetails,
+    total,
+    countryCode,
+    setCountryCode,
+    couponCode,
+    couponDiscount,
+    couponError,
+    couponSuccess,
+    applyCoupon,
+    removeCoupon,
+  } = useCartStore();
+
   const [paymentGateway, setPaymentGateway] = useState("upi"); // "upi" | "razorpay" | "stripe"
-  const [paymentMethodType, setPaymentMethodType] = useState("upi"); // "upi" | "card"
   const [authToken, setAuthToken] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [paymentStep, setPaymentStep] = useState("cart"); // "cart" | "paying" | "success"
-  const [freeDownloads, setFreeDownloads] = useState([]);
   const [freeDownloadsComplete, setFreeDownloadsComplete] = useState(false);
   const [initiatedOrder, setInitiatedOrder] = useState(null);
   const [initiatedPayment, setInitiatedPayment] = useState(null);
@@ -67,95 +101,48 @@ function Checkout() {
   const [upiUtr, setUpiUtr] = useState("");
   const [upiUtrSubmitted, setUpiUtrSubmitted] = useState(false);
   const [utrError, setUtrError] = useState("");
+  const [promoInput, setPromoInput] = useState("");
 
   // 5-minute QR Code timer & auto-refresh state
-  const [qrTimerSeconds, setQrTimerSeconds] = useState(300); // 5 mins = 300s
-  const [qrNonce, setQrNonce] = useState(Date.now());
+  const [qrTimerSeconds, setQrTimerSeconds] = useState(300);
+  const [qrNonce, setQrNonce] = useState(`${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
   const [qrRefreshedNotice, setQrRefreshedNotice] = useState(false);
+  const [isRefreshingQr, setIsRefreshingQr] = useState(false);
+
+  const [liveRate, setLiveRate] = useState(94.834);
+
+  // Auto-detect user country from URL param, profile, or browser locale
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const qCountry = new URLSearchParams(window.location.search).get("country");
+      if (qCountry && COUNTRY_TAX_RATES[qCountry.toUpperCase()]) {
+        setCountryCode(qCountry.toUpperCase());
+        return;
+      }
+    }
+    const detected = (user?.country_code || user?.country || detectBrowserCountry() || "IN").toUpperCase();
+    if (detected && detected !== countryCode) {
+      setCountryCode(detected);
+    }
+  }, [user]);
+
+  // Sync active payment gateway with detected region
+  useEffect(() => {
+    if (countryCode && countryCode !== "IN") {
+      setPaymentGateway("stripe");
+    } else if (countryCode === "IN") {
+      setPaymentGateway("upi");
+    }
+  }, [countryCode]);
 
   useEffect(() => {
-    if (paymentStep !== "paying" || paymentGateway !== "upi") {
-      setQrTimerSeconds(300);
-      return;
-    }
-
-    const interval = setInterval(() => {
-      setQrTimerSeconds((prev) => {
-        if (prev <= 1) {
-          // Auto-refresh QR code after 5 minutes
-          setQrNonce(Date.now());
-          setQrRefreshedNotice(true);
-          setTimeout(() => setQrRefreshedNotice(false), 4000);
-          return 300; // Reset 5-minute timer
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [paymentStep, paymentGateway]);
-
-  const handleManualRefreshQr = () => {
-    setQrTimerSeconds(300);
-    setQrNonce(Date.now());
-    setQrRefreshedNotice(true);
-    setTimeout(() => setQrRefreshedNotice(false), 4000);
-  };
-
-  // Simulated Card Info
-  const [cardNumber, setCardNumber] = useState("4242 4242 4242 4242");
-  const [cardExpiry, setCardExpiry] = useState("12/28");
-  const [cardCvc, setCardCvc] = useState("123");
-  const [errors, setErrors] = useState({ card: "", expiry: "", cvc: "" });
-
-  const handleCardNumberChange = (val) => {
-    const cleaned = val.replace(/\s+/g, '');
-    if (/[^\d]/.test(cleaned)) {
-      setErrors(prev => ({ ...prev, card: "Please enter numbers only." }));
-      return;
-    }
-    setErrors(prev => ({ ...prev, card: "" }));
-    const digitsOnly = cleaned.slice(0, 16);
-    const formatted = digitsOnly.replace(/(\d{4})(?=\d)/g, '$1 ');
-    setCardNumber(formatted);
-  };
-
-  const handleCardExpiryChange = (val) => {
-    const cleaned = val.replace(/[^\d/]/g, '');
-    if (cleaned !== val) {
-      setErrors(prev => ({ ...prev, expiry: "Please enter numbers only." }));
-      return;
-    }
-    setErrors(prev => ({ ...prev, expiry: "" }));
-    let digits = val.replace(/[^\d]/g, '').slice(0, 4);
-    if (digits.length > 2) {
-      setCardExpiry(`${digits.slice(0, 2)}/${digits.slice(2)}`);
-    } else {
-      setCardExpiry(digits);
-    }
-  };
-
-  const handleCardCvcChange = (val) => {
-    if (/[^\d]/.test(val)) {
-      setErrors(prev => ({ ...prev, cvc: "Please enter numbers only." }));
-      return;
-    }
-    setErrors(prev => ({ ...prev, cvc: "" }));
-    const digitsOnly = val.slice(0, 4);
-    setCardCvc(digitsOnly);
-  };
-
-  const isSeller = user?.role === "seller" || user?.role === "SELLER";
-
-  const [liveRate, setLiveRate] = useState(95.48);
-
-  useEffect(() => {
-    getToken().then(setAuthToken).catch(() => {});
-    api.get("/payment/exchange-rate")
-      .then(res => {
+    getToken().then(setAuthToken).catch(() => { });
+    api
+      .get("/payment/exchange-rate")
+      .then((res) => {
         if (res?.rate) setLiveRate(res.rate);
       })
-      .catch(() => {});
+      .catch(() => { });
 
     // Check if returning from Stripe Checkout
     if (typeof window !== "undefined") {
@@ -169,12 +156,16 @@ function Checkout() {
           if (!token) return;
           setIsProcessing(true);
           try {
-            const verifyRes = await api.post("/payment/verify", {
-              gateway: "stripe",
-              gateway_payment_id: sessionIdParam || "stripe_checkout",
-              gateway_order_id: sessionIdParam || orderIdParam,
-              order_id: orderIdParam,
-            }, token);
+            const verifyRes = await api.post(
+              "/payment/verify",
+              {
+                gateway: "stripe",
+                gateway_payment_id: sessionIdParam || "stripe_checkout",
+                gateway_order_id: sessionIdParam || orderIdParam,
+                order_id: orderIdParam,
+              },
+              token
+            );
             if (verifyRes?.success) {
               const statusRes = await api.get(`/payment/status/${orderIdParam}`, token);
               handleCompleteSuccessFlow({ id: orderIdParam, items: statusRes?.items || [] });
@@ -200,7 +191,9 @@ function Checkout() {
             handleCompleteSuccessFlow(initiatedOrder);
           } else if (res?.payment_status === "failed" && upiUtrSubmitted) {
             setUpiUtrSubmitted(false);
-            setUtrError("The submitted payment reference was not approved. Check it and contact support if you believe this is incorrect.");
+            setUtrError(
+              "The submitted payment reference was not approved. Check it and contact support if you believe this is incorrect."
+            );
           }
         } catch (e) {
           // Silent catch for background polling
@@ -209,6 +202,52 @@ function Checkout() {
     }
     return () => clearInterval(interval);
   }, [paymentStep, initiatedOrder, authToken, upiUtrSubmitted]);
+
+  // QR Timer Countdown
+  useEffect(() => {
+    if (paymentStep !== "paying" || paymentGateway !== "upi") {
+      setQrTimerSeconds(300);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setQrTimerSeconds((prev) => {
+        if (prev <= 1) {
+          const freshNonce = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+          setQrNonce(freshNonce);
+          setQrRefreshedNotice(true);
+          setTimeout(() => setQrRefreshedNotice(false), 4000);
+          return 300;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [paymentStep, paymentGateway]);
+
+  const handleManualRefreshQr = async () => {
+    setIsRefreshingQr(true);
+    const freshNonce = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    setQrNonce(freshNonce);
+    setQrTimerSeconds(300);
+    setQrRefreshedNotice(true);
+
+    try {
+      const res = await api.get("/payment/exchange-rate");
+      if (res?.rate) setLiveRate(res.rate);
+    } catch (e) {
+      // ignore
+    }
+
+    setTimeout(() => {
+      setIsRefreshingQr(false);
+    }, 400);
+
+    setTimeout(() => {
+      setQrRefreshedNotice(false);
+    }, 4000);
+  };
 
   const copyVpaToClipboard = (vpaText) => {
     navigator.clipboard.writeText(vpaText);
@@ -220,7 +259,6 @@ function Checkout() {
     const ord = orderToProcess || initiatedOrder;
     if (!ord) return;
 
-    // Automatically download each item's source code ZIP
     for (const item of ord.items || []) {
       try {
         const res = await api.post(`/templates/${item.template_id}/download?format=zip`, {}, authToken);
@@ -244,22 +282,21 @@ function Checkout() {
     clearCart();
     setTimeout(() => {
       router.push("/dashboard?tab=buyer-templates");
-    }, 3000);
+    }, 3500);
   };
 
-  // Sellers are permitted to purchase templates authored by other creators.
-
-  // Create Order Mutation
+  // Create Order Mutation with automatic country_code
   const createOrderMutation = useMutation({
-    pointer: "createOrder",
     mutationFn: () =>
       api.post(
         "/orders",
         {
           items: items.map((i) => ({
-            template_id: i.templateId,
-            license_type: i.licenseType,
+            template_id: i.templateId || i.id,
+            license_type: i.licenseType || "regular",
           })),
+          coupon_code: couponCode || undefined,
+          country_code: countryCode,
         },
         authToken ?? undefined
       ),
@@ -267,22 +304,16 @@ function Checkout() {
 
   // Initiate Payment Mutation
   const initiatePaymentMutation = useMutation({
-    pointer: "initiatePayment",
     mutationFn: ({ orderId, gateway }) =>
-      api.post(
-        "/payment/initiate",
-        { order_id: orderId, gateway },
-        authToken ?? undefined
-      ),
+      api.post("/payment/initiate", { order_id: orderId, gateway }, authToken ?? undefined),
   });
 
   // Verify Payment Mutation
   const verifyPaymentMutation = useMutation({
-    pointer: "verifyPayment",
     mutationFn: (payload) => api.post("/payment/verify", payload, authToken ?? undefined),
   });
 
-  // Load Razorpay Checkout SDK dynamically
+  // Load Razorpay Script
   const loadRazorpayScript = () => {
     return new Promise((resolve) => {
       if (typeof window !== "undefined" && window.Razorpay) {
@@ -322,9 +353,7 @@ function Checkout() {
         name: user?.name || user?.email?.split("@")[0] || "",
         email: user?.email || "",
       },
-      theme: {
-        color: "#6366f1",
-      },
+      theme: { color: "#8b5cf6" },
       handler: async function (response) {
         setIsProcessing(true);
         try {
@@ -338,10 +367,7 @@ function Checkout() {
           await handleCompleteSuccessFlow(targetOrder);
         } catch (err) {
           console.error("Payment verification failed:", err);
-          alert(
-            err?.response?.data?.detail ||
-            "Payment verification failed. Please try again or contact support."
-          );
+          alert(err?.response?.data?.detail || "Payment verification failed. Please try again.");
         } finally {
           setIsProcessing(false);
         }
@@ -356,11 +382,7 @@ function Checkout() {
     try {
       const rzp = new window.Razorpay(options);
       rzp.on("payment.failed", function (response) {
-        alert(
-          `Payment Failed: ${
-            response.error?.description || response.error?.reason || "Transaction failed"
-          }`
-        );
+        alert(`Payment Failed: ${response.error?.description || "Transaction failed"}`);
         setIsProcessing(false);
       });
       rzp.open();
@@ -373,32 +395,8 @@ function Checkout() {
 
   const handleCheckout = async () => {
     if (items.length === 0) return;
-    if (TEMPLATE_DOWNLOADS_FREE) {
-      if (!authToken) {
-        router.push(`/sign-in?from=${encodeURIComponent("/checkout")}`);
-        return;
-      }
-      setIsProcessing(true);
-      try {
-        const ready = [];
-        for (const item of items) {
-          const result = await api.post(`/templates/${item.templateId}/download?format=zip`, {}, authToken);
-          if (!result?.download_url) throw new Error(`Could not prepare the download for ${item.title}.`);
-          ready.push({ id: item.templateId, title: item.title, downloadUrl: result.download_url });
-        }
-        setFreeDownloads(ready);
-        setFreeDownloadsComplete(true);
-        clearCart();
-      } catch (err) {
-        console.error("Free template download preparation failed:", err);
-        alert(err.message || "Could not prepare your free downloads. Please try again.");
-      } finally {
-        setIsProcessing(false);
-      }
-      return;
-    }
     if (!authToken) {
-      router.push("/login?redirect=/checkout");
+      router.push(`/sign-in?from=${encodeURIComponent("/checkout")}`);
       return;
     }
     setIsProcessing(true);
@@ -406,840 +404,835 @@ function Checkout() {
     const activeGateway = ENABLE_EXTERNAL_GATEWAYS ? paymentGateway : "upi";
 
     try {
-      // 1. Create PENDING order
       const order = await createOrderMutation.mutateAsync();
       setInitiatedOrder(order);
 
-      // 2. Initiate Payment Session
       const payInfo = await initiatePaymentMutation.mutateAsync({
         orderId: order.id,
         gateway: activeGateway,
       });
       setInitiatedPayment(payInfo);
 
-      if (activeGateway === "stripe" && payInfo?.checkout_url) {
-        window.location.href = payInfo.checkout_url;
-        return;
-      }
-
-      const isRealRazorpay =
-        activeGateway === "razorpay" &&
-        payInfo?.gateway_order_id &&
-        !payInfo.gateway_order_id.startsWith("rzp_mock_");
-
-      setPaymentStep("paying");
-
-      // 3. If real Razorpay order, trigger Razorpay popup directly
-      if (isRealRazorpay) {
+      if (activeGateway === "razorpay") {
         await handleOpenRazorpay(order, payInfo);
-      }
-    } catch (err) {
-      console.error(err);
-      alert("Checkout initialization failed. Please try again.");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleUtrChange = (val) => {
-    const cleaned = val.replace(/\D/g, "").slice(0, 12);
-    setUpiUtr(cleaned);
-    setUpiUtrSubmitted(false);
-    if (cleaned.length === 12) {
-      setUtrError("");
-    }
-  };
-
-  const handleVerifyUpiPayment = async () => {
-    if (!initiatedOrder || !initiatedPayment) return;
-    if (upiUtr.length !== 12) {
-      setUtrError("Please enter the complete 12-digit UPI Reference (UTR) number from your payment receipt.");
-      return;
-    }
-
-    setIsProcessing(true);
-    setUtrError("");
-    try {
-      await verifyPaymentMutation.mutateAsync({
-        order_id: initiatedOrder.id,
-        gateway: "upi",
-        gateway_payment_id: "UTR:" + upiUtr,
-        gateway_order_id: initiatedPayment.gateway_order_id,
-        gateway_signature: "upi_utr_verified",
-        upi_utr: upiUtr,
-      });
-
-      setUpiUtrSubmitted(true);
-    } catch (err) {
-      console.error("UPI verification error:", err);
-      const errorMsg =
-        err?.response?.data?.detail ||
-        err?.message ||
-        "Verification failed. Please check the 12-digit UTR and retry.";
-      setUtrError(errorMsg);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleVerifyMockPayment = async () => {
-    if (!initiatedOrder || !initiatedPayment) return;
-
-    if (paymentGateway !== "upi") {
-      // Validate simulated card inputs before processing
-      const cleanCard = cardNumber.replace(/\s+/g, '');
-      const cleanExpiry = cardExpiry.replace(/\//g, '');
-      
-      let hasError = false;
-      const newErrors = { card: "", expiry: "", cvc: "" };
-
-      if (cleanCard.length < 16) {
-        newErrors.card = "Card Number must be 16 digits.";
-        hasError = true;
-      }
-      if (cleanExpiry.length < 4) {
-        newErrors.expiry = "Expiration Date must be MM/YY.";
-        hasError = true;
-      } else {
-        const month = parseInt(cleanExpiry.slice(0, 2), 10);
-        if (month < 1 || month > 12) {
-          newErrors.expiry = "Month must be between 01 and 12.";
-          hasError = true;
+      } else if (activeGateway === "stripe") {
+        if (payInfo?.checkout_url) {
+          window.location.href = payInfo.checkout_url;
+        } else {
+          alert("Stripe checkout session creation failed.");
+          setIsProcessing(false);
         }
+      } else {
+        // UPI QR
+        setPaymentStep("paying");
+        setIsProcessing(false);
       }
-      if (cardCvc.length < 3 || cardCvc.length > 4) {
-        newErrors.cvc = "CVC must be 3 or 4 digits.";
-        hasError = true;
-      }
-
-      if (hasError) {
-        setErrors(newErrors);
-        return;
-      }
-    }
-
-    setErrors({ card: "", expiry: "", cvc: "" });
-    setIsProcessing(true);
-
-    try {
-      // Verify payment with gateway transaction ID
-      await verifyPaymentMutation.mutateAsync({
-        order_id: initiatedOrder.id,
-        gateway: paymentGateway,
-        gateway_payment_id: paymentGateway === "stripe"
-          ? "pi_mock_" + Math.random().toString(36).substring(7)
-          : "pay_mock_" + Math.random().toString(36).substring(7),
-        gateway_order_id: initiatedPayment.gateway_order_id,
-        gateway_signature: "mock_signature_verified",
-      });
-
-      setUpiUtrSubmitted(true);
     } catch (err) {
-      console.error(err);
-      alert("Simulated transaction failed. Please retry.");
-    } finally {
+      console.error("Checkout submission failed:", err);
+      alert(err?.response?.data?.detail || err?.message || "Order creation failed. Please try again.");
       setIsProcessing(false);
     }
   };
 
-  const hasInrItems = items.some(i => (i.price_currency || "").toUpperCase() === "INR");
-  const inrAmountVal = initiatedPayment?.amount
-    ? (initiatedPayment.amount / 100)
-    : hasInrItems
-    ? total()
-    : (total() * liveRate);
-  const inrAmountString = `₹${inrAmountVal.toFixed(2)}`;
+  // Tax and pricing calculation
+  const cartSubtotal = subtotal();
+  const taxDetails = getTaxDetails();
+  const cartTax = taxDetails.taxAmount;
+  const cartTotal = taxDetails.totalAmount;
+  const totalItemCount = items.reduce((sum, i) => sum + (i.quantity || 1), 0);
+
+  // Active currency dynamically based on detected country (or UPI gateway)
+  const activeCurrency = (
+    paymentGateway === "upi"
+      ? "INR"
+      : taxDetails?.currency || userCurrency || "USD"
+  ).toUpperCase();
+
+  // Exchange rates with fallback support
+  const exchangeRates = {
+    USD: 1.0,
+    INR: liveRate || 94.834,
+    EUR: rates?.EUR || 0.92,
+    GBP: rates?.GBP || 0.78,
+    CAD: rates?.CAD || 1.36,
+    AUD: rates?.AUD || 1.52,
+    JPY: rates?.JPY || 154.20,
+    AED: rates?.AED || 3.67,
+    SGD: rates?.SGD || 1.34,
+    BRL: rates?.BRL || 5.65,
+  };
+
+  // Currency Formatter - dynamically converts and formats according to country currency
+  const formatMoney = (usdAmount) => {
+    const num = Number(usdAmount) || 0;
+    const curr = activeCurrency;
+    const rate = exchangeRates[curr] || 1.0;
+    const converted = num * rate;
+
+    if (curr === "INR") {
+      return `₹${converted.toLocaleString("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+    }
+    if (curr === "EUR") {
+      return `€${converted.toLocaleString("de-DE", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+    }
+    if (curr === "GBP") {
+      return `£${converted.toLocaleString("en-GB", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+    }
+    if (curr === "CAD") {
+      return `CA$${converted.toLocaleString("en-CA", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+    }
+    if (curr === "AUD") {
+      return `AU$${converted.toLocaleString("en-AU", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+    }
+    if (curr === "JPY") {
+      return `¥${Math.round(converted).toLocaleString("ja-JP")}`;
+    }
+    if (curr === "SGD") {
+      return `S$${converted.toLocaleString("en-SG", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+    }
+    if (curr === "AED") {
+      return `AED ${converted.toLocaleString("en-AE", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+    }
+    // Default USD
+    return `$${converted.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  };
+
+  const formattedTotalString = formatMoney(cartTotal);
+  const inrAmountVal = cartTotal * liveRate;
+  const inrAmountString = `₹${inrAmountVal.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
   const minutesLeft = Math.floor(qrTimerSeconds / 60);
   const secondsLeft = qrTimerSeconds % 60;
-  const timerFormatted = `${String(minutesLeft).padStart(2, '0')}:${String(secondsLeft).padStart(2, '0')}`;
-  const merchantVpa = initiatedPayment?.vpa || "";
+  const timerFormatted = `${String(minutesLeft).padStart(2, "0")}:${String(secondsLeft).padStart(2, "0")}`;
+  const merchantVpa = initiatedPayment?.vpa || "sitestudio@icici";
   const merchantName = initiatedPayment?.merchant_name || "AI Site Studio";
-  const defaultUpiUri = initiatedPayment?.upi_uri || `upi://pay?pa=${encodeURIComponent(merchantVpa)}&pn=${encodeURIComponent(merchantName)}&am=${inrAmountVal.toFixed(2)}&cu=INR&tn=Order%20${initiatedOrder?.id?.slice(0, 8) || "ASS"}&nonce=${qrNonce}`;
-  const isRealRazorpay =
-    paymentGateway === "razorpay" &&
-    initiatedPayment?.gateway_order_id &&
-    !initiatedPayment.gateway_order_id.startsWith("rzp_mock_");
+  
+  // Dynamic UPI URI ensuring refreshed nonce, unique transaction ref (tr) & timestamp are always included
+  const activeUpiUri = (() => {
+    const rawBase = initiatedPayment?.upi_uri;
+    const orderRef = initiatedOrder?.order_number || initiatedOrder?.id?.slice(0, 8) || "ASS";
+    if (rawBase) {
+      const clean = rawBase
+        .replace(/[?&](nonce|ts|tr)=[^&]*/g, "");
+      const delimiter = clean.includes("?") ? "&" : "?";
+      return `${clean}${delimiter}tr=${encodeURIComponent(orderRef + "_" + qrNonce)}&nonce=${encodeURIComponent(qrNonce)}&ts=${Date.now()}`;
+    }
+    return `upi://pay?pa=${encodeURIComponent(merchantVpa)}&pn=${encodeURIComponent(
+      merchantName
+    )}&am=${inrAmountVal.toFixed(2)}&cu=INR&tn=Order%20${encodeURIComponent(orderRef)}&tr=${encodeURIComponent(
+      orderRef + "_" + qrNonce
+    )}&nonce=${encodeURIComponent(qrNonce)}&ts=${Date.now()}`;
+  })();
+
+  // Helper to add sample templates if cart is empty for immediate testing
+  const addSampleTemplates = () => {
+    addItem({
+      templateId: "luxury-hotel-exclusive-accommodations",
+      title: "Luxury Hotel - RR Residency",
+      subtitle: "Exclusive Accommodation Website Template",
+      price: 49,
+      price_currency: "USD",
+      thumbnail: "/landing/modern_villa.jpg",
+      framework: "HTML5 / CSS / JS",
+      licenseType: "Lifetime Access",
+    });
+    addItem({
+      templateId: "crime-designed-portfolio",
+      title: "Crime Designed Portfolio",
+      subtitle: "Modern Portfolio Template",
+      price: 5,
+      price_currency: "USD",
+      thumbnail: "/landing/template_ecommerce.png",
+      framework: "HTML5 / CSS / JS",
+      licenseType: "Lifetime Access",
+    });
+  };
 
   return (
     <>
       <Navbar />
       <div className="checkout-page">
+        {/* Ambient Radial Background Glows */}
+        <div className="cart-ambient-glow top-left" />
+        <div className="cart-ambient-glow top-right" />
+        <div className="cart-ambient-glow center" />
+
         <div className="checkout-container">
-          {freeDownloadsComplete ? (
-            <div className="checkout-success-card">
-              <div style={{ width: "4rem", height: "4rem", borderRadius: "50%", backgroundColor: "rgba(16, 185, 129, 0.1)", display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "center", color: "hsl(var(--success, 142.1 76.2% 36.3%))" }}>
-                <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+          {/* Top Bar Navigation */}
+          <div className="cart-top-bar">
+            <div className="cart-top-left-group">
+              {paymentStep === "paying" ? (
+                <button
+                  type="button"
+                  onClick={() => setPaymentStep("cart")}
+                  className="cart-continue-btn"
+                >
+                  <ArrowLeft size={13} />
+                  <span>Back to Cart</span>
+                </button>
+              ) : (
+                <Link href="/marketplace" className="cart-continue-btn">
+                  <ArrowLeft size={13} />
+                  <span>Continue Shopping</span>
+                </Link>
+              )}
+              <div className="cart-title-inline-group">
+                <h1 className="cart-heading-title">
+                  {paymentStep === "paying" ? "UPI QR Payment" : "Your Shopping Cart"}
+                </h1>
+                <span className="cart-heading-separator">•</span>
+                <p className="cart-heading-subtitle">
+                  <span>
+                    {paymentStep === "paying"
+                      ? "Scan QR code or use UPI ID to complete your order"
+                      : "Review your items before proceeding to checkout"}
+                  </span>
+                  <Sparkles size={13} className="cart-sparkle-icon" />
+                </p>
               </div>
-              <h1 className="text-2xl font-bold text-foreground">Your free downloads are ready</h1>
-              <p className="text-sm text-muted-foreground">Choose a file below to download its template ZIP. No payment was taken.</p>
-              <div className="w-full space-y-2">
-                {freeDownloads.map((file) => (
-                  <a key={file.id} href={file.downloadUrl} target="_blank" rel="noopener noreferrer" download className="checkout-browse-btn" style={{ width: "100%", justifyContent: "center", textDecoration: "none" }}>
-                    <Download className="w-4 h-4" /> Download {file.title}
-                  </a>
-                ))}
-              </div>
-              <Link href="/marketplace" className="checkout-browse-btn" style={{ width: "100%", textAlign: "center", justifyContent: "center" }}>
-                Back to Marketplace
-              </Link>
             </div>
-          ) : paymentStep === "success" ? (
-            <div className="checkout-success-card">
-              <div style={{ width: "4rem", height: "4rem", borderRadius: "50%", backgroundColor: "rgba(16, 185, 129, 0.1)", display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "center", color: "hsl(var(--success, 142.1 76.2% 36.3%))" }}>
-                <ShieldCheck className="w-10 h-10 text-emerald-500" />
-              </div>
-              <h1 className="text-2xl font-bold text-foreground">Payment Successful!</h1>
-              <p className="text-sm text-muted-foreground">
-                Your order <strong>#{initiatedOrder?.order_number || "ASS-ORDER"}</strong> has been processed successfully.
-              </p>
-              <div className="p-4 bg-muted/20 border border-border/50 rounded-xl text-xs space-y-1.5 text-left w-full">
-                <div className="flex justify-between"><strong>Status:</strong> <span className="text-emerald-500 font-bold">COMPLETED</span></div>
-                <div className="flex justify-between"><strong>Gateway:</strong> <span className="font-semibold uppercase">{paymentGateway}</span></div>
-                {upiUtr && (
-                  <div className="flex justify-between">
-                    <strong>UPI Ref (UTR):</strong> <span className="font-mono font-bold text-emerald-600">{upiUtr}</span>
+          </div>
+
+          {/* Paying Flow (UPI QR) */}
+          {paymentStep === "paying" ? (
+            <div className="checkout-paying-wrapper">
+              <div className="checkout-paying-card">
+                {/* Header with Title and Expiry Timer */}
+                <div className="checkout-paying-header">
+                  <div className="checkout-paying-title-group">
+                    <div className="checkout-paying-icon-wrap">
+                      <ScanQrCode className="w-5 h-5 text-emerald-400" />
+                    </div>
+                    <div>
+                      <h3 className="checkout-paying-title">Pay via UPI QR Code / Apps</h3>
+                      <p className="checkout-paying-sub">
+                        Scan with GPay, PhonePe, Paytm, or BHIM UPI
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="checkout-paying-timer-bar">
+                    <span
+                      className={cn(
+                        "checkout-timer-pill",
+                        qrTimerSeconds > 60 ? "timer-active" : "timer-expiring"
+                      )}
+                    >
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>{timerFormatted}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleManualRefreshQr}
+                      disabled={isRefreshingQr}
+                      className={cn("checkout-timer-refresh-btn", isRefreshingQr && "refreshing")}
+                      title="Refresh QR Code (Generate fresh session)"
+                    >
+                      <RotateCcw className={cn("w-3.5 h-3.5", isRefreshingQr && "animate-spin text-purple-400")} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* QR Refreshed Notice */}
+                {qrRefreshedNotice && (
+                  <div className="checkout-qr-refreshed-banner">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span>QR Code &amp; 5-min session refreshed successfully!</span>
                   </div>
                 )}
-                <div className="flex justify-between"><strong>Amount Paid:</strong> <span className="font-bold text-foreground">{inrAmountString}</span></div>
-              </div>
-              <p className="text-xs text-muted-foreground animate-pulse">
-                Your browser will automatically download the template source ZIP packages. Redirecting to your dashboard...
-              </p>
-              <Link href="/dashboard" className="checkout-browse-btn" style={{ width: "100%", textAlign: "center", justifyContent: "center" }}>
-                Go to Dashboard
-              </Link>
-            </div>
-          ) : paymentStep === "paying" ? (
-            <div className="checkout-paying-wrapper">
-              {paymentGateway === "upi" ? (
-                <div className="checkout-paying-card items-center text-center">
-                  <div className="checkout-paying-header">
-                    <h3 className="checkout-paying-title">
-                      <ScanQrCode className="w-5 h-5 text-emerald-500 shrink-0" /> Pay via UPI QR Code / Apps
-                    </h3>
-                    <div className="checkout-paying-timer-bar">
-                      <span className={cn(
-                        "text-xs px-3 py-1 rounded-full font-bold flex items-center gap-1.5 border transition-all",
-                        qrTimerSeconds > 60
-                          ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/30"
-                          : "bg-amber-500/10 text-amber-500 border-amber-500/30 animate-pulse"
-                      )}>
-                        <Clock className="w-3.5 h-3.5" />
-                        QR Valid: {timerFormatted}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleManualRefreshQr}
-                        className="p-1.5 rounded-lg text-muted-foreground hover:text-emerald-400 bg-muted/20 hover:bg-emerald-500/10 border border-border/40 hover:border-emerald-500/30 transition-all cursor-pointer"
-                        title="Refresh QR Code (Generate new 5-min session)"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
 
-                  <div className="checkout-amount-badge">
-                    <span className="text-muted-foreground font-medium">Amount Payable:</span>
-                    <span className="text-base sm:text-lg font-bold text-emerald-500">{inrAmountString} <span className="text-xs text-muted-foreground font-normal">({formatPrice(total())})</span></span>
+                {/* Amount Payable Highlight Box */}
+                <div className="checkout-amount-box">
+                  <div className="checkout-amount-left">
+                    <span className="checkout-amount-label">Total Amount Payable</span>
+                    <span className="checkout-amount-val">{formattedTotalString}</span>
                   </div>
-
-                  {/* QR Code Render Box */}
-                  <div className="checkout-qr-box">
-                    <div className="checkout-qr-svg-wrapper">
-                      <QRCodeSVG
-                        key={qrNonce}
-                        value={defaultUpiUri}
-                        size={190}
-                        level="H"
-                        includeMargin={true}
-                      />
-                    </div>
-                    <div className="flex items-center gap-1.5 text-xs text-slate-700 font-semibold bg-slate-100 px-3 py-1 rounded-full">
-                      <Smartphone className="w-3.5 h-3.5 text-emerald-600" /> Scan with any UPI App
-                    </div>
-                    {qrRefreshedNotice && (
-                      <div className="text-xs text-emerald-600 font-semibold bg-emerald-50 border border-emerald-300 px-3 py-1 rounded-full animate-bounce">
-                        ✨ QR Code refreshed for another 5 minutes!
-                      </div>
-                    )}
+                  <div className="checkout-order-ref-badge">
+                    <span>Order #{initiatedOrder?.order_number || initiatedOrder?.id?.slice(0, 8) || "ASS-ORDER"}</span>
                   </div>
+                </div>
 
-                  {/* VPA Copy Bar */}
-                  <div className="checkout-vpa-box">
-                    <div className="checkout-vpa-info">
-                      <span className="checkout-vpa-label">UPI ID / VPA</span>
-                      <span className="checkout-vpa-value">{merchantVpa}</span>
+                {/* QR Code Container */}
+                <div className="checkout-qr-stage">
+                  <div className={cn("checkout-qr-white-frame", isRefreshingQr && "qr-refreshing-pulse")}>
+                    <QRCodeSVG
+                      key={qrNonce}
+                      value={activeUpiUri}
+                      size={180}
+                      level="H"
+                      includeMargin={true}
+                    />
+                  </div>
+                  <div className="checkout-qr-actions-row">
+                    <div className="checkout-qr-scan-badge">
+                      <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Scan with Any UPI App</span>
                     </div>
                     <button
                       type="button"
-                      onClick={() => copyVpaToClipboard(merchantVpa)}
-                      className="checkout-vpa-copy-btn"
+                      onClick={handleManualRefreshQr}
+                      disabled={isRefreshingQr}
+                      className={cn("checkout-qr-refresh-pill-btn", isRefreshingQr && "refreshing")}
+                      title="Refresh QR Code & Session"
                     >
-                      {vpaCopied ? <><Check className="w-3.5 h-3.5 text-emerald-500" /> Copied!</> : <><Copy className="w-3.5 h-3.5" /> Copy VPA</>}
+                      <RotateCcw className={cn("w-3 h-3", isRefreshingQr && "animate-spin text-purple-400")} />
+                      <span>{isRefreshingQr ? "Refreshing..." : "Refresh QR"}</span>
                     </button>
                   </div>
+                </div>
 
-                  {/* Quick Launch UPI App Deep Links */}
-                  <div className="checkout-upi-apps-section">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                        <Smartphone className="w-3.5 h-3.5 text-emerald-500" /> Pay Directly Using App:
-                      </label>
-                      <span className="text-[10px] text-emerald-600 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded-full sm:hidden">
-                        Tap to open app
-                      </span>
-                    </div>
-                    <div className="checkout-upi-apps-grid">
-                      <button
-                        type="button"
-                        onClick={() => window.open(defaultUpiUri, '_self')}
-                        className="checkout-upi-app-btn"
-                      >
-                        <span className="checkout-upi-app-name text-blue-500">Google Pay</span>
-                        <span className="checkout-upi-app-sub">Tap to Pay</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => window.open(defaultUpiUri, '_self')}
-                        className="checkout-upi-app-btn"
-                      >
-                        <span className="checkout-upi-app-name text-purple-500">PhonePe</span>
-                        <span className="checkout-upi-app-sub">Tap to Pay</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => window.open(defaultUpiUri, '_self')}
-                        className="checkout-upi-app-btn"
-                      >
-                        <span className="checkout-upi-app-name text-sky-500">Paytm</span>
-                        <span className="checkout-upi-app-sub">Tap to Pay</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => window.open(defaultUpiUri, '_self')}
-                        className="checkout-upi-app-btn"
-                      >
-                        <span className="checkout-upi-app-name text-orange-500">BHIM UPI</span>
-                        <span className="checkout-upi-app-sub">Tap to Pay</span>
-                      </button>
-                    </div>
+                {/* VPA Copy Bar */}
+                <div className="checkout-vpa-row">
+                  <div className="checkout-vpa-left">
+                    <span className="checkout-vpa-label">UPI ID / VPA</span>
+                    <span className="checkout-vpa-value">{merchantVpa}</span>
                   </div>
-
-                  {/* UPI Step 1 & 2 Explanatory Guide Banner */}
-                  <div className="checkout-steps-banner">
-                    <div className="flex items-center gap-2">
-                      <Smartphone className="w-4 h-4 text-blue-500 shrink-0" />
-                      <span><strong>1.</strong> Pay {inrAmountString} via UPI App • <strong>2.</strong> Submit the 12-digit UTR for review</span>
-                    </div>
-                    <span className="checkout-steps-pill">Manual Payment Review</span>
-                  </div>
-
-                  {/* Step 2: 12-Digit UTR Verification Form */}
-                  <div className="checkout-utr-card">
-                    {upiUtrSubmitted ? (
-                      <div className="text-center py-6 space-y-3">
-                        <Clock className="w-8 h-8 text-amber-500 mx-auto" />
-                        <h3 className="font-bold">Payment reference submitted</h3>
-                        <p className="text-sm text-muted-foreground">Your order is pending while an administrator checks the UTR against the merchant account. Downloads will be available after confirmation.</p>
-                        <p className="text-xs text-muted-foreground">Reference: <span className="font-mono">{upiUtr}</span></p>
-                      </div>
+                  <button
+                    type="button"
+                    onClick={() => copyVpaToClipboard(merchantVpa)}
+                    className="checkout-vpa-copy-btn"
+                  >
+                    {vpaCopied ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Copied!</span>
+                      </>
                     ) : (
-                    <>
-                    <div className="flex items-center justify-between flex-wrap gap-1">
-                      <span className="checkout-utr-step-title">
-                        <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" /> Step 2: Enter 12-Digit UPI Reference (UTR)
-                      </span>
-                      <span className={cn(
-                        "checkout-utr-counter",
-                        upiUtr.length === 12 && "is-complete"
-                      )}>
-                        {upiUtr.length} / 12 digits
-                      </span>
-                    </div>
-
-                    <p className="checkout-utr-desc">
-                      After completing the payment in <strong>Google Pay, PhonePe, Paytm, or BHIM</strong>, copy the <strong>12-digit UPI Ref / Transaction No. (UTR)</strong> from your app receipt and enter it below:
-                    </p>
-
-                    <div className="space-y-1.5">
-                      <div className="relative">
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                          maxLength={12}
-                          value={upiUtr}
-                          onChange={(e) => handleUtrChange(e.target.value)}
-                          placeholder="e.g. 428910293847"
-                          className={cn(
-                            "checkout-utr-input",
-                            utrError
-                              ? "is-error"
-                              : upiUtr.length === 12
-                              ? "is-valid"
-                              : ""
-                          )}
-                        />
-                        {upiUtr.length === 12 && (
-                          <div className="checkout-utr-check-icon">
-                            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                          </div>
-                        )}
-                      </div>
-
-                      {utrError && (
-                        <p className="checkout-utr-error-msg">
-                          ⚠️ {utrError}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="checkout-action-row">
-                      <button
-                        type="button"
-                        onClick={() => setPaymentStep("cart")}
-                        className="checkout-cancel-btn"
-                      >
-                        Cancel / Change Method
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleVerifyUpiPayment}
-                        disabled={upiUtr.length !== 12 || isProcessing}
-                        className={cn(
-                          "checkout-verify-btn",
-                          upiUtr.length === 12 && !isProcessing && "active"
-                        )}
-                      >
-                        {isProcessing ? (
-                          <><Loader2 className="w-4 h-4 animate-spin" /> Submitting reference...</>
-                        ) : (
-                          <><ShieldCheck className="w-4 h-4" /> Submit UTR for Confirmation</>
-                        )}
-                      </button>
-                    </div>
-                    </>
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy VPA</span>
+                      </>
                     )}
-                  </div>
+                  </button>
                 </div>
-              ) : isRealRazorpay ? (
-                <div className="checkout-paying-card">
-                  <div className="flex items-center justify-between border-b border-border/50 pb-4">
-                    <h3 className="font-bold text-lg flex items-center gap-2">
-                      <CreditCard className="w-5 h-5 text-primary" /> Razorpay Official Checkout
-                    </h3>
-                    <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-500 font-bold uppercase border border-emerald-500/30">
-                      Live Gateway
-                    </span>
-                  </div>
 
-                  <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl space-y-3">
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Pay securely using <strong>UPI, Credit/Debit Cards, NetBanking, or Wallets</strong> via the official Razorpay checkout popup.
-                    </p>
-                    <div className="flex items-center justify-between pt-2 border-t border-primary/10 text-xs">
-                      <span className="text-muted-foreground">Order ID:</span>
-                      <span className="font-mono font-semibold">{initiatedOrder?.id?.slice(0, 13)}...</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">Amount Payable:</span>
-                      <span className="font-bold text-primary text-sm">{inrAmountString}</span>
-                    </div>
-                  </div>
-
-                  <div className="checkout-action-row">
+                {/* Quick Launch UPI App Buttons */}
+                <div className="checkout-upi-apps-section">
+                  <span className="checkout-upi-apps-label">Or Tap to Open UPI App:</span>
+                  <div className="checkout-upi-apps-grid">
                     <button
                       type="button"
-                      onClick={() => setPaymentStep("cart")}
-                      className="checkout-cancel-btn"
+                      onClick={() => window.open(activeUpiUri, "_self")}
+                      className="checkout-upi-app-btn"
                     >
-                      Back to Cart / Change Gateway
+                      <span className="app-dot blue" />
+                      <span>Google Pay</span>
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleOpenRazorpay(initiatedOrder, initiatedPayment)}
-                      disabled={isProcessing}
-                      className="checkout-verify-btn active bg-primary hover:bg-primary/95 shadow-primary/25"
+                      onClick={() => window.open(activeUpiUri, "_self")}
+                      className="checkout-upi-app-btn"
                     >
-                      {isProcessing ? (
-                        <><Loader2 className="w-4 h-4 animate-spin" /> Launching Razorpay...</>
-                      ) : (
-                        <><ShieldCheck className="w-4 h-4" /> Open Razorpay Payment Window ({inrAmountString})</>
-                      )}
+                      <span className="app-dot purple" />
+                      <span>PhonePe</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => window.open(activeUpiUri, "_self")}
+                      className="checkout-upi-app-btn"
+                    >
+                      <span className="app-dot sky" />
+                      <span>Paytm</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => window.open(activeUpiUri, "_self")}
+                      className="checkout-upi-app-btn"
+                    >
+                      <span className="app-dot amber" />
+                      <span>BHIM UPI</span>
                     </button>
                   </div>
                 </div>
-              ) : (paymentGateway === "stripe" && initiatedPayment?.checkout_url) ? (
-                <div className="checkout-paying-card">
-                  <div className="flex items-center justify-between border-b border-border/50 pb-4">
-                    <h3 className="font-bold text-lg flex items-center gap-2">
-                      <CreditCard className="w-5 h-5 text-primary" /> Stripe Official Checkout
-                    </h3>
-                    <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-500 font-bold uppercase border border-emerald-500/30">
-                      Live Gateway
-                    </span>
-                  </div>
 
-                  <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl space-y-3">
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Complete your payment securely via <strong>Credit / Debit Cards, Apple Pay, or Google Pay</strong> on Stripe's hosted checkout.
-                    </p>
-                    <div className="flex items-center justify-between pt-2 border-t border-primary/10 text-xs">
-                      <span className="text-muted-foreground">Order ID:</span>
-                      <span className="font-mono font-semibold">{initiatedOrder?.id?.slice(0, 13)}...</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">Amount:</span>
-                      <span className="font-bold text-primary text-sm">{formatPrice(initiatedOrder?.total || total())}</span>
-                    </div>
-                  </div>
-
-                  <div className="checkout-action-row">
-                    <button
-                      type="button"
-                      onClick={() => setPaymentStep("cart")}
-                      className="checkout-cancel-btn"
-                    >
-                      Back to Cart / Change Gateway
-                    </button>
-                    <a
-                      href={initiatedPayment.checkout_url}
-                      className="checkout-verify-btn active bg-primary hover:bg-primary/95 shadow-primary/25 inline-flex items-center justify-center gap-2"
-                      style={{ textDecoration: 'none' }}
-                    >
-                      <ShieldCheck className="w-4 h-4" /> Open Stripe Checkout ({formatPrice(initiatedOrder?.total || total())})
-                    </a>
-                  </div>
-                </div>
-              ) : (
-                <div className="checkout-paying-card">
-                  <div className="flex items-center justify-between border-b border-border/50 pb-4">
-                    <h3 className="font-bold text-lg flex items-center gap-2">
-                      <CreditCard className="w-5 h-5 text-primary" /> Confirm Sandbox Checkout
-                    </h3>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-bold uppercase">
-                      {paymentGateway} Mode
-                    </span>
-                  </div>
-
-                  <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl space-y-2">
-                    <p className="text-xs text-muted-foreground">
-                      This platform is running in <strong>Sandbox Mode</strong>. Please use the simulated checkout card details below to complete your checkout flow:
-                    </p>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Card Number</label>
-                      <input
-                        type="text"
-                        value={cardNumber}
-                        onChange={(e) => handleCardNumberChange(e.target.value)}
-                        className={cn(
-                          "w-full px-3 py-2 rounded-lg glass border text-xs focus:outline-none bg-card text-foreground transition-all",
-                          errors.card ? "border-red-500/80 focus:border-red-500 focus:ring-1 focus:ring-red-500" : "border-border/50 focus:border-primary"
-                        )}
-                      />
-                      {errors.card && (
-                        <p className="text-[10px] text-red-500 mt-1 font-semibold">{errors.card}</p>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">Expiration Date</label>
-                        <input
-                          type="text"
-                          value={cardExpiry}
-                          onChange={(e) => handleCardExpiryChange(e.target.value)}
-                          placeholder="MM/YY"
-                          className={cn(
-                            "w-full px-3 py-2 rounded-lg glass border text-xs focus:outline-none bg-card text-foreground transition-all",
-                            errors.expiry ? "border-red-500/80 focus:border-red-500 focus:ring-1 focus:ring-red-500" : "border-border/50 focus:border-primary"
-                          )}
-                        />
-                        {errors.expiry && (
-                          <p className="text-[10px] text-red-500 mt-1 font-semibold">{errors.expiry}</p>
-                        )}
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-muted-foreground uppercase mb-1">CVC / CVV</label>
-                        <input
-                          type="password"
-                          value={cardCvc}
-                          onChange={(e) => handleCardCvcChange(e.target.value)}
-                          placeholder="•••"
-                          className={cn(
-                            "w-full px-3 py-2 rounded-lg glass border text-xs focus:outline-none bg-card text-foreground transition-all",
-                            errors.cvc ? "border-red-500/80 focus:border-red-500 focus:ring-1 focus:ring-red-500" : "border-border/50 focus:border-primary"
-                          )}
-                        />
-                        {errors.cvc && (
-                          <p className="text-[10px] text-red-500 mt-1 font-semibold">{errors.cvc}</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="checkout-action-row">
-                    <button
-                      type="button"
-                      onClick={() => setPaymentStep("cart")}
-                      className="checkout-cancel-btn"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleVerifyMockPayment}
-                      disabled={isProcessing}
-                      className="checkout-verify-btn active bg-primary hover:bg-primary/95 shadow-primary/25"
-                    >
-                      {isProcessing ? (
-                        <><Loader2 className="w-4 h-4 animate-spin" /> Verifying Payment...</>
-                      ) : (
-                        <>Pay {formatPrice(total())} and Download</>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="checkout-grid">
-              {/* Left: Cart items & Gateway selection */}
-              <div className="checkout-left-block">
-                <div className="checkout-card">
-                  <h1 className="checkout-header">
-                    <ShoppingBag className="checkout-icon" /> Shopping Cart
-                  </h1>
-
-                  {items.length === 0 ? (
-                    <div className="checkout-empty-state">
-                      <p className="checkout-empty-msg">Your cart is empty.</p>
-                      <Link href="/marketplace" className="checkout-browse-btn">
-                        Browse Marketplace <ArrowRight className="checkout-arrow-icon" />
+                {/* Step 2: UTR Reference Form */}
+                <div className="checkout-utr-box">
+                  {upiUtrSubmitted ? (
+                    <div className="checkout-utr-success-state">
+                      <CheckCircle2 className="w-7 h-7 text-emerald-400 mx-auto" />
+                      <h4 className="utr-success-title">UTR Reference Submitted</h4>
+                      <p className="utr-success-desc">
+                        UTR <strong>{upiUtr}</strong> is recorded. An administrator will verify your transaction shortly.
+                      </p>
+                      <Link href="/dashboard" className="cart-browse-btn inline-block mt-2">
+                        Go to Dashboard →
                       </Link>
                     </div>
                   ) : (
-                    <div className="checkout-items-list">
-                      {items.map((item) => (
-                        <div key={item.templateId} className="checkout-item-row">
-                          <div className="checkout-item-left">
-                            <div className="checkout-thumbnail-box">
-                              {item.thumbnail && (
-                                <Image src={item.thumbnail} alt={item.title} fill className="checkout-thumb-img" />
-                              )}
-                            </div>
-                            <div>
-                              <h3 className="checkout-item-title">{item.title}</h3>
-                              <div className="flex flex-wrap items-center gap-2 mt-0.5">
-                                <span className="checkout-item-license">Lifetime Access</span>
-                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border">
-                                  {item.framework === "react" ? "React + FastAPI" : "HTML5 / CSS / JS"}
-                                </span>
-                                {item.token_usage && (
-                                  <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                                    {Number(item.token_usage).toLocaleString()} Tokens &bull; 20% fee &amp; taxes included
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="checkout-item-right">
-                            <span className="checkout-item-price">
-                              {TEMPLATE_DOWNLOADS_FREE ? "Free" : formatConvertedPrice(item.price, item.price_currency || "USD", userCurrency, rates)}
-                            </span>
-                            <button onClick={() => removeItem(item.templateId)} className="checkout-item-delete">
-                              <Trash2 className="checkout-trash-icon" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                    <div className="checkout-utr-form-group">
+                      <div className="checkout-utr-header">
+                        <span className="checkout-utr-step-tag">Step 2</span>
+                        <label className="checkout-utr-title">
+                          Enter 12-Digit UPI Reference (UTR)
+                        </label>
+                      </div>
+                      <p className="checkout-utr-helper">
+                        After completing the payment in your UPI app, paste the 12-digit transaction UTR number to complete:
+                      </p>
+                      <div className="checkout-utr-input-row">
+                        <input
+                          type="text"
+                          maxLength={16}
+                          placeholder="e.g. 431289123456"
+                          value={upiUtr}
+                          onChange={(e) => setUpiUtr(e.target.value.replace(/\D/g, ""))}
+                          className="checkout-utr-input"
+                        />
+                        <button
+                          type="button"
+                          disabled={upiUtr.length < 10 || isProcessing}
+                          onClick={async () => {
+                            if (!initiatedOrder?.id) return;
+                            setIsProcessing(true);
+                            try {
+                              await api.post(
+                                "/payment/verify",
+                                {
+                                  gateway: "upi",
+                                  gateway_payment_id: upiUtr,
+                                  gateway_order_id: initiatedOrder.id,
+                                  order_id: initiatedOrder.id,
+                                },
+                                authToken
+                              );
+                              setUpiUtrSubmitted(true);
+                            } catch (e) {
+                              alert("Failed to submit UTR reference.");
+                            } finally {
+                              setIsProcessing(false);
+                            }
+                          }}
+                          className="checkout-utr-submit-btn"
+                        >
+                          {isProcessing ? "Verifying..." : "Submit UTR →"}
+                        </button>
+                      </div>
+                      {utrError && <p className="text-xs text-rose-400 mt-1">{utrError}</p>}
                     </div>
                   )}
                 </div>
 
-                {items.length > 0 && !TEMPLATE_DOWNLOADS_FREE && (
-                  <div className="checkout-card checkout-payment-card">
-                    <div className="checkout-payment-header">
-                      <h3 className="checkout-section-title">Select Payment Method</h3>
-                      <span className="checkout-upi-active-badge">
-                        <Check className="w-2.5 h-2.5 text-emerald-500" /> UPI payment
-                      </span>
+                {/* Footer / Return Button */}
+                <div className="checkout-paying-footer">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentStep("cart")}
+                    className="checkout-return-cart-btn"
+                  >
+                    ← Return to Cart &amp; Change Payment Method
+                  </button>
+                  <div className="checkout-paying-ssl-badge">
+                    <ShieldCheck size={13} className="text-emerald-400" />
+                    <span>256-Bit SSL Encrypted &amp; Verified</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : paymentStep === "success" ? (
+            <div className="checkout-success-card">
+              <div
+                style={{
+                  width: "4rem",
+                  height: "4rem",
+                  borderRadius: "50%",
+                  backgroundColor: "rgba(16, 185, 129, 0.1)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#10b981",
+                }}
+              >
+                <ShieldCheck className="w-10 h-10 text-emerald-500" />
+              </div>
+              <h1 className="text-2xl font-bold text-foreground">Payment Successful!</h1>
+              <p className="text-sm text-muted-foreground">
+                Your order <strong>#{initiatedOrder?.order_number || "ASS-ORDER"}</strong> has been processed
+                successfully.
+              </p>
+              <p className="text-xs text-muted-foreground animate-pulse">
+                Templates are being downloaded automatically. Redirecting to your dashboard...
+              </p>
+              <Link href="/dashboard" className="cart-browse-btn" style={{ width: "200px" }}>
+                Go to Dashboard
+              </Link>
+            </div>
+          ) : (
+            /* Main Cart 2-Column Grid Layout */
+            <div className="cart-main-grid">
+              {/* Left Column: Cart Items, Promo Code, Payment Selection */}
+              <div className="cart-left-col">
+                {/* 1. Cart Items Box */}
+                <div className="cart-glass-card">
+                  <div className="cart-card-header">
+                    <div className="cart-card-title-wrap">
+                      <ShoppingCart className="w-5 h-5 cart-card-title-icon" />
+                      <span>Cart Items ({totalItemCount})</span>
                     </div>
-
-                    {/* 2 Primary Methods: Scanner for UPI, Card for others */}
-                    <div className="checkout-gateway-grid">
+                    {items.length > 0 && (
                       <button
                         type="button"
-                        onClick={() => {
-                          setPaymentMethodType("upi");
-                          setPaymentGateway("upi");
-                        }}
-                        className={cn(
-                          "checkout-gateway-btn",
-                          paymentMethodType === "upi" && "active-upi"
-                        )}
+                        onClick={clearCart}
+                        className="cart-clear-all-btn"
+                        title="Remove all items from cart"
                       >
-                        <div className="checkout-gateway-left">
-                          <ScanQrCode className="checkout-gateway-icon text-emerald-600" />
-                          <span className="checkout-gateway-title">UPI QR & Apps</span>
-                        </div>
-                        <span className="checkout-gateway-badge-upi">
-                          Manual review
-                        </span>
+                        <Trash2 size={14} />
+                        <span>Clear Cart</span>
                       </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPaymentMethodType("card");
-                          if (paymentGateway === "upi") {
-                            setPaymentGateway("razorpay");
-                          }
-                        }}
-                        className={cn(
-                          "checkout-gateway-btn",
-                          paymentMethodType === "card" && "active-card"
-                        )}
-                      >
-                        <div className="checkout-gateway-left">
-                          <CreditCard className="checkout-gateway-icon text-indigo-600" />
-                          <span className="checkout-gateway-title">Credit / Debit Card</span>
-                        </div>
-                        <span className="checkout-gateway-badge-card">
-                          Cards & Global
-                        </span>
-                      </button>
-                    </div>
-
-                    {/* When Card is selected: show these 2 options to go to next step */}
-                    {paymentMethodType === "card" && (
-                      <div className="checkout-card-options-box">
-                        <div className="checkout-card-options-header">
-                          <span className="checkout-card-options-title">
-                            Select Card Gateway:
-                          </span>
-                          <span className="text-[11px] text-muted-foreground">
-                            Choose provider to proceed
-                          </span>
-                        </div>
-
-                        <div className="checkout-card-subgrid">
-                          <button
-                            type="button"
-                            onClick={() => setPaymentGateway("razorpay")}
-                            className={cn(
-                              "checkout-card-subbtn",
-                              paymentGateway === "razorpay" && "active"
-                            )}
-                          >
-                            <div className="checkout-card-subbtn-left">
-                              <div className={cn(
-                                "checkout-radio-circle",
-                                paymentGateway === "razorpay" && "is-selected"
-                              )}>
-                                {paymentGateway === "razorpay" && <div className="checkout-radio-dot" />}
-                              </div>
-                              <div>
-                                <div className="checkout-card-subbtn-name">
-                                  Cards / Razorpay
-                                </div>
-                                <span className="checkout-card-subbtn-hint">
-                                  Domestic & Global Cards, NetBanking
-                                </span>
-                              </div>
-                            </div>
-                            <span className="checkout-card-subbtn-badge badge-razorpay">
-                              Popular
-                            </span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => setPaymentGateway("stripe")}
-                            className={cn(
-                              "checkout-card-subbtn",
-                              paymentGateway === "stripe" && "active"
-                            )}
-                          >
-                            <div className="checkout-card-subbtn-left">
-                              <div className={cn(
-                                "checkout-radio-circle",
-                                paymentGateway === "stripe" && "is-selected"
-                              )}>
-                                {paymentGateway === "stripe" && <div className="checkout-radio-dot" />}
-                              </div>
-                              <div>
-                                <div className="checkout-card-subbtn-name">
-                                  Stripe Payment
-                                </div>
-                                <span className="checkout-card-subbtn-hint">
-                                  Visa, MasterCard, Amex & Global
-                                </span>
-                              </div>
-                            </div>
-                            <span className="checkout-card-subbtn-badge badge-stripe">
-                              Global
-                            </span>
-                          </button>
-                        </div>
-                      </div>
                     )}
+                  </div>
 
-                    <p className="checkout-gateway-notice">
-                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                  {items.length === 0 ? (
+                    <div className="cart-empty-box">
+                      <div className="cart-empty-icon">
+                        <ShoppingBag size={28} />
+                      </div>
+                      <h3 className="cart-empty-title">Your cart is empty</h3>
+                      <p className="cart-empty-subtitle">
+                        Discover top-selling templates and bring your dream website to life.
+                      </p>
+                      <div className="flex gap-3 flex-wrap justify-center">
+                        <Link href="/marketplace" className="cart-browse-btn">
+                          Browse Marketplace →
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={addSampleTemplates}
+                          className="px-4 py-2 rounded-xl text-xs font-semibold text-purple-300 bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 cursor-pointer"
+                        >
+                          + Add Sample Items from Mockup
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="cart-items-stack">
+                      {items.map((item) => {
+                        const itemTotalUsd = (Number(item.price) || 0) * (item.quantity || 1);
+                        return (
+                          <div key={item.templateId || item.id} className="cart-item-card">
+                            <div className="cart-item-info-group">
+                              <div className="cart-item-thumb">
+                                <img
+                                  src={item.thumbnail || item.thumbnail_url || "/landing/template_saas.png"}
+                                  alt={item.title}
+                                  onError={(e) => {
+                                    e.target.onerror = null;
+                                    e.target.src = "/landing/modern_villa.jpg";
+                                  }}
+                                />
+                              </div>
+                              <div className="cart-item-details">
+                                <h3 className="cart-item-title">{item.title}</h3>
+                                <p className="cart-item-subtitle">
+                                  {item.subtitle || "Exclusive Accommodation Website Template"}
+                                </p>
+                                <div className="cart-item-badges">
+                                  <span className="cart-badge-lifetime">
+                                    <Crown size={12} className="text-amber-400" />
+                                    <span>Lifetime Access</span>
+                                  </span>
+                                  <span className="cart-badge-framework">
+                                    {item.framework || "HTML5 / CSS / JS"}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="cart-item-actions-group">
+                              <span className="cart-item-price-val">
+                                {formatMoney(itemTotalUsd)}
+                              </span>
+
+                              <button
+                                type="button"
+                                onClick={() => removeItem(item.templateId || item.id)}
+                                className="cart-delete-item-btn"
+                                title="Remove template"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+
+                {/* 3. Select Payment Method Card */}
+                {items.length > 0 && (
+                  <div className="cart-glass-card cart-payment-methods-card">
+                    <div className="cart-payment-header">
+                      <div className="cart-payment-title">
+                        <CreditCard size={18} className="text-purple-400" />
+                        <span>Select Payment Method</span>
+                      </div>
+                      <div className="cart-payment-secure-badge">
+                        <Check size={14} />
+                        <span>Secure & Encrypted</span>
+                      </div>
+                    </div>
+
+                    <div className="cart-payment-tabs-grid">
+                      {/* Tab 1: UPI QR & Apps */}
+                      <button
+                        type="button"
+                        onClick={() => setPaymentGateway("upi")}
+                        className={cn("cart-payment-tab-btn", paymentGateway === "upi" && "active")}
+                      >
+                        {countryCode === "IN" && (
+                          <span className="cart-recommended-pill">Recommended</span>
+                        )}
+                        <ScanQrCode size={18} className="text-emerald-400 shrink-0" />
+                        <span>UPI QR {countryCode !== "IN" ? "(India Only)" : "& Apps"}</span>
+                      </button>
+
+                      {/* Tab 2: Credit / Debit Card (Razorpay) */}
+                      <button
+                        type="button"
+                        onClick={() => setPaymentGateway("razorpay")}
+                        className={cn("cart-payment-tab-btn", paymentGateway === "razorpay" && "active")}
+                      >
+                        <CreditCard size={18} className="text-indigo-400 shrink-0" />
+                        <span>Credit / Debit Card</span>
+                      </button>
+
+                      {/* Tab 3: Cards & Global (Stripe) */}
+                      <button
+                        type="button"
+                        onClick={() => setPaymentGateway("stripe")}
+                        className={cn("cart-payment-tab-btn", paymentGateway === "stripe" && "active")}
+                      >
+                        {countryCode !== "IN" && (
+                          <span className="cart-recommended-pill">Recommended</span>
+                        )}
+                        <Globe size={18} className="text-sky-400 shrink-0" />
+                        <span>Cards & Global</span>
+                      </button>
+                    </div>
+
+                    <p className="cart-payment-notice">
+                      <HelpCircle size={14} className="text-purple-400 shrink-0" />
                       <span>
-                        {paymentMethodType === "upi"
-                          ? "UPI reference reviewed by an administrator before order completion"
-                          : `Encrypted payment via ${paymentGateway === "razorpay" ? "Razorpay" : "Stripe"} • Click below to proceed`}
+                        {paymentGateway === "upi"
+                          ? "UPI reference will be reviewed by an administrator before order completion."
+                          : paymentGateway === "razorpay"
+                            ? "Instant activation via Domestic & International Visa, MasterCard, RuPay, and NetBanking."
+                            : "Encrypted global checkout via Stripe with instant license delivery."}
                       </span>
                     </p>
                   </div>
                 )}
               </div>
 
-              {/* Right: Summary Box */}
-              <div className="checkout-right-block">
-                <div className="checkout-card checkout-summary-card">
-                  <h3 className="checkout-summary-title">Order Summary</h3>
-                  <div className="summary-items-list">
-                    <div className="summary-item-row">
-                      <span>Subtotal</span>
-                      <span className="font-semibold">{TEMPLATE_DOWNLOADS_FREE ? "Free" : hasInrItems ? `₹${total().toFixed(2)}` : formatConvertedPrice(total(), "USD", userCurrency, rates)}</span>
-                    </div>
-                    <div className="summary-item-row text-muted-foreground/75">
-                      <span>Taxes</span>
-                      <span>{TEMPLATE_DOWNLOADS_FREE ? "Included" : hasInrItems ? `₹0.00` : formatConvertedPrice(0, "USD", userCurrency, rates)}</span>
-                    </div>
-                    <div className="summary-total-row">
-                      <span>Total Amount</span>
-                      <span className="summary-total-amount">{TEMPLATE_DOWNLOADS_FREE ? "Free" : hasInrItems ? `₹${total().toFixed(2)}` : formatConvertedPrice(total(), "USD", userCurrency, rates)}</span>
+              {/* Right Column: 3D Bag Graphic + Order Summary Card */}
+              <div className="cart-right-col">
+                {/* 3D Glowing Purple Bag Illustration */}
+                <div className="cart-3d-bag-wrap">
+                  <div className="cart-bag-glow-aura" />
+                  <span className="cart-sparkle-particle p1">✦</span>
+                  <span className="cart-sparkle-particle p2">✦</span>
+                  <span className="cart-sparkle-particle p3">★</span>
+                  <svg
+                    width="105"
+                    height="105"
+                    viewBox="0 0 160 160"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="cart-3d-bag-svg"
+                  >
+                    <defs>
+                      <linearGradient id="bag-body-grad" x1="20" y1="40" x2="140" y2="150" gradientUnits="userSpaceOnUse">
+                        <stop offset="0%" stopColor="#9333ea" />
+                        <stop offset="50%" stopColor="#7c3aed" />
+                        <stop offset="100%" stopColor="#4f46e5" />
+                      </linearGradient>
+                      <linearGradient id="bag-front-sheen" x1="50" y1="50" x2="110" y2="140" gradientUnits="userSpaceOnUse">
+                        <stop offset="0%" stopColor="#c084fc" stopOpacity="0.8" />
+                        <stop offset="60%" stopColor="#7c3aed" stopOpacity="0.4" />
+                        <stop offset="100%" stopColor="#312e81" stopOpacity="0.9" />
+                      </linearGradient>
+                      <linearGradient id="bag-handle-grad" x1="45" y1="10" x2="115" y2="50" gradientUnits="userSpaceOnUse">
+                        <stop offset="0%" stopColor="#f3e8ff" />
+                        <stop offset="40%" stopColor="#c084fc" />
+                        <stop offset="100%" stopColor="#6366f1" />
+                      </linearGradient>
+                      <filter id="bag-shadow" x="0" y="0" width="160" height="160" filterUnits="userSpaceOnUse">
+                        <feDropShadow dx="0" dy="8" stdDeviation="10" floodColor="#7c3aed" floodOpacity="0.5" />
+                      </filter>
+                    </defs>
+
+                    {/* Handle */}
+                    <path
+                      d="M56 50 C56 22, 104 22, 104 50"
+                      stroke="url(#bag-handle-grad)"
+                      strokeWidth="8"
+                      strokeLinecap="round"
+                      fill="none"
+                    />
+
+                    {/* Bag Main Body */}
+                    <g filter="url(#bag-shadow)">
+                      <path
+                        d="M32 50 L128 50 L140 142 C140 148, 134 152, 126 152 L34 152 C26 152, 20 148, 20 142 Z"
+                        fill="url(#bag-body-grad)"
+                      />
+                      {/* Front Facet / 3D Bevel */}
+                      <path
+                        d="M36 54 L124 54 L132 144 C132 148, 128 150, 122 150 L38 150 C32 150, 28 148, 28 144 Z"
+                        fill="url(#bag-front-sheen)"
+                      />
+                      {/* Specular Highlight Streak */}
+                      <path
+                        d="M42 60 L65 60 L55 142 L38 142 Z"
+                        fill="#ffffff"
+                        fillOpacity="0.18"
+                      />
+                    </g>
+                  </svg>
+                </div>
+
+                {/* Order Summary Card */}
+                <div className="cart-glass-card cart-summary-card">
+                  <div className="cart-summary-header">
+                    <ClipboardList size={20} className="text-purple-400" />
+                    <span>Order Summary</span>
+                  </div>
+
+                  {/* Delivering To / Location Box - Auto-detected */}
+                  <div className="cart-delivery-box">
+                    <div className="cart-delivery-left">
+                      <div className="cart-delivery-pin-box">
+                        <MapPin size={16} />
+                      </div>
+                      <div className="cart-delivery-content">
+                        <div className="cart-delivery-top-row">
+                          <span className="cart-delivery-label">Delivering to</span>
+                          <span className="cart-auto-detect-pill">Auto-detected</span>
+                        </div>
+                        <span className="cart-delivery-country">
+                          {taxDetails.flag} {taxDetails.countryName}
+                        </span>
+                        <span className="cart-delivery-sub">
+                          {taxDetails.label} &bull; Applied automatically based on your location
+                        </span>
+                      </div>
                     </div>
                   </div>
 
+                  {/* Summary Breakdown */}
+                  <div className="cart-summary-lines">
+                    <div className="cart-summary-line">
+                      <span>Subtotal ({totalItemCount} {totalItemCount === 1 ? "item" : "items"})</span>
+                      <span className="cart-summary-line-val">
+                        {formatMoney(grossSubtotal())}
+                      </span>
+                    </div>
+
+                    {discountAmount() > 0 && (
+                      <div className="cart-summary-line text-emerald-400">
+                        <span>Discount ({couponCode})</span>
+                        <span className="font-bold">- {formatMoney(discountAmount())}</span>
+                      </div>
+                    )}
+
+                    <div className="cart-summary-line">
+                      <span className="flex items-center gap-1">
+                        <span>Country Tax ({taxDetails.label})</span>
+                        <HelpCircle size={13} className="text-slate-400" />
+                      </span>
+                      <span className="cart-summary-tax-val">
+                        + {formatMoney(cartTax)}
+                      </span>
+                    </div>
+
+                    <div className="cart-summary-divider" />
+
+                    <div className="cart-summary-total-line">
+                      <span className="cart-summary-total-label">Total Amount</span>
+                      <div className="cart-summary-total-group">
+                        <span className="cart-summary-total-amount">
+                          {formattedTotalString}
+                        </span>
+                        <span className="cart-summary-approx-hint">
+                          Approx. {formattedTotalString} {activeCurrency}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Pay Button */}
                   <button
+                    type="button"
                     onClick={handleCheckout}
                     disabled={items.length === 0 || isProcessing}
-                    className="checkout-submit-btn"
+                    className="cart-checkout-cta-btn"
                   >
                     {isProcessing ? (
-                      <><Loader2 className="checkout-btn-loader animate-spin" /> Starting Session…</>
-                    ) : TEMPLATE_DOWNLOADS_FREE ? (
-                      <><Download className="checkout-btn-icon" /> Download templates for free</>
-                    ) : paymentMethodType === "upi" ? (
-                      <><ScanQrCode className="checkout-btn-icon" /> Pay via UPI QR ({hasInrItems ? `₹${total().toFixed(2)}` : inrAmountString})</>
-                    ) : paymentGateway === "stripe" ? (
-                      <><CreditCard className="checkout-btn-icon" /> Continue with Stripe →</>
+                      <>
+                        <Loader2 className="animate-spin" size={18} />
+                        <span>Processing Session…</span>
+                      </>
+                    ) : !authToken ? (
+                      <>
+                        <Lock size={16} />
+                        <span>Sign In to Complete Order ({formattedTotalString})</span>
+                        <ChevronRight size={16} />
+                      </>
+                    ) : paymentGateway === "upi" ? (
+                      <>
+                        <Lock size={16} />
+                        <span>Pay via UPI QR ({formattedTotalString})</span>
+                        <ChevronRight size={16} />
+                      </>
+                    ) : paymentGateway === "razorpay" ? (
+                      <>
+                        <Lock size={16} />
+                        <span>Pay with Card ({formattedTotalString})</span>
+                        <ChevronRight size={16} />
+                      </>
                     ) : (
-                      <><CreditCard className="checkout-btn-icon" /> Continue with Razorpay →</>
+                      <>
+                        <Lock size={16} />
+                        <span>Pay with Stripe ({formattedTotalString})</span>
+                        <ChevronRight size={16} />
+                      </>
                     )}
                   </button>
 
-                  <div className="checkout-security-badge">
-                    <ShieldCheck className="security-shield-icon" />
-                    <span>{TEMPLATE_DOWNLOADS_FREE ? "Free downloads · no payment required" : "Secure 256-bit SSL encrypted checkout"}</span>
+                  {/* SSL Guarantee */}
+                  <div className="cart-ssl-guarantee">
+                    <ShieldCheck size={14} className="cart-ssl-icon" />
+                    <span>Secure 256-bit SSL encrypted checkout</span>
                   </div>
+
+
                 </div>
               </div>
             </div>
@@ -1249,5 +1242,3 @@ function Checkout() {
     </>
   );
 }
-
-export default Checkout;

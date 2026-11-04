@@ -1,186 +1,518 @@
+/* ========================================================
+   AI SITE STUDIO - OTP VERIFICATION PAGE STYLES
+   Dark Obsidian & Violet Glass Theme
+   ======================================================== */
+
 .otp-page-container {
   min-height: 100vh;
+  width: 100%;
+  background-color: #070914;
+  color: #f8fafc;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  background-color: hsl(var(--background));
   position: relative;
-  overflow: hidden;
-  padding: 1rem;
+  overflow-x: hidden;
+  padding: 1.5rem;
+  box-sizing: border-box;
 }
 
+/* Ambient Radial Glows */
 .otp-glow-top,
-.otp-glow-bottom {
+.otp-glow-bottom,
+.otp-glow-purple {
   position: absolute;
+  pointer-events: none;
   border-radius: 50%;
-  filter: blur(100px);
+  filter: blur(120px);
   z-index: 0;
-  opacity: 0.08;
 }
 
 .otp-glow-top {
-  top: -20%;
-  left: 10%;
-  width: 600px;
-  height: 600px;
-  background: radial-gradient(circle, hsl(var(--primary)) 0%, transparent 70%);
+  top: -120px;
+  left: -100px;
+  width: 520px;
+  height: 520px;
+  background: radial-gradient(circle, rgba(124, 58, 237, 0.22) 0%, transparent 70%);
 }
 
 .otp-glow-bottom {
-  bottom: -20%;
-  right: 10%;
-  width: 500px;
-  height: 500px;
-  background: radial-gradient(circle, hsl(var(--primary)) 0%, transparent 70%);
+  bottom: -140px;
+  right: -100px;
+  width: 580px;
+  height: 580px;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.2) 0%, transparent 70%);
 }
 
+.otp-glow-purple {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 480px;
+  height: 480px;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.12) 0%, transparent 70%);
+}
+
+/* ── Top Header Navigation ──────────────────────────────────────────────── */
+.otp-nav-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1.5rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.otp-brand-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  text-decoration: none;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+}
+
+.otp-brand-text {
+  background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.otp-home-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  font-size: 0.825rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.otp-home-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+/* ── Verification Card ─────────────────────────────────────────────────── */
 .otp-card {
   position: relative;
   z-index: 10;
   width: 100%;
-  max-width: 420px;
-  background: hsl(var(--card));
-  border: 1px solid hsl(var(--border));
-  border-radius: 1.5rem;
-  padding: 2.5rem;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.08);
+  max-width: 460px;
+  background: rgba(13, 17, 28, 0.82);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 1.75rem;
+  padding: 2.75rem 2.25rem 2.25rem;
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.6), 0 0 30px rgba(139, 92, 246, 0.08);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  box-sizing: border-box;
+  margin-top: 2rem;
+}
+
+.otp-back-action {
+  position: absolute;
+  top: 1.5rem;
+  left: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: none;
+  border: none;
+  color: #64748b;
+  font-size: 0.825rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0.25rem;
+  transition: color 0.2s ease;
+}
+
+.otp-back-action:hover {
+  color: #e2e8f0;
+}
+
+.otp-icon-container {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(139, 92, 246, 0.2) 0%, rgba(99, 102, 241, 0.08) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.25rem;
+  color: #a855f7;
+  box-shadow: 0 0 24px rgba(139, 92, 246, 0.25);
+}
+
+.otp-title {
+  font-size: 1.65rem;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.5rem;
+}
+
+.otp-subtitle {
+  font-size: 0.9rem;
+  color: #94a3b8;
+  margin: 0 0 1rem;
+  line-height: 1.45;
+}
+
+/* ── Email Display Pill with Edit Button ───────────────────────────────── */
+.otp-email-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.85rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9999px;
+  margin-bottom: 1.25rem;
+  max-width: 100%;
+}
+
+.otp-email-icon {
+  color: #818cf8;
+  flex-shrink: 0;
+}
+
+.otp-email-text {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #f1f5f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.otp-edit-email-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: rgba(139, 92, 246, 0.15);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  color: #c084fc;
+  font-size: 0.725rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.otp-edit-email-btn:hover {
+  background: rgba(139, 92, 246, 0.3);
+  color: #ffffff;
+}
+
+/* ── Alerts & Warnings ─────────────────────────────────────────────────── */
+.otp-delivery-warning {
+  width: 100%;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 1rem;
+  padding: 1rem;
+  display: flex;
+  gap: 0.75rem;
+  text-align: left;
+  margin-bottom: 1.25rem;
+  box-sizing: border-box;
+}
+
+.otp-delivery-warning-icon {
+  color: #fbbf24;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.otp-delivery-warning-content {
+  font-size: 0.825rem;
+  line-height: 1.45;
+  color: #fde68a;
+}
+
+.otp-delivery-warning-content strong {
+  display: block;
+  font-size: 0.875rem;
+  color: #fbbf24;
+  margin-bottom: 0.25rem;
+}
+
+.otp-delivery-warning-content p {
+  margin: 0 0 0.6rem;
+  color: #cbd5e1;
+}
+
+.otp-warning-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.otp-warning-change-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  background: #f59e0b;
+  color: #000000;
+  font-size: 0.775rem;
+  font-weight: 700;
+  border-radius: 0.5rem;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.otp-warning-change-btn:hover {
+  opacity: 0.9;
+}
+
+.otp-notice-alert {
+  width: 100%;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: 0.875rem;
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.825rem;
+  color: #a7f3d0;
+  text-align: left;
+  margin-bottom: 1.25rem;
+  box-sizing: border-box;
+}
+
+.otp-error-alert {
+  width: 100%;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 0.875rem;
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.825rem;
+  color: #fca5a5;
+  text-align: left;
+  margin-bottom: 1.25rem;
+  box-sizing: border-box;
+}
+
+/* ── OTP Form & Input Boxes ────────────────────────────────────────────── */
+.otp-form {
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 
-.otp-icon-container {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  background: hsl(var(--primary) / 0.08);
-  border: 1px solid hsl(var(--primary) / 0.15);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 1.5rem;
-  color: hsl(var(--primary));
-}
-
-.otp-title {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: hsl(var(--foreground));
-  margin-bottom: 0.5rem;
-  text-align: center;
-}
-
-.otp-subtitle {
-  font-size: 0.875rem;
-  color: hsl(var(--muted-foreground));
-  text-align: center;
-  margin-bottom: 2rem;
-  line-height: 1.5;
-}
-
-.otp-email-highlight {
-  color: hsl(var(--foreground));
-  font-weight: 500;
-}
-
 .otp-input-group {
   display: flex;
-  gap: 0.5rem;
-  margin-bottom: 2rem;
+  gap: 0.65rem;
+  margin-bottom: 1.75rem;
   justify-content: center;
   width: 100%;
 }
 
 .otp-input-box {
-  width: 3rem;
-  height: 3.5rem;
-  border-radius: 0.5rem;
-  background: hsl(var(--muted));
-  border: 1px solid hsl(var(--border));
-  color: hsl(var(--foreground));
-  font-size: 1.5rem;
-  font-weight: 600;
+  width: 3.25rem;
+  height: 3.85rem;
+  border-radius: 0.875rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  font-size: 1.75rem;
+  font-weight: 700;
   text-align: center;
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   outline: none;
+  font-family: monospace, inherit;
+  caret-color: #8b5cf6;
 }
 
 .otp-input-box:focus {
-  border-color: hsl(var(--primary));
-  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.1);
+  border-color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.08);
+  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.2), 0 0 20px rgba(139, 92, 246, 0.3);
+  transform: translateY(-2px);
+}
+
+.otp-input-box.filled {
+  border-color: rgba(139, 92, 246, 0.5);
+  background: rgba(139, 92, 246, 0.05);
 }
 
 .otp-input-box.error {
   border-color: #ef4444;
-  background: rgba(239, 68, 68, 0.04);
+  background: rgba(239, 68, 68, 0.06);
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
 }
 
+/* ── Submit Button ─────────────────────────────────────────────────────── */
 .otp-submit-btn {
   width: 100%;
-  padding: 0.75rem 1.5rem;
-  border-radius: 0.5rem;
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
+  padding: 0.9rem 1.5rem;
+  border-radius: 0.875rem;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+  color: #ffffff;
   font-weight: 600;
-  font-size: 0.875rem;
+  font-size: 0.95rem;
   border: none;
   cursor: pointer;
-  transition: opacity 0.2s, transform 0.1s;
+  box-shadow: 0 10px 25px -5px rgba(124, 58, 237, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: all 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
 }
 
 .otp-submit-btn:hover:not(:disabled) {
-  opacity: 0.9;
+  opacity: 0.95;
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px -5px rgba(124, 58, 237, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 .otp-submit-btn:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: translateY(0);
 }
 
 .otp-submit-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
+.otp-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: otp-spin 0.8s linear infinite;
+}
+
+@keyframes otp-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Resend Row ────────────────────────────────────────────────────────── */
 .otp-resend-wrapper {
   margin-top: 1.5rem;
-  font-size: 0.875rem;
-  color: hsl(var(--muted-foreground));
-  text-align: center;
+  font-size: 0.85rem;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
 }
 
 .otp-resend-btn {
   background: none;
   border: none;
-  color: hsl(var(--primary));
-  font-weight: 500;
+  color: #a855f7;
+  font-weight: 600;
   cursor: pointer;
   padding: 0;
-  margin-left: 0.25rem;
+  font-size: 0.85rem;
+  transition: color 0.15s ease;
 }
 
 .otp-resend-btn:hover:not(:disabled) {
+  color: #c084fc;
   text-decoration: underline;
 }
 
 .otp-resend-btn:disabled {
-  color: hsl(var(--muted-foreground));
+  color: #64748b;
   cursor: default;
+  text-decoration: none;
 }
 
-.otp-error-alert {
+.otp-resending-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.otp-spin-icon {
+  animation: otp-spin 1s linear infinite;
+}
+
+/* ── Tips Box ──────────────────────────────────────────────────────────── */
+.otp-tips-container {
+  margin-top: 1.75rem;
   width: 100%;
-  background: rgba(239, 68, 68, 0.06);
-  border: 1px solid rgba(239, 68, 68, 0.15);
-  color: #ef4444;
-  padding: 0.75rem;
-  border-radius: 0.5rem;
-  font-size: 0.875rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  text-align: left;
+}
+
+.otp-tip-item {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 1.5rem;
+  font-size: 0.775rem;
+  color: #64748b;
+}
+
+.otp-tip-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #8b5cf6;
+  flex-shrink: 0;
+}
+
+/* ── Responsiveness ────────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .otp-card {
+    padding: 2.25rem 1.25rem 1.75rem;
+    border-radius: 1.25rem;
+  }
+
+  .otp-input-group {
+    gap: 0.4rem;
+  }
+
+  .otp-input-box {
+    width: 2.65rem;
+    height: 3.25rem;
+    font-size: 1.45rem;
+    border-radius: 0.65rem;
+  }
+
+  .otp-title {
+    font-size: 1.4rem;
+  }
+
+  .otp-nav-header {
+    padding: 1rem 1.25rem;
+  }
 }

@@ -1,14 +1,15 @@
 "use client";
 
 /**
- * Navbar — glassmorphic sticky header with search, theme toggle, cart, and auth (React JSX).
+ * Navbar — modern sleek studio header with search, dropdowns, theme toggle, and auth.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import Link from "@/components/Link";
 const usePathname = () => window.location.pathname;
 import { useTheme } from "@/hooks/useTheme";
-import { AppSignInButton, AppSignUpButton, AppUserButton, useAppUser, useSignOut } from "@/lib/auth";
+import { useAppUser, useSignOut } from "@/lib/auth";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
@@ -17,31 +18,43 @@ import {
   ShoppingCart,
   Menu,
   X,
+  ChevronDown,
+  ArrowRight,
   Sparkles,
   Zap,
   Globe,
+  Layers,
+  ShoppingBag,
+  Briefcase,
+  FileText,
+  HelpCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCartStore } from "@/store";
 import { useCurrencyStore } from "@/store/currencyStore";
+import { SiteStudioLogoIcon } from "./SiteStudioLogo";
 import "./Navbar.css";
-
 
 function NavbarComponent() {
   const { theme, setTheme } = useTheme();
   const { isSignedIn, user } = useAppUser();
   const signOut = useSignOut();
   const pathname = usePathname();
+  const navigate = useNavigate();
   const cartItems = useCartStore((s) => s.items);
   const { userCurrency, setUserCurrency, fetchRates } = useCurrencyStore();
   const [scrolled, setScrolled] = useState(false);
 
   const isSeller = isSignedIn && (user?.role === "seller" || user?.role === "SELLER");
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [templatesDropdown, setTemplatesDropdown] = useState(false);
+  const [resourcesDropdown, setResourcesDropdown] = useState(false);
+
+  const templatesRef = useRef(null);
+  const resourcesRef = useRef(null);
 
   useEffect(() => {
-    setMounted(true);
     fetchRates();
     const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handleScroll, { passive: true });
@@ -54,78 +67,239 @@ function NavbarComponent() {
     }
   }, [user?.currency, setUserCurrency]);
 
+  // Click outside to close dropdowns
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (templatesRef.current && !templatesRef.current.contains(e.target)) {
+        setTemplatesDropdown(false);
+      }
+      if (resourcesRef.current && !resourcesRef.current.contains(e.target)) {
+        setResourcesDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      navigate(`/marketplace?q=${encodeURIComponent(searchQuery.trim())}`);
+      setMobileOpen(false);
+    } else {
+      navigate(`/marketplace`);
+    }
+  };
+
+  const isSolidNavbar = scrolled || (pathname && pathname !== "/");
+
   return (
     <header
       className={cn(
         "navbar-header",
-        scrolled && "scrolled"
+        isSolidNavbar && "scrolled",
+        pathname === "/" && "navbar-home"
       )}
     >
       <div className="container-xl navbar-inner">
-        {/* Left group: Logo + primary nav links */}
-        <div className="navbar-left-group">
-          <Link href="/" className="logo-container">
-            <img
-              src="/logo.png"
-              alt="Site Studio Logo"
-              className="navbar-logo-img"
-              width={36}
-              height={36}
-            />
-            <span className="logo-text gradient-text">
-              Site Studio
-            </span>
+        {/* Left: Brand Logo */}
+        <Link href="/" className="logo-container">
+          <SiteStudioLogoIcon className="navbar-logo-icon" />
+          <span className="logo-text">
+            Site Studio
+          </span>
+        </Link>
+
+        {/* Center: Navigation Links */}
+        <nav className="navbar-center-nav">
+          {/* Home Link with Active Indicator */}
+          <Link
+            href="/"
+            className={cn("nav-center-item", pathname === "/" && "nav-item-active")}
+          >
+            <span>Home</span>
+            {pathname === "/" && <span className="nav-active-pill" />}
           </Link>
 
-          {/* Primary nav links — left side, with active state */}
-          <nav className="navbar-left-nav">
-            <Link
-              href="/"
-              className={cn("nav-link-left", pathname === "/" && "nav-link-active")}
+          {/* Templates Dropdown */}
+          <div
+            className="nav-dropdown-wrapper"
+            ref={templatesRef}
+            onMouseEnter={() => setTemplatesDropdown(true)}
+            onMouseLeave={() => setTemplatesDropdown(false)}
+          >
+            <button
+              type="button"
+              className={cn(
+                "nav-center-item nav-dropdown-btn",
+                pathname.startsWith("/marketplace") && "nav-item-active"
+              )}
+              onClick={() => setTemplatesDropdown((v) => !v)}
             >
-              Home
-            </Link>
-            <Link
-              href="/marketplace"
-              className={cn("nav-link-left", (pathname === "/marketplace" || pathname.startsWith("/marketplace")) && "nav-link-active")}
+              <span>Templates</span>
+              <ChevronDown className={cn("w-3.5 h-3.5 nav-chevron", templatesDropdown && "rotate-180")} />
+            </button>
+
+            <AnimatePresence>
+              {templatesDropdown && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 6, scale: 0.96 }}
+                  transition={{ duration: 0.15 }}
+                  className="nav-dropdown-menu"
+                >
+                  <Link
+                    href="/marketplace"
+                    className="dropdown-menu-item"
+                    onClick={() => setTemplatesDropdown(false)}
+                  >
+                    <Layers className="dropdown-item-icon" />
+                    <div>
+                      <div className="dropdown-item-title">All Templates</div>
+                      <div className="dropdown-item-desc">Browse entire collection</div>
+                    </div>
+                  </Link>
+                  <Link
+                    href="/marketplace?category=saas-technology"
+                    className="dropdown-menu-item"
+                    onClick={() => setTemplatesDropdown(false)}
+                  >
+                    <Zap className="dropdown-item-icon text-purple-400" />
+                    <div>
+                      <div className="dropdown-item-title">AI & SaaS</div>
+                      <div className="dropdown-item-desc">Modern tech & software designs</div>
+                    </div>
+                  </Link>
+                  <Link
+                    href="/marketplace?category=ecommerce"
+                    className="dropdown-menu-item"
+                    onClick={() => setTemplatesDropdown(false)}
+                  >
+                    <ShoppingBag className="dropdown-item-icon text-pink-400" />
+                    <div>
+                      <div className="dropdown-item-title">E-Commerce & Retail</div>
+                      <div className="dropdown-item-desc">Online shops & storefronts</div>
+                    </div>
+                  </Link>
+                  <Link
+                    href="/marketplace?category=business"
+                    className="dropdown-menu-item"
+                    onClick={() => setTemplatesDropdown(false)}
+                  >
+                    <Briefcase className="dropdown-item-icon text-indigo-400" />
+                    <div>
+                      <div className="dropdown-item-title">Business & Agency</div>
+                      <div className="dropdown-item-desc">Hotels, agencies & corporate</div>
+                    </div>
+                  </Link>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Marketplace Link */}
+          <Link
+            href="/marketplace"
+            className={cn("nav-center-item", pathname === "/marketplace" && "nav-item-active")}
+          >
+            <span>Marketplace</span>
+          </Link>
+
+          {/* Resources Dropdown */}
+          <div
+            className="nav-dropdown-wrapper"
+            ref={resourcesRef}
+            onMouseEnter={() => setResourcesDropdown(true)}
+            onMouseLeave={() => setResourcesDropdown(false)}
+          >
+            <button
+              type="button"
+              className="nav-center-item nav-dropdown-btn"
+              onClick={() => setResourcesDropdown((v) => !v)}
             >
-              Marketplace
-            </Link>
-          </nav>
-        </div>
+              <span>Resources</span>
+              <ChevronDown className={cn("w-3.5 h-3.5 nav-chevron", resourcesDropdown && "rotate-180")} />
+            </button>
 
+            <AnimatePresence>
+              {resourcesDropdown && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 6, scale: 0.96 }}
+                  transition={{ duration: 0.15 }}
+                  className="nav-dropdown-menu"
+                >
+                  <Link
+                    href="/about"
+                    className="dropdown-menu-item"
+                    onClick={() => setResourcesDropdown(false)}
+                  >
+                    <FileText className="dropdown-item-icon" />
+                    <div>
+                      <div className="dropdown-item-title">Documentation & About</div>
+                      <div className="dropdown-item-desc">Learn how Site Studio operates</div>
+                    </div>
+                  </Link>
+                  <Link
+                    href="/#features"
+                    className="dropdown-menu-item"
+                    onClick={() => setResourcesDropdown(false)}
+                  >
+                    <Sparkles className="dropdown-item-icon text-amber-400" />
+                    <div>
+                      <div className="dropdown-item-title">Platform Features</div>
+                      <div className="dropdown-item-desc">AI Fill, live canvas & export</div>
+                    </div>
+                  </Link>
+                  <Link
+                    href="/contact"
+                    className="dropdown-menu-item"
+                    onClick={() => setResourcesDropdown(false)}
+                  >
+                    <HelpCircle className="dropdown-item-icon text-cyan-400" />
+                    <div>
+                      <div className="dropdown-item-title">Help & Support</div>
+                      <div className="dropdown-item-desc">Contact our community team</div>
+                    </div>
+                  </Link>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
+          {/* Pricing Link */}
+          <Link
+            href="/pricing"
+            className={cn("nav-center-item", pathname === "/pricing" && "nav-item-active")}
+          >
+            <span>Pricing</span>
+          </Link>
+        </nav>
 
         {/* Right Actions */}
         <div className="navbar-actions">
-          {/* Pricing */}
-          <Link
-            href="/pricing"
-            className="search-btn"
-          >
-            Pricing
-          </Link>
+          {/* Search Pill Input */}
+          <form onSubmit={handleSearchSubmit} className="navbar-search-pill-form">
+            <Search className="navbar-search-icon" />
+            <input
+              type="text"
+              placeholder="Search templates..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="navbar-search-pill-input"
+            />
+          </form>
 
-          {/* Search — icon only, links to marketplace */}
-          <Link
-            href="/marketplace"
-            className="icon-btn"
-            aria-label="Search templates"
-            title="Search templates"
-          >
-            <Search className="w-4 h-4" />
-          </Link>
-
-
-
-          {/* Cart */}
+          {/* Cart Icon (if items exist or buyer) */}
           {!isSeller && (
             <Link
               href="/checkout"
-              className="icon-btn cart-btn-link"
+              className="navbar-cart-btn"
               aria-label={`Cart (${cartItems.length} items)`}
             >
-              <ShoppingCart className="w-4 h-4" />
+              <ShoppingCart className="w-4 h-4 text-slate-300" />
               {cartItems.length > 0 && (
                 <span className="cart-badge">
                   {cartItems.length}
@@ -134,37 +308,58 @@ function NavbarComponent() {
             </Link>
           )}
 
-          {/* Auth */}
+          {/* Sign In & Get Started Free or User Profile */}
           {isSignedIn ? (
-            <div className="desktop-auth">
+            <div className="navbar-auth-group">
               <Link
                 href="/dashboard"
-                className="search-btn"
-                style={{ display: "inline-flex" }}
+                className="navbar-user-pill-link"
+                title="Go to Dashboard"
               >
-                Dashboard
+                <div className="navbar-avatar-circle">
+                  {user?.avatar_url || user?.picture ? (
+                    <img
+                      src={user?.avatar_url || user?.picture}
+                      alt={user?.name || "User"}
+                      className="navbar-avatar-img"
+                    />
+                  ) : (
+                    <span className="navbar-avatar-fallback">
+                      {(user?.name || user?.full_name || user?.email || "N")[0].toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                <div className="navbar-user-info-text">
+                  <span className="navbar-user-display-name">
+                    {user?.name || user?.full_name || (user?.email ? user.email.split("@")[0] : "Navin Bharath.N")}
+                  </span>
+                  <span className="navbar-user-role-label">
+                    {user?.role === "seller" || user?.role === "SELLER" ? "Seller" : "Buyer"}
+                  </span>
+                </div>
               </Link>
               <button
                 onClick={() => signOut()}
-                className="btn-signin"
-                style={{ marginLeft: "0.5rem", padding: "0.4rem 1rem", fontSize: "0.8rem", height: "36px", display: "inline-flex", alignItems: "center" }}
+                className="btn-studio-logout"
+                title="Log Out"
               >
                 Log Out
               </button>
             </div>
           ) : (
-            <div className="desktop-auth">
+            <div className="navbar-auth-group">
               <Link
                 href="/sign-in"
-                className="btn-signin"
+                className="btn-studio-signin"
               >
                 Sign In
               </Link>
               <Link
                 href="/get-started"
-                className="btn-getstarted"
+                className="btn-studio-getstarted"
               >
-                Get Started
+                <span>Get Started Free</span>
+                <ArrowRight className="w-3.5 h-3.5 ml-1" />
               </Link>
             </div>
           )}
@@ -176,15 +371,15 @@ function NavbarComponent() {
             aria-label="Toggle menu"
           >
             {mobileOpen ? (
-              <X className="w-5 h-5" />
+              <X className="w-5 h-5 text-white" />
             ) : (
-              <Menu className="w-5 h-5" />
+              <Menu className="w-5 h-5 text-white" />
             )}
           </button>
         </div>
       </div>
 
-      {/* Mobile Menu */}
+      {/* Mobile Drawer */}
       <AnimatePresence>
         {mobileOpen && (
           <motion.div
@@ -194,7 +389,19 @@ function NavbarComponent() {
             transition={{ duration: 0.2 }}
             className="mobile-dropdown"
           >
-            <nav className="container-xl mobile-nav">
+            <div className="container-xl mobile-nav">
+              {/* Mobile Search */}
+              <form onSubmit={handleSearchSubmit} className="mobile-search-form">
+                <Search className="w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search templates..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="mobile-search-input"
+                />
+              </form>
+
               <div className="mobile-links-container">
                 <Link
                   href="/"
@@ -208,7 +415,7 @@ function NavbarComponent() {
                   className={cn("mobile-link", pathname.startsWith("/marketplace") && "mobile-link-active")}
                   onClick={() => setMobileOpen(false)}
                 >
-                  Marketplace
+                  Marketplace & Templates
                 </Link>
                 <Link
                   href="/pricing"
@@ -216,6 +423,13 @@ function NavbarComponent() {
                   onClick={() => setMobileOpen(false)}
                 >
                   Pricing
+                </Link>
+                <Link
+                  href="/about"
+                  className="mobile-link"
+                  onClick={() => setMobileOpen(false)}
+                >
+                  Resources & Docs
                 </Link>
                 {isSignedIn ? (
                   <>
@@ -227,33 +441,33 @@ function NavbarComponent() {
                         signOut();
                         setMobileOpen(false);
                       }}
-                      className="mobile-link"
+                      className="mobile-link text-rose-400"
                       style={{ textAlign: "left", width: "100%", background: "none", border: "none" }}
                     >
                       Log Out
                     </button>
                   </>
                 ) : (
-                  <>
+                  <div className="mobile-auth-actions pt-2">
                     <Link
                       href="/sign-in"
-                      className="mobile-link-signin"
+                      className="btn-studio-signin w-full text-center mb-2"
                       onClick={() => setMobileOpen(false)}
                     >
                       Sign In
                     </Link>
                     <Link
                       href="/get-started"
-                      className="mobile-link-getstarted"
+                      className="btn-studio-getstarted w-full text-center justify-center"
                       onClick={() => setMobileOpen(false)}
                     >
-                      Get Started Free
+                      <span>Get Started Free</span>
+                      <ArrowRight className="w-3.5 h-3.5 ml-1" />
                     </Link>
-                  </>
+                  </div>
                 )}
               </div>
-
-            </nav>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -39,6 +39,34 @@ body:has(.studio-deploy-page),
   box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.04) !important;
 }
 
+/* Template Selection Cards */
+.deploy-template-card {
+  cursor: pointer;
+  border-radius: 1rem;
+  border: 1.5px solid #e2e8f0;
+  padding: 0.875rem;
+  background: #ffffff;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  text-align: left;
+}
+
+.deploy-template-card:hover {
+  border-color: #a5b4fc;
+  background: #f8fafc;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.08);
+}
+
+.deploy-template-card.selected {
+  border-color: #6366f1 !important;
+  background: #f5f3ff !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25), 0 4px 16px rgba(99, 102, 241, 0.12) !important;
+}
+
 .deploy-provider-card {
   cursor: pointer;
   border-radius: 1rem;
@@ -96,4 +124,61 @@ body:has(.studio-deploy-page),
   font-size: 0.8rem;
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
 }
+
+/* ── Realtime Logs & Domain Modal Backdrops ── */
+.deploy-modal-backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 9999 !important;
+  background-color: rgba(15, 23, 42, 0.75) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 1.5rem !important;
+}
+
+.deploy-modal-dialog-dark {
+  width: 100% !important;
+  max-width: 720px !important;
+  background-color: #0b1120 !important;
+  color: #f8fafc !important;
+  border: 1px solid #334155 !important;
+  border-radius: 1.25rem !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  max-height: 85vh !important;
+  overflow: hidden !important;
+  padding: 1.5rem !important;
+  position: relative !important;
+}
+
+.deploy-modal-dialog-light {
+  width: 100% !important;
+  max-width: 520px !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 1.25rem !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.3) !important;
+  padding: 1.5rem !important;
+  position: relative !important;
+}
+
+.deploy-logs-terminal {
+  background-color: #030712 !important;
+  color: #e2e8f0 !important;
+  border: 1px solid #1f2937 !important;
+  border-radius: 0.875rem !important;
+  padding: 1.25rem !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-size: 0.75rem !important;
+  line-height: 1.6 !important;
+  max-height: 440px !important;
+  overflow-y: auto !important;
+  scrollbar-width: thin;
+}
+
 

@@ -76,7 +76,7 @@ def is_dummy_or_test_email(email: str) -> bool:
         or domain.endswith(".local")
     )
 
-def send_smtp_email_sync(to_email: str, subject: str, body: str):
+def send_smtp_email_sync(to_email: str, subject: str, body: str) -> bool:
     # 1. Skip if test environment or email delivery explicitly disabled
     is_test_env = (
         getattr(settings, "ENVIRONMENT", "").lower() in ("test", "testing")
@@ -85,17 +85,17 @@ def send_smtp_email_sync(to_email: str, subject: str, body: str):
     )
     if is_test_env:
         print(f"\n[TEST SIMULATION] Real SMTP skipped for {to_email} (Test/Disabled Mode). Subject: {subject}\n")
-        return
+        return False
 
     # 2. Skip placeholder / dummy domains to prevent delivery delay & bounce notices from mail providers
     if is_dummy_or_test_email(to_email):
         print(f"\n[SIMULATION] Email to placeholder domain ({to_email}) skipped to prevent delivery bounce. Subject: {subject}\n")
-        return
+        return False
 
     # 3. Check credentials
     if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
         print(f"\n[EMAIL NOT SENT] SMTP credentials are not configured; verification email was not delivered to {to_email}.\n")
-        return
+        return False
 
     msg = MIMEText(body, "html")
     msg["Subject"] = subject
@@ -113,10 +113,16 @@ def send_smtp_email_sync(to_email: str, subject: str, body: str):
                 server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
                 server.sendmail(msg["From"], [to_email], msg.as_string())
         print(f"\n[EMAIL SENT] OTP successfully sent to {to_email}\n")
+        return True
     except Exception as e:
         print(f"\n[EMAIL ERROR] Failed to send email via SMTP to {to_email}: {e}\n")
+        return False
 
-async def send_otp_email(to_email: str, otp: str):
+async def send_otp_email(to_email: str, otp: str) -> bool:
+    if not to_email or "@" not in to_email or is_dummy_or_test_email(to_email):
+        print(f"\n[SIMULATION/SKIP] Email to {to_email} skipped.\n")
+        return False
+
     subject = f"Your OTP Verification Code - Site Studio"
     body = f"""
     <html>
@@ -133,7 +139,7 @@ async def send_otp_email(to_email: str, otp: str):
     </html>
     """
 
-    # 2. If BREVO_API_KEY is configured, send via Brevo REST API (HTTPS port 443 — free 300 emails/day to ANY email worldwide)
+    # 1. If BREVO_API_KEY is configured, send via Brevo REST API (HTTPS port 443 — free 300 emails/day to ANY email worldwide)
     if getattr(settings, "BREVO_API_KEY", ""):
         try:
             import httpx
@@ -153,13 +159,13 @@ async def send_otp_email(to_email: str, otp: str):
                 resp = await client.post("https://api.brevo.com/v3/smtp/email", headers=headers, json=payload)
                 if resp.status_code in (200, 201):
                     print(f"\n[EMAIL SENT] OTP successfully sent via Brevo API to {to_email}\n", flush=True)
-                    return
+                    return True
                 else:
                     print(f"\n[EMAIL ERROR] Brevo API error ({resp.status_code}): {resp.text}\n", flush=True)
         except Exception as err:
             print(f"\n[EMAIL ERROR] Brevo API exception: {err}\n", flush=True)
 
-    # 3. If RESEND_API_KEY is configured, send via Resend REST API (HTTPS port 443 — never blocked on Render)
+    # 2. If RESEND_API_KEY is configured, send via Resend REST API (HTTPS port 443 — never blocked on Render)
     if getattr(settings, "RESEND_API_KEY", ""):
         try:
             import httpx
@@ -177,7 +183,7 @@ async def send_otp_email(to_email: str, otp: str):
                 resp = await client.post("https://api.resend.com/emails", headers=headers, json=payload)
                 if resp.status_code in (200, 201):
                     print(f"\n[EMAIL SENT] OTP successfully sent via Resend API to {to_email}\n", flush=True)
-                    return
+                    return True
                 else:
                     print(f"\n[EMAIL ERROR] Resend API error ({resp.status_code}): {resp.text}\n", flush=True)
         except Exception as err:
@@ -186,9 +192,11 @@ async def send_otp_email(to_email: str, otp: str):
     # 3. Fallback to standard SMTP
     try:
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, send_smtp_email_sync, to_email, subject, body)
+        sent = await loop.run_in_executor(None, send_smtp_email_sync, to_email, subject, body)
+        return bool(sent)
     except Exception as e:
         print(f"Error sending email in executor: {e}")
+        return False
 
 import hashlib
 from app.core.redis import get_redis
@@ -218,7 +226,7 @@ async def enforce_login_rate_limit(request: Request, email: str) -> None:
     if len(_login_attempts) > 10000:
         _login_attempts.clear()
 
-async def generate_otp(email: str, purpose: str) -> str:
+async def generate_otp(email: str, purpose: str) -> tuple[str, bool]:
     email_key = email.lower().strip()
     redis_client = await get_redis()
     
@@ -244,12 +252,11 @@ async def generate_otp(email: str, purpose: str) -> str:
     # Set rate limiter for 60 seconds
     await redis_client.set(rate_key, "1", ex=60)
     
-    # Store strong reference to background task to prevent garbage collection
-    task = asyncio.create_task(send_otp_email(email, otp))
-    _active_background_tasks.add(task)
-    task.add_done_callback(_active_background_tasks.discard)
+    # Dispatch email and wait for delivery result
+    sent = await send_otp_email(email, otp)
+    print(f"\n[OTP DISPATCH] Email: {email} | Purpose: {purpose} | Code: {otp} | Delivered: {sent}\n", flush=True)
     
-    return otp
+    return otp, sent
 
 
 oauth = OAuth()
@@ -424,18 +431,27 @@ async def auth_callback(provider: str, request: Request, db: AsyncSession = Depe
         elif provider == "facebook":
             user.facebook_id = provider_id
             
-        from app.models.user import UserRole
-        if is_company_email(email):
-            user.role = UserRole.SELLER
-
         await db.flush()
         await db.refresh(user)
     else:
         role_str = request.session.get('auth_role', 'buyer')
-        if is_company_email(email):
-            role_str = "seller"
+        print(f"\n[OAUTH AUTH] Provider: {provider.upper()} | Email: {email} | Requested Role: {role_str}\n", flush=True)
 
-        print(f"\n[OAUTH AUTH] Provider: {provider.upper()} | Email: {email} | Company Email: {is_company_email(email)} | Assigned Role: {role_str}\n", flush=True)
+        # Enforce that existing account cannot be accessed or switched to conflicting role or hijack password accounts
+        existing_oauth_user = await repo.get_by_email(email)
+        if existing_oauth_user:
+            existing_role_str = existing_oauth_user.role.value if hasattr(existing_oauth_user.role, "value") else str(existing_oauth_user.role)
+            if existing_role_str.lower() != role_str.lower():
+                target_role = "Seller" if existing_role_str.lower() == "seller" else "Buyer"
+                from urllib.parse import quote_plus
+                err_msg = quote_plus(f"This email is registered as a {target_role} account. The same email cannot be used for both Seller and Buyer accounts. Please switch to {target_role} login.")
+                return RedirectResponse(url=f"{FRONTEND_URL}/sign-in?error={err_msg}&role={existing_role_str.lower()}")
+
+            # Block OAuth takeover if the account was registered with email & password
+            if provider == "google" and existing_oauth_user.hashed_password and not existing_oauth_user.google_id:
+                from urllib.parse import quote_plus
+                err_msg = quote_plus("This account was registered with email and password. To prevent unauthorized account takeover, signing in with Google is blocked for this email. Please sign in using your password.")
+                return RedirectResponse(url=f"{FRONTEND_URL}/sign-in?error={err_msg}&role={existing_role_str.lower()}")
 
         user = await repo.upsert_oauth_user(
             provider=provider,
@@ -558,23 +574,8 @@ async def register(
     if not email or not password:
         raise HTTPException(status_code=400, detail="Email and password required")
         
-    # Auto-assign seller role if email is a company email (e.g. name@company.com)
-    if is_company_email(email):
-        role = "seller"
-
-    print(f"\n[USER REGISTER] Email: {email} | Company Email: {is_company_email(email)} | Final Role: {role}\n", flush=True)
-
-    if role.lower() == "seller" and not is_company_email(email):
-        raise HTTPException(
-            status_code=400,
-            detail="Sellers must register with a company email address (not public domains like Gmail)."
-        )
-        
-    if role.lower() == "buyer" and not email.lower().endswith("@gmail.com"):
-        raise HTTPException(
-            status_code=400,
-            detail="Buyers must register with a Gmail address (ending in @gmail.com)."
-        )
+    role = "seller" if str(role).lower() == "seller" else "buyer"
+    print(f"\n[USER REGISTER] Email: {email} | Role: {role}\n", flush=True)
         
     if not is_strong_password(password):
         raise HTTPException(
@@ -585,15 +586,35 @@ async def register(
     repo = UserRepository(db)
     existing = await repo.get_by_email(email)
     if existing:
-        if not existing.is_email_verified:
-            try:
-                await generate_otp(email, "verify_email")
-            except HTTPException as exc:
-                if exc.status_code != status.HTTP_429_TOO_MANY_REQUESTS:
-                    raise
+        if existing.google_id:
+            raise HTTPException(
+                status_code=409,
+                detail="This email is already registered using Google Sign-In. You cannot create a manual password account with this email. Please sign in using 'Continue with Google'."
+            )
+        existing_role_str = existing.role.value if hasattr(existing.role, "value") else str(existing.role)
+        if existing_role_str.lower() != role.lower():
+            target_role = "Seller" if existing_role_str.lower() == "seller" else "Buyer"
+            raise HTTPException(
+                status_code=409,
+                detail=f"This email is already registered as a {target_role} account. The same email address cannot be used for both Seller and Buyer accounts. Please switch to {target_role} login."
+            )
+        if existing.is_email_verified:
+            raise HTTPException(
+                status_code=409,
+                detail=f"An account with this email already exists as a {existing_role_str.capitalize()}. Please sign in instead."
+            )
+        sent = False
+        try:
+            _, sent = await generate_otp(email, "verify_email")
+        except HTTPException as exc:
+            if exc.status_code != status.HTTP_429_TOO_MANY_REQUESTS:
+                raise
+            sent = False
         return {
-            "status": "registration_received",
-            "message": "If this address can be registered, check your email for next steps.",
+            "status": "otp_required",
+            "email": email,
+            "sent": sent,
+            "message": "OTP verification code sent to your email." if sent else "Could not deliver email. Please check that your email address is correct."
         }
         
     from app.core.security import hash_password
@@ -611,10 +632,18 @@ async def register(
     await db.flush()
     await db.commit()
     
-    await generate_otp(email, "verify_email")
+    sent = False
+    try:
+        _, sent = await generate_otp(email, "verify_email")
+    except HTTPException as exc:
+        if exc.status_code != status.HTTP_429_TOO_MANY_REQUESTS:
+            raise
+        sent = False
     return {
-        "status": "registration_received",
-        "message": "If this address can be registered, check your email for next steps.",
+        "status": "otp_required",
+        "email": email,
+        "sent": sent,
+        "message": "OTP verification code sent to your email." if sent else "Could not deliver email. Please check that your email address is correct."
     }
 
 
@@ -628,6 +657,7 @@ async def login_email(
         data = await request.json()
         email = data.get("email")
         password = data.get("password")
+        requested_role = data.get("role")
         
         if not email or not password:
             raise HTTPException(status_code=400, detail="Email and password required")
@@ -638,27 +668,47 @@ async def login_email(
 
         repo = UserRepository(db)
         user = await repo.get_by_email(email)
-        if not user or not user.hashed_password:
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+
+        # Security check: If the account was registered via Google Sign-In, block manual password login
+        if user.google_id:
+            raise HTTPException(
+                status_code=400,
+                detail="This account was registered using Google Sign-In. For security reasons, manual password login is disabled for this account. Please sign in using 'Continue with Google'."
+            )
+
+        if not user.hashed_password:
             raise HTTPException(status_code=401, detail="Invalid email or password")
             
         from app.core.security import verify_password
         if not verify_password(password, user.hashed_password):
             raise HTTPException(status_code=401, detail="Invalid email or password")
+
+        user_role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
+
+        # Enforce that user cannot log in as Buyer with a Seller account, or vice-versa
+        if requested_role and requested_role.lower() != user_role_str.lower():
+            target_role = "Seller" if user_role_str.lower() == "seller" else "Buyer"
+            raise HTTPException(
+                status_code=403,
+                detail=f"This email is registered as a {target_role} account. The same email cannot be used for both Seller and Buyer accounts. Please switch to {target_role} login."
+            )
             
         if not user.is_email_verified:
-            await generate_otp(user.email, "verify_email")
+            sent = False
+            try:
+                _, sent = await generate_otp(user.email, "verify_email")
+            except HTTPException as exc:
+                if exc.status_code != status.HTTP_429_TOO_MANY_REQUESTS:
+                    raise
+                sent = False
             return {
                 "status": "otp_required",
                 "email": user.email,
-                "message": "Your email is not verified yet. An OTP has been sent to your email."
+                "sent": sent,
+                "message": "Your email is not verified yet. An OTP has been sent to your email." if sent else "Could not deliver email. Please check that your email address is correct."
             }
-            
-        if is_company_email(user.email) and user.role.value.lower() == "buyer":
-            from app.models.user import UserRole
-            user.role = UserRole.SELLER
-            await db.flush()
-            await db.commit()
-            await db.refresh(user)
 
         user_role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
         print(f"\n[USER LOGIN] Email: {user.email} | Active Role: {user_role_str}\n", flush=True)
@@ -718,9 +768,6 @@ async def verify_otp(
         raise HTTPException(status_code=404, detail="User not found.")
         
     user.is_email_verified = True
-    if is_company_email(user.email) and user.role.value.lower() == "buyer":
-        from app.models.user import UserRole
-        user.role = UserRole.SELLER
     await db.flush()
     await db.commit()
     await db.refresh(user)
@@ -757,13 +804,23 @@ async def resend_otp(
     
     repo = UserRepository(db)
     user = await repo.get_by_email(email)
+    sent = False
     if user and not user.is_email_verified:
         try:
-            await generate_otp(email, "verify_email")
+            _, sent = await generate_otp(email, "verify_email")
         except HTTPException as exc:
             if exc.status_code != status.HTTP_429_TOO_MANY_REQUESTS:
                 raise
-    return {"message": "A new OTP has been sent."}
+            raise HTTPException(
+                status_code=429,
+                detail="Too many OTP requests. Please wait 60 seconds before trying again."
+            )
+    return {
+        "status": "otp_required",
+        "email": email,
+        "sent": sent,
+        "message": "A new verification code has been sent." if sent else "Could not deliver verification email. Please check that your email address is correct."
+    }
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -780,13 +837,25 @@ async def forgot_password(
     
     repo = UserRepository(db)
     user = await repo.get_by_email(email)
+    if user and user.google_id and not user.hashed_password:
+        raise HTTPException(
+            status_code=400,
+            detail="This account was registered using Google Sign-In and does not use a password. Please sign in using 'Continue with Google'."
+        )
+    sent = False
     if user and user.hashed_password:
         try:
-            await generate_otp(email, "reset_password")
+            _, sent = await generate_otp(email, "reset_password")
         except HTTPException as exc:
             if exc.status_code != status.HTTP_429_TOO_MANY_REQUESTS:
                 raise
-    return {"message": "A password reset code has been sent to your email."}
+            sent = False
+    return {
+        "status": "otp_required",
+        "email": email,
+        "sent": sent,
+        "message": "A password reset code has been sent to your email." if sent else "Could not deliver reset email. Please check that your email address is correct."
+    }
 
 
 class ResetPasswordRequest(BaseModel):
@@ -838,6 +907,12 @@ async def reset_password(
     user = await repo.get_by_email(email)
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
+
+    if user.google_id and not user.hashed_password:
+        raise HTTPException(
+            status_code=400,
+            detail="This account was registered using Google Sign-In and cannot have a manual password set. Please sign in with Google."
+        )
     
     from app.core.security import hash_password
     user.hashed_password = hash_password(new_password)
@@ -862,12 +937,6 @@ async def get_me(
     """Return the currently authenticated user's profile."""
     from app.models.user import UserRole
     user_role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
-    if is_company_email(current_user.email) and user_role_val.lower() == "buyer":
-        current_user.role = UserRole.SELLER
-        await db.flush()
-        await db.commit()
-        await db.refresh(current_user)
-        user_role_val = "seller"
 
     # Auto-detect location & currency if missing
     if not current_user.country or not current_user.currency or not current_user.country_code:
@@ -904,8 +973,6 @@ async def update_me(
     
     from app.models.user import UserRole
     if "role" in data and data["role"] == "seller":
-        current_user.role = UserRole.SELLER
-    elif is_company_email(current_user.email) and current_user.role == UserRole.BUYER:
         current_user.role = UserRole.SELLER
 
     if "full_name" in data:

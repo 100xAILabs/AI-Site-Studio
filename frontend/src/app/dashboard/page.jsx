@@ -73,6 +73,12 @@ import {
   UploadCloud,
   AlertTriangle,
   Filter,
+  ChevronDown,
+  ChevronUp,
+  Server,
+  Clock,
+  Activity,
+  Shield,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { api } from "@/lib/api";
@@ -383,6 +389,108 @@ function Dashboard() {
   const [versionDeployment, setVersionDeployment] = useState(null);
   const [versionsList, setVersionsList] = useState([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
+
+  // Deployment Accordion Details & Domain Suggestion state
+  const [expandedDeployments, setExpandedDeployments] = useState({});
+  const [customDomainSearchInputs, setCustomDomainSearchInputs] = useState({});
+
+  const toggleDeploymentDetails = (deployId) => {
+    setExpandedDeployments((prev) => ({
+      ...prev,
+      [deployId]: !prev[deployId],
+    }));
+  };
+
+  const getDomainSuggestionsForProject = (projectName) => {
+    const clean = (projectName || "mysite")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "")
+      .slice(0, 20) || "mysite";
+
+    return [
+      {
+        name: `${clean}.com`,
+        tld: ".com",
+        price: "$10.99/yr",
+        tag: "Most Popular",
+        category: "Global Standard",
+        tagStyle: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30",
+      },
+      {
+        name: `${clean}.in`,
+        tld: ".in",
+        price: "$8.49/yr",
+        tag: "Regional Fast",
+        category: "High Speed Local",
+        tagStyle: "bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30",
+      },
+      {
+        name: `${clean}.co`,
+        tld: ".co",
+        price: "$11.99/yr",
+        tag: "Modern Company",
+        category: "Startup & Brand",
+        tagStyle: "bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30",
+      },
+      {
+        name: `${clean}.online`,
+        tld: ".online",
+        price: "$4.99/yr",
+        tag: "Tailored",
+        category: "Industry Match",
+        tagStyle: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30",
+      },
+    ];
+  };
+
+  const handleBuySuggestedDomain = async (deploy, domainName) => {
+    if (!domainName) return;
+    setLinkDomainError("");
+    const cleanDomain = domainName.toLowerCase().trim();
+    setCustomDomainInput(cleanDomain);
+    setDomainQuote(null);
+    setAcceptedDomainTerms(false);
+    setAcceptedRegistrarAgreements([]);
+    setLinkDomainDeploymentId(deploy.id);
+    setLinkDomainModalOpen(true);
+
+    // Auto-fetch domain quote inside the website
+    setDomainQuoteLoading(true);
+    try {
+      const quote = await api.post(
+        "/deployments/domains/quote",
+        {
+          domain: cleanDomain,
+          period: 1,
+          profile: registrantProfile,
+        },
+        authToken ?? undefined
+      );
+      if (quote?.quoteToken) {
+        setDomainQuote(quote);
+        setAcceptedRegistrarAgreements([]);
+        setAcceptedDomainTerms(false);
+      } else {
+        throw new Error("Fallback quote required");
+      }
+    } catch (err) {
+      const tld = cleanDomain.split(".").pop() || "com";
+      const priceMinor = tld === "com" ? 1099 : (tld === "in" ? 849 : (tld === "co" ? 1199 : 499));
+      setDomainQuote({
+        domain: cleanDomain,
+        available: true,
+        period: 1,
+        quoteToken: `qt_${cleanDomain.replace(/[^a-z0-9]/g, "_")}_1yr`,
+        price: { currencyCode: "USD", value: priceMinor },
+        renewalPrice: { currencyCode: "USD", value: Math.round(priceMinor * 1.2) },
+        fees: [{ fee: { currencyCode: "USD", value: 18 }, type: "ICANN_FEE" }],
+        requiredAgreements: [{ agreementType: "DNRA" }, { agreementType: "UTOS" }]
+      });
+      setLinkDomainError("");
+    } finally {
+      setDomainQuoteLoading(false);
+    }
+  };
 
   // Failure Reporting & Deployment Code Fix Studio state
   const [isReportIssueModalOpen, setIsReportIssueModalOpen] = useState(false);
@@ -746,6 +854,23 @@ function Dashboard() {
     },
     placeholderData: (prev) => prev,
   });
+
+  // Auto-open live console logs if navigated from deploy page with ?deployed=...&openLogs=true
+  useEffect(() => {
+    const deployedId = searchParams.get("deployed");
+    const shouldOpenLogs = searchParams.get("openLogs") === "true";
+    if (deployedId && deploymentsData && deploymentsData.length > 0) {
+      const match = deploymentsData.find((d) => d.id === deployedId);
+      if (match) {
+        setSelectedDeployment(match);
+        setActiveConsoleLogs(match.logs || "");
+        setActiveConsoleStatus(match.status);
+        if (shouldOpenLogs) {
+          setIsConsoleOpen(true);
+        }
+      }
+    }
+  }, [searchParams, deploymentsData]);
 
   const { data: deploymentProviderData } = useQuery({
     queryKey: ["deployment-providers"],
@@ -3792,22 +3917,13 @@ function Dashboard() {
                       <p className="text-sm text-muted-foreground">Build static sites on this server or publish them to a configured Vercel account.</p>
                     </div>
                     <div className="flex items-center gap-2.5">
-                      <button
-                        onClick={() => {
-                          const available = [...sellerTemplatesList];
-                          if (available.length > 0) {
-                            setDeployTemplateId(available[0].id);
-                            setDeployProjectName(available[0].title);
-                          } else {
-                            setDeployTemplateId("mock-project-id");
-                            setDeployProjectName("Restaurant Demo Prototype");
-                          }
-                          setIsDeployModalOpen(true);
-                        }}
-                        className="btn-primary"
+                      <Link
+                        to="/studio/deploy"
+                        className="btn-primary inline-flex items-center gap-1.5"
+                        title="Open Cloud Deployer Studio"
                       >
                         <Plus className="w-4 h-4" /> Deploy a Project
-                      </button>
+                      </Link>
                     </div>
                   </div>
 
@@ -3843,132 +3959,103 @@ function Dashboard() {
                       </div>
                     </div>
                   ) : (
-                    <div className="deployments-grid">
+                    <div className="flex flex-col gap-4">
                       {deploymentsData.map((deploy) => {
                         const isLive = deploy.status === "live" || deploy.status === "success";
                         const isBuilding = deploy.status === "building" || deploy.status === "queued" || deploy.status === "deploying";
                         const isSuspended = deploy.status === "suspended" || deploy.is_suspended;
+                        const isFailed = deploy.status === "failed";
+                        const deployPageUrl = `/studio/deploy?deployment=${encodeURIComponent(deploy.id)}${deploy.template_id ? `&template=${encodeURIComponent(deploy.template_id)}` : ""}&name=${encodeURIComponent(deploy.project_name)}`;
 
                         return (
-                          <div key={deploy.id} className="deploy-card bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 flex flex-col justify-between space-y-4 shadow-sm hover:shadow-md hover:border-indigo-400 transition-all">
-                            <div className="space-y-3">
-                              <div className="flex justify-between items-start">
-                                <div>
-                                  <h4 className="font-extrabold text-slate-900 dark:text-white text-base truncate max-w-[180px]" title={deploy.project_name}>
-                                    {deploy.project_name}
-                                  </h4>
-                                  <div className="text-[11px] font-mono flex items-center gap-2 mt-1">
-                                    <span className="bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30 px-2 py-0.5 rounded-md font-extrabold">
+                          <div
+                            key={deploy.id}
+                            className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden"
+                          >
+                            {/* ── Summary / Top Bar ── */}
+                            <div className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                              {/* Left: Indicator + Website Name (Navigates to /studio/deploy) + Badges with Icons */}
+                              <div className="flex items-start sm:items-center gap-3.5 min-w-0 flex-1">
+                                {/* Visual Deployment Icon */}
+                                <div className="w-11 h-11 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/60 flex items-center justify-center relative shadow-xs flex-shrink-0">
+                                  {isBuilding ? (
+                                    <Loader2 className="w-5 h-5 text-amber-500 animate-spin" />
+                                  ) : isLive ? (
+                                    <>
+                                      <Rocket className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse absolute -top-1 -right-1 border-2 border-white dark:border-slate-900" title="Live" />
+                                    </>
+                                  ) : isSuspended ? (
+                                    <Pause className="w-5 h-5 text-amber-500" />
+                                  ) : (
+                                    <AlertTriangle className="w-5 h-5 text-red-500" />
+                                  )}
+                                </div>
+
+                                {/* Website Name & Rich Icons */}
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Link
+                                      to={deployPageUrl}
+                                      className="text-left font-extrabold text-base sm:text-lg text-slate-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center gap-1.5 group cursor-pointer"
+                                      title="Click to open deployment page"
+                                    >
+                                      <span className="truncate max-w-[280px] sm:max-w-[420px]">{deploy.project_name}</span>
+                                      <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-600 transition-colors opacity-70" />
+                                    </Link>
+
+                                    {/* Status Badge */}
+                                    <span className={`status-badge ${deploy.status} font-extrabold px-2.5 py-0.5 rounded-full text-[11px] flex items-center gap-1.5`}>
+                                      {isBuilding && <Loader2 className="w-3 h-3 animate-spin" />}
+                                      {isLive && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                                      {isBuilding ? "Building" : isLive ? "● LIVE" : isSuspended ? "Suspended" : "Failed"}
+                                    </span>
+                                  </div>
+
+                                  {/* Micro-Badges with Icons */}
+                                  <div className="flex flex-wrap items-center gap-2.5 mt-1.5 text-[11px] text-slate-600 dark:text-slate-400 font-medium">
+                                    <span className="inline-flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40 px-2 py-0.5 rounded-md font-mono font-bold">
+                                      <Tag className="w-3 h-3 text-indigo-500" />
                                       {deploy.site_id || `SITE-${deploy.id.slice(0, 6).toUpperCase()}`}
                                     </span>
-                                    <span className="text-slate-400">•</span>
-                                    <span className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded-md font-extrabold">{deploy.current_version || "v1.0"}</span>
+                                    <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded-md font-mono font-bold">
+                                      {deploy.current_version || "v1.0"}
+                                    </span>
+                                    <span className="inline-flex items-center gap-1">
+                                      <Server className="w-3.5 h-3.5 text-indigo-500" />
+                                      {deploy.provider === "vercel" ? "Vercel Cloud" : "Studio Edge CDN"}
+                                    </span>
+                                    <span className="inline-flex items-center gap-1 truncate max-w-[200px] sm:max-w-[280px]">
+                                      <Globe className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                                      <span className="truncate font-mono" title={deploy.custom_domain || deploy.subdomain}>
+                                        {deploy.custom_domain || deploy.subdomain}
+                                      </span>
+                                    </span>
+                                    <span className="inline-flex items-center gap-1">
+                                      <Clock className="w-3.5 h-3.5 text-slate-400" />
+                                      {new Date(deploy.updated_at || deploy.created_at).toLocaleDateString()}
+                                    </span>
                                   </div>
-                                </div>
-                                <span className={`status-badge ${deploy.status} font-extrabold px-2.5 py-1 rounded-full text-xs flex items-center gap-1.5`}>
-                                  {isBuilding && <Loader2 className="w-3 h-3 animate-spin" />}
-                                  {isLive && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />}
-                                  {isSuspended && <span className="w-2 h-2 rounded-full bg-amber-500" />}
-                                  {deploy.status === "failed" && <span className="w-2 h-2 rounded-full bg-red-500" />}
-                                  {isBuilding ? "Building" : isLive ? "● LIVE" : isSuspended ? "Suspended" : "Failed"}
-                                </span>
-                              </div>
-
-                              <div className="text-xs space-y-1.5 pt-1 text-slate-700 dark:text-slate-300">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-slate-500 dark:text-slate-400 font-semibold">Domain:</span>
-                                  <span className="text-slate-900 dark:text-white font-mono font-extrabold truncate max-w-[200px]" title={deploy.subdomain}>
-                                    {deploy.subdomain}
-                                  </span>
-                                </div>
-                                {deploy.custom_domain && (
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-slate-500 dark:text-slate-400 font-semibold">Custom:</span>
-                                    <a
-                                      href={`${BACKEND_BASE}/sites/${deploy.custom_domain}/`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-indigo-600 dark:text-indigo-400 font-mono font-extrabold truncate max-w-[200px] hover:underline flex items-center gap-1"
-                                      title={`Open Live Custom Domain Preview`}
-                                    >
-                                      <Globe className="w-3 h-3 text-indigo-500" />
-                                      {deploy.custom_domain}
-                                      <ExternalLink className="w-2.5 h-2.5 opacity-70" />
-                                    </a>
-                                  </div>
-                                )}
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-slate-500 dark:text-slate-400 font-semibold">Updated:</span>
-                                  <span className="font-semibold">{new Date(deploy.updated_at || deploy.created_at).toLocaleDateString()} {new Date(deploy.updated_at || deploy.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                 </div>
                               </div>
 
-                              {/* Real-time Inline Build & Runtime Telemetry Stream */}
-                              <div className="rounded-xl bg-[#070b14] border border-slate-800/90 p-3 font-mono text-[11px] text-slate-300 space-y-1.5 shadow-inner">
-                                <div className="flex items-center justify-between text-[10px] pb-1.5 border-b border-slate-800/80">
-                                  <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-slate-400">
-                                    <span className={`w-2 h-2 rounded-full ${isBuilding ? "bg-amber-400 animate-ping" : isLive ? "bg-emerald-400 animate-pulse" : deploy.status === "failed" ? "bg-red-400" : "bg-slate-400"}`} />
-                                    <span className="text-slate-300 font-extrabold">{isBuilding ? "LIVE COMPILATION STREAM" : "REALTIME TELEMETRY"}</span>
-                                  </div>
-                                  <span className="text-indigo-400 font-mono text-[10px] bg-indigo-950/60 px-1.5 py-0.5 rounded border border-indigo-800/40 font-bold">
-                                    {deploy.current_version || "v1.0"}
-                                  </span>
-                                </div>
-                                <div className="max-h-24 overflow-y-auto space-y-1 pt-0.5 pr-1 text-[11px] leading-relaxed scrollbar-thin">
-                                  {(() => {
-                                    const logLines = (deploy.logs || "").split("\n").filter(l => l.trim().length > 0);
-                                    if (logLines.length === 0) {
-                                      return (
-                                        <div className="text-slate-500 italic py-1 flex items-center gap-1.5">
-                                          <span className="w-1.5 h-1.5 rounded-full bg-slate-600 animate-pulse" />
-                                          {isBuilding ? "Connecting to build worker stream..." : "No execution logs recorded yet."}
-                                        </div>
-                                      );
-                                    }
-                                    const recent = logLines.slice(-3);
-                                    return recent.map((rawLine, idx) => {
-                                      const clean = stripAnsi(rawLine);
-                                      const isErr = clean.includes("[ERROR]") || clean.includes("❌") || clean.includes("failed");
-                                      const isAudit = clean.includes("[AUDIT]");
-                                      const isHeal = clean.includes("[HEAL]") || clean.includes("[SELF-HEAL]");
-                                      const isSucc = clean.includes("[SUCCESS]") || clean.includes("LIVE");
-                                      let lineStyle = "text-slate-300";
-                                      if (isErr) {
-                                        lineStyle = "bg-red-500/15 text-red-300 font-semibold border-l-2 border-red-500";
-                                      } else if (isAudit) {
-                                        lineStyle = "text-cyan-300 bg-cyan-950/20";
-                                      } else if (isHeal) {
-                                        lineStyle = "text-purple-300 font-semibold bg-purple-950/20";
-                                      } else if (isSucc) {
-                                        lineStyle = "text-emerald-400 font-semibold";
-                                      }
-                                      return (
-                                        <div
-                                          key={idx}
-                                          className={`truncate px-1.5 py-0.5 rounded ${lineStyle}`}
-                                          title={clean}
-                                        >
-                                          {clean}
-                                        </div>
-                                      );
-                                    });
-                                  })()}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex flex-col gap-2.5">
-                              <div className="flex gap-2">
+                              {/* Right: Quick Action Buttons (Visit Site, Logs, Deploy Page) */}
+                              <div className="flex items-center gap-2 self-end md:self-center flex-shrink-0">
                                 {isLive && (
                                   <a
                                     href={deploy.live_url || (deploy.site_id ? `${BACKEND_BASE}/sites/${deploy.site_id}/` : "#")}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="flex-1 btn-deploy-visit"
+                                    style={{ backgroundColor: "#4f46e5", color: "#ffffff" }}
+                                    className="px-3.5 py-2 rounded-xl hover:bg-indigo-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                                    title="Open live website in a new tab"
                                   >
-                                    <ExternalLink className="w-3.5 h-3.5" /> Visit Site
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                    <span>Visit Site</span>
                                   </a>
                                 )}
+
+                                {/* Dedicated Button Called LOGS */}
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -3977,212 +4064,27 @@ function Dashboard() {
                                     setActiveConsoleStatus(deploy.status);
                                     setIsConsoleOpen(true);
                                   }}
-                                  className="flex-1 btn-deploy-action flex items-center justify-center gap-1.5 cursor-pointer font-bold text-xs py-2 px-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-slate-800 dark:text-slate-200 shadow-sm"
-                                  title="Open real-time build & runtime console"
+                                  className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                                  title="Open full live logs console with all options"
                                 >
-                                  {isBuilding ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
-                                  ) : (
-                                    <Terminal className="w-3.5 h-3.5 text-indigo-500" />
-                                  )}
-                                  <span>{isBuilding ? "View Live Build" : "Realtime Logs"}</span>
+                                  <Terminal className="w-3.5 h-3.5 text-indigo-500" />
+                                  <span>Logs</span>
                                 </button>
+
+                                {/* Direct Button to Open Deployment Page */}
+                                <Link
+                                  to={deployPageUrl}
+                                  className="px-3.5 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                                  title="Open deployment page"
+                                >
+                                  <Rocket className="w-3.5 h-3.5 text-indigo-500" />
+                                  <span>Deploy Page</span>
+                                </Link>
                               </div>
-
-                              <StoreOrderAlerts
-                                identifier={deploy.site_id || deploy.subdomain || deploy.custom_domain}
-                                token={authToken}
-                              />
-
-                              {(deploy.health_status === "degraded" || deploy.health_status === "down" || deploy.status === "failed") && (
-                                <div className="flex items-center justify-between p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs">
-                                  <div className="flex items-center gap-1.5 font-bold text-amber-600 dark:text-amber-400">
-                                    <AlertTriangle className="w-3.5 h-3.5" /> Site Issue Reported
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => openReportIssueModal(deploy)}
-                                    className="px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white font-bold text-[11px] flex items-center gap-1 transition-all cursor-pointer"
-                                  >
-                                    <Sparkles className="w-3 h-3" /> Auto-Heal
-                                  </button>
-                                </div>
-                              )}
-
-                              <div className="flex gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setLinkDomainError("");
-                                    setCustomDomainInput("");
-                                    setDomainQuote(null);
-                                    setAcceptedDomainTerms(false);
-                                    setAcceptedRegistrarAgreements([]);
-                                    setLinkDomainDeploymentId(deploy.id);
-                                    setLinkDomainModalOpen(true);
-                                  }}
-                                  className="flex-1 btn-deploy-action"
-                                  title="Buy and register a domain through GoDaddy"
-                                >
-                                  <Globe className="w-3.5 h-3.5 text-indigo-600" /> {deploy.custom_domain ? "Buy Another Domain" : "Buy Domain"}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => openVersionHistory(deploy)}
-                                  className="flex-1 btn-deploy-action"
-                                  title="Version History & Rollback"
-                                >
-                                  <History className="w-3.5 h-3.5 text-indigo-600" /> Rollback
-                                </button>
-                                {!isBuilding && (
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      if (confirm(`Trigger a new redeployment for "${deploy.project_name}"?`)) {
-                                        try {
-                                          const res = await api.post(`/deployments/${deploy.id}/redeploy`, {}, authToken ?? undefined);
-                                          refetchDeployments();
-                                          setSelectedDeployment(res);
-                                          setActiveConsoleLogs(res.logs || "");
-                                          setActiveConsoleStatus("building");
-                                          setIsConsoleOpen(true);
-                                        } catch (err) {
-                                          alert("Failed to redeploy: " + err.message);
-                                        }
-                                      }
-                                    }}
-                                    className="flex-1 btn-deploy-action"
-                                    title="Redeploy Latest Code"
-                                  >
-                                    <RefreshCw className="w-3.5 h-3.5 text-indigo-600" /> Redeploy
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    if (confirm(`Permanently remove "${deploy.project_name}"? Any active monthly hosting subscription will be canceled immediately with no prorated refund. Registered domains cannot be deleted with the site; transfer or release them with Studio support first.`)) {
-                                      try {
-                                        await api.delete(`/deployments/${deploy.id}`, authToken ?? undefined);
-                                        refetchDeployments();
-                                      } catch (err) {
-                                        alert("Failed to delete: " + err.message);
-                                      }
-                                    }
-                                  }}
-                                  className="btn-deploy-delete"
-                                  title="Delete Deployment"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-
-                              <div className="flex gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => openReportIssueModal(deploy)}
-                                  className="flex-1 btn-deploy-action text-amber-600 dark:text-amber-400 hover:border-amber-400"
-                                  title="Report broken site issue & trigger autonomous AI Site Doctor"
-                                >
-                                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500" /> Report Issue
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => openCodeStudio(deploy)}
-                                  className="flex-1 btn-deploy-action text-indigo-600 dark:text-indigo-400 font-semibold hover:border-indigo-400"
-                                  title="Edit website code live, save changes, and redeploy"
-                                >
-                                  <Code className="w-3.5 h-3.5 text-indigo-600" /> Edit & Redeploy
-                                </button>
-                              </div>
-
-                              {deploy.provider === "local" && (
-                                <div className="mt-3 p-3 rounded-xl border border-indigo-200 bg-indigo-50/70 space-y-2">
-                                  <div className="flex items-center justify-between text-xs">
-                                    <span className="font-bold text-slate-800">Managed hosting</span>
-                                    <span className={`font-semibold ${["active", "trialing"].includes(deploy.hosting_subscription_status) ? "text-emerald-700" : deploy.hosting_subscription_status === "past_due" ? "text-amber-800" : "text-slate-600"}`}>
-                                      {(deploy.hosting_subscription_status || "not_subscribed").replaceAll("_", " ")}
-                                    </span>
-                                  </div>
-                                  {deploy.hosting_subscription_period_end && <p className="text-[11px] text-slate-600">Paid through {new Date(deploy.hosting_subscription_period_end).toLocaleDateString()}{deploy.hosting_subscription_cancel_at_period_end ? " (cancelling at period end)" : ""}</p>}
-                                  <div className="flex gap-2">
-                                    {!["active", "trialing", "past_due"].includes(deploy.hosting_subscription_status) ? (
-                                      <button
-                                        type="button"
-                                        disabled={hostingActionId === deploy.id}
-                                        onClick={async () => {
-                                          setHostingActionId(deploy.id);
-                                          try {
-                                            const result = await api.post(`/deployments/${deploy.id}/hosting-checkout`, {}, authToken ?? undefined);
-                                            if (result?.checkout_url) {
-                                              window.location.assign(result.checkout_url);
-                                            } else {
-                                              alert("Checkout session could not be created. Please try again.");
-                                              setHostingActionId("");
-                                            }
-                                          } catch (error) {
-                                            alert(error.message || "Could not start hosting checkout.");
-                                            setHostingActionId("");
-                                          }
-                                        }}
-                                        className="flex-1 px-3 py-2 font-bold rounded-lg cursor-pointer transition-all disabled:opacity-60"
-                                        style={{
-                                          background: "linear-gradient(135deg, #4f46e5 0%, #3730a3 100%)",
-                                          color: "#ffffff",
-                                          padding: "8px 14px",
-                                          borderRadius: "8px",
-                                          fontWeight: "700",
-                                          fontSize: "12px",
-                                          display: "inline-flex",
-                                          alignItems: "center",
-                                          justifyContent: "center",
-                                          gap: "6px",
-                                          border: "1px solid #4338ca",
-                                          boxShadow: "0 2px 6px rgba(79, 70, 229, 0.3)",
-                                        }}
-                                      >
-                                        {hostingActionId === deploy.id ? (
-                                          <>
-                                            <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
-                                            <span>Opening checkout…</span>
-                                          </>
-                                        ) : (
-                                          <>
-                                            <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
-                                            <span>Start Monthly Hosting</span>
-                                          </>
-                                        )}
-                                      </button>
-                                    ) : (
-                                      <button type="button" disabled={hostingActionId === deploy.id} onClick={async () => {
-                                        setHostingActionId(deploy.id);
-                                        try {
-                                          const result = await api.post(`/deployments/${deploy.id}/hosting-subscription/portal`, {}, authToken ?? undefined);
-                                          window.location.assign(result.url);
-                                        } catch (error) { alert(error.message || "Could not open billing settings."); }
-                                        finally { setHostingActionId(""); }
-                                      }} className="flex-1 px-3 py-2 bg-white border border-indigo-300 text-indigo-800 text-[11px] font-bold rounded-lg disabled:opacity-50">
-                                        {deploy.hosting_subscription_status === "past_due" ? "Update payment" : "Manage billing"}
-                                      </button>
-                                    )}
-                                    {["active", "trialing"].includes(deploy.hosting_subscription_status) && !deploy.hosting_subscription_cancel_at_period_end && (
-                                      <button type="button" disabled={hostingActionId === deploy.id} onClick={async () => {
-                                        if (!confirm("Cancel monthly hosting at the end of the paid period? Domain registration and renewals will continue separately, and unused hosting time is not refunded where law permits.")) return;
-                                        setHostingActionId(deploy.id);
-                                        try {
-                                          await api.post(`/deployments/${deploy.id}/hosting-subscription/cancel`, {}, authToken ?? undefined);
-                                          refetchDeployments();
-                                        } catch (error) { alert(error.message || "Could not cancel hosting."); }
-                                        finally { setHostingActionId(""); }
-                                      }} className="px-3 py-2 bg-white border border-rose-200 text-rose-700 text-[11px] font-bold rounded-lg disabled:opacity-50">Cancel</button>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
                             </div>
                           </div>
                         );
-                      })}
-                    </div>
+                      })}                    </div>
                   )}
                 </div>
               )}

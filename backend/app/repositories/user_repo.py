@@ -79,8 +79,10 @@ class UserRepository:
             user = await self.get_by_github_id(provider_id)
 
         if not user:
-            # Fallback to email lookup if user exists but hasn't linked this OAuth provider
-            user = await self.get_by_email(email)
+            # Fallback to email lookup ONLY if user exists and does not use password auth
+            existing_user_by_email = await self.get_by_email(email)
+            if existing_user_by_email and not existing_user_by_email.hashed_password:
+                user = existing_user_by_email
 
         if user:
             # Link account and update details
@@ -90,10 +92,7 @@ class UserRepository:
                 user.facebook_id = provider_id
             elif provider == "github":
                 user.github_id = provider_id
-            
-            # Update existing user role to SELLER if company email / seller role is specified
-            if role and role.lower() == "seller":
-                user.role = UserRole.SELLER
+            # Keep existing user role intact (same email cannot switch roles)
             user.email = email
             user.is_email_verified = True
             if full_name:

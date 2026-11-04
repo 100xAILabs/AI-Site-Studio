@@ -709,7 +709,8 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
   };
 
   const isSeller = isSignedIn && (user?.role === "seller" || user?.role === "SELLER");
-  const isTemplateFree = TEMPLATE_DOWNLOADS_FREE || !!template?.is_free;
+  const effectivePrice = Number(template?.price) > 0 ? Number(template.price) : (template?.is_free ? 0 : 49);
+  const isTemplateFree = Boolean(template?.is_free && effectivePrice === 0);
 
   // Fetch related templates of the same category
   const categorySlug = template?.category?.slug || template?.category_id || "";
@@ -783,7 +784,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
         addToCart({
           templateId: template.id,
           title: template.title,
-          price: Number(template.price),
+          price: effectivePrice > 0 ? effectivePrice : 49,
           price_currency: template.price_currency || "USD",
           thumbnail: template.thumbnail_url || template.gallery_images?.[0] || "",
           licenseType: "regular",
@@ -791,14 +792,14 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
         navigate("/checkout");
       }
     }
-  }, [template, searchParams]);
+  }, [template, searchParams, effectivePrice]);
 
   const handleAddToCart = () => {
     if (!template || isTemplateFree) return;
     addToCart({
       templateId: template.id,
       title: template.title,
-      price: Number(template.price),
+      price: effectivePrice > 0 ? effectivePrice : 49,
       price_currency: template.price_currency || "USD",
       thumbnail: template.thumbnail_url,
       licenseType: "regular",
@@ -816,7 +817,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
       addToCart({
         templateId: template.id,
         title: template.title,
-        price: Number(template.price),
+        price: effectivePrice > 0 ? effectivePrice : 49,
         price_currency: template.price_currency || "USD",
         thumbnail: template.thumbnail_url,
         licenseType: "regular",
