@@ -31,6 +31,9 @@ import { useCartStore } from "@/store";
 import { useCurrencyStore } from "@/store/currencyStore";
 import { API_URL, api } from "@/lib/api";
 import { TEMPLATE_DOWNLOADS_FREE } from "@/lib/marketplaceConfig";
+import TemplateArchitectureDiagram from "./TemplateArchitectureDiagram";
+import TemplatePerformanceGraphs from "./TemplatePerformanceGraphs";
+import TemplateAIChat from "./TemplateAIChat";
 import "./Page.css";
 
 /**
@@ -1053,8 +1056,8 @@ npm run build`;
               Vanilla JS
             </span>
           )}
-          <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-            1-Click Deploy Ready
+          <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-[11px] font-medium text-emerald-400">
+            Instant ZIP Download
           </span>
         </div>
       </div>
@@ -1105,7 +1108,7 @@ npm run build`;
             </button>
             <button
               onClick={handleBuyNow}
-              className="details-preview-link w-full py-3 rounded-xl text-center font-bold text-sm bg-card hover:bg-muted border border-border/80 block text-foreground cursor-pointer"
+              className="details-preview-link w-full py-3 rounded-xl text-center font-bold text-sm block cursor-pointer"
             >
               Buy Now
             </button>
@@ -1123,21 +1126,7 @@ npm run build`;
           </>
         )}
 
-        {/* 1-Click Deploy Live Website */}
-        <button
-          type="button"
-          onClick={() => {
-            if (!isSignedIn) {
-              navigate(`/sign-in?from=${encodeURIComponent(window.location.pathname)}`);
-              return;
-            }
-            navigate(`/dashboard?tab=deployments&deployTemplate=${template.id}&autoOpen=true`);
-          }}
-          className="w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:opacity-95 text-white shadow-md shadow-emerald-600/20 transition-all text-sm cursor-pointer border-0"
-        >
-          <Zap className="w-4 h-4 text-amber-300 fill-amber-300" />
-          Deploy Website Live
-        </button>
+        
 
         <Link
           href={`/preview?template=${template.id}`}
@@ -1175,7 +1164,7 @@ npm run build`;
   );
 
   return (
-    <>
+    <div className="details-page-wrapper details-page-redesign">
       <Navbar />
 
 
@@ -1657,6 +1646,9 @@ npm run build`;
               </div>
             </div>
 
+            {/* AI Assistant Chat Component */}
+            <TemplateAIChat template={template} />
+
             {/* 6. Features Section */}
             <div className="details-features-block card-container">
               <h3 className="section-title">Utility & Design Features</h3>
@@ -1801,66 +1793,14 @@ npm run build`;
               </div>
             </div>
 
-            {/* 8. Performance Scores */}
-            <div className="details-performance-block card-container">
-              <h3 className="section-title">Google Lighthouse Audits</h3>
-              <p className="text-xs text-muted-foreground mb-3 sm:mb-6">
-                Scores gathered on production builds hosted on serverless edges. Audited on simulated 4G throttling.
-              </p>
+            {/* Live Interactive Architecture Diagram */}
+            <div className="card-container">
+              <TemplateArchitectureDiagram template={template} />
+            </div>
 
-              <div className="details-performance-grid">
-                {(() => {
-                  const getDeterministicScore = (seedStr, offset, minScore = 85, maxScore = 100) => {
-                    if (!seedStr) return 95;
-                    let hash = 0;
-                    for (let i = 0; i < seedStr.length; i++) {
-                      hash = seedStr.charCodeAt(i) + ((hash << 5) - hash);
-                    }
-                    const val = Math.abs(hash + offset) % (maxScore - minScore + 1);
-                    return minScore + val;
-                  };
-
-                  const scores = template.changelog?.ai_report?.performance_scores || {
-                    performance: getDeterministicScore(template.id, 1, 92, 99),
-                    accessibility: getDeterministicScore(template.id, 2, 94, 100),
-                    seo: getDeterministicScore(template.id, 3, 95, 100),
-                    best_practices: getDeterministicScore(template.id, 4, 93, 100)
-                  };
-                  return [
-                    { name: "Performance", shortName: "Perf", score: scores.performance, color: scores.performance >= 90 ? "#22c55e" : "#eab308" },
-                    { name: "Accessibility", shortName: "A11y", score: scores.accessibility, color: scores.accessibility >= 90 ? "#22c55e" : "#eab308" },
-                    { name: "SEO Optimization", shortName: "SEO", score: scores.seo, color: scores.seo >= 90 ? "#22c55e" : "#eab308" },
-                    { name: "Best Practices", shortName: "Practices", score: scores.best_practices, color: scores.best_practices >= 90 ? "#22c55e" : "#eab308" },
-                  ];
-                })().map((s) => (
-                  <div key={s.name} className="details-performance-item space-y-1 sm:space-y-2">
-                    {/* SVG Circular Progress Chart */}
-                    <div className="relative w-11 h-11 sm:w-16 sm:h-16 md:w-20 md:h-20 shrink-0">
-                      <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
-                        <path className="text-border" strokeWidth="3" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                        <motion.path
-                          initial={{ strokeDasharray: "0, 100" }}
-                          animate={{ strokeDasharray: `${s.score}, 100` }}
-                          transition={{ duration: 1.2, ease: "easeOut" }}
-                          strokeWidth="3.2"
-                          strokeDasharray={`${s.score}, 100`}
-                          strokeLinecap="round"
-                          stroke={s.color}
-                          fill="none"
-                          d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                        />
-                      </svg>
-                      <div className="absolute inset-0 flex items-center justify-center font-mono font-bold text-[11px] sm:text-sm md:text-base text-foreground">
-                        {s.score}
-                      </div>
-                    </div>
-                    <span className="details-performance-label">
-                      <span className="block sm:hidden">{s.shortName}</span>
-                      <span className="hidden sm:block">{s.name}</span>
-                    </span>
-                  </div>
-                ))}
-              </div>
+            {/* 8. Performance & Code Payload Telemetry Graphs */}
+            <div className="card-container">
+              <TemplatePerformanceGraphs template={template} />
             </div>
 
             {/* 9. Customization Options */}
@@ -1948,7 +1888,7 @@ npm run build`;
                   "Static HTML5 & CSS3 layout files",
                   "Configured CSS design system with HSL colors",
                   "All visual mockup SVGs & Picsum vector links",
-                  "Comprehensive folder deployment configurations",
+                  "Complete production build & configuration files",
                   "Complete source code & lifetime access",
                 ]).map((item, idx) => (
                   <div key={idx} className="flex gap-2.5 items-center text-xs text-muted-foreground">
@@ -2335,7 +2275,7 @@ npm run build`;
               </div>
 
               {/* 18b. Template Specifications & License Info Box */}
-              <div className="details-specs-card card-container p-5 rounded-2xl border border-border/60 bg-card shadow-sm space-y-4">
+              <div className="details-specs-card card-container p-5 rounded-2xl space-y-4">
                 <div className="flex items-center justify-between pb-3 border-b border-border/50">
                   <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                     <Info className="w-3.5 h-3.5 text-primary" /> Template Information
@@ -3209,7 +3149,7 @@ npm run build`;
           </button>
         </div>
       </div>
-    </>
+    </div>
   );
 }
 

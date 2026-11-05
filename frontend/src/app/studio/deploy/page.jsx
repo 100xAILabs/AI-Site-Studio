@@ -310,9 +310,9 @@ export default function StudioDeployPage() {
 
       toast.success("🚀 Deployment initialized! Redirecting to live details & logs...");
 
-      // Automatically redirect to the Dashboard Deployments page with live telemetry logs open
+      // Automatically redirect to the dedicated Deployed Website Details & Health page
       setTimeout(() => {
-        navigate(`/dashboard?tab=deployments&deployed=${encodeURIComponent(newDeploymentId)}&openLogs=true`);
+        navigate(`/deployments/${encodeURIComponent(newDeploymentId)}`);
       }, 700);
     } catch (err) {
       setDeploying(false);

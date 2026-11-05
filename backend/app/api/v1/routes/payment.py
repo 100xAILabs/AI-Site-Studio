@@ -27,6 +27,8 @@ from app.models.hosting_subscription import HostingSubscription
 from app.schemas.payment import (
     PaymentInitRequest, PaymentInitResponse,
     PaymentVerifyRequest, PaymentVerifyResponse,
+    PurchaseTokensRequest,
+    PurchasePlanRequest,
 )
 
 router = APIRouter()
@@ -587,6 +589,20 @@ async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Op
                     send_license_delivery.delay(recipient_email, license_key, f"Template {item.template_id}")
                 except Exception:
                     pass
+
+        # Credit AI Gemini tokens if this order contains token pack credits
+        if order.extra_metadata and order.extra_metadata.get("credits_to_add"):
+            try:
+                credits_to_add = int(order.extra_metadata["credits_to_add"])
+                if not order.extra_metadata.get("credits_credited"):
+                    user_res = await db.execute(select(User).where(User.id == order.user_id))
+                    target_user = user_res.scalar_one_or_none()
+                    if target_user:
+                        target_user.ai_credits = (target_user.ai_credits or 0) + credits_to_add
+                        order.extra_metadata["credits_credited"] = True
+                        logger.info("Credited %d AI tokens to user %s. New balance: %d", credits_to_add, target_user.email, target_user.ai_credits)
+            except Exception as cred_err:
+                logger.warning("Could not credit AI tokens for order %s: %s", order.id, cred_err)
     except Exception as lic_err:
         print(f"Notice: License fulfillment warning: {lic_err}")
 
@@ -1194,3 +1210,419 @@ async def razorpay_webhook(
         await db.commit()
 
     return {"status": "success"}
+
+
+
+@router.get("/billing-report")
+async def get_billing_report(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Consolidated billing & payment report for the authenticated user.
+    Aggregates:
+    - Real completed & pending orders (template purchases, token compute packs)
+    - Active & historical recurring hosting subscriptions
+    - Current Gemini AI token balance & quota
+    - Financial aggregates (total spent, active subscriptions, total orders)
+    """
+    orders_res = await db.execute(
+        select(Order)
+        .options(
+            selectinload(Order.items).selectinload(OrderItem.template),
+            selectinload(Order.payment)
+        )
+        .where(Order.user_id == current_user.id)
+        .order_by(Order.created_at.desc())
+    )
+    orders = orders_res.scalars().all()
+
+    subs_res = await db.execute(
+        select(HostingSubscription)
+        .where(HostingSubscription.user_id == current_user.id)
+        .order_by(HostingSubscription.created_at.desc())
+    )
+    subscriptions = subs_res.scalars().all()
+
+    deployment_ids = [s.deployment_id for s in subscriptions]
+    deployments_map = {}
+    if deployment_ids:
+        deps_res = await db.execute(select(Deployment).where(Deployment.id.in_(deployment_ids)))
+        deployments_map = {d.id: d for d in deps_res.scalars().all()}
+
+    completed_orders = [o for o in orders if o.status == OrderStatus.COMPLETED]
+    total_spent_usd = sum(float(o.total) for o in completed_orders)
+    active_subs = [s for s in subscriptions if s.status in ("active", "trialing")]
+    monthly_hosting_cost = len(active_subs) * 12.00
+
+    order_records = []
+    for o in orders:
+        items_desc = []
+        is_token_order = bool(o.extra_metadata and o.extra_metadata.get("type") == "ai_credits")
+        credits_to_add = (o.extra_metadata or {}).get("credits_to_add", 0)
+
+        if is_token_order:
+            items_desc.append(f"AI Gemini Compute Pack (+{credits_to_add} Credits)")
+        elif o.items:
+            for it in o.items:
+                t_title = it.template.title if it.template else "Template Package"
+                items_desc.append(f"{t_title} ({it.license_type or 'Standard'})")
+        else:
+            items_desc.append(o.notes or "Digital Product / Service")
+
+        order_records.append({
+            "id": str(o.id),
+            "order_number": o.order_number,
+            "created_at": o.created_at.isoformat() if o.created_at else None,
+            "status": o.status.value if hasattr(o.status, "value") else str(o.status),
+            "total": float(o.total),
+            "subtotal": float(o.subtotal),
+            "tax": float(o.tax),
+            "currency": (o.extra_metadata or {}).get("currency", "USD"),
+            "gateway": (
+                o.payment.gateway.value if (o.payment and hasattr(o.payment.gateway, "value"))
+                else ("UPI" if (o.extra_metadata or {}).get("upi_utr") else "Stripe")
+            ),
+            "items_summary": ", ".join(items_desc) if items_desc else "Site Studio Order",
+            "receipt_url": f"/dashboard/receipt/{o.id}",
+            "is_token_purchase": is_token_order,
+            "credits_added": credits_to_add,
+        })
+
+    sub_records = []
+    for s in subscriptions:
+        dep = deployments_map.get(s.deployment_id)
+        sub_records.append({
+            "id": str(s.id),
+            "deployment_id": str(s.deployment_id),
+            "site_title": dep.title if dep else "Studio Hosted Website",
+            "subdomain": dep.subdomain if dep else None,
+            "custom_domain": dep.custom_domain if dep else None,
+            "status": s.status,
+            "monthly_price": 12.00,
+            "currency": "USD",
+            "stripe_subscription_id": s.stripe_subscription_id,
+            "current_period_end": s.current_period_end.isoformat() if s.current_period_end else None,
+            "cancel_at_period_end": s.cancel_at_period_end,
+        })
+
+    ai_credits = current_user.ai_credits if current_user.ai_credits is not None else 10
+
+    return {
+        "summary": {
+            "total_spent_usd": round(total_spent_usd, 2),
+            "total_orders_count": len(orders),
+            "completed_orders_count": len(completed_orders),
+            "active_hosting_subscriptions": len(active_subs),
+            "monthly_recurring_spend_usd": round(monthly_hosting_cost, 2),
+            "current_ai_credits": ai_credits,
+            "user_email": current_user.email,
+            "user_currency": current_user.currency or "USD",
+        },
+        "orders": order_records,
+        "subscriptions": sub_records,
+        "token_packs": [
+            {
+                "id": "tokens_50",
+                "name": "Starter Compute Pack",
+                "credits": 50,
+                "price_usd": 5.00,
+                "badge": "Entry",
+                "description": "50 Gemini AI Credits for autonomous repairs, code analysis, and AI Fill edits.",
+                "popular": False,
+            },
+            {
+                "id": "tokens_200",
+                "name": "Pro Creator Pack",
+                "credits": 200,
+                "price_usd": 15.00,
+                "badge": "Popular - Save 25%",
+                "description": "200 Gemini AI Credits for heavy multi-site workflows, instant AI Doctor auto-healing, and copy generation.",
+                "popular": True,
+            },
+            {
+                "id": "tokens_500",
+                "name": "Studio Enterprise Pack",
+                "credits": 500,
+                "price_usd": 30.00,
+                "badge": "Best Value - Save 40%",
+                "description": "500 Gemini AI Credits for high-volume agency builds, multi-agent synthesis, and production deployments.",
+                "popular": False,
+            },
+        ],
+    }
+
+
+@router.post("/purchase-tokens")
+async def purchase_tokens(
+    payload: PurchaseTokensRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Initialize purchase of an AI Gemini Token Compute Pack.
+    Creates an official Order and initializes Stripe Checkout or Sandbox payment.
+    """
+    packs = {
+        "tokens_50": {"credits": 50, "price": Decimal("5.00"), "title": "50 Gemini AI Credits Compute Pack"},
+        "tokens_200": {"credits": 200, "price": Decimal("15.00"), "title": "200 Gemini AI Credits Compute Pack"},
+        "tokens_500": {"credits": 500, "price": Decimal("30.00"), "title": "500 Gemini AI Credits Compute Pack"},
+    }
+    pack = packs.get(payload.pack_id)
+    if not pack:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid pack_id '{payload.pack_id}'. Choose from: {list(packs.keys())}"
+        )
+
+    import random, string
+    suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
+    order_num = f"TOK-{suffix}"
+
+    order = Order(
+        user_id=current_user.id,
+        order_number=order_num,
+        status=OrderStatus.PENDING,
+        subtotal=pack["price"],
+        discount=Decimal("0"),
+        tax=Decimal("0"),
+        total=pack["price"],
+        notes=f"AI Compute Top-Up: {pack['title']}",
+        extra_metadata={
+            "type": "ai_credits",
+            "pack_id": payload.pack_id,
+            "credits_to_add": pack["credits"],
+            "currency": "USD",
+        },
+    )
+    db.add(order)
+    await db.flush()
+
+    payment = Payment(
+        order_id=order.id,
+        gateway=payload.gateway,
+        status=PaymentStatus.PENDING,
+        amount=pack["price"],
+        currency="USD",
+    )
+    db.add(payment)
+    await db.commit()
+    await db.refresh(order)
+
+    # If Stripe is configured and selected, create Stripe Checkout session
+    if payload.gateway == PaymentGateway.STRIPE:
+        if settings.STRIPE_SECRET_KEY and not settings.STRIPE_SECRET_KEY.startswith("your-"):
+            try:
+                import stripe
+                stripe.api_key = settings.STRIPE_SECRET_KEY
+                session = stripe.checkout.Session.create(
+                    payment_method_types=["card"],
+                    line_items=[{
+                        "price_data": {
+                            "currency": "usd",
+                            "product_data": {
+                                "name": pack["title"],
+                                "description": "Official AI Compute Credits for AI Site Doctor autonomous error healing and AI Fill copy personalization.",
+                            },
+                            "unit_amount": int(pack["price"] * 100),
+                        },
+                        "quantity": 1,
+                    }],
+                    mode="payment",
+                    customer_email=current_user.email,
+                    client_reference_id=str(order.id),
+                    metadata={
+                        "order_id": str(order.id),
+                        "type": "ai_credits",
+                        "credits_to_add": str(pack["credits"]),
+                    },
+                    success_url=f"{settings.FRONTEND_URL.rstrip('/')}/dashboard?tab=orders&purchase=success&order_id={order.id}&session_id={{CHECKOUT_SESSION_ID}}",
+                    cancel_url=f"{settings.FRONTEND_URL.rstrip('/')}/pricing?purchase=cancelled",
+                )
+                payment.gateway_order_id = session.id
+                await db.commit()
+                return {
+                    "order_id": str(order.id),
+                    "order_number": order.order_number,
+                    "checkout_url": session.url,
+                    "credits": pack["credits"],
+                    "price": float(pack["price"]),
+                    "gateway": "stripe",
+                }
+            except Exception as e:
+                logger.warning("Stripe session creation failed (%s). Falling back to direct confirmation.", e)
+
+    return {
+        "order_id": str(order.id),
+        "order_number": order.order_number,
+        "credits": pack["credits"],
+        "price": float(pack["price"]),
+        "gateway": payload.gateway.value,
+        "checkout_url": f"/dashboard?tab=orders&activate_order={order.id}",
+    }
+
+
+
+@router.post("/purchase-plan")
+async def purchase_plan(
+    payload: PurchasePlanRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Initialize purchase of a Studio Pro or Agency subscription plan.
+    Creates an official Order and initializes Stripe Checkout or Sandbox payment.
+    """
+    plans = {
+        "pro": {
+            "title": "Pro Creator Subscription Plan",
+            "monthly_price": Decimal("19.00"),
+            "annual_price": Decimal("15.00"),
+            "credits": 150,
+            "deployments": 3,
+        },
+        "agency": {
+            "title": "Agency & Scale Subscription Plan",
+            "monthly_price": Decimal("49.00"),
+            "annual_price": Decimal("39.00"),
+            "credits": 500,
+            "deployments": 999,
+        },
+    }
+    plan = plans.get(payload.plan_id.lower())
+    if not plan:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid plan_id '{payload.plan_id}'. Choose from: {list(plans.keys())}"
+        )
+
+    price = plan["annual_price"] if payload.billing_cycle == "annual" else plan["monthly_price"]
+    total_price = (price * 12) if payload.billing_cycle == "annual" else price
+
+    import random, string
+    suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
+    order_num = f"SUB-{suffix}"
+
+    order = Order(
+        user_id=current_user.id,
+        order_number=order_num,
+        status=OrderStatus.PENDING,
+        subtotal=total_price,
+        discount=Decimal("0"),
+        tax=Decimal("0"),
+        total=total_price,
+        notes=f"Subscription: {plan['title']} ({payload.billing_cycle.title()})",
+        extra_metadata={
+            "type": "subscription_plan",
+            "plan_id": payload.plan_id,
+            "billing_cycle": payload.billing_cycle,
+            "credits_to_add": plan["credits"],
+            "currency": "USD",
+        },
+    )
+    db.add(order)
+    await db.flush()
+
+    payment = Payment(
+        order_id=order.id,
+        gateway=payload.gateway,
+        status=PaymentStatus.PENDING,
+        amount=total_price,
+        currency="USD",
+    )
+    db.add(payment)
+    await db.commit()
+    await db.refresh(order)
+
+    # If Stripe is configured and selected, create Stripe Checkout session
+    if payload.gateway == PaymentGateway.STRIPE:
+        if settings.STRIPE_SECRET_KEY and not settings.STRIPE_SECRET_KEY.startswith("your-"):
+            try:
+                import stripe
+                stripe.api_key = settings.STRIPE_SECRET_KEY
+                session = stripe.checkout.Session.create(
+                    payment_method_types=["card"],
+                    line_items=[{
+                        "price_data": {
+                            "currency": "usd",
+                            "product_data": {
+                                "name": f"{plan['title']} ({payload.billing_cycle.title()})",
+                                "description": f"{plan['credits']} monthly Gemini AI credits, live website deployments, and AI Doctor healing.",
+                            },
+                            "unit_amount": int(total_price * 100),
+                        },
+                        "quantity": 1,
+                    }],
+                    mode="payment",
+                    customer_email=current_user.email,
+                    client_reference_id=str(order.id),
+                    metadata={
+                        "order_id": str(order.id),
+                        "type": "subscription_plan",
+                        "plan_id": payload.plan_id,
+                        "credits_to_add": str(plan["credits"]),
+                    },
+                    success_url=f"{settings.FRONTEND_URL.rstrip('/')}/dashboard?tab=orders&purchase=success&order_id={order.id}&session_id={{CHECKOUT_SESSION_ID}}",
+                    cancel_url=f"{settings.FRONTEND_URL.rstrip('/')}/pricing?purchase=cancelled",
+                )
+                payment.gateway_order_id = session.id
+                await db.commit()
+                return {
+                    "order_id": str(order.id),
+                    "order_number": order.order_number,
+                    "checkout_url": session.url,
+                    "plan_id": payload.plan_id,
+                    "credits": plan["credits"],
+                    "price": float(total_price),
+                    "gateway": "stripe",
+                }
+            except Exception as e:
+                logger.warning("Stripe session creation failed (%s). Falling back.", e)
+
+    return {
+        "order_id": str(order.id),
+        "order_number": order.order_number,
+        "plan_id": payload.plan_id,
+        "credits": plan["credits"],
+        "price": float(total_price),
+        "gateway": payload.gateway.value,
+        "checkout_url": f"/dashboard?tab=orders&activate_order={order.id}",
+    }
+
+
+@router.post("/activate-token-order/{order_id}")
+async def activate_token_order(
+    order_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Activate and finalize a pending token purchase order, crediting the tokens to the user.
+    """
+    order_res = await db.execute(select(Order).where(Order.id == order_id, Order.user_id == current_user.id))
+    order = order_res.scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if order.status == OrderStatus.COMPLETED:
+        return {
+            "status": "already_completed",
+            "message": "Tokens are already credited to your account.",
+            "current_credits": current_user.ai_credits,
+        }
+
+    order.status = OrderStatus.COMPLETED
+    pay_res = await db.execute(select(Payment).where(Payment.order_id == order.id))
+    payment = pay_res.scalar_one_or_none()
+    if payment:
+        payment.status = PaymentStatus.CAPTURED
+
+    await _fulfill_order_licenses(db, order)
+    await db.commit()
+    await db.refresh(current_user)
+
+    return {
+        "status": "success",
+        "message": f"Successfully activated order {order.order_number} and credited {order.extra_metadata.get('credits_to_add', 0)} AI tokens!",
+        "current_credits": current_user.ai_credits,
+    }

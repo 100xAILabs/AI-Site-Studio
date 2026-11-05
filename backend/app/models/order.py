@@ -97,3 +97,23 @@ class OrderItem(UUIDMixin, TimestampMixin, Base):
     @property
     def price_currency(self) -> Optional[str]:
         return getattr(self.template, "price_currency", "USD") if self.template else "USD"
+
+    @property
+    def is_marketplace(self) -> bool:
+        if not self.template:
+            return False
+        return bool(getattr(self.template, "is_marketplace", True))
+
+    @property
+    def template_status(self) -> Optional[str]:
+        if not self.template:
+            return None
+        val = getattr(self.template, "status", None)
+        return getattr(val, "value", str(val)) if val else None
+
+    @property
+    def framework(self) -> Optional[str]:
+        if not self.template:
+            return "HTML"
+        fw = getattr(self.template, "framework", "HTML")
+        return getattr(fw, "value", str(fw)) if fw else "HTML"

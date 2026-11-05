@@ -198,6 +198,68 @@ class LocalProjectManager:
         logger.info("[LocalProjectManager] Saved revision %d (%s) for project '%s'", rev_num, rev_folder_name, project_dir.name)
         return project_dir
 
+    def clone_project(
+        self,
+        source_identifier: UUID | str,
+        target_template_id: UUID | str,
+        target_slug: str,
+        title: str = "",
+    ) -> Path:
+        """
+        Clones an existing project folder (both 'latest/' and 'before_edit/') to a brand-new
+        target folder on disk (e.g., user draft), ensuring the source template remains
+        100% pristine and untouched.
+        """
+        source_dir = self._resolve_project_dir(str(source_identifier))
+        target_project_dir = self.base_dir / target_slug
+        target_project_dir.mkdir(parents=True, exist_ok=True)
+
+        target_latest = target_project_dir / "latest"
+        target_before = target_project_dir / "before_edit"
+
+        if source_dir.exists() and source_dir.is_dir():
+            source_latest = source_dir / "latest"
+            source_before = source_dir / "before_edit"
+
+            src_to_copy = source_latest if (source_latest.exists() and source_latest.is_dir()) else source_dir
+            if target_latest.exists():
+                shutil.rmtree(target_latest, ignore_errors=True)
+            shutil.copytree(src_to_copy, target_latest, dirs_exist_ok=True)
+
+            src_before_copy = source_before if (source_before.exists() and source_before.is_dir()) else src_to_copy
+            if target_before.exists():
+                shutil.rmtree(target_before, ignore_errors=True)
+            shutil.copytree(src_before_copy, target_before, dirs_exist_ok=True)
+
+        meta = {
+            "template_id": str(target_template_id),
+            "slug": target_slug,
+            "title": title or target_slug,
+            "cloned_from": str(source_identifier),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "current_revision": 0,
+            "revisions": [
+                {
+                    "revision": 0,
+                    "type": "cloned_from_master",
+                    "source": str(source_identifier),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            ],
+        }
+        (target_project_dir / "metadata.json").write_text(
+            json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        alias_file = self.base_dir / f".id_{str(target_template_id)}.txt"
+        try:
+            alias_file.write_text(target_slug, encoding="utf-8")
+        except Exception:
+            pass
+
+        logger.info("[LocalProjectManager] Successfully cloned project '%s' to '%s'", str(source_identifier), target_slug)
+        return target_project_dir
+
     def get_local_project_dir(
         self,
         identifier: UUID | str,

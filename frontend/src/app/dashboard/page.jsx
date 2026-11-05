@@ -21,6 +21,7 @@ import {
   Rocket,
   Globe,
   Download,
+  Receipt,
   Zap,
   CreditCard,
   Heart,
@@ -250,6 +251,102 @@ function Dashboard() {
   const [editError, setEditError] = useState("");
   const [reuploadFile, setReuploadFile] = useState(null);
   const { rates } = useCurrencyStore();
+
+  const [purgingDrafts, setPurgingDrafts] = useState(false);
+  const [hiddenPurchasedTemplates, setHiddenPurchasedTemplates] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("hidden_purchased_templates") || "[]");
+    } catch {
+      return [];
+    }
+  });
+
+  const handleHidePurchasedTemplate = (key) => {
+    const next = [...hiddenPurchasedTemplates, String(key)];
+    setHiddenPurchasedTemplates(next);
+    try {
+      localStorage.setItem("hidden_purchased_templates", JSON.stringify(next));
+    } catch {}
+  };
+
+  const handleUnhideAllPurchased = () => {
+    setHiddenPurchasedTemplates([]);
+    try {
+      localStorage.removeItem("hidden_purchased_templates");
+    } catch {}
+  };
+
+  const handlePurgeAllDrafts = async () => {
+    if (!window.confirm("Are you sure you want to permanently delete all customized draft templates, studio creator projects, and edited files? This will clear them completely.")) {
+      return;
+    }
+    setPurgingDrafts(true);
+    try {
+      const res = await api.post("/templates/purge-custom-drafts", {}, authToken ?? undefined);
+      qc.invalidateQueries(["seller-templates"]);
+      qc.invalidateQueries(["templates"]);
+      qc.invalidateQueries(["my-templates"]);
+      alert(`Deleted ${res?.deleted_count ?? 0} customized draft projects and temporary files.`);
+    } catch (err) {
+      alert("Failed to purge drafts: " + (err.message || "Please try again"));
+    } finally {
+      setPurgingDrafts(false);
+    }
+  };
+
+  const handleDeleteCustomDraft = async (id, title) => {
+    if (!window.confirm(`Delete "${title || 'this project'}"? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await api.delete(`/templates/${id}`, authToken ?? undefined);
+      qc.invalidateQueries(["seller-templates"]);
+      qc.invalidateQueries(["templates"]);
+      qc.invalidateQueries(["my-templates"]);
+      alert("Custom project deleted successfully.");
+    } catch (err) {
+      alert("Failed to delete project: " + (err.message || "Please try again"));
+    }
+  };
+
+  const getPurchasedItemsList = (ordersList, hiddenIds = []) => {
+    const completedOrders = (ordersList || []).filter(o => o.status === "completed");
+    const seen = new Set();
+    const result = [];
+    for (const o of completedOrders) {
+      for (const i of (o.items || [])) {
+        if (!i.template_id) continue;
+        if (i.is_marketplace === false) continue;
+        if (i.template_status && i.template_status !== "published") continue;
+        const key = String(i.template_id);
+        if (hiddenIds.includes(key)) continue;
+        if (!seen.has(key)) {
+          seen.add(key);
+          result.push({
+            ...i,
+            orderId: o.id,
+            title: i.title || "Template Package",
+            thumbnail_url: i.thumbnail_url || "",
+            framework: i.framework || "HTML",
+            short_description: i.short_description || "Modern & responsive purchased template."
+          });
+        }
+      }
+    }
+    return result;
+  };
+
+  const getCustomizedItemsList = (templatesList) => {
+    const all = Array.isArray(templatesList) ? templatesList : [];
+    return all.filter(item =>
+      (item.slug && (item.slug.includes("-custom-") || item.slug.includes("-draft-"))) ||
+      (item.title && (item.title.includes("(Customized)") || item.title.startsWith("Customized "))) ||
+      item.status === "draft" ||
+      item.template_origin === "studio" ||
+      item.template_origin === "custom_draft" ||
+      item.is_marketplace === false
+    );
+  };
 
   const updateTemplateMutation = useMutation({
     mutationFn: async ({ templateId, data }) => {
@@ -588,6 +685,17 @@ function Dashboard() {
           setActiveTab("buyer-home");
         }
       }
+      const activateOrderParam = searchParams.get("activate_order");
+      if (activateOrderParam && authToken) {
+        api.post(`/payment/activate-token-order/${activateOrderParam}`, {}, authToken)
+          .then((res) => {
+            alert(res?.message || "AI Tokens successfully credited to your account!");
+            qc.invalidateQueries({ queryKey: ["billing-report"] });
+            qc.invalidateQueries({ queryKey: ["orders"] });
+          })
+          .catch((e) => console.error("Error activating order:", e));
+      }
+
       const deployTpl = searchParams.get("deployTemplate");
       const autoDeploy = searchParams.get("autoOpen");
       if (deployTpl) {
@@ -683,6 +791,15 @@ function Dashboard() {
     queryFn: () => api.get("/orders", authToken ?? undefined),
     enabled: !!authToken,
     staleTime: 1000 * 60 * 3,
+    placeholderData: (prev) => prev,
+  });
+
+  // Fetch Full Consolidated Billing & Payment Report
+  const { data: billingReport, isLoading: billingReportLoading, refetch: refetchBillingReport } = useQuery({
+    queryKey: ["billing-report"],
+    queryFn: () => api.get("/payment/billing-report", authToken ?? undefined),
+    enabled: !!authToken,
+    staleTime: 1000 * 60 * 2,
     placeholderData: (prev) => prev,
   });
 
@@ -2038,22 +2155,19 @@ function Dashboard() {
   // REDESIGNED UNIFIED "MY TEMPLATES" EXPERIENCE
   // ═══════════════════════════════════════════════════════════════════
   const renderMyTemplatesSection = () => {
-    const completedOrders = orders.filter(o => o.status === "completed");
-    const purchasedItems = completedOrders.flatMap(o => (o.items || []).map(i => ({ ...i, orderId: o.id })));
+    const purchasedItems = getPurchasedItemsList(orders, hiddenPurchasedTemplates);
+    const customizedItems = getCustomizedItemsList(templateResponse);
     const allUserTemplates = Array.isArray(templateResponse) ? templateResponse : [];
-
-    // Separate personal customized/edited drafts from creator marketplace uploads
-    const customizedItems = allUserTemplates.filter(item =>
-      (item.slug && item.slug.includes("-custom-")) ||
-      (item.title && (item.title.includes("(Customized)") || item.title.startsWith("Customized "))) ||
-      item.status === "draft"
-    );
 
     const uploadedItems = allUserTemplates.filter(item =>
       !item.slug?.includes("-custom-") &&
+      !item.slug?.includes("-draft-") &&
       !item.title?.includes("(Customized)") &&
       !item.title?.startsWith("Customized ") &&
-      item.status !== "draft"
+      item.status !== "draft" &&
+      item.template_origin !== "studio" &&
+      item.template_origin !== "custom_draft" &&
+      item.is_marketplace !== false
     );
 
     // Filter items based on search query
@@ -2109,11 +2223,24 @@ function Dashboard() {
                   </h2>
                 </div>
                 <p className="mt-desc">
-                  {templatesSubTab === "purchased"
-                    ? "Manage your purchased templates, redesign with AI Studio, and launch live websites."
-                    : templatesSubTab === "customized"
-                      ? "Your customized template files and personal drafts modified in AI Site Studio. Open them in the Studio, download source, or preview live."
-                      : "Manage your creator catalog, track downloads, and update listings."}
+                  {templatesSubTab === "purchased" ? (
+                    <>
+                      Manage your purchased templates, redesign with AI Studio, and launch live websites.
+                      {hiddenPurchasedTemplates.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleUnhideAllPurchased}
+                          className="text-[11px] text-indigo-400 hover:text-indigo-300 underline font-bold bg-transparent border-0 cursor-pointer ml-2"
+                        >
+                          Restore {hiddenPurchasedTemplates.length} hidden
+                        </button>
+                      )}
+                    </>
+                  ) : templatesSubTab === "customized" ? (
+                    "Your customized template files and personal drafts modified in AI Site Studio. Open them in the Studio, download source, or preview live."
+                  ) : (
+                    "Manage your creator catalog, track downloads, and update listings."
+                  )}
                 </p>
               </div>
             </div>
@@ -2184,8 +2311,21 @@ function Dashboard() {
               )}
             </div>
 
-            {/* Search + View Toggle */}
-            <div className="flex items-center gap-2.5">
+            {/* Purge All Drafts Button + Search + View Toggle */}
+            <div className="flex items-center gap-2.5 flex-wrap">
+              {templatesSubTab === "customized" && customizedItems.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handlePurgeAllDrafts}
+                  disabled={purgingDrafts}
+                  className="px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                  title="Permanently delete all customized files, studio creator projects, and edited drafts"
+                >
+                  {purgingDrafts ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                  <span>Purge All Drafts</span>
+                </button>
+              )}
+
               <div className="mt-search-box">
                 <Search className="mt-search-icon" />
                 <input
@@ -2302,11 +2442,22 @@ function Dashboard() {
                       </span>
                     </div>
 
-                    {/* Top-Right Framework Badge */}
-                    <div className="absolute top-2.5 right-2.5">
+                    {/* Top-Right Framework Badge & Hide Action */}
+                    <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
                       <span className="px-2 py-0.5 bg-black/60 backdrop-blur-md text-white text-[9px] font-mono font-bold uppercase rounded-md border border-white/10">
                         {item.framework || "HTML"}
                       </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleHidePurchasedTemplate(item.template_id || item.id);
+                        }}
+                        className="w-5 h-5 rounded-md bg-black/60 hover:bg-rose-600/80 backdrop-blur-md text-white/70 hover:text-white flex items-center justify-center border border-white/10 transition-colors cursor-pointer"
+                        title="Remove from list"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
                     </div>
                   </div>
 
@@ -2482,6 +2633,14 @@ function Dashboard() {
                           >
                             <FileText className="w-3.5 h-3.5" />
                           </a>
+                          <button
+                            type="button"
+                            onClick={() => handleHidePurchasedTemplate(item.template_id || item.id)}
+                            className="p-1.5 text-muted-foreground hover:text-rose-400 rounded-lg border border-border/40 bg-muted/40 cursor-pointer"
+                            title="Remove from list"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -2565,11 +2724,22 @@ function Dashboard() {
                         )}
                       </div>
 
-                      {/* Top-Right Framework Badge */}
-                      <div className="absolute top-2.5 right-2.5">
+                      {/* Top-Right Framework Badge & Delete */}
+                      <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
                         <span className="px-2 py-0.5 bg-black/60 backdrop-blur-md text-white text-[9px] font-mono font-bold uppercase rounded-md border border-white/10">
                           {item.framework || "HTML"}
                         </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteCustomDraft(item.id, item.title);
+                          }}
+                          className="w-5 h-5 rounded-md bg-black/60 hover:bg-rose-600/80 backdrop-blur-md text-white/70 hover:text-white flex items-center justify-center border border-white/10 transition-colors cursor-pointer"
+                          title="Delete draft"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
                       </div>
                     </div>
 
@@ -2664,6 +2834,16 @@ function Dashboard() {
                               <span>{inCart ? "In Cart ✓" : `Cart ($${item.price || 49})`}</span>
                             </button>
                           )}
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCustomDraft(item.id, item.title)}
+                            className="db-btn-danger"
+                            title="Delete this customized project"
+                          >
+                            <Trash2 className="w-3 h-3 text-rose-400" />
+                            <span>Delete</span>
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -2758,6 +2938,14 @@ function Dashboard() {
                                 <span>{inCart ? "In Cart ✓" : `Cart ($${item.price || 49})`}</span>
                               </button>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCustomDraft(item.id, item.title)}
+                              className="p-1.5 text-rose-400 hover:text-rose-300 rounded-lg border border-rose-500/20 bg-rose-500/10 hover:bg-rose-500/20 cursor-pointer"
+                              title="Delete customized draft"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -3203,14 +3391,8 @@ function Dashboard() {
 
                   {/* Dynamic Summary Metric Cards */}
                   {(() => {
-                    const completedOrders = orders.filter(o => o.status === "completed");
-                    const purchasedItems = completedOrders.flatMap(o => (o.items || []).map(i => ({ ...i, orderId: o.id })));
-                    const allUserTemplates = Array.isArray(templateResponse) ? templateResponse : [];
-                    const customizedItems = allUserTemplates.filter(item =>
-                      (item.slug && item.slug.includes("-custom-")) ||
-                      (item.title && (item.title.includes("(Customized)") || item.title.startsWith("Customized "))) ||
-                      item.status === "draft"
-                    );
+                    const purchasedItems = getPurchasedItemsList(orders, hiddenPurchasedTemplates);
+                    const customizedItems = getCustomizedItemsList(templateResponse);
 
                     const buyerMetricCards = [
                       {
@@ -3496,8 +3678,21 @@ function Dashboard() {
                         </p>
                       </div>
 
-                      {/* High-Contrast Segmented Sub-Tab Switcher */}
-                      <div className="subtab-container self-start">
+                      {/* Segmented Sub-Tab Switcher & Purge Button */}
+                      <div className="flex items-center gap-3 flex-wrap">
+                        {studioProjectsSubTab === "created" && createdStudioProjects.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handlePurgeAllDrafts}
+                            disabled={purgingDrafts}
+                            className="px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                            title="Delete all draft projects"
+                          >
+                            {purgingDrafts ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                            <span>Purge All Drafts</span>
+                          </button>
+                        )}
+                        <div className="subtab-container self-start">
                         <button
                           type="button"
                           onClick={() => setStudioProjectsSubTab("created")}
@@ -3530,6 +3725,7 @@ function Dashboard() {
                         </button>
                       </div>
                     </div>
+                  </div>
 
                     {templatesLoading && (!templateResponse || templateResponse.length === 0) ? (
                       <div className="text-center py-12">
@@ -3628,6 +3824,14 @@ function Dashboard() {
                                         </a>
                                       </>
                                     )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteCustomDraft(item.id, item.title)}
+                                      className="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/25 transition-colors cursor-pointer shrink-0"
+                                      title="Delete Draft"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
                                   </div>
                                 </div>
                               </div>
@@ -3965,6 +4169,7 @@ function Dashboard() {
                         const isBuilding = deploy.status === "building" || deploy.status === "queued" || deploy.status === "deploying";
                         const isSuspended = deploy.status === "suspended" || deploy.is_suspended;
                         const isFailed = deploy.status === "failed";
+                        const deployDetailsUrl = `/deployments/${encodeURIComponent(deploy.id)}`;
                         const deployPageUrl = `/studio/deploy?deployment=${encodeURIComponent(deploy.id)}${deploy.template_id ? `&template=${encodeURIComponent(deploy.template_id)}` : ""}&name=${encodeURIComponent(deploy.project_name)}`;
 
                         return (
@@ -3974,7 +4179,7 @@ function Dashboard() {
                           >
                             {/* ── Summary / Top Bar ── */}
                             <div className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                              {/* Left: Indicator + Website Name (Navigates to /studio/deploy) + Badges with Icons */}
+                              {/* Left: Indicator + Website Name (Navigates to /deployments/:id) + Badges with Icons */}
                               <div className="flex items-start sm:items-center gap-3.5 min-w-0 flex-1">
                                 {/* Visual Deployment Icon */}
                                 <div className="w-11 h-11 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/60 flex items-center justify-center relative shadow-xs flex-shrink-0">
@@ -3996,9 +4201,9 @@ function Dashboard() {
                                 <div className="min-w-0 flex-1">
                                   <div className="flex flex-wrap items-center gap-2">
                                     <Link
-                                      to={deployPageUrl}
+                                      to={deployDetailsUrl}
                                       className="text-left font-extrabold text-base sm:text-lg text-slate-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center gap-1.5 group cursor-pointer"
-                                      title="Click to open deployment page"
+                                      title="Click to view full website details, logs, users, framework, issues & blockers"
                                     >
                                       <span className="truncate max-w-[280px] sm:max-w-[420px]">{deploy.project_name}</span>
                                       <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-600 transition-colors opacity-70" />
@@ -4054,6 +4259,16 @@ function Dashboard() {
                                     <span>Visit Site</span>
                                   </a>
                                 )}
+
+                                {/* Full Details & Health Page Button */}
+                                <Link
+                                  to={deployDetailsUrl}
+                                  className="px-3.5 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 font-bold text-xs flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                                  title="View full website details, logs, users, framework, issues & blockers"
+                                >
+                                  <Activity className="w-3.5 h-3.5 text-purple-500" />
+                                  <span>Details &amp; Health</span>
+                                </Link>
 
                                 {/* Dedicated Button Called LOGS */}
                                 <button
@@ -4196,47 +4411,239 @@ function Dashboard() {
               )}
 
 
-              {/* === ORDERS === */}
+              {/* === BILLING & PAYMENT REPORT === */}
               {activeTab === "orders" && (
-                <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
-                  <div>
-                    <h3 className="font-bold text-lg">Billing & Order Invoices</h3>
-                    <p className="text-sm text-muted-foreground">Download transaction receipts and details.</p>
+                <div className="space-y-6">
+                  {/* Top Header Card */}
+                  <div className="glass border border-border/40 rounded-2xl p-6 sm:p-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400 text-xs font-bold mb-2">
+                        <Receipt className="w-3.5 h-3.5" />
+                        <span>Official Financial Ledger</span>
+                      </div>
+                      <h3 className="font-extrabold text-2xl text-foreground">Billing & Payment Report</h3>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Consolidated statement of all template licenses, recurring edge hosting subscriptions, and Gemini AI compute top-ups.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => window.print()}
+                        className="px-4 py-2.5 rounded-xl border border-border/50 bg-muted/40 hover:bg-muted/70 text-xs font-bold text-foreground inline-flex items-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-purple-400" />
+                        <span>Print Statement</span>
+                      </button>
+
+                      <a
+                        href="/pricing"
+                        className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-xs font-bold text-white inline-flex items-center gap-2 shadow-lg shadow-purple-600/25 transition-all text-decoration-none"
+                      >
+                        <Coins className="w-3.5 h-3.5" />
+                        <span>Top Up Tokens</span>
+                      </a>
+                    </div>
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead>
-                        <tr className="border-b border-border/50 text-xs font-semibold text-muted-foreground uppercase">
-                          <th className="pb-3">Order ID</th>
-                          <th className="pb-3">Date</th>
-                          <th className="pb-3">Total Amount</th>
-                          <th className="pb-3">Payment Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {orders.length === 0 ? (
-                          <tr>
-                            <td colSpan={4} className="py-6 text-center text-muted-foreground">No transaction history.</td>
+
+                  {/* Summary Metric Cards */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="glass border border-border/40 rounded-xl p-5">
+                      <div className="flex items-center justify-between text-muted-foreground mb-2">
+                        <span className="text-xs font-semibold uppercase tracking-wider">Total Invested</span>
+                        <CreditCard className="w-4 h-4 text-purple-400" />
+                      </div>
+                      <div className="text-2xl font-black text-foreground">
+                        {formatPrice(billingReport?.summary?.total_spent_usd ?? 0)}
+                      </div>
+                      <span className="text-[11px] text-muted-foreground">Lifetime across all orders</span>
+                    </div>
+
+                    <div className="glass border border-border/40 rounded-xl p-5">
+                      <div className="flex items-center justify-between text-muted-foreground mb-2">
+                        <span className="text-xs font-semibold uppercase tracking-wider">Hosting Subscriptions</span>
+                        <Globe className="w-4 h-4 text-cyan-400" />
+                      </div>
+                      <div className="text-2xl font-black text-foreground">
+                        {billingReport?.summary?.active_hosting_subscriptions ?? 0}
+                      </div>
+                      <span className="text-[11px] text-muted-foreground">
+                        {billingReport?.summary?.active_hosting_subscriptions ? `${billingReport.summary.monthly_recurring_spend_usd}/mo active` : "0 sites currently hosted"}
+                      </span>
+                    </div>
+
+                    <div className="glass border border-border/40 rounded-xl p-5">
+                      <div className="flex items-center justify-between text-muted-foreground mb-2">
+                        <span className="text-xs font-semibold uppercase tracking-wider">Available Gemini Tokens</span>
+                        <Coins className="w-4 h-4 text-emerald-400" />
+                      </div>
+                      <div className="text-2xl font-black text-emerald-400">
+                        {billingReport?.summary?.current_ai_credits ?? user?.ai_credits ?? 10}
+                      </div>
+                      <span className="text-[11px] text-emerald-400/80">Active compute quota</span>
+                    </div>
+
+                    <div className="glass border border-border/40 rounded-xl p-5">
+                      <div className="flex items-center justify-between text-muted-foreground mb-2">
+                        <span className="text-xs font-semibold uppercase tracking-wider">Completed Transactions</span>
+                        <ShieldCheck className="w-4 h-4 text-indigo-400" />
+                      </div>
+                      <div className="text-2xl font-black text-foreground">
+                        {billingReport?.summary?.completed_orders_count ?? orders.length}
+                      </div>
+                      <span className="text-[11px] text-muted-foreground">256-bit encrypted ledger</span>
+                    </div>
+                  </div>
+
+                  {/* Active Subscriptions Box (if any) */}
+                  {billingReport?.subscriptions?.length > 0 && (
+                    <div className="glass border border-border/40 rounded-2xl p-6 space-y-4">
+                      <div className="flex items-center gap-2">
+                        <Globe className="w-4 h-4 text-cyan-400" />
+                        <h4 className="font-bold text-base text-foreground">Active Website Hosting Subscriptions</h4>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="border-b border-border/40 text-muted-foreground uppercase">
+                              <th className="pb-3">Website Title</th>
+                              <th className="pb-3">Domain / URL</th>
+                              <th className="pb-3">Rate</th>
+                              <th className="pb-3">Billing Cycle</th>
+                              <th className="pb-3">Status</th>
+                              <th className="pb-3 text-right">Details</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {billingReport.subscriptions.map((sub) => (
+                              <tr key={sub.id} className="border-b border-border/20 hover:bg-muted/10">
+                                <td className="py-3 font-semibold text-foreground">{sub.site_title}</td>
+                                <td className="py-3 font-mono text-purple-300">
+                                  {sub.custom_domain || (sub.subdomain ? `${sub.subdomain}.aisitestudio.com` : "Edge Node")}
+                                </td>
+                                <td className="py-3 font-bold">${sub.monthly_price}.00 / mo</td>
+                                <td className="py-3 text-muted-foreground">
+                                  {sub.current_period_end ? `Renews on ${new Date(sub.current_period_end).toLocaleDateString()}` : "Monthly Recurring"}
+                                </td>
+                                <td className="py-3">
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                    {sub.status}
+                                  </span>
+                                </td>
+                                <td className="py-3 text-right">
+                                  <a
+                                    href={`/dashboard/deployments/${sub.deployment_id}`}
+                                    className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-muted/50 hover:bg-muted text-foreground border border-border/40 inline-flex items-center gap-1 text-decoration-none"
+                                  >
+                                    <span>Deployment</span>
+                                    <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Complete Invoices & Orders Ledger */}
+                  <div className="glass border border-border/40 rounded-2xl p-6 sm:p-8 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-purple-400" />
+                        <h4 className="font-bold text-base text-foreground">Transaction Invoices & Receipts</h4>
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {(billingReport?.orders || orders).length} Total Transactions
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="border-b border-border/50 text-muted-foreground uppercase">
+                            <th className="pb-3">Invoice / Order #</th>
+                            <th className="pb-3">Date</th>
+                            <th className="pb-3">Purchased Item / Service</th>
+                            <th className="pb-3">Payment Method</th>
+                            <th className="pb-3">Amount</th>
+                            <th className="pb-3">Status</th>
+                            <th className="pb-3 text-right">Official Receipt</th>
                           </tr>
-                        ) : (
-                          orders.map((o) => (
-                            <tr key={o.id} className="border-b border-border/40 hover:bg-muted/10">
-                              <td className="py-3 font-mono text-xs text-foreground">{o.order_number}</td>
-                              <td className="py-3">{new Date(o.created_at).toLocaleDateString()}</td>
-                              <td className="py-3 font-semibold">{formatPrice(o.total)}</td>
-                              <td className="py-3">
-                                <span className={cn(
-                                  "px-2 py-0.5 rounded-full text-[10px] font-semibold",
-                                  o.status === "completed" ? "bg-green-500/10 text-green-500" : "bg-yellow-500/10 text-yellow-500"
-                                )}>
-                                  {o.status.toUpperCase()}
-                                </span>
+                        </thead>
+                        <tbody>
+                          {(billingReport?.orders || orders).length === 0 ? (
+                            <tr>
+                              <td colSpan={7} className="py-8 text-center text-muted-foreground">
+                                No payment records or invoices found yet.
                               </td>
                             </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
+                          ) : (
+                            (billingReport?.orders || orders).map((o) => {
+                              const receiptHref = o.receipt_url || `/dashboard/receipt/${o.id}`;
+                              const isTokenPack = o.is_token_purchase || o.notes?.includes("AI Compute") || o.notes?.includes("Tokens");
+                              return (
+                                <tr key={o.id} className="border-b border-border/20 hover:bg-muted/10 transition-colors">
+                                  <td className="py-3 font-mono font-bold text-foreground">
+                                    {o.order_number}
+                                  </td>
+                                  <td className="py-3 text-muted-foreground">
+                                    {o.created_at ? new Date(o.created_at).toLocaleDateString() : "Recent"}
+                                  </td>
+                                  <td className="py-3">
+                                    <div className="flex items-center gap-1.5">
+                                      {isTokenPack ? (
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/15 text-purple-300 border border-purple-500/30 inline-flex items-center gap-1">
+                                          <Coins className="w-2.5 h-2.5" /> AI Compute
+                                        </span>
+                                      ) : (
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30">
+                                          Template
+                                        </span>
+                                      )}
+                                      <span className="font-semibold text-foreground truncate max-w-[220px]">
+                                        {o.items_summary || o.notes || "Commercial License"}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="py-3">
+                                    <span className="font-mono uppercase text-[11px] text-muted-foreground">
+                                      {o.gateway || "Stripe"}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 font-mono font-bold text-foreground">
+                                    {formatPrice(o.total)}
+                                  </td>
+                                  <td className="py-3">
+                                    <span className={cn(
+                                      "px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase",
+                                      (o.status === "completed" || o.status === "COMPLETED")
+                                        ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                        : "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                                    )}>
+                                      {o.status}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 text-right">
+                                    <a
+                                      href={receiptHref}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="px-3 py-1.5 rounded-xl text-[11px] font-bold bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 inline-flex items-center gap-1.5 transition-all text-decoration-none shadow-sm"
+                                    >
+                                      <FileText className="w-3 h-3" />
+                                      <span>Tax Invoice</span>
+                                    </a>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               )}

@@ -69,6 +69,34 @@
   --font-mono: 'Geist Mono', monospace;
 }
 
+.dark,
+[data-theme="dark"],
+html.dark {
+  /* ═══════════════════════════════════════════════════
+     OBSIDIAN GLASS — Advanced Dark Theme
+     ═══════════════════════════════════════════════════ */
+  --background: 224 71% 4%;
+  --foreground: 210 40% 98%;
+  --card: 225 39% 9%;
+  --card-foreground: 210 40% 98%;
+  --popover: 225 39% 9%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 231 58% 60%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 197 71% 52%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 223 47% 12%;
+  --muted-foreground: 215 20% 70%;
+  --accent: 223 47% 14%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 217 33% 18%;
+  --input: 217 33% 18%;
+  --ring: 231 58% 60%;
+}
+
+
 /* Light mode is the only mode */
 
 * {

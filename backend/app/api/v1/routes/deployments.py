@@ -702,6 +702,115 @@ async def get_deployment(
     )
 
 
+@router.get("/{deployment_id}/full-details")
+async def get_deployment_full_details(
+    deployment_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns rich, comprehensive details for a deployed website including:
+    - Core deployment metadata, status, version, URLs
+    - Framework & stack detection
+    - Live & historical build/runtime logs
+    - User/visitor analytics & telemetry
+    - Automated issues fixed & Site Doctor incidents
+    - Blockers detector & AI token status
+    - Custom / purchased domain details
+    - Payment & renewal countdown reminders
+    - Launch checklist with missed item reminders
+    """
+    from app.models.incident import SiteIncident
+
+    stmt = (
+        select(Deployment)
+        .where(
+            Deployment.id == deployment_id,
+            or_(Deployment.user_id == current_user.id, current_user.role == "admin"),
+        )
+        .options(
+            selectinload(Deployment.versions),
+            selectinload(Deployment.domains),
+            selectinload(Deployment.deployment_logs),
+            selectinload(Deployment.incidents),
+            selectinload(Deployment.template),
+        )
+    )
+    res = await db.execute(stmt)
+    deployment = res.scalar_one_or_none()
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found or access denied.")
+
+    # Fetch hosting subscription
+    sub_stmt = select(HostingSubscription).where(HostingSubscription.deployment_id == deployment.id)
+    sub_res = await db.execute(sub_stmt)
+    subscription = sub_res.scalar_one_or_none()
+
+    from app.services.deployment_deep_analyzer import deeply_analyze_deployment
+    analysis = deeply_analyze_deployment(deployment, current_user, subscription)
+
+    # Logs (most recent 100)
+    sorted_logs = sorted(
+        deployment.deployment_logs,
+        key=lambda l: l.timestamp if l.timestamp else datetime.min,
+        reverse=True
+    )[:100]
+    recent_logs = [
+        {
+            "id": str(log.id),
+            "level": log.level,
+            "message": log.message,
+            "timestamp": log.timestamp.isoformat() if log.timestamp else None,
+        }
+        for log in sorted_logs
+    ]
+
+    # Versions
+    versions = [
+        {
+            "id": str(v.id),
+            "version": v.version,
+            "status": v.status,
+            "commit_message": v.commit_message,
+            "created_at": v.created_at.isoformat() if v.created_at else None,
+        }
+        for v in deployment.versions
+    ]
+
+    return {
+        "id": str(deployment.id),
+        "site_id": deployment.site_id or f"SITE-{deployment.id.hex[:6].upper()}",
+        "project_name": deployment.project_name,
+        "status": deployment.status,
+        "health_status": deployment.health_status,
+        "current_version": deployment.current_version,
+        "deployment_type": deployment.deployment_type,
+        "provider": deployment.provider,
+        "subdomain": deployment.subdomain,
+        "live_url": deployment.live_url or f"https://{deployment.subdomain}.site-studio.cloud",
+        "custom_domain": deployment.custom_domain,
+        "branch": deployment.branch,
+        "build_command": deployment.build_command,
+        "output_dir": deployment.output_dir,
+        "is_suspended": deployment.is_suspended,
+        "created_at": deployment.created_at.isoformat() if deployment.created_at else None,
+        "updated_at": deployment.updated_at.isoformat() if deployment.updated_at else None,
+        "framework": analysis["framework"],
+        "template": analysis["template"],
+        "bundle_stats": analysis["bundle_stats"],
+        "domain_details": analysis["domain_details"],
+        "renewal_reminder": analysis["renewal_reminder"],
+        "token_diagnostic": analysis["token_diagnostic"],
+        "blockers": analysis["blockers"],
+        "issues_fixed": analysis["issues_fixed"],
+        "checklist": analysis["checklist"],
+        "analytics": analysis["analytics"],
+        "versions": versions,
+        "recent_logs": recent_logs,
+        "raw_logs": deployment.logs or "",
+    }
+
+
 @router.post("/{deployment_id}/redeploy", response_model=DeploymentResponse)
 async def redeploy_deployment(
     deployment_id: uuid.UUID,

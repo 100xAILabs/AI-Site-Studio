@@ -41,3 +41,14 @@ class PaymentVerifyResponse(BaseModel):
     success: bool
     message: str
     order_id: Optional[str] = None
+
+
+class PurchaseTokensRequest(BaseModel):
+    pack_id: str
+    gateway: PaymentGateway = PaymentGateway.STRIPE
+
+
+class PurchasePlanRequest(BaseModel):
+    plan_id: str
+    billing_cycle: str = "monthly"
+    gateway: PaymentGateway = PaymentGateway.STRIPE

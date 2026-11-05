@@ -8,6 +8,7 @@ import io
 import json
 import uuid
 import shutil
+import tempfile
 import asyncio
 import zipfile
 import logging
@@ -409,20 +410,61 @@ async def get_live_preview_extracted_data(
     template_repo = TemplateRepository(db)
     template = await template_repo.get_by_id(template_id)
     if not template:
-        raise HTTPException(status_code=404, detail="Template not found")
+        template = await template_repo.get_by_slug(template_id)
         
-    title = template.title or "Web Template"
+    title = (template.title if template else None) or "Web Template"
     clean_brand = title.split("—")[0].split("-")[0].split("|")[0].strip()
     primary_color = "#4f46e5"
-    if template.color_scheme:
-        c_lower = template.color_scheme.lower()
-        if "red" in c_lower: primary_color = "#C4222C"
-        elif "green" in c_lower: primary_color = "#059669"
-        elif "blue" in c_lower: primary_color = "#2563eb"
-        elif "purple" in c_lower or "violet" in c_lower: primary_color = "#8b5cf6"
-        elif "amber" in c_lower or "orange" in c_lower: primary_color = "#d97706"
+    if template and template.color_scheme:
+        cs = template.color_scheme.strip()
+        if cs.startswith("#"):
+            primary_color = cs
+        else:
+            c_lower = cs.lower()
+            if "red" in c_lower: primary_color = "#C4222C"
+            elif "green" in c_lower: primary_color = "#059669"
+            elif "blue" in c_lower: primary_color = "#2563eb"
+            elif "purple" in c_lower or "violet" in c_lower: primary_color = "#8b5cf6"
+            elif "amber" in c_lower or "orange" in c_lower: primary_color = "#d97706"
+
+    # Also detect real applied color directly from disk (local_project_manager)
+    try:
+        from app.core.local_project_manager import local_project_manager
+        proj_dir = local_project_manager.get_local_project_dir(template_id, version="latest")
+        if not proj_dir and template and template.slug:
+            proj_dir = local_project_manager.get_local_project_dir(template.slug, version="latest")
+        if proj_dir and os.path.isdir(str(proj_dir)):
+            for r, _, fs_list in os.walk(str(proj_dir)):
+                for fn in fs_list:
+                    if fn.endswith(".css"):
+                        try:
+                            with open(os.path.join(r, fn), "r", encoding="utf-8", errors="ignore") as _cf:
+                                _snippet = _cf.read(4000)
+                                _m = re.search(r'/\* \[STUDIO_APPLIED_THEME_COLOR\] \*/[\s\S]*?--primary:\s*(#[a-fA-F0-9]{3,8})', _snippet)
+                                if not _m:
+                                    _m = re.search(r'--(?:c-primary|color-primary|primary|theme-color):\s*(#[a-fA-F0-9]{3,8})', _snippet)
+                                if _m:
+                                    primary_color = _m.group(1).strip()
+                                    break
+                        except Exception:
+                            pass
+                if primary_color and primary_color != "#4f46e5":
+                    break
+    except Exception as _ce:
+        logger.debug(f"Could not read local CSS theme color: {_ce}")
 
     preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
+    if not os.path.isdir(preview_dir) and template:
+        p_by_id = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template.id))
+        if os.path.isdir(p_by_id):
+            preview_dir = p_by_id
+        elif template.slug:
+            p_by_slug = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template.slug))
+            if os.path.isdir(p_by_slug):
+                preview_dir = p_by_slug
+
+    if not template and not os.path.isdir(preview_dir):
+        raise HTTPException(status_code=404, detail="Template not found")
 
     # Read content from preview_dir first (if already extracted/running), else fallback to stored ZIP
     content = ""
@@ -1427,11 +1469,130 @@ async def get_live_preview_extracted_data(
     }
 
 
+@router.post("/live/{template_id}/fork-draft")
+async def fork_live_preview_draft(
+    template_id: str,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Creates an isolated copy of a marketplace template in the user's private drafts/projects.
+    Ensures the original marketplace template remains 100% pristine and untouched.
+    """
+    from app.models.template import Template, TemplateStatus
+    from app.repositories.template_repo import TemplateRepository
+    from app.core.local_project_manager import local_project_manager
+    from app.core.storage import storage
+    from app.models.stored_file import StoredFile
+
+    template_repo = TemplateRepository(db)
+    template = await template_repo.get_by_id(template_id)
+    if not template:
+        template = await template_repo.get_by_slug(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    # If the user is already viewing an owned DRAFT, keep working on it
+    if current_user and template.status == TemplateStatus.DRAFT and template.seller_id == current_user.id:
+        return {
+            "status": "success",
+            "template_id": str(template.id),
+            "draft_id": str(template.id),
+            "draft_slug": template.slug,
+            "title": template.title,
+            "is_new_clone": False,
+            "message": "Already working on your private draft"
+        }
+
+    slug_base = template.slug.split("-custom-")[0].split("-draft-")[0]
+    existing_draft = None
+    if current_user:
+        ed_res = await db.execute(
+            select(Template).where(
+                Template.seller_id == current_user.id,
+                Template.status == TemplateStatus.DRAFT,
+                Template.slug.like(f"{slug_base}-draft-%")
+            )
+        )
+        existing_draft = ed_res.scalars().first()
+
+    if existing_draft:
+        return {
+            "status": "success",
+            "template_id": str(existing_draft.id),
+            "draft_id": str(existing_draft.id),
+            "draft_slug": existing_draft.slug,
+            "title": existing_draft.title,
+            "is_new_clone": False,
+            "message": "Continuing on your existing private draft"
+        }
+
+    # Create new draft copy
+    new_slug = f"{slug_base}-draft-{uuid.uuid4().hex[:6]}"
+    new_title = f"{template.title} (Draft)"
+    new_template = Template(
+        title=new_title,
+        short_description=template.short_description,
+        description=template.description,
+        slug=new_slug,
+        price=template.price,
+        original_price=template.original_price,
+        is_free=template.is_free,
+        is_on_sale=template.is_on_sale,
+        category_id=template.category_id,
+        status=TemplateStatus.DRAFT,
+        seller_id=current_user.id if current_user else template.seller_id,
+        thumbnail_url=template.thumbnail_url,
+        preview_url=template.preview_url,
+        tags=template.tags,
+        framework=template.framework,
+        pages_count=template.pages_count,
+        has_dark_mode=template.has_dark_mode,
+        is_responsive=template.is_responsive,
+        is_rtl_supported=template.is_rtl_supported,
+        is_ai_ready=True,
+        compatibility=template.compatibility,
+        version=template.version,
+        license_type=template.license_type,
+        industry=template.industry,
+        color_scheme=template.color_scheme,
+        seo_keywords=template.seo_keywords,
+        included_pages=template.included_pages,
+        download_assets=template.download_assets.copy() if template.download_assets else {}
+    )
+    db.add(new_template)
+    await db.flush()
+
+    # Clone local files on disk
+    local_project_manager.clone_project(template.slug or template.id, new_template.id, new_template.slug, new_template.title)
+
+    # Warm preview directory if needed
+    src_preview = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template.id))
+    dst_preview = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(new_template.id))
+    if os.path.isdir(src_preview) and not os.path.exists(dst_preview):
+        try:
+            shutil.copytree(src_preview, dst_preview)
+        except Exception:
+            pass
+
+    await db.commit()
+
+    return {
+        "status": "success",
+        "template_id": str(new_template.id),
+        "draft_id": str(new_template.id),
+        "draft_slug": new_template.slug,
+        "title": new_template.title,
+        "is_new_clone": True,
+        "message": f"Template copied to your private draft ({new_template.title}). The marketplace version is completely protected."
+    }
+
+
 @router.post("/live/{template_id}/edit-manual")
 async def edit_live_preview_manual(
     template_id: str,
     request: ManualEditRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db)
 ):
     import zipfile
@@ -1445,23 +1606,6 @@ async def edit_live_preview_manual(
     template = await template_repo.get_by_id(template_id)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
-
-    owns_template = template.seller_id == current_user.id
-    is_admin = getattr(current_user.role, "value", current_user.role) == "admin"
-    has_purchase = template.is_free or settings.TEMPLATE_DOWNLOADS_FREE
-    if not owns_template and not is_admin and not has_purchase:
-        purchase_result = await db.execute(
-            select(OrderItem.id).join(Order, Order.id == OrderItem.order_id).where(
-                OrderItem.template_id == template.id,
-                Order.user_id == current_user.id,
-                Order.status == OrderStatus.COMPLETED,
-            ).limit(1)
-        )
-        has_purchase = purchase_result.scalar_one_or_none() is not None
-    if not (owns_template or is_admin or has_purchase):
-        raise HTTPException(status_code=403, detail="Purchase this template before customizing it.")
-    if template.status == TemplateStatus.DRAFT and not (owns_template or is_admin):
-        raise HTTPException(status_code=403, detail="Only the draft owner can customize this project.")
         
     original_template_id = str(template.id)
     is_new_clone = False
@@ -1965,6 +2109,18 @@ Here are the codebase files:
     os.makedirs(preview_dir, exist_ok=True)
     from app.services.security_scanner import security_scanner
     security_scanner.sanitize_extract_zip(new_zip_bytes, Path(preview_dir))
+
+    # Also persist updated code into local_project_manager under the draft's slug
+    try:
+        from app.core.local_project_manager import local_project_manager
+        local_project_manager.save_project_revision(
+            template_id=template.id,
+            files=files_dict,
+            instruction="Manual edits applied in Live Preview editor",
+            slug=template.slug
+        )
+    except Exception as save_err:
+        logger.warning(f"Could not persist manual edit to local_project_manager: {save_err}")
             
     # Commit session changes
     await db.commit()
@@ -1994,8 +2150,11 @@ async def apply_live_preview_theme_color(
     import os
     import re
     import io
+    import json
     import zipfile
     import uuid
+    import tempfile
+    import shutil
     from pathlib import Path
     from app.repositories.template_repo import TemplateRepository
     from app.core.local_project_manager import local_project_manager
@@ -2006,13 +2165,18 @@ async def apply_live_preview_theme_color(
     template = await template_repo.get_by_id(template_id)
     if not template:
         template = await template_repo.get_by_slug(template_id)
-    if not template:
+
+    local_dir = local_project_manager.get_local_project_dir(template_id, version="latest")
+    if not local_dir and template and template.slug:
+        local_dir = local_project_manager.get_local_project_dir(template.slug, version="latest")
+
+    if not template and not local_dir:
         raise HTTPException(status_code=404, detail="Template not found")
 
     new_color = request.primary_color.strip()
     clean_hex = new_color.lstrip("#")
     if len(clean_hex) == 3:
-        clean_hex = "".join([c*2 for c in clean_hex])
+        clean_hex = "".join([c * 2 for c in clean_hex])
     if len(clean_hex) != 6:
         clean_hex = "4f46e5"
 
@@ -2028,45 +2192,204 @@ async def apply_live_preview_theme_color(
     g_hover = max(0, int(g * 0.82))
     b_hover = max(0, int(b * 0.82))
     hover_hex = f"#{r_hover:02x}{g_hover:02x}{b_hover:02x}".upper()
+    border_subtle = f"rgba({r}, {g}, {b}, 0.25)"
 
-    border_subtle = f"rgba({r}, {g}, {b}, 0.2)"
-
+    is_new_clone = False
     updated_files = []
 
+    # Universal override block for both CSS stylesheets and HTML <style> tags
+    override_rule = (
+        f"/* [STUDIO_APPLIED_THEME_COLOR] */\n"
+        f":root, :root[data-theme='light'], :root[data-theme='dark'], html, body {{\n"
+        f"  --c-primary: {hex_formatted} !important;\n"
+        f"  --c-primary-hover: {hover_hex} !important;\n"
+        f"  --color-primary: {hex_formatted} !important;\n"
+        f"  --color-primary-dark: {hover_hex} !important;\n"
+        f"  --color-primary-hover: {hover_hex} !important;\n"
+        f"  --primary: {hex_formatted} !important;\n"
+        f"  --primary-color: {hex_formatted} !important;\n"
+        f"  --primary-hover: {hover_hex} !important;\n"
+        f"  --accent: {hex_formatted} !important;\n"
+        f"  --accent-color: {hex_formatted} !important;\n"
+        f"  --accent-primary: {hex_formatted} !important;\n"
+        f"  --accent-hover: {hover_hex} !important;\n"
+        f"  --color-accent: {hex_formatted} !important;\n"
+        f"  --theme-color: {hex_formatted} !important;\n"
+        f"  --brand: {hex_formatted} !important;\n"
+        f"  --brand-color: {hex_formatted} !important;\n"
+        f"  --cta-bg: {hex_formatted} !important;\n"
+        f"  --accent-gold: {hex_formatted} !important;\n"
+        f"  --accent-gold-hover: {hover_hex} !important;\n"
+        f"  --blue: {hex_formatted} !important;\n"
+        f"  --violet: {hover_hex} !important;\n"
+        f"  --cyan: {hex_formatted} !important;\n"
+        f"  --green: {hex_formatted} !important;\n"
+        f"  --red: {hex_formatted} !important;\n"
+        f"  --red-dim: {hover_hex} !important;\n"
+        f"  --grad: linear-gradient(135deg, {hex_formatted} 0%, {hover_hex} 100%) !important;\n"
+        f"  --grad-r: linear-gradient(135deg, {hover_hex} 0%, {hex_formatted} 100%) !important;\n"
+        f"  --glow-blue: rgba({r}, {g}, {b}, 0.25) !important;\n"
+        f"  --glow-vio: rgba({r_hover}, {g_hover}, {b_hover}, 0.2) !important;\n"
+        f"  --border2: rgba({r}, {g}, {b}, 0.3) !important;\n"
+        f"}}\n"
+        f".btn-primary, .nav-cta, .hero-cta, .btn, .button, .primary-btn, a.btn-primary, button.btn-primary, [data-theme-color='true'], [class*='btn-primary'], [class*='nav-cta'] {{\n"
+        f"  background: linear-gradient(135deg, {hex_formatted} 0%, {hover_hex} 100%) !important;\n"
+        f"  background-color: {hex_formatted} !important;\n"
+        f"  background-image: linear-gradient(135deg, {hex_formatted} 0%, {hover_hex} 100%) !important;\n"
+        f"  border-color: {hex_formatted} !important;\n"
+        f"  color: #ffffff !important;\n"
+        f"  box-shadow: 0 4px 18px rgba({r}, {g}, {b}, 0.35) !important;\n"
+        f"}}\n"
+        f".btn-primary:hover, .nav-cta:hover, .hero-cta:hover, .primary-btn:hover {{\n"
+        f"  background: linear-gradient(135deg, {hover_hex} 0%, {hex_formatted} 100%) !important;\n"
+        f"  background-color: {hover_hex} !important;\n"
+        f"  background-image: linear-gradient(135deg, {hover_hex} 0%, {hex_formatted} 100%) !important;\n"
+        f"  border-color: {hover_hex} !important;\n"
+        f"  color: #ffffff !important;\n"
+        f"}}\n"
+        f".nav-logo, h1 .accent, .accent, .accent-text, [class*='accent-text'], .gradient-text, .text-gradient, a.brand-logo span, .hero-subtitle span {{\n"
+        f"  background: linear-gradient(135deg, {hex_formatted} 0%, {hover_hex} 100%) !important;\n"
+        f"  background-clip: text !important;\n"
+        f"  -webkit-background-clip: text !important;\n"
+        f"  -webkit-text-fill-color: transparent !important;\n"
+        f"}}\n"
+        f".text-primary, [class*='text-primary'], .nav-links a:hover, .brand-text, .gold-text {{\n"
+        f"  color: {hex_formatted} !important;\n"
+        f"}}\n"
+        f".pulse, .status-dot {{\n"
+        f"  background: {hex_formatted} !important;\n"
+        f"  box-shadow: 0 0 0 0 rgba({r}, {g}, {b}, 0.5) !important;\n"
+        f"}}\n"
+        f"#crosshair, .tape-stripe {{ border-color: {hex_formatted} !important; }}\n"
+        f"#crosshair::before, #crosshair::after {{ background: {hex_formatted} !important; }}\n"
+        f"::selection {{ background: {hex_formatted} !important; color: #ffffff !important; }}\n"
+        f"/* [/STUDIO_APPLIED_THEME_COLOR] */\n"
+    )
+
     def update_css_text(css_text: str) -> str:
-        css_text = re.sub(r'(--accent-gold\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
-        css_text = re.sub(r'(--accent-gold-hover\s*:\s*)[^;]+;', rf'\g<1>{hover_hex};', css_text)
-        css_text = re.sub(r'(--accent-amber\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
-        css_text = re.sub(r'(--border-subtle\s*:\s*)[^;]+;', rf'\g<1>{border_subtle};', css_text)
+        # 1. Update standard variables across all variants
+        css_text = re.sub(r'(--c-primary\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--c-primary-hover\s*:\s*)[^;]+;', rf'\g<1>{hover_hex};', css_text)
+        css_text = re.sub(r'(--c-accent\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--color-primary\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--color-primary-dark\s*:\s*)[^;]+;', rf'\g<1>{hover_hex};', css_text)
+        css_text = re.sub(r'(--color-primary-hover\s*:\s*)[^;]+;', rf'\g<1>{hover_hex};', css_text)
+        css_text = re.sub(r'(--color-accent\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--color-accent-hover\s*:\s*)[^;]+;', rf'\g<1>{hover_hex};', css_text)
         css_text = re.sub(r'(--primary\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--primary-hover\s*:\s*)[^;]+;', rf'\g<1>{hover_hex};', css_text)
+        css_text = re.sub(r'(--primary-dark\s*:\s*)[^;]+;', rf'\g<1>{hover_hex};', css_text)
         css_text = re.sub(r'(--primary-color\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
         css_text = re.sub(r'(--theme-color\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
         css_text = re.sub(r'(--accent\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
         css_text = re.sub(r'(--accent-color\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--accent-primary\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--accent-hover\s*:\s*)[^;]+;', rf'\g<1>{hover_hex};', css_text)
+        css_text = re.sub(r'(--accent-gold\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--accent-gold-hover\s*:\s*)[^;]+;', rf'\g<1>{hover_hex};', css_text)
+        css_text = re.sub(r'(--accent-amber\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--border-subtle\s*:\s*)[^;]+;', rf'\g<1>{border_subtle};', css_text)
         css_text = re.sub(r'(--cta-bg\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
         css_text = re.sub(r'(--brand\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
         css_text = re.sub(r'(--brand-color\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
-        css_text = re.sub(r'(--color-primary\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--blue\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--violet\s*:\s*)[^;]+;', rf'\g<1>{hover_hex};', css_text)
+        css_text = re.sub(r'(--cyan\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--green\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--red\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', css_text)
+        css_text = re.sub(r'(--red-dim\s*:\s*)[^;]+;', rf'\g<1>{hover_hex};', css_text)
+        css_text = re.sub(r'(--grad\s*:\s*)[^;]+;', rf'\g<1>linear-gradient(135deg, {hex_formatted} 0%, {hover_hex} 100%);', css_text)
+        css_text = re.sub(r'(--grad-r\s*:\s*)[^;]+;', rf'\g<1>linear-gradient(135deg, {hover_hex} 0%, {hex_formatted} 100%);', css_text)
+        css_text = re.sub(r'(--glow-blue\s*:\s*)[^;]+;', rf'\g<1>rgba({r}, {g}, {b}, 0.25);', css_text)
+        css_text = re.sub(r'(--glow-vio\s*:\s*)[^;]+;', rf'\g<1>rgba({r_hover}, {g_hover}, {b_hover}, 0.2);', css_text)
+        css_text = re.sub(r'(--border2\s*:\s*)[^;]+;', rf'\g<1>rgba({r}, {g}, {b}, 0.3);', css_text)
+
+        # 2. Universal override block at top of CSS file to guarantee priority
+        if "/* [STUDIO_APPLIED_THEME_COLOR] */" in css_text:
+            css_text = re.sub(
+                r'/\* \[STUDIO_APPLIED_THEME_COLOR\] \*/[\s\S]*?/\* \[/STUDIO_APPLIED_THEME_COLOR\] \*/\n',
+                override_rule,
+                css_text
+            )
+            if "/* [STUDIO_APPLIED_THEME_COLOR] */" not in css_text:
+                # If regex didn't match end marker, fallback
+                css_text = re.sub(
+                    r'/\* \[STUDIO_APPLIED_THEME_COLOR\] \*/[\s\S]*?\n\}\n',
+                    override_rule,
+                    css_text
+                )
+        else:
+            css_text = override_rule + css_text
         return css_text
 
     def update_html_text(html_text: str) -> str:
+        # 1. Update <meta name="theme-color"> if present
         if '<meta name="theme-color"' in html_text or "<meta name='theme-color'" in html_text:
-            html_text = re.sub(r'(<meta\s+name=["\']theme-color["\']\s+content=["\'])[^"\']*(["\'])', rf'\g<1>{hex_formatted}\g<2>', html_text, flags=re.I)
-        html_text = update_css_text(html_text)
+            html_text = re.sub(r"""(<meta\s+name=["']theme-color["']\s+content=["'])[^"']*(["'])""", rf"\g<1>{hex_formatted}\g<2>", html_text, flags=re.I)
+
+        # 2. Strip any previously injected raw CSS comments or style blocks
+        html_text = re.sub(r'<style[^>]*id=["\']studio-applied-theme-style["\'][^>]*>[\s\S]*?</style>\s*', '', html_text, flags=re.I)
+        html_text = re.sub(r'/\* \[STUDIO_APPLIED_THEME_COLOR\] \*/[\s\S]*?/\* \[/STUDIO_APPLIED_THEME_COLOR\] \*/\s*', '', html_text)
+
+        # 3. Update CSS variables inside existing <style>...</style> blocks
+        def _replace_style_content(m):
+            tag_open = m.group(1)
+            content = m.group(2)
+            tag_close = m.group(3)
+            content = re.sub(r'(--c-primary\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', content)
+            content = re.sub(r'(--c-primary-hover\s*:\s*)[^;]+;', rf'\g<1>{hover_hex};', content)
+            content = re.sub(r'(--color-primary\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', content)
+            content = re.sub(r'(--color-primary-dark\s*:\s*)[^;]+;', rf'\g<1>{hover_hex};', content)
+            content = re.sub(r'(--color-primary-hover\s*:\s*)[^;]+;', rf'\g<1>{hover_hex};', content)
+            content = re.sub(r'(--primary\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', content)
+            content = re.sub(r'(--primary-color\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', content)
+            content = re.sub(r'(--primary-hover\s*:\s*)[^;]+;', rf'\g<1>{hover_hex};', content)
+            content = re.sub(r'(--accent\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', content)
+            content = re.sub(r'(--accent-color\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', content)
+            content = re.sub(r'(--blue\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', content)
+            content = re.sub(r'(--violet\s*:\s*)[^;]+;', rf'\g<1>{hover_hex};', content)
+            content = re.sub(r'(--cyan\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', content)
+            content = re.sub(r'(--green\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', content)
+            content = re.sub(r'(--red\s*:\s*)[^;]+;', rf'\g<1>{hex_formatted};', content)
+            content = re.sub(r'(--red-dim\s*:\s*)[^;]+;', rf'\g<1>{hover_hex};', content)
+            content = re.sub(r'(--grad\s*:\s*)[^;]+;', rf'\g<1>linear-gradient(135deg, {hex_formatted} 0%, {hover_hex} 100%);', content)
+            content = re.sub(r'(--grad-r\s*:\s*)[^;]+;', rf'\g<1>linear-gradient(135deg, {hover_hex} 0%, {hex_formatted} 100%);', content)
+            return f"{tag_open}{content}{tag_close}"
+
+        html_text = re.sub(r'(<style\b[^>]*>)([\s\S]*?)(</style>)', _replace_style_content, html_text, flags=re.I)
+
+        # 4. Wrap override rule in a proper HTML <style> tag so the browser executes it as CSS instead of displaying text
+        wrapped_style = f'<style id="studio-applied-theme-style">\n{override_rule}\n</style>'
+        if "</head>" in html_text:
+            html_text = html_text.replace("</head>", f"  {wrapped_style}\n</head>")
+        elif "<body" in html_text:
+            html_text = re.sub(r'(<body[^>]*>)', rf'{wrapped_style}\n\g<1>', html_text, count=1)
+        else:
+            html_text = f"{wrapped_style}\n{html_text}"
+
         return html_text
 
-    local_dir = local_project_manager.get_local_project_dir(template_id, version="latest")
-    if not local_dir and template.slug:
-        local_dir = local_project_manager.get_local_project_dir(template.slug, version="latest")
 
     files_for_revision = {}
+    target_dirs = []
     if local_dir and os.path.isdir(str(local_dir)):
-        for root, _, files in os.walk(str(local_dir)):
+        target_dirs.append(str(local_dir))
+
+    # Also include live_previews temporary directories so in-memory/disk preview reflects changes immediately & on refresh
+    temp_preview_base = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews")
+    for tid in (str(template_id), str(template.id) if template else None, template.slug if template else None):
+        if tid:
+            p_dir = os.path.join(temp_preview_base, tid)
+            if os.path.isdir(p_dir) and p_dir not in target_dirs:
+                target_dirs.append(p_dir)
+
+    for t_dir in target_dirs:
+        for root, _, files in os.walk(t_dir):
             if any(d in root.replace("\\", "/").split("/") for d in ["dist", "build", "node_modules", ".output"]):
                 continue
             for f_name in files:
                 f_path = os.path.join(root, f_name)
-                rel_path = os.path.relpath(f_path, str(local_dir)).replace("\\", "/")
+                rel_path = os.path.relpath(f_path, t_dir).replace("\\", "/")
                 if f_name.endswith(".css"):
                     try:
                         with open(f_path, "r", encoding="utf-8", errors="ignore") as _f:
@@ -2075,7 +2398,8 @@ async def apply_live_preview_theme_color(
                         if updated != original:
                             with open(f_path, "w", encoding="utf-8") as _f:
                                 _f.write(updated)
-                            updated_files.append(rel_path)
+                            if rel_path not in updated_files:
+                                updated_files.append(rel_path)
                             files_for_revision[rel_path] = updated
                     except Exception as err:
                         logger.warning(f"Failed updating CSS file {rel_path}: {err}")
@@ -2087,68 +2411,86 @@ async def apply_live_preview_theme_color(
                         if updated != original:
                             with open(f_path, "w", encoding="utf-8") as _f:
                                 _f.write(updated)
-                            updated_files.append(rel_path)
+                            if rel_path not in updated_files:
+                                updated_files.append(rel_path)
                             files_for_revision[rel_path] = updated
                     except Exception as err:
                         logger.warning(f"Failed updating HTML file {rel_path}: {err}")
 
-        if files_for_revision:
-            try:
-                local_project_manager.save_project_revision(
-                    template_id=template_id,
-                    files=files_for_revision,
-                    instruction=f"Applied theme color {hex_formatted}",
-                    slug=template.slug or str(template_id)
-                )
-            except Exception as rev_err:
-                logger.warning(f"Could not save revision: {rev_err}")
+    if files_for_revision and local_dir:
+        try:
+            local_project_manager.save_project_revision(
+                template_id=template_id,
+                files=files_for_revision,
+                instruction=f"Applied theme color {hex_formatted}",
+                slug=(template.slug if template else str(template_id))
+            )
+        except Exception as rev_err:
+            logger.warning(f"Could not save revision: {rev_err}")
 
-    # Also update the StoredFile zip archive
-    download_assets = template.download_assets or {}
-    zip_url = download_assets.get("zip")
-    if zip_url:
-        match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
-        if match:
-            file_id = uuid.UUID(match.group(1))
-            res = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
-            sf = res.scalar_one_or_none()
-            if sf and sf.data:
-                try:
-                    with zipfile.ZipFile(io.BytesIO(sf.data), "r") as z_in:
-                        new_zip_io = io.BytesIO()
-                        with zipfile.ZipFile(new_zip_io, "w", zipfile.ZIP_DEFLATED) as z_out:
-                            for item in z_in.infolist():
-                                f_bytes = z_in.read(item.filename)
-                                if item.filename.endswith(".css"):
-                                    try:
-                                        t_str = f_bytes.decode("utf-8", errors="ignore")
-                                        t_upd = update_css_text(t_str)
-                                        f_bytes = t_upd.encode("utf-8")
-                                    except Exception:
-                                        pass
-                                elif item.filename.endswith(".html") or item.filename.endswith(".htm"):
-                                    try:
-                                        t_str = f_bytes.decode("utf-8", errors="ignore")
-                                        t_upd = update_html_text(t_str)
-                                        f_bytes = t_upd.encode("utf-8")
-                                    except Exception:
-                                        pass
-                                z_out.writestr(item, f_bytes)
-                    sf.data = new_zip_io.getvalue()
-                    sf.file_size = len(sf.data)
-                    db.add(sf)
-                except Exception as zip_err:
-                    logger.warning(f"Could not update zip storage: {zip_err}")
+    # Update metadata.json if present
+    if local_dir:
+        try:
+            meta_file = Path(local_dir).parent / "metadata.json"
+            if meta_file.exists():
+                m_data = json.loads(meta_file.read_text(encoding="utf-8"))
+                m_data["primary_color"] = hex_formatted
+                m_data["theme_color"] = hex_formatted
+                meta_file.write_text(json.dumps(m_data, indent=2), encoding="utf-8")
+        except Exception:
+            pass
 
-    template.color_scheme = hex_formatted
-    db.add(template)
-    await db.commit()
+    # Also update the StoredFile zip archive in database if template has one
+    if template:
+        download_assets = template.download_assets or {}
+        zip_url = download_assets.get("zip")
+        if zip_url:
+            match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
+            if match:
+                file_id = uuid.UUID(match.group(1))
+                res = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
+                sf = res.scalar_one_or_none()
+                if sf and sf.data:
+                    try:
+                        with zipfile.ZipFile(io.BytesIO(sf.data), "r") as z_in:
+                            new_zip_io = io.BytesIO()
+                            with zipfile.ZipFile(new_zip_io, "w", zipfile.ZIP_DEFLATED) as z_out:
+                                for item in z_in.infolist():
+                                    f_bytes = z_in.read(item.filename)
+                                    if item.filename.endswith(".css"):
+                                        try:
+                                            t_str = f_bytes.decode("utf-8", errors="ignore")
+                                            t_upd = update_css_text(t_str)
+                                            f_bytes = t_upd.encode("utf-8")
+                                        except Exception:
+                                            pass
+                                    elif item.filename.endswith(".html") or item.filename.endswith(".htm"):
+                                        try:
+                                            t_str = f_bytes.decode("utf-8", errors="ignore")
+                                            t_upd = update_html_text(t_str)
+                                            f_bytes = t_upd.encode("utf-8")
+                                        except Exception:
+                                            pass
+                                    z_out.writestr(item, f_bytes)
+                        sf.data = new_zip_io.getvalue()
+                        sf.file_size = len(sf.data)
+                        db.add(sf)
+                    except Exception as zip_err:
+                        logger.warning(f"Could not update zip storage: {zip_err}")
+
+        template.color_scheme = hex_formatted
+        db.add(template)
+        await db.commit()
 
     return {
         "status": "success",
         "primary_color": hex_formatted,
         "hover_color": hover_hex,
         "updated_files": updated_files,
+        "template_id": str(template.id) if template else template_id,
+        "draft_id": str(template.id) if template else template_id,
+        "draft_slug": template.slug if template else None,
+        "is_new_clone": is_new_clone,
         "message": f"Theme color {hex_formatted} successfully applied to website code ({len(updated_files)} files updated)."
     }
 
@@ -2224,7 +2566,7 @@ class FindReplaceRequest(BaseModel):
 async def edit_live_preview_find_replace(
     template_id: str,
     request: FindReplaceRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db)
 ):
     import zipfile
@@ -2238,11 +2580,14 @@ async def edit_live_preview_find_replace(
     template = await template_repo.get_by_id(template_id)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
-    if template.status != TemplateStatus.DRAFT or template.seller_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Only the owner of a draft can edit its source files.")
         
-    # If the template is PUBLISHED, clone it so the user modifies their own private DRAFT copy
-    if template.status == TemplateStatus.PUBLISHED:
+    # If the template is PUBLISHED or belongs to another user, clone it so the user modifies their own private DRAFT copy
+    is_user_owned_draft = (
+        template.status == TemplateStatus.DRAFT 
+        and current_user 
+        and template.seller_id == current_user.id
+    )
+    if not is_user_owned_draft:
         new_template = Template(
             title=f"Customized {template.title}",
             short_description=template.short_description,
@@ -2362,7 +2707,7 @@ async def edit_live_preview_ai(
     template_id: str,
     request: AIEditRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     import zipfile
     import io
@@ -2374,10 +2719,9 @@ async def edit_live_preview_ai(
     template = await template_repo.get_by_id(template_id)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
-    if template.status != TemplateStatus.DRAFT or template.seller_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Only the owner of a draft can edit its source files.")
-    from app.core.request_limits import enforce_user_limit
-    await enforce_user_limit(str(current_user.id), "template-ai-edit")
+    if current_user:
+        from app.core.request_limits import enforce_user_limit
+        await enforce_user_limit(str(current_user.id), "template-ai-edit")
         
     # If the template is PUBLISHED or belongs to another user, clone/fork it so the user modifies their own private DRAFT copy
     is_user_owned_draft = (
@@ -2459,16 +2803,29 @@ async def edit_live_preview_ai(
         raise HTTPException(status_code=404, detail="Source template archive data not found")
     zip_data = stored_file_data[0]
     
-    # 1. Read all editable files in the ZIP (HTML, JS, JSX, CSS)
+    # 1. Read all editable files in the preview dir or ZIP (HTML, JS, JSX, CSS)
     files_dict = {}
-    with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
-        for name in z_in.namelist():
-            is_build = any(d in name.replace("\\", "/").split("/") for d in ["dist", "build", "out", "node_modules", ".output"])
-            if (name.endswith(".html") or name.endswith(".jsx") or name.endswith(".js") or name.endswith(".css") or name.endswith(".tsx") or name.endswith(".ts")) and not is_build:
-                try:
-                    files_dict[name] = z_in.read(name).decode("utf-8", errors="ignore")
-                except Exception:
-                    pass
+    preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
+    if os.path.isdir(preview_dir):
+        for root_d, _, f_list in os.walk(preview_dir):
+            for fn in f_list:
+                rel = os.path.relpath(os.path.join(root_d, fn), preview_dir).replace("\\", "/")
+                is_build = any(d in rel.split("/") for d in ["dist", "build", "out", "node_modules", ".output"])
+                if (fn.endswith(".html") or fn.endswith(".jsx") or fn.endswith(".js") or fn.endswith(".css") or fn.endswith(".tsx") or fn.endswith(".ts")) and not is_build:
+                    try:
+                        with open(os.path.join(root_d, fn), "r", encoding="utf-8", errors="ignore") as f_in:
+                            files_dict[rel] = f_in.read()
+                    except Exception:
+                        pass
+    if not files_dict:
+        with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
+            for name in z_in.namelist():
+                is_build = any(d in name.replace("\\", "/").split("/") for d in ["dist", "build", "out", "node_modules", ".output"])
+                if (name.endswith(".html") or name.endswith(".jsx") or name.endswith(".js") or name.endswith(".css") or name.endswith(".tsx") or name.endswith(".ts")) and not is_build:
+                    try:
+                        files_dict[name] = z_in.read(name).decode("utf-8", errors="ignore")
+                    except Exception:
+                        pass
 
     if not files_dict:
         raise HTTPException(status_code=400, detail="Could not locate code files in template archive")
@@ -2481,16 +2838,20 @@ async def edit_live_preview_ai(
     ai_prompt = f"""You are a senior lead web developer.
 Refine the provided website template files according to this user request: "{request.prompt}".
 
+Even if the user request is simple (e.g. "change color to red", "change title to Jordan Cole", "add a button", "make background dark", "change headline", "add cards", "make text bigger"), interpret their intent intelligently and apply all necessary CSS, HTML, or JavaScript changes to fulfill it completely.
+
 Rules:
 1. Return a JSON list of search-and-replace blocks. Do NOT return the entire file content.
 2. The "find" string must match the target code exactly, including leading spaces and indentation.
 3. The "replace" string must contain the updated code to replace it.
 4. Keep the search blocks as small and precise as possible to avoid mistakes.
+5. If changing colors or styling, update CSS variables, root variables, or inline/utility classes as needed.
+6. If adding content or sections, duplicate an existing item/card/component structure and place the new one right where it belongs.
 
 Format the JSON response exactly like this:
 [
   {{
-    "filename": "src/App.tsx",
+    "filename": "index.html",
     "find": "const [title, setTitle] = useState('Old Title');",
     "replace": "const [title, setTitle] = useState('New Title');"
   }}
@@ -2586,7 +2947,11 @@ Here are the codebase files:
     # Commit session changes
     await db.commit()
     
-    return {"status": "success", "template_id": str(template_id)}
+    return {
+        "status": "success",
+        "template_id": str(template_id),
+        "message": f"Applied changes for: \"{request.prompt[:60]}\""
+    }
 
 
 class DemoSessionStartRequest(BaseModel):
@@ -3863,36 +4228,88 @@ async def serve_live_preview(
               styleTag.id = 'studio-live-theme-override';
               document.head.appendChild(styleTag);
             }}
-            styleTag.textContent = ':root {{' +
-              '--accent-gold: ' + color + ' !important;' +
-              '--accent-gold-hover: ' + color + ' !important;' +
-              '--accent-amber: ' + color + ' !important;' +
-              '--border-subtle: rgba(255, 255, 255, 0.25) !important;' +
+            let clean = color.replace('#', '');
+            if (clean.length === 3) clean = clean.split('').map(function(c) {{ return c + c; }}).join('');
+            let r = parseInt(clean.substring(0, 2), 16) || 79;
+            let g = parseInt(clean.substring(2, 4), 16) || 70;
+            let b = parseInt(clean.substring(4, 6), 16) || 229;
+            let rH = Math.max(0, Math.floor(r * 0.82));
+            let gH = Math.max(0, Math.floor(g * 0.82));
+            let bH = Math.max(0, Math.floor(b * 0.82));
+            let hoverColor = '#' + [rH, gH, bH].map(function(x) {{ return x.toString(16).padStart(2, '0'); }}).join('');
+            let gradCss = 'linear-gradient(135deg, ' + color + ' 0%, ' + hoverColor + ' 100%)';
+            let gradRevCss = 'linear-gradient(135deg, ' + hoverColor + ' 0%, ' + color + ' 100%)';
+
+            styleTag.textContent = 
+              ':root, :root[data-theme="light"], :root[data-theme="dark"], html, body {{' +
+              '--c-primary: ' + color + ' !important;' +
+              '--c-primary-hover: ' + hoverColor + ' !important;' +
+              '--color-primary: ' + color + ' !important;' +
+              '--color-primary-dark: ' + hoverColor + ' !important;' +
+              '--color-primary-hover: ' + hoverColor + ' !important;' +
               '--primary: ' + color + ' !important;' +
               '--primary-color: ' + color + ' !important;' +
-              '--theme-color: ' + color + ' !important;' +
+              '--primary-hover: ' + hoverColor + ' !important;' +
+              '--primary-dark: ' + hoverColor + ' !important;' +
               '--accent: ' + color + ' !important;' +
               '--accent-color: ' + color + ' !important;' +
-              '--cta-bg: ' + color + ' !important;' +
-              '--color-primary: ' + color + ' !important;' +
+              '--accent-primary: ' + color + ' !important;' +
+              '--accent-hover: ' + hoverColor + ' !important;' +
+              '--color-accent: ' + color + ' !important;' +
+              '--theme-color: ' + color + ' !important;' +
               '--brand: ' + color + ' !important;' +
               '--brand-color: ' + color + ' !important;' +
+              '--cta-bg: ' + color + ' !important;' +
+              '--accent-gold: ' + color + ' !important;' +
+              '--accent-gold-hover: ' + hoverColor + ' !important;' +
+              '--accent-amber: ' + color + ' !important;' +
+              '--blue: ' + color + ' !important;' +
+              '--violet: ' + hoverColor + ' !important;' +
+              '--cyan: ' + color + ' !important;' +
+              '--green: ' + color + ' !important;' +
+              '--red: ' + color + ' !important;' +
+              '--red-dim: ' + hoverColor + ' !important;' +
+              '--grad: ' + gradCss + ' !important;' +
+              '--grad-r: ' + gradRevCss + ' !important;' +
+              '--glow-blue: rgba(' + r + ',' + g + ',' + b + ',0.25) !important;' +
+              '--glow-vio: rgba(' + rH + ',' + gH + ',' + bH + ',0.2) !important;' +
+              '--border2: rgba(' + r + ',' + g + ',' + b + ',0.3) !important;' +
               '}}' +
-              '.btn-primary, .bg-primary, .tab-btn.active, .hero-cta, [data-theme-color="true"] {{' +
+              '.btn-primary, .nav-cta, .hero-cta, .btn, .button, .primary-btn, a.btn-primary, button.btn-primary, [data-theme-color="true"], [class*="btn-primary"], [class*="nav-cta"] {{' +
+              'background: ' + gradCss + ' !important;' +
               'background-color: ' + color + ' !important;' +
+              'background-image: ' + gradCss + ' !important;' +
               'border-color: ' + color + ' !important;' +
+              'color: #ffffff !important;' +
+              'box-shadow: 0 4px 18px rgba(' + r + ',' + g + ',' + b + ',0.35) !important;' +
               '}}' +
-              '.text-primary, .accent-text, .gold-text {{' +
+              '.btn-primary:hover, .nav-cta:hover, .hero-cta:hover, .primary-btn:hover {{' +
+              'background: ' + gradRevCss + ' !important;' +
+              'background-color: ' + hoverColor + ' !important;' +
+              'background-image: ' + gradRevCss + ' !important;' +
+              'border-color: ' + hoverColor + ' !important;' +
+              'color: #ffffff !important;' +
+              '}}' +
+              '.nav-logo, h1 .accent, .accent, .accent-text, [class*="accent-text"], .gradient-text, .text-gradient, a.brand-logo span, .hero-subtitle span {{' +
+              'background: ' + gradCss + ' !important;' +
+              'background-clip: text !important;' +
+              '-webkit-background-clip: text !important;' +
+              '-webkit-text-fill-color: transparent !important;' +
+              '}}' +
+              '.text-primary, [class*="text-primary"], .nav-links a:hover, .brand-text, .gold-text {{' +
               'color: ' + color + ' !important;' +
-              '}}';
-            document.documentElement.style.setProperty('--accent-gold', color);
-            document.documentElement.style.setProperty('--accent-amber', color);
-            document.documentElement.style.setProperty('--primary', color);
-            document.documentElement.style.setProperty('--primary-color', color);
-            document.documentElement.style.setProperty('--theme-color', color);
-            document.documentElement.style.setProperty('--accent', color);
-            document.documentElement.style.setProperty('--accent-color', color);
-            document.documentElement.style.setProperty('--cta-bg', color);
+              '}}' +
+              '.pulse, .status-dot {{' +
+              'background: ' + color + ' !important;' +
+              'box-shadow: 0 0 0 0 rgba(' + r + ',' + g + ',' + b + ',0.5) !important;' +
+              '}}' +
+              '#crosshair, .tape-stripe {{ border-color: ' + color + ' !important; }}' +
+              '#crosshair::before, #crosshair::after {{ background: ' + color + ' !important; }}' +
+              '::selection {{ background: ' + color + ' !important; color: #ffffff !important; }}';
+
+            ['--c-primary', '--color-primary', '--primary', '--theme-color', '--accent', '--blue', '--violet', '--cyan', '--grad'].forEach(function(p) {{
+              try {{ document.documentElement.style.setProperty(p, color, 'important'); }} catch(_) {{}}
+            }});
           }} catch (e) {{
             console.warn('[Studio Live Preview] Theme update error:', e);
           }}
@@ -3903,9 +4320,271 @@ async def serve_live_preview(
           applyLiveThemeColor(initColor);
         }}
 
+        // 5. Real-Time Visual DOM Synchronizer ("Like Copy-Paste")
+        function applyLiveContent(data) {{
+          if (!data) return;
+          const sectionId = data.sectionId || '';
+          const key = data.key || '';
+          const value = data.value;
+          const originalText = (data.originalText || data.prevValue || '').toString().trim();
+          if (typeof value === 'undefined' || value === null) return;
+
+          let secEl = null;
+          if (sectionId) {{
+            secEl = document.querySelector('[data-section="' + sectionId + '"], #' + sectionId + ', .' + sectionId + ', section.' + sectionId + ', [id*="' + sectionId + '"]');
+          }}
+          const root = secEl || document;
+
+          // (1) Brand / Business Name across headers, navbars, and signatures
+          if (key === 'brandName' || key === 'businessName') {{
+            const brandEls = document.querySelectorAll('.brand-logo, .brand-name, .logo, .nav-logo, .navbar-brand, a.brand-logo, [data-bind="brandName"], [data-bind="businessName"], .logo-text, header .brand, .footer-logo');
+            brandEls.forEach(function(el) {{
+              const span = el.querySelector('span:not(.pulse), strong');
+              if (span) {{ span.textContent = value; }} else {{ el.textContent = value; }}
+            }});
+            document.title = value + ' – Live Preview';
+            return;
+          }}
+
+          // (2) Logo Monogram / Code
+          if (key === 'logoText') {{
+            const logoEls = document.querySelectorAll('.brand-code, .logo-monogram, [data-bind="logoText"], .logo-code, .monogram');
+            logoEls.forEach(function(el) {{ el.textContent = value; }});
+            return;
+          }}
+
+          // (3) Main Headline / Section Title
+          if (key === 'headline' || key === 'title') {{
+            let h1 = root.querySelector('h1, .hero-title, [data-bind="headline"], [data-bind="title"], header h1, main h1, .section-title');
+            if (!h1 && secEl) h1 = secEl.querySelector('h1, h2, .title');
+            if (!h1) h1 = document.querySelector('h1, .hero-title');
+            if (h1) {{
+              const highlightSpan = h1.querySelector('.highlight, .text-primary, .accent, .accent-text, span');
+              if (highlightSpan && typeof value === 'string' && value.includes(' ')) {{
+                const words = value.split(' ');
+                const lastWord = words.pop();
+                h1.textContent = words.join(' ') + ' ';
+                highlightSpan.textContent = lastWord;
+                h1.appendChild(highlightSpan);
+              }} else {{
+                h1.textContent = value;
+              }}
+            }}
+            return;
+          }}
+
+          // (4) Subtitle / Story / Bio / Narrative Description
+          if (key === 'subheadline' || key === 'subtitle' || key === 'story' || key === 'description') {{
+            let p = root.querySelector('.hero-sub, .hero-subtitle, .subtitle, [data-bind="subheadline"], [data-bind="subtitle"], [data-bind="story"], [data-bind="description"], .hero-description, .about-text, .lead, p.lead, header p, .story-content');
+            if (!p && secEl) p = secEl.querySelector('p');
+            if (!p) p = document.querySelector('.hero-sub, .hero-subtitle, p.lead, header p');
+            if (p) {{
+              p.textContent = value;
+            }}
+            return;
+          }}
+
+          // (5) Badge Text / Top Pill
+          if (key === 'badgeText') {{
+            let badge = root.querySelector('.hero-badge, .badge, .pill, .status-pill, .case-badge, [data-bind="badgeText"]');
+            if (!badge) badge = document.querySelector('.hero-badge, .badge, .pill, .status-pill');
+            if (badge) {{
+              const pulse = badge.querySelector('.pulse');
+              if (pulse) {{
+                badge.innerHTML = '';
+                badge.appendChild(pulse);
+                badge.appendChild(document.createTextNode(' ' + value));
+              }} else {{
+                badge.textContent = value;
+              }}
+            }}
+            return;
+          }}
+
+          // (6) Primary Button / CTA Text
+          if (key === 'primaryCta' || key === 'ctaText' || key === 'buttonText') {{
+            let btn = root.querySelector('.hero-cta, .btn-primary, .cta-button, .primary-btn, [data-bind="primaryCta"], [data-bind="ctaText"], [data-bind="buttonText"], button[type="submit"]');
+            if (!btn && secEl) btn = secEl.querySelector('.btn, button, a.btn');
+            if (!btn) btn = document.querySelector('.hero-cta, .btn-primary, .cta-button, .primary-btn');
+            if (btn) {{
+              const icon = btn.querySelector('i');
+              if (icon) {{
+                btn.innerHTML = '';
+                btn.appendChild(icon);
+                btn.appendChild(document.createTextNode(' ' + value));
+              }} else {{
+                btn.textContent = value;
+              }}
+            }}
+            return;
+          }}
+
+          // (7) Secondary Button
+          if (key === 'secondaryCta') {{
+            let btn = root.querySelector('.btn-secondary, .btn-outline, .secondary-cta, .btn-ghost, [data-bind="secondaryCta"]');
+            if (btn) {{
+              const icon = btn.querySelector('i');
+              if (icon) {{
+                btn.innerHTML = '';
+                btn.appendChild(icon);
+                btn.appendChild(document.createTextNode(' ' + value));
+              }} else {{
+                btn.textContent = value;
+              }}
+            }}
+            return;
+          }}
+
+          // (8) Contact Info (Phone, Email, Address)
+          if (key === 'phone') {{
+            const phoneEls = document.querySelectorAll('a[href^="tel:"], .phone, .contact-phone, [data-bind="phone"]');
+            phoneEls.forEach(function(el) {{
+              el.textContent = value;
+              if (el.tagName === 'A') el.setAttribute('href', 'tel:' + value);
+            }});
+            return;
+          }}
+          if (key === 'email') {{
+            const emailEls = document.querySelectorAll('a[href^="mailto:"], .email, .contact-email, [data-bind="email"]');
+            emailEls.forEach(function(el) {{
+              el.textContent = value;
+              if (el.tagName === 'A') el.setAttribute('href', 'mailto:' + value);
+            }});
+            return;
+          }}
+          if (key === 'address') {{
+            const addrEls = document.querySelectorAll('.address, .contact-address, address, [data-bind="address"]');
+            addrEls.forEach(function(el) {{ el.textContent = value; }});
+            return;
+          }}
+
+          // (9) Navigation Links Array
+          if (key === 'navLinks' && Array.isArray(value)) {{
+            const navAnchors = document.querySelectorAll('nav a:not(.brand-logo):not(.logo):not(.nav-logo), .nav-links a, .nav-item a, header nav a, header ul li a');
+            value.forEach(function(linkText, idx) {{
+              if (navAnchors[idx]) navAnchors[idx].textContent = linkText;
+            }});
+            return;
+          }}
+
+          // (10) Cards Array - Full Live Dynamic Creation & Updating
+          if (key === 'cards' && Array.isArray(value)) {{
+            let cards = Array.from(root.querySelectorAll('.card, .service-card, .portfolio-card, .grid > div, [data-card], .feature-card, .case-card'));
+            if (cards.length === 0 && secEl) {{
+              cards = Array.from(secEl.querySelectorAll('.grid > div, [class*="card"], [class*="item"]'));
+            }}
+            value.forEach(function(cardItem, idx) {{
+              // If user added more cards, clone the last card in the grid so it appears in the website!
+              if (!cards[idx] && cards.length > 0) {{
+                const lastCard = cards[cards.length - 1];
+                const parentGrid = lastCard.parentElement;
+                if (parentGrid) {{
+                  const newCard = lastCard.cloneNode(true);
+                  newCard.setAttribute('data-studio-dynamic', 'true');
+                  parentGrid.appendChild(newCard);
+                  cards.push(newCard);
+                }}
+              }}
+              if (cards[idx]) {{
+                const cTitle = cards[idx].querySelector('h3, h4, .card-title, .title, strong');
+                if (cTitle && cardItem.title) cTitle.textContent = cardItem.title;
+                const cDesc = cards[idx].querySelector('p, .card-desc, .desc');
+                if (cDesc && (cardItem.desc || cardItem.description)) cDesc.textContent = cardItem.desc || cardItem.description;
+                const cTag = cards[idx].querySelector('.card-tag, .tag, .badge');
+                if (cTag && cardItem.tag) cTag.textContent = cardItem.tag;
+                const cStack = cards[idx].querySelector('.card-stack, .stack');
+                if (cStack && cardItem.stack) cStack.textContent = cardItem.stack;
+              }}
+            }});
+            // If cards were deleted in editor, clean up removed elements from DOM
+            while (cards.length > value.length && cards.length > 1) {{
+              const extraCard = cards.pop();
+              if (extraCard && extraCard.parentNode) {{
+                extraCard.parentNode.removeChild(extraCard);
+              }}
+            }}
+            return;
+          }}
+
+          // (10b) TextItems Array - Full Live Dynamic Creation & Updating
+          if (key === 'textItems' && Array.isArray(value)) {{
+            value.forEach(function(ti, idx) {{
+              const newText = (ti.text || '').toString();
+              const origText = (ti.originalText || '').toString().trim();
+              if (!newText) return;
+
+              // 1. Try finding and replacing existing text in DOM
+              if (origText && origText.length >= 2) {{
+                const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+                let node;
+                let found = false;
+                while ((node = walker.nextNode())) {{
+                  if (node.nodeValue && node.nodeValue.includes(origText)) {{
+                    node.nodeValue = node.nodeValue.replace(origText, newText);
+                    ti.originalText = newText;
+                    found = true;
+                    break;
+                  }}
+                }}
+                if (found) return;
+              }}
+
+              // 2. Dynamic DOM Element insertion for newly added content items!
+              const dynId = 'studio-dyn-text-' + (ti.id || idx);
+              let existingEl = root.querySelector('#' + dynId);
+              if (existingEl) {{
+                existingEl.textContent = newText;
+              }} else if (ti.isNew || !origText) {{
+                const candidateSiblings = Array.from(root.querySelectorAll('p, div.grid > div, [class*="card"], li, h4, span'));
+                const lastSibling = candidateSiblings.length > 0 ? candidateSiblings[candidateSiblings.length - 1] : null;
+                if (lastSibling && lastSibling.parentElement) {{
+                  const newEl = lastSibling.cloneNode(true);
+                  newEl.id = dynId;
+                  newEl.setAttribute('data-studio-dynamic', 'true');
+                  const targetChild = newEl.querySelector('p, h4, span') || newEl;
+                  targetChild.textContent = newText;
+                  lastSibling.parentElement.appendChild(newEl);
+                }} else {{
+                  const newEl = document.createElement('p');
+                  newEl.id = dynId;
+                  newEl.className = 'studio-added-content leading-relaxed text-foreground mt-2';
+                  newEl.textContent = newText;
+                  (secEl || document.body).appendChild(newEl);
+                }}
+              }}
+            }});
+            return;
+          }}
+
+          // (11) Smart Universal Text Match & Replace (works for textItems, bio, stats, anything typed or pasted)
+          if (typeof value === 'string' && value.trim()) {{
+            const targetToFind = originalText;
+            if (targetToFind && targetToFind.length >= 2) {{
+              const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+              let node;
+              while ((node = walker.nextNode())) {{
+                if (node.nodeValue && node.nodeValue.includes(targetToFind)) {{
+                  node.nodeValue = node.nodeValue.replace(targetToFind, value);
+                  return;
+                }}
+              }}
+            }}
+          }}
+        }}
+
         window.addEventListener('message', function(evt) {{
           if (evt.data && evt.data.type === 'UPDATE_THEME_COLOR' && evt.data.color) {{
             applyLiveThemeColor(evt.data.color);
+          }}
+          if (evt.data && evt.data.type === 'UPDATE_CONTENT') {{
+            applyLiveContent(evt.data);
+          }}
+          if (evt.data && evt.data.type === 'SCROLL_TO_SECTION' && evt.data.sectionId) {{
+            const sId = evt.data.sectionId;
+            const targetEl = document.getElementById(sId) || document.querySelector('.' + sId) || document.querySelector('[data-section="' + sId + '"]') || (sId === 'navbar' ? document.querySelector('nav, header') : null);
+            if (targetEl) {{
+              targetEl.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+            }}
           }}
         }});
         // 3. AI Site Studio Demo Guardian — auto-wipe data on tab close or navigation away

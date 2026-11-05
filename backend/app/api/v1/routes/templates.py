@@ -622,6 +622,84 @@ async def reupload_template_zip(
     return await service.get_template_by_id(t_uuid)
 
 
+@router.post("/purge-custom-drafts")
+async def purge_custom_drafts(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Deletes all customized draft templates, studio creator projects, and edited files
+    created by the current user.
+    """
+    import shutil
+    from sqlalchemy import or_, select
+
+    service = TemplateService(db)
+
+    # 1. Query all draft/custom templates
+    role_val = getattr(current_user.role, "value", str(current_user.role)).lower()
+    is_admin = role_val in ("admin", "super_admin")
+
+    filters = [
+        or_(
+            Template.status == TemplateStatus.DRAFT,
+            Template.slug.like("%-custom-%"),
+            Template.slug.like("%-draft-%"),
+            Template.title.like("Customized %"),
+            Template.title.like("%(Customized)%"),
+            Template.is_marketplace.is_(False),
+            Template.template_origin.in_(["studio", "custom_draft"]),
+        )
+    ]
+    if not is_admin:
+        filters.append(
+            or_(
+                Template.seller_id == current_user.id,
+                getattr(Template, "creator_id", Template.seller_id) == current_user.id
+            )
+        )
+
+    stmt = select(Template).where(*filters)
+    res = await db.execute(stmt)
+    drafts_to_delete = res.scalars().all()
+
+    deleted_ids = []
+    for d in drafts_to_delete:
+        deleted_ids.append(str(d.id))
+        try:
+            await service.delete_template(d.id, current_user)
+        except Exception as del_err:
+            logger.warning(f"Error deleting draft {d.id}: {del_err}")
+
+    # 2. Delete local project directories for drafts from generated_projects/
+    root_dir = Path(__file__).resolve().parents[4]
+    gen_proj_dir = root_dir / "generated_projects"
+    if gen_proj_dir.is_dir():
+        for entry in os.listdir(gen_proj_dir):
+            if "-draft-" in entry or "draft" in entry.lower() or any(d_id in entry for d_id in deleted_ids):
+                try:
+                    full_p = gen_proj_dir / entry
+                    if full_p.is_dir():
+                        shutil.rmtree(full_p, ignore_errors=True)
+                    elif full_p.is_file():
+                        full_p.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+    # 3. Clean up temp live previews
+    temp_prev_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews")
+    if os.path.isdir(temp_prev_dir):
+        for entry in os.listdir(temp_prev_dir):
+            if any(d_id in entry for d_id in deleted_ids) or "-draft-" in entry:
+                try:
+                    shutil.rmtree(os.path.join(temp_prev_dir, entry), ignore_errors=True)
+                except Exception:
+                    pass
+
+    fast_catalog.invalidate()
+    return {"status": "success", "deleted_count": len(deleted_ids), "deleted_ids": deleted_ids}
+
+
 @router.delete("/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_template(
     template_id: str | uuid.UUID,

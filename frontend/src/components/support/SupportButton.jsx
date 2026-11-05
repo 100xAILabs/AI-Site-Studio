@@ -33,7 +33,7 @@ export default function SupportButton() {
   const location = useLocation();
   if (
     location.pathname.includes("/receipt") ||
-    location.pathname.startsWith("/preview") ||
+    location.pathname.includes("preview") ||
     location.pathname.startsWith("/storybook")
   ) {
     return null;

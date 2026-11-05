@@ -394,9 +394,10 @@ export default function Checkout() {
   };
 
   const handleCheckout = async () => {
-    if (items.length === 0) return;
+    if (!hasCartItems) return;
     if (!authToken) {
-      router.push(`/sign-in?from=${encodeURIComponent("/checkout")}`);
+      const returnUrl = typeof window !== "undefined" ? (window.location.pathname + window.location.search) : "/checkout";
+      router.push(`/sign-in?from=${encodeURIComponent(returnUrl)}`);
       return;
     }
     setIsProcessing(true);
@@ -404,6 +405,64 @@ export default function Checkout() {
     const activeGateway = ENABLE_EXTERNAL_GATEWAYS ? paymentGateway : "upi";
 
     try {
+      // 1. Direct Subscription Plan Checkout
+      if (directCheckoutItem?.type === "plan") {
+        const payInfo = await api.post("/payment/purchase-plan", {
+          plan_id: directCheckoutItem.id,
+          billing_cycle: directCheckoutItem.billingCycle || "monthly",
+          gateway: activeGateway,
+        }, authToken);
+
+        const orderObj = { id: payInfo.order_id, order_number: payInfo.order_number, total: payInfo.price };
+        setInitiatedOrder(orderObj);
+        setInitiatedPayment(payInfo);
+
+        if (activeGateway === "razorpay") {
+          await handleOpenRazorpay(orderObj, payInfo);
+        } else if (activeGateway === "stripe") {
+          if (payInfo?.checkout_url) {
+            window.location.href = payInfo.checkout_url;
+          } else {
+            alert("Stripe checkout session creation failed.");
+            setIsProcessing(false);
+          }
+        } else {
+          // UPI QR
+          setPaymentStep("paying");
+          setIsProcessing(false);
+        }
+        return;
+      }
+
+      // 2. Direct Compute Token Pack Checkout
+      if (directCheckoutItem?.type === "pack") {
+        const payInfo = await api.post("/payment/purchase-tokens", {
+          pack_id: directCheckoutItem.id,
+          gateway: activeGateway,
+        }, authToken);
+
+        const orderObj = { id: payInfo.order_id, order_number: payInfo.order_number, total: payInfo.price };
+        setInitiatedOrder(orderObj);
+        setInitiatedPayment(payInfo);
+
+        if (activeGateway === "razorpay") {
+          await handleOpenRazorpay(orderObj, payInfo);
+        } else if (activeGateway === "stripe") {
+          if (payInfo?.checkout_url) {
+            window.location.href = payInfo.checkout_url;
+          } else {
+            alert("Stripe checkout session creation failed.");
+            setIsProcessing(false);
+          }
+        } else {
+          // UPI QR
+          setPaymentStep("paying");
+          setIsProcessing(false);
+        }
+        return;
+      }
+
+      // 3. Regular Marketplace Templates Checkout
       const order = await createOrderMutation.mutateAsync();
       setInitiatedOrder(order);
 
@@ -434,12 +493,81 @@ export default function Checkout() {
     }
   };
 
+  // Direct plan or token pack checkout extraction
+  const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
+  const planParam = searchParams.get("plan");
+  const billingParam = searchParams.get("billing") || "annual";
+  const packParam = searchParams.get("pack");
+
+  let directCheckoutItem = null;
+  if (planParam && ["pro", "agency"].includes(planParam.toLowerCase())) {
+    const isPro = planParam.toLowerCase() === "pro";
+    const isAnnual = billingParam.toLowerCase() === "annual";
+    const monthlyRate = isPro ? (isAnnual ? 15.00 : 19.00) : (isAnnual ? 39.00 : 49.00);
+    const totalPrice = isAnnual ? monthlyRate * 12 : monthlyRate;
+
+    directCheckoutItem = {
+      type: "plan",
+      id: planParam.toLowerCase(),
+      billingCycle: isAnnual ? "annual" : "monthly",
+      title: isPro ? "Pro Creator Subscription Plan" : "Agency & Scale Subscription Plan",
+      subtitle: isPro
+        ? `150 Gemini AI Credits / mo · 3 Live Deployments · AI Doctor Healing (${isAnnual ? "Billed Annually ($180/yr)" : "$19.00 / month"})`
+        : `500 Gemini AI Credits / mo · Unlimited Deployments · Custom Domains + SSL (${isAnnual ? "Billed Annually ($468/yr)" : "$49.00 / month"})`,
+      price: totalPrice,
+      monthlyPrice: monthlyRate,
+      badge: isPro ? "✦ Pro Creator Subscription" : "✦ Agency & Scale Subscription",
+      thumbnail: isPro
+        ? "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop&q=80"
+        : "https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?w=600&auto=format&fit=crop&q=80",
+    };
+  } else if (packParam && ["tokens_50", "tokens_200", "tokens_500"].includes(packParam.toLowerCase())) {
+    const packsMap = {
+      tokens_50: {
+        price: 5.00,
+        credits: 50,
+        title: "Starter Compute Pack (50 Gemini Tokens)",
+        subtitle: "50 Gemini AI Credits for autonomous repairs, code analysis, and AI Fill edits",
+        badge: "AI Compute Pack",
+      },
+      tokens_200: {
+        price: 15.00,
+        credits: 200,
+        title: "Pro Creator Compute Pack (200 Gemini Tokens)",
+        subtitle: "200 Gemini AI Credits for heavy multi-site workflows and instant healing (Save 25%)",
+        badge: "Popular Compute Pack",
+      },
+      tokens_500: {
+        price: 30.00,
+        credits: 500,
+        title: "Studio Enterprise Pack (500 Gemini Tokens)",
+        subtitle: "500 Gemini AI Credits for high-volume agency builds and multi-agent synthesis (Save 40%)",
+        badge: "Enterprise Compute Pack",
+      },
+    };
+    const p = packsMap[packParam.toLowerCase()];
+    if (p) {
+      directCheckoutItem = {
+        type: "pack",
+        id: packParam.toLowerCase(),
+        title: p.title,
+        subtitle: p.subtitle,
+        price: p.price,
+        credits: p.credits,
+        badge: p.badge,
+        thumbnail: "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?w=600&auto=format&fit=crop&q=80",
+      };
+    }
+  }
+
+  const hasCartItems = Boolean(directCheckoutItem || items.length > 0);
+
   // Tax and pricing calculation
-  const cartSubtotal = subtotal();
+  const cartSubtotal = directCheckoutItem ? directCheckoutItem.price : subtotal();
   const taxDetails = getTaxDetails();
-  const cartTax = taxDetails.taxAmount;
-  const cartTotal = taxDetails.totalAmount;
-  const totalItemCount = items.reduce((sum, i) => sum + (i.quantity || 1), 0);
+  const cartTax = directCheckoutItem ? 0 : taxDetails.taxAmount;
+  const cartTotal = directCheckoutItem ? directCheckoutItem.price : taxDetails.totalAmount;
+  const totalItemCount = directCheckoutItem ? 1 : items.reduce((sum, i) => sum + (i.quantity || 1), 0);
 
   // Active currency dynamically based on detected country (or UPI gateway)
   const activeCurrency = (
@@ -894,10 +1022,10 @@ export default function Checkout() {
                       <ShoppingCart className="w-5 h-5 cart-card-title-icon" />
                       <span>Cart Items ({totalItemCount})</span>
                     </div>
-                    {items.length > 0 && (
+                    {hasCartItems && (
                       <button
                         type="button"
-                        onClick={clearCart}
+                        onClick={() => { if (directCheckoutItem) { window.location.href = "/checkout"; } else { clearCart(); } }}
                         className="cart-clear-all-btn"
                         title="Remove all items from cart"
                       >
@@ -907,7 +1035,7 @@ export default function Checkout() {
                     )}
                   </div>
 
-                  {items.length === 0 ? (
+                  {!hasCartItems ? (
                     <div className="cart-empty-box">
                       <div className="cart-empty-icon">
                         <ShoppingBag size={28} />
@@ -927,6 +1055,46 @@ export default function Checkout() {
                         >
                           + Add Sample Items from Mockup
                         </button>
+                      </div>
+                    </div>
+                  ) : directCheckoutItem ? (
+                    <div className="cart-items-stack">
+                      <div className="cart-item-card" style={{ borderColor: "rgba(168, 85, 247, 0.4)", background: "rgba(18, 14, 38, 0.85)" }}>
+                        <div className="cart-item-info-group">
+                          <div className="cart-item-thumb">
+                            <img
+                              src={directCheckoutItem.thumbnail}
+                              alt={directCheckoutItem.title}
+                            />
+                          </div>
+                          <div className="cart-item-details">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                                {directCheckoutItem.badge}
+                              </span>
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                Authenticated & Locked
+                              </span>
+                            </div>
+                            <h3 className="cart-item-title text-base">{directCheckoutItem.title}</h3>
+                            <p className="cart-item-subtitle">{directCheckoutItem.subtitle}</p>
+                            <div className="cart-item-badges mt-2">
+                              <span className="cart-badge-lifetime">
+                                <Zap size={12} className="text-purple-400" />
+                                <span>Instant Activation</span>
+                              </span>
+                              <span className="cart-badge-framework">
+                                {directCheckoutItem.type === "plan" ? "Monthly Subscription" : "Gemini AI Tokens"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="cart-item-actions-group">
+                          <span className="cart-item-price-val text-xl font-bold text-white">
+                            {formatMoney(directCheckoutItem.price)}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   ) : (
@@ -986,7 +1154,7 @@ export default function Checkout() {
 
 
                 {/* 3. Select Payment Method Card */}
-                {items.length > 0 && (
+                {hasCartItems && (
                   <div className="cart-glass-card cart-payment-methods-card">
                     <div className="cart-payment-header">
                       <div className="cart-payment-title">
@@ -1191,7 +1359,7 @@ export default function Checkout() {
                   <button
                     type="button"
                     onClick={handleCheckout}
-                    disabled={items.length === 0 || isProcessing}
+                    disabled={!hasCartItems || isProcessing}
                     className="cart-checkout-cta-btn"
                   >
                     {isProcessing ? (

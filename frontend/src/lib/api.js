@@ -104,3 +104,4 @@ export const api = {
 };
 
 export { API_URL };
+export default api;

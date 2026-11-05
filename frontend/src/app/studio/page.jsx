@@ -9,6 +9,35 @@ import { api, API_URL } from "@/lib/api";
 import { useStudioBuildStore } from "@/store/studioBuildStore";
 import "./Page.css";
 
+
+const STUDIO_TAXONOMY = [
+  { label: "Business", value: "business", subCategories: ["Corporate", "Startup", "Small Business", "Enterprise", "Consulting", "Finance", "Insurance", "Accounting", "Manufacturing", "Logistics"] },
+  { label: "SaaS & Technology", value: "saas-technology", subCategories: ["SaaS", "Tech Startup", "Software", "Mobile App", "Web App", "Cyber Security", "Cloud Computing", "Data Analytics", "CRM", "DevOps"] },
+  { label: "E-Commerce", value: "ecommerce", subCategories: ["Fashion", "Electronics", "Furniture", "Jewelry", "Beauty", "Grocery", "Pet Store", "Book Store", "Sports", "Digital Products", "Multi Vendor"] },
+  { label: "Restaurant & Food", value: "restaurant-food", subCategories: ["Restaurant", "Cafe", "Bakery", "Fast Food", "Hotel", "Food Delivery", "Catering", "Cloud Kitchen", "Ice Cream", "Juice Bar"] },
+  { label: "Healthcare", value: "healthcare", subCategories: ["Hospital", "Clinic", "Dentist", "Pharmacy", "Medical Lab", "Veterinary", "Mental Health", "Physiotherapy", "Eye Clinic", "Nursing Home"] },
+  { label: "Real Estate", value: "real-estate", subCategories: ["Property Listing", "Builder", "Interior Design", "Architecture", "Home Rental", "Apartment", "Commercial Property", "Villa", "Construction"] },
+  { label: "Education", value: "education", subCategories: ["School", "College", "University", "Online Courses", "Coaching Center", "LMS", "Kindergarten", "Library", "Tuition", "E-learning"] },
+  { label: "Portfolio", value: "portfolio", subCategories: ["Designer", "Developer", "Photographer", "Artist", "Freelancer", "Writer", "Musician", "Architect", "Videographer", "Fashion Designer"] },
+  { label: "Creative Agency", value: "creative-agency", subCategories: ["Marketing Agency", "Digital Agency", "Branding", "SEO Agency", "Advertising", "UI/UX Studio", "Creative Studio", "PR Agency"] },
+  { label: "Events", value: "events", subCategories: ["Wedding", "Conference", "Event Planner", "Exhibition", "Music Festival", "Birthday", "Corporate Event", "Meetup"] },
+  { label: "Travel", value: "travel", subCategories: ["Tour Agency", "Hotel Booking", "Resort", "Travel Blog", "Visa Agency", "Adventure", "Car Rental", "Airline"] },
+  { label: "Fitness", value: "fitness", subCategories: ["Gym", "Yoga", "Personal Trainer", "CrossFit", "Nutrition", "Sports Club", "Martial Arts", "Dance Studio"] },
+  { label: "Beauty", value: "beauty", subCategories: ["Salon", "Spa", "Makeup Artist", "Skincare", "Barber Shop", "Cosmetics", "Nail Studio"] },
+  { label: "Legal", value: "legal", subCategories: ["Lawyer", "Law Firm", "Legal Consultant", "Notary", "Immigration", "Tax Consultant"] },
+  { label: "NGO & Charity", value: "ngo-charity", subCategories: ["Charity", "Foundation", "Community", "Volunteer", "Donations", "Religious Organization"] },
+  { label: "Automotive", value: "automotive", subCategories: ["Car Dealer", "Bike Dealer", "Auto Service", "Garage", "Car Rental", "EV Company"] },
+  { label: "Blog & Magazine", value: "blog-magazine", subCategories: ["Personal Blog", "Technology", "Lifestyle", "Travel", "Food", "News", "Fashion", "Sports", "Magazine"] },
+  { label: "Gaming", value: "gaming", subCategories: ["eSports", "Gaming Community", "Game Studio", "Streamer", "Gaming Shop"] },
+  { label: "Finance", value: "finance", subCategories: ["Banking", "Investment", "Cryptocurrency", "Trading", "FinTech", "Loan Company"] },
+  { label: "Entertainment", value: "entertainment", subCategories: ["Music", "Movies", "Podcast", "Streaming", "TV Show", "Celebrity"] },
+  { label: "Landing Pages", value: "landing-pages", subCategories: ["Product Launch", "Startup", "App Landing", "Webinar", "Coming Soon", "Waitlist", "Lead Generation"] },
+  { label: "Dashboards", value: "dashboards", subCategories: ["Admin Dashboard", "CRM Dashboard", "Analytics Dashboard", "Ecommerce Dashboard", "Finance Dashboard", "HR Dashboard", "LMS Dashboard"] },
+  { label: "Documentation", value: "documentation", subCategories: ["API Docs", "Product Docs", "Knowledge Base", "Help Center", "Wiki"] },
+  { label: "Authentication", value: "authentication", subCategories: ["Login", "Register", "Forgot Password", "OTP", "Multi-factor Authentication"] },
+  { label: "Marketplace", value: "marketplace", subCategories: ["Digital Products", "Multi Vendor", "Auctions", "Freelance Marketplace", "Job Board"] },
+];
+
 const AGENTS = [
   "Planning Agent",
   "UI Designer Agent",
@@ -52,8 +81,8 @@ export default function StudioPage() {
   const currentEvents = buildStore.events?.length ? buildStore.events : events;
 
   const autoDetectedStack = useMemo(() => {
-    const categoryName = (categories.find((c) => String(c.id) === String(categoryId))?.name || "").toLowerCase();
-    const catSlug = (categories.find((c) => String(c.id) === String(categoryId))?.slug || "").toLowerCase();
+    const categoryName = (displayCategories.find((c) => String(c.id) === String(categoryId) || c.slug === categoryId)?.name || "").toLowerCase();
+    const catSlug = (displayCategories.find((c) => String(c.id) === String(categoryId) || c.slug === categoryId)?.slug || "").toLowerCase();
     const genreLower = (genre || "").toLowerCase();
     const promptLower = (prompt || "").toLowerCase();
 
@@ -98,7 +127,7 @@ export default function StudioPage() {
     const dynamicBackendRegex = /\b(?:live\s+database|postgres(?:ql)?\s+database|sqlite\s+database|database\s+schema|database\s+crud|table\s+schema|persist\s+data\s+to\s+db|user\s+authentication|user\s+login|sign[\s\-]?in\s+portal|sign[\s\-]?up\s+portal|register\s+account|password\s+reset|jwt\s+tokens?|admin\s+panel|admin\s+dashboard|management\s+portal|crm\s+system|booking\s+system|reservation\s+system|shopping\s+cart|payment\s+gateway|stripe\s+checkout|process\s+payments?|order\s+management\s+system|fastapi\s+backend|rest\s+api\s+endpoints?|backend\s+service\s+with\s+database)\b/i;
 
     return dynamicBackendRegex.test(fullText) ? "react-fastapi-postgresql" : "html-css-js";
-  }, [prompt, genre, categoryId, categories]);
+  }, [prompt, genre, categoryId, displayCategories]);
   const stack = autoDetectedStack;
 
   const pipelineAgents = useMemo(() => {
@@ -133,7 +162,33 @@ export default function StudioPage() {
     return () => { alive = false; };
   }, []); // Auth is loaded before the protected Studio route mounts.
 
-  const selectedCategory = useMemo(() => categories.find((item) => item.id === categoryId), [categories, categoryId]);
+  const displayCategories = useMemo(() => {
+    const apiSlugs = new Set((categories || []).map((c) => c.slug));
+    const merged = [
+      ...(categories || []),
+      ...STUDIO_TAXONOMY.filter((st) => !apiSlugs.has(st.value)).map((st) => ({
+        id: st.value,
+        name: st.label,
+        slug: st.value,
+        subCategories: st.subCategories,
+      })),
+    ];
+    return merged.map((c) => {
+      const taxonomyMatch = STUDIO_TAXONOMY.find((t) => t.value === c.slug || t.label.toLowerCase() === (c.name || "").toLowerCase());
+      return {
+        ...c,
+        subCategories: taxonomyMatch?.subCategories || [],
+      };
+    });
+  }, [categories]);
+
+  const selectedCategory = useMemo(() => {
+    return displayCategories.find((item) => String(item.id) === String(categoryId) || item.slug === categoryId);
+  }, [displayCategories, categoryId]);
+
+  const availableSubCategories = useMemo(() => {
+    return selectedCategory?.subCategories || [];
+  }, [selectedCategory]);
   const selectedSiteType = `${selectedCategory?.name || ""} ${genre}`;
   const constructionPattern = /construction|contractor|building company|roofing|remodel(?:ing)?|renovation|home improvement|(?:home|house|custom|commercial|residential) builder/i;
   const portfolioPattern = /\bportfolio\b|\bresume\b|résumé|\bcv\b|personal\s+(?:site|website)\b|photographer\s+portfolio/i;
@@ -213,8 +268,10 @@ export default function StudioPage() {
     setError("");
     try {
       const token = await getToken();
-      const effectiveCatId = categoryId || categories.find((c) => c.name?.toLowerCase() === (selectedCategory?.name || "").toLowerCase())?.id || categories[0]?.id || null;
-      const effectiveCatName = selectedCategory?.name || categories.find((c) => c.id === effectiveCatId)?.name || "Website";
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(categoryId || ""));
+      const matchedDbCat = categories.find((c) => c.slug === selectedCategory?.slug || c.name?.toLowerCase() === (selectedCategory?.name || "").toLowerCase());
+      const effectiveCatId = isUuid ? categoryId : (matchedDbCat?.id || categories[0]?.id || null);
+      const effectiveCatName = selectedCategory?.name || matchedDbCat?.name || "Website";
       await buildStore.startBuild({
         prompt,
         categoryId: effectiveCatId,
@@ -550,17 +607,67 @@ export default function StudioPage() {
             </fieldset>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-200">Marketplace category</label>
-                <select required value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white outline-none focus:border-violet-400/60">
-                  <option value="">Choose a category</option>
-                  {categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                <label className="mb-2 block text-sm font-semibold text-slate-200">
+                  Marketplace Category <span className="text-violet-400 font-normal">({displayCategories.length} categories)</span>
+                </label>
+                <select
+                  required
+                  value={categoryId}
+                  onChange={(e) => {
+                    const newId = e.target.value;
+                    setCategoryId(newId);
+                    const cat = displayCategories.find((c) => String(c.id) === String(newId) || c.slug === newId);
+                    if (cat?.subCategories?.length && !genre) {
+                      setGenre(cat.subCategories[0]);
+                    }
+                  }}
+                  className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white outline-none focus:border-violet-400/60"
+                >
+                  <option value="">Choose a category ({displayCategories.length} available)</option>
+                  {displayCategories.map((item) => (
+                    <option key={item.id || item.slug} value={item.id || item.slug}>
+                      {item.name}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-200">Genre or site type</label>
-                <input value={genre} onChange={(e) => setGenre(e.target.value)} maxLength={100} placeholder="Portfolio, online shop, restaurant…" className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-violet-400/60" />
+                <input
+                  value={genre}
+                  onChange={(e) => setGenre(e.target.value)}
+                  maxLength={100}
+                  placeholder="e.g. Resort Hotel, Coffee Shop, SaaS Dashboard…"
+                  className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-violet-400/60"
+                />
               </div>
             </div>
+
+            {/* Quick Sub-Category Suggestion Chips */}
+            {availableSubCategories.length > 0 && (
+              <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-3">
+                <span className="text-xs font-semibold text-violet-300 mb-2 flex items-center gap-1.5">
+                  <Tag className="w-3.5 h-3.5 text-violet-400" />
+                  Popular {selectedCategory?.name} Specialties (click to auto-fill):
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {availableSubCategories.map((sub) => (
+                    <button
+                      key={sub}
+                      type="button"
+                      onClick={() => setGenre(sub)}
+                      className={`text-xs px-2.5 py-1 rounded-lg border transition ${
+                        genre.toLowerCase() === sub.toLowerCase()
+                          ? "bg-violet-500/30 border-violet-400 text-violet-200 font-bold shadow-sm shadow-violet-500/20"
+                          : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white"
+                      }`}
+                    >
+                      {sub}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {error && <p role="alert" className="rounded-xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">{error}</p>}
             <button disabled={loadingPlan || !categoryId || !effectivePageStructure || prompt.trim().length < 10} className="inline-flex w-fit items-center justify-center gap-2 rounded-xl bg-violet-500 px-5 py-3 text-sm font-bold text-white transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50">
               <WandSparkles size={17} />

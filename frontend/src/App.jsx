@@ -34,6 +34,7 @@ import VerifyOTPPage from './app/verify-otp/page.jsx'
 import ForgotPasswordPage from './app/forgot-password/page.jsx'
 import ReceiptPage from './app/dashboard/receipt/page.jsx'
 import PayoutReceiptPage from './app/dashboard/payout-receipt/page.jsx'
+import DeployedWebsiteDetailsPage from './app/deployments/[id]/page.jsx'
 import PrivacyPolicyPage from './app/privacy/page.jsx'
 import TermsPage from './app/terms/page.jsx'
 
@@ -112,6 +113,8 @@ function App() {
             <Route path="/cart" element={<Checkout />} />
             <Route path="/checkout" element={<Checkout />} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/deployments/:id" element={<ProtectedRoute><DeployedWebsiteDetailsPage /></ProtectedRoute>} />
+            <Route path="/dashboard/deployments/:id" element={<ProtectedRoute><DeployedWebsiteDetailsPage /></ProtectedRoute>} />
             <Route path="/dashboard/receipt/:orderId" element={<ProtectedRoute><ReceiptPage /></ProtectedRoute>} />
             <Route path="/dashboard/payout-receipt/:withdrawalId" element={<ProtectedRoute><PayoutReceiptPage /></ProtectedRoute>} />
             <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPanel /></ProtectedRoute>} />

@@ -12,7 +12,7 @@
  *   4. Right Column displays the actual component names and properties used in that specific template.
  */
 
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
   Image, UploadCloud, Palette, Paintbrush,
@@ -449,6 +449,153 @@ function detectTemplateSections(templateData, pages) {
   return detected;
 }
 
+export const dispatchLiveIframeColor = (cleanHex) => {
+  try {
+    if (!cleanHex || typeof cleanHex !== "string") return;
+    const clean = cleanHex.replace('#', '');
+    const hex = clean.length === 3 ? clean.split('').map((c) => c + c).join('') : clean;
+    const r = parseInt(hex.substring(0, 2), 16) || 79;
+    const g = parseInt(hex.substring(2, 4), 16) || 70;
+    const b = parseInt(hex.substring(4, 6), 16) || 229;
+    const rH = Math.max(0, Math.floor(r * 0.82));
+    const gH = Math.max(0, Math.floor(g * 0.82));
+    const bH = Math.max(0, Math.floor(b * 0.82));
+    const hoverColor = '#' + [rH, gH, bH].map((x) => x.toString(16).padStart(2, '0')).join('');
+    const fullHex = `#${hex.toUpperCase()}`;
+    const gradCss = `linear-gradient(135deg, ${fullHex} 0%, ${hoverColor} 100%)`;
+    const gradRevCss = `linear-gradient(135deg, ${hoverColor} 0%, ${fullHex} 100%)`;
+
+    const iframes = document.querySelectorAll("iframe");
+    iframes.forEach((frame) => {
+      // 1. PostMessage to iframe sandbox listener
+      try {
+        frame.contentWindow?.postMessage(
+          { type: "UPDATE_THEME_COLOR", color: fullHex, hoverColor },
+          "*"
+        );
+      } catch (_) {}
+
+      // 2. Direct DOM override if accessible
+      try {
+        if (frame.contentDocument) {
+          const doc = frame.contentDocument;
+          let styleTag = doc.getElementById("studio-live-theme-override");
+          if (!styleTag) {
+            styleTag = doc.createElement("style");
+            styleTag.id = "studio-live-theme-override";
+            doc.head?.appendChild(styleTag);
+          }
+          styleTag.textContent = `
+            :root, :root[data-theme="light"], :root[data-theme="dark"], html, body {
+              --c-primary: ${fullHex} !important;
+              --c-primary-hover: ${hoverColor} !important;
+              --color-primary: ${fullHex} !important;
+              --color-primary-dark: ${hoverColor} !important;
+              --color-primary-hover: ${hoverColor} !important;
+              --primary: ${fullHex} !important;
+              --primary-color: ${fullHex} !important;
+              --primary-hover: ${hoverColor} !important;
+              --primary-dark: ${hoverColor} !important;
+              --accent: ${fullHex} !important;
+              --accent-color: ${fullHex} !important;
+              --accent-primary: ${fullHex} !important;
+              --accent-hover: ${hoverColor} !important;
+              --color-accent: ${fullHex} !important;
+              --theme-color: ${fullHex} !important;
+              --brand: ${fullHex} !important;
+              --brand-color: ${fullHex} !important;
+              --cta-bg: ${fullHex} !important;
+              --accent-gold: ${fullHex} !important;
+              --accent-gold-hover: ${hoverColor} !important;
+              --accent-amber: ${fullHex} !important;
+              --blue: ${fullHex} !important;
+              --violet: ${hoverColor} !important;
+              --cyan: ${fullHex} !important;
+              --green: ${fullHex} !important;
+              --red: ${fullHex} !important;
+              --red-dim: ${hoverColor} !important;
+              --grad: ${gradCss} !important;
+              --grad-r: ${gradRevCss} !important;
+              --glow-blue: rgba(${r}, ${g}, ${b}, 0.25) !important;
+              --glow-vio: rgba(${rH}, ${gH}, ${bH}, 0.2) !important;
+              --border2: rgba(${r}, ${g}, ${b}, 0.3) !important;
+            }
+            .btn-primary, .nav-cta, .hero-cta, .btn, .button, .primary-btn, a.btn-primary, button.btn-primary, [data-theme-color="true"], [class*="btn-primary"], [class*="nav-cta"] {
+              background: ${gradCss} !important;
+              background-color: ${fullHex} !important;
+              background-image: ${gradCss} !important;
+              border-color: ${fullHex} !important;
+              color: #ffffff !important;
+              box-shadow: 0 4px 18px rgba(${r}, ${g}, ${b}, 0.35) !important;
+            }
+            .btn-primary:hover, .nav-cta:hover, .hero-cta:hover, .primary-btn:hover {
+              background: ${gradRevCss} !important;
+              background-color: ${hoverColor} !important;
+              background-image: ${gradRevCss} !important;
+              border-color: ${hoverColor} !important;
+              color: #ffffff !important;
+            }
+            .nav-logo, h1 .accent, .accent, .accent-text, [class*="accent-text"], .gradient-text, .text-gradient, a.brand-logo span, .hero-subtitle span {
+              background: ${gradCss} !important;
+              background-clip: text !important;
+              -webkit-background-clip: text !important;
+              -webkit-text-fill-color: transparent !important;
+            }
+            .text-primary, [class*="text-primary"], .nav-links a:hover, .brand-text, .gold-text {
+              color: ${fullHex} !important;
+            }
+            .pulse, .status-dot {
+              background: ${fullHex} !important;
+              box-shadow: 0 0 0 0 rgba(${r}, ${g}, ${b}, 0.5) !important;
+            }
+            #crosshair, .tape-stripe { border-color: ${fullHex} !important; }
+            #crosshair::before, #crosshair::after { background: ${fullHex} !important; }
+            ::selection { background: ${fullHex} !important; color: #ffffff !important; }
+          `;
+          ['--c-primary', '--color-primary', '--primary', '--theme-color', '--accent', '--blue', '--violet', '--cyan', '--grad'].forEach((p) => {
+            try { doc.documentElement.style.setProperty(p, fullHex, 'important'); } catch(_) {}
+          });
+        }
+      } catch (_) {}
+    });
+  } catch (err) {
+    console.warn("Could not dispatch live color:", err);
+  }
+};
+
+export const dispatchLiveSectionScroll = (sectionId) => {
+  try {
+    if (!sectionId) return;
+    const iframes = document.querySelectorAll("iframe");
+    iframes.forEach((frame) => {
+      try {
+        frame.contentWindow?.postMessage({ type: "SCROLL_TO_SECTION", sectionId }, "*");
+      } catch (_) {}
+    });
+  } catch (_) {}
+};
+
+export const dispatchLiveContentUpdate = (sectionId, key, value, prevValue = null) => {
+  try {
+    if (typeof value === "undefined") return;
+    const payload = {
+      type: "UPDATE_CONTENT",
+      sectionId,
+      key,
+      value,
+      prevValue
+    };
+    const iframes = document.querySelectorAll("iframe");
+    iframes.forEach((frame) => {
+      try {
+        frame.contentWindow?.postMessage(payload, "*");
+      } catch (_) {}
+    });
+  } catch (err) {
+    console.warn("Could not dispatch live content update:", err);
+  }
+};
+
 export default function PreviewPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -456,6 +603,7 @@ export default function PreviewPage() {
   const activeTemplateId = searchParams.get("template") || searchParams.get("templateId") || searchParams.get("slug") || "default";
   const studioBuildId = searchParams.get("build") || "";
   const [customDraftId, setCustomDraftId] = useState(null);
+  const effectiveTemplateId = customDraftId || activeTemplateId;
 
   // Template Data State
   const [templateData, setTemplateData] = useState(null);
@@ -744,8 +892,17 @@ export default function PreviewPage() {
 
   const handleSelectPage = (page) => {
     setActivePage(page.id);
+    setEditorMode("manual");
     if (page.sectionKey && sections.some((s) => s.id === page.sectionKey)) {
       setSelectedSectionId(page.sectionKey);
+      dispatchLiveSectionScroll(page.sectionKey);
+    } else if (page.id.startsWith("#")) {
+      const sId = page.id.replace("#", "");
+      setSelectedSectionId(sId);
+      dispatchLiveSectionScroll(sId);
+    } else if (page.sectionKey) {
+      setSelectedSectionId(page.sectionKey);
+      dispatchLiveSectionScroll(page.sectionKey);
     }
     setNotice(`✓ Switched to "${page.title}" (${page.path || page.id})`);
     setTimeout(() => setNotice(""), 3000);
@@ -943,9 +1100,12 @@ export default function PreviewPage() {
         // If extracted-data endpoint didn't succeed, extract directly in frontend via live preview HTML!
         if (!extracted || extracted.status !== "success") {
           try {
-            const liveHtml = await api.get(`/preview/live/${activeTemplateId}`).catch(() => null);
-            if (typeof liveHtml === "string" && liveHtml.length > 50) {
-              extracted = extractTemplateFromHtml(liveHtml);
+            const rawRes = await fetch(`${API_BASE}/preview/live/${activeTemplateId}`);
+            if (rawRes.ok) {
+              const liveHtml = await rawRes.text();
+              if (typeof liveHtml === "string" && liveHtml.length > 50) {
+                extracted = extractTemplateFromHtml(liveHtml);
+              }
             }
           } catch (e) {
             console.warn("Frontend DOM extraction fallback error:", e);
@@ -954,6 +1114,15 @@ export default function PreviewPage() {
 
         if (cancelled) return;
         let initialProps = { ...defaultSectionPropsRef.current };
+        let primaryColor = "#6366f1";
+
+        // Check local storage for persistent user custom color first!
+        try {
+          const cachedColor = localStorage.getItem(`studio_theme_color_${activeTemplateId}`) || localStorage.getItem(`studio_theme_color_${effectiveTemplateId}`);
+          if (cachedColor && /^#[0-9a-fA-F]{3,8}$/.test(cachedColor)) {
+            primaryColor = cachedColor;
+          }
+        } catch (_) {}
 
         if (data) {
           setTemplateData(data);
@@ -989,12 +1158,15 @@ export default function PreviewPage() {
             setPages(dynamicPages);
           }
 
-          let primaryColor = "#6366f1";
-          if (data.color_scheme) {
-            const schemeLower = data.color_scheme.toLowerCase();
-            if (schemeLower.includes("red")) primaryColor = "#dc2626";
-            else if (schemeLower.includes("green")) primaryColor = "#059669";
-            else if (schemeLower.includes("blue")) primaryColor = "#2563eb";
+          if (primaryColor === "#6366f1" && data.color_scheme) {
+            if (data.color_scheme.trim().startsWith("#")) {
+              primaryColor = data.color_scheme.trim();
+            } else {
+              const schemeLower = data.color_scheme.toLowerCase();
+              if (schemeLower.includes("red")) primaryColor = "#dc2626";
+              else if (schemeLower.includes("green")) primaryColor = "#059669";
+              else if (schemeLower.includes("blue")) primaryColor = "#2563eb";
+            }
           }
 
           const bName = data.title || "Apex Design Studio";
@@ -1026,12 +1198,18 @@ export default function PreviewPage() {
 
         // Apply extracted brand & section props directly from template source files
         if (extracted && extracted.status === "success") {
+          const diskColor = extracted.brand?.primary_color;
+          if (diskColor && diskColor.startsWith("#") && primaryColor === "#6366f1") {
+            primaryColor = diskColor;
+          }
+
           if (extracted.brand) {
             setBrand((prev) => ({
               ...prev,
               ...extracted.brand,
               business_name: extracted.brand.business_name || prev.business_name,
               logo_text: extracted.brand.logo_text || prev.logo_text,
+              primary_color: primaryColor,
             }));
           }
           if (extracted.sections) {
@@ -1049,6 +1227,28 @@ export default function PreviewPage() {
             }));
             setSections(realDetected);
             setSelectedSectionId((prev) => realDetected.some((s) => s.id === prev) ? prev : realDetected[0].id);
+
+            // Populate top multi-page switcher if only 1 page exists
+            setPages((prevPages) => {
+              if (!prevPages || prevPages.length <= 1) {
+                const sectionPages = [
+                  { id: "index.html", title: "Home", icon: "🏠", path: "index.html", sectionKey: "navbar" }
+                ];
+                realDetected.forEach((sec) => {
+                  if (sec.id !== "navbar" && sec.id !== "footer") {
+                    sectionPages.push({
+                      id: `#${sec.id}`,
+                      title: sec.name,
+                      icon: "📑",
+                      path: `#${sec.id}`,
+                      sectionKey: sec.id
+                    });
+                  }
+                });
+                return sectionPages;
+              }
+              return prevPages;
+            });
             return;
           }
         }
@@ -1084,10 +1284,45 @@ export default function PreviewPage() {
     return sectionProps[currentSection.id] || sectionProps.navbar || {};
   }, [sectionProps, currentSection.id]);
 
+  const forkingRef = useRef(false);
+
+  const ensureUserDraftCopy = useCallback(async () => {
+    if (customDraftId) return customDraftId;
+    if (forkingRef.current) return null;
+    if (templateData && templateData.status === "draft") {
+      setCustomDraftId(templateData.id);
+      return templateData.id;
+    }
+    if (!activeTemplateId || activeTemplateId === "default") return null;
+
+    forkingRef.current = true;
+    try {
+      const res = await api.post(`/preview/live/${activeTemplateId}/fork-draft`);
+      const newDraftId = res?.draft_id || res?.data?.draft_id || res?.template_id;
+      if (newDraftId) {
+        setCustomDraftId(newDraftId);
+        try {
+          const u = new URL(window.location.href);
+          u.searchParams.set("template", newDraftId);
+          window.history.replaceState(null, "", u.pathname + u.search);
+        } catch (_) {}
+        setNotice("📁 Cloned template to your private draft. Marketplace template is protected.");
+        setTimeout(() => setNotice(""), 4500);
+        return newDraftId;
+      }
+    } catch (err) {
+      console.warn("Could not auto-fork draft:", err);
+    } finally {
+      forkingRef.current = false;
+    }
+    return null;
+  }, [customDraftId, templateData, activeTemplateId]);
+
   // ─────────────────────────────────────────────────────────────────────────
   // Field Edit Handler: Natural Backspace & Typing
   // ─────────────────────────────────────────────────────────────────────────
   const handleFieldChange = (key, value) => {
+    const prevVal = sectionProps[currentSection?.id]?.[key];
     setHasUnfinalizedChanges(true);
     setSectionProps((prev) => ({
       ...prev,
@@ -1100,25 +1335,19 @@ export default function PreviewPage() {
     // If changing themeColor, instantly propagate to all live preview iframes
     if (key === "themeColor" && typeof value === "string") {
       try {
-        const iframes = document.querySelectorAll("iframe");
-        iframes.forEach((frame) => {
-          try {
-            frame.contentWindow?.postMessage(
-              { type: "UPDATE_THEME_COLOR", color: value },
-              "*"
-            );
-            if (frame.contentDocument) {
-              frame.contentDocument.documentElement.style.setProperty("--accent-gold", value);
-              frame.contentDocument.documentElement.style.setProperty("--accent-amber", value);
-              frame.contentDocument.documentElement.style.setProperty("--primary", value);
-              frame.contentDocument.documentElement.style.setProperty("--primary-color", value);
-              frame.contentDocument.documentElement.style.setProperty("--accent", value);
-              frame.contentDocument.documentElement.style.setProperty("--theme-color", value);
-            }
-          } catch (_) { }
-        });
-      } catch (_) { }
+        if (effectiveTemplateId) {
+          localStorage.setItem(`studio_theme_color_${effectiveTemplateId}`, value);
+          localStorage.setItem(`studio_theme_color_${activeTemplateId}`, value);
+        }
+      } catch (_) {}
+      dispatchLiveIframeColor(value);
+    } else {
+      // Instantly dispatch live content update to center demo iframe ("like copy-paste")
+      dispatchLiveContentUpdate(currentSection?.id, key, value, prevVal);
     }
+
+    // Auto-fork marketplace template into private draft so master is never edited
+    ensureUserDraftCopy();
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1185,6 +1414,7 @@ export default function PreviewPage() {
   const handleAddSection = (sec) => {
     if (sections.some((s) => s.id === sec.id)) return;
     setHasUnfinalizedChanges(true);
+    setEditorMode("manual");
     const updated = [...sections, sec];
     setSections(updated);
     setSelectedSectionId(sec.id);
@@ -1234,24 +1464,36 @@ export default function PreviewPage() {
   // ─────────────────────────────────────────────────────────────────────────
   const handleApplyThemeColorToProject = async (newColor) => {
     setHasUnfinalizedChanges(true);
-    if (!effectiveTemplateId || effectiveTemplateId === "default") {
+    let targetId = customDraftId;
+    if (!targetId && templateData?.status !== "draft") {
+      targetId = await ensureUserDraftCopy();
+    }
+    if (!targetId) targetId = effectiveTemplateId;
+
+    if (!targetId || targetId === "default") {
       setNotice("Theme color preview updated in memory.");
       return;
     }
     try {
-      const res = await api.post(`/preview/live/${effectiveTemplateId}/apply-theme-color`, {
+      const res = await api.post(`/preview/live/${targetId}/apply-theme-color`, {
         primary_color: newColor
       });
-      // Broadcast postMessage to all iframes
-      const iframes = document.querySelectorAll("iframe");
-      iframes.forEach((frame) => {
+      if (res?.draft_id && res.draft_id !== targetId) {
+        setCustomDraftId(res.draft_id);
+        targetId = res.draft_id;
         try {
-          frame.contentWindow?.postMessage(
-            { type: "UPDATE_THEME_COLOR", color: newColor },
-            "*"
-          );
+          const u = new URL(window.location.href);
+          u.searchParams.set("template", res.draft_id);
+          window.history.replaceState(null, "", u.pathname + u.search);
         } catch (_) {}
-      });
+      }
+      // Save locally to guarantee persistence across browser refreshes
+      try {
+        localStorage.setItem(`studio_theme_color_${effectiveTemplateId}`, newColor);
+        localStorage.setItem(`studio_theme_color_${activeTemplateId}`, newColor);
+      } catch (_) {}
+      // Broadcast live styling to iframes immediately
+      dispatchLiveIframeColor(newColor);
       // Update local state across all sections
       setSectionProps((prev) => {
         const next = { ...prev };
@@ -1260,6 +1502,9 @@ export default function PreviewPage() {
         });
         return next;
       });
+      setBrand((prev) => ({ ...prev, primary_color: newColor }));
+      // Reload iframe from updated disk files
+      setIframeKey((prev) => prev + 1);
       setNotice(`✓ Theme color ${newColor} permanently applied to website code (index.css)!`);
       setTimeout(() => setNotice(""), 6000);
       return res;
@@ -1353,6 +1598,93 @@ export default function PreviewPage() {
     return res;
   };
 
+  const handleSaveSingleSection = async (sectionId) => {
+    const secObj = sections.find((s) => s.id === sectionId) || currentSection;
+    const secName = secObj?.name || sectionId;
+    setSavingManual(true);
+    setNotice(`💾 Saving "${secName}" section to project...`);
+    try {
+      const res = await handleSaveManual();
+      if (res !== false) {
+        setNotice(`✓ Saved "${secName}" section successfully!`);
+      }
+    } catch (err) {
+      setNotice(`Could not save "${secName}": ${err?.message || "Please try again."}`);
+    } finally {
+      setSavingManual(false);
+      setTimeout(() => setNotice(""), 5000);
+    }
+  };
+
+  const handleSaveAllSections = async () => {
+    setSavingManual(true);
+    setNotice("⚡ Saving all sections at once across your website...");
+    try {
+      const res = await handleSaveManual();
+      if (res !== false) {
+        setNotice("✓ Successfully saved all sections at once to your project draft!");
+      }
+    } catch (err) {
+      setNotice(`Could not save all sections: ${err?.message || "Please try again."}`);
+    } finally {
+      setSavingManual(false);
+      setTimeout(() => setNotice(""), 5000);
+    }
+  };
+
+  const handleAddMoreContent = () => {
+    if (!currentSection?.id) return;
+    setHasUnfinalizedChanges(true);
+
+    // 1. If section has cards array
+    if (Array.isArray(currentProps.cards) && currentProps.cards.length > 0) {
+      const last = currentProps.cards[currentProps.cards.length - 1] || {};
+      const newIdx = currentProps.cards.length + 1;
+      const newCard = {
+        title: `Item #${newIdx} Title`,
+        desc: "Detailed description of newly added content item...",
+        tag: `PRINT 0${newIdx}`,
+        stack: last.stack || ""
+      };
+      const updated = [...currentProps.cards, newCard];
+      handleFieldChange("cards", updated);
+      dispatchLiveContentUpdate(currentSection.id, "cards", updated);
+      setNotice(`✓ Added item #${newIdx} into ${currentSection.name}!`);
+      setTimeout(() => setNotice(""), 4000);
+      return;
+    }
+
+    // 2. If section has textItems array
+    if (Array.isArray(currentProps.textItems)) {
+      const last = currentProps.textItems[currentProps.textItems.length - 1] || {};
+      const newIdx = currentProps.textItems.length + 1;
+      const newItem = {
+        id: `text-${Date.now()}-${newIdx}`,
+        label: last.label || "<SPAN> TEXT",
+        text: `New content text #${newIdx}`,
+        originalText: "",
+        isNew: true
+      };
+      const updated = [...currentProps.textItems, newItem];
+      handleFieldChange("textItems", updated);
+      dispatchLiveContentUpdate(currentSection.id, "textItems", updated);
+      setNotice(`✓ Added new text element into ${currentSection.name}!`);
+      setTimeout(() => setNotice(""), 4000);
+      return;
+    }
+
+    // 3. Fallback: Initialize cards with a rich new item
+    const newCard = {
+      title: "New Showcase Item",
+      desc: "Detailed description of newly added section item...",
+      tag: "NEW"
+    };
+    handleFieldChange("cards", [newCard]);
+    dispatchLiveContentUpdate(currentSection.id, "cards", [newCard]);
+    setNotice(`✓ Added new content item into ${currentSection.name}!`);
+    setTimeout(() => setNotice(""), 4000);
+  };
+
   const handleRevokeChanges = async () => {
     setIsRevoking(true);
     try {
@@ -1417,11 +1749,18 @@ export default function PreviewPage() {
     {
       id: "init",
       role: "assistant",
-      text: "Hello! I am your AI Design Assistant. Describe any changes in plain text (e.g. 'Convert hero to dark emerald green and write high-converting copy'), and I will refactor your template in real time.",
+      text: "Hello! Describe any change in plain text (e.g. 'Change colors to dark blue', 'Change headline to Jordan Cole', 'Make background dark red', 'Add 3 feature cards') and I will refactor your template code in real time.",
       timestamp: "Just now"
     }
   ]);
   const [isDebugging, setIsDebugging] = useState(false);
+  const chatEndRef = useRef(null);
+
+  useEffect(() => {
+    if (editorMode === "ai") {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [aiHistory, isAiProcessing, editorMode]);
 
   useEffect(() => {
     if (!studioBuildId) return undefined;
@@ -1475,7 +1814,7 @@ export default function PreviewPage() {
         navigate(`/preview?template=${newDraftId}&mode=live${buildQuery}`, { replace: true });
         setViewMode("live");
         setIframeKey((k) => k + 1);
-        const assistantText = "Your AI edit was saved to a draft. The live preview is refreshing.";
+        const assistantText = res?.message || `✓ Applied your request: "${promptToRun}". Live preview in the center is updated!`;
         setAiHistory((prev) => [...prev, {
           id: (Date.now() + 1).toString(),
           role: "assistant",
@@ -1551,7 +1890,6 @@ export default function PreviewPage() {
       (s.desc && s.desc.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  const effectiveTemplateId = customDraftId || activeTemplateId;
   const pageRouteParam = activePage && activePage !== "index.html" ? activePage : "";
   // 🔒 Lock Check: Require sign-in to access interactive demo
   if (!isSignedIn) {
@@ -1601,8 +1939,10 @@ export default function PreviewPage() {
     );
   }
 
+  const currentColorForIframe = sectionProps[currentSection?.id]?.themeColor || sectionProps.navbar?.themeColor || sectionProps.hero?.themeColor || brand?.primary_color || "";
+
   const liveServerUrl = effectiveTemplateId && effectiveTemplateId !== "default"
-    ? `${API_BASE}/preview/live/${effectiveTemplateId}${pageRouteParam ? `/${pageRouteParam}` : "/"}?v=${iframeKey}`
+    ? `${API_BASE}/preview/live/${effectiveTemplateId}${pageRouteParam ? `/${pageRouteParam}` : "/"}?v=${iframeKey}${currentColorForIframe ? `&primaryColor=${encodeURIComponent(currentColorForIframe)}` : ""}`
     : null;
 
   return (
@@ -1666,48 +2006,66 @@ export default function PreviewPage() {
               </span>
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="font-extrabold text-sm tracking-tight text-foreground">
                   {templateData?.title || brand.business_name}
                 </h1>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                   {templateData?.framework || "React"}
                 </span>
+
+                {/* 📸 Image Editor directly after the HTML badge */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditorMode(editorMode === "assets" ? "manual" : "assets");
+                    if (mobilePanel === "sections") setMobilePanel("edit");
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer select-none",
+                    editorMode === "assets"
+                      ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-300 shadow-sm"
+                      : "bg-card/80 hover:bg-emerald-500/10 border-border hover:border-emerald-500/40 text-muted-foreground hover:text-emerald-400"
+                  )}
+                  title="Replace template photos & media assets"
+                >
+                  <Image className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{editorMode === "assets" ? "Editing Photos" : "Change Photos"}</span>
+                </button>
+
+                {/* 🤖 Use AI to Change Code */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditorMode(editorMode === "ai" ? "manual" : "ai");
+                    if (mobilePanel === "sections") setMobilePanel("edit");
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer select-none",
+                    editorMode === "ai"
+                      ? "bg-indigo-500/20 border-indigo-500/50 text-indigo-300 shadow-sm"
+                      : "bg-card/80 hover:bg-indigo-500/10 border-border hover:border-indigo-500/40 text-muted-foreground hover:text-indigo-400"
+                  )}
+                  title="Use AI to edit and change website code"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>{editorMode === "ai" ? "AI Editing Code" : "Use AI to Change Code"}</span>
+                </button>
+
+                {/* Quick return button to manual content editor when in photo or AI mode */}
+                {editorMode !== "manual" && (
+                  <button
+                    type="button"
+                    onClick={() => setEditorMode("manual")}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-pink-500/15 hover:bg-pink-500/25 text-pink-400 border border-pink-500/30 transition-all cursor-pointer"
+                    title="Return to section content editor"
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    <span>Edit Content</span>
+                  </button>
+                )}
               </div>
             </div>
-          </div>
-
-          {/* ⚡ The 2 Mode Buttons (Added Right Beside Template Title - Desktop only) */}
-          <div className="hidden md:inline-flex sb-header-modes ml-2">
-            <button
-              type="button"
-              onClick={() => setEditorMode("manual")}
-              className={cn("sb-mode-pill-btn", editorMode === "manual" && "active-manual")}
-              title="Manual Storybook Visual Section Editor"
-            >
-              <Sliders className="w-3.5 h-3.5" />
-              <span>1. Manual Edit</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setEditorMode("ai")}
-              className={cn("sb-mode-pill-btn", editorMode === "ai" && "active-ai")}
-              title="AI Prompt Assistant & Auto-Fixer"
-            >
-              <Bot className="w-3.5 h-3.5" />
-              <span>2. AI Edit</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setEditorMode("assets")}
-              className={cn("sb-mode-pill-btn", editorMode === "assets" && "active-manual")}
-              title="Replace Photos & Media Assets (Zero Code Changes)"
-            >
-              <Image className="w-3.5 h-3.5" />
-              <span>3. Replace Photos</span>
-            </button>
           </div>
         </div>
 
@@ -1754,6 +2112,18 @@ export default function PreviewPage() {
               {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
               <span className="hidden sm:inline">{isCopied ? "Copied!" : "Copy"}</span>
             </button>
+
+            {customDraftId || templateData?.status === "draft" ? (
+              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-bold" title="Working on your private draft copy. Marketplace master is protected.">
+                <Shield className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="hidden md:inline">Private Draft (Protected)</span>
+              </div>
+            ) : (
+              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-500/15 border border-violet-500/30 text-violet-400 text-xs font-semibold" title="Marketplace master preview. Edits auto-copy to your private draft.">
+                <Sparkles className="w-3.5 h-3.5 text-violet-400" />
+                <span className="hidden md:inline">Marketplace Sandbox</span>
+              </div>
+            )}
 
             {hasUnfinalizedChanges && (
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs font-bold animate-pulse">
@@ -2034,7 +2404,9 @@ export default function PreviewPage() {
                     )}
                     onClick={() => {
                       if (!isEditingThis) {
+                        setEditorMode("manual");
                         setSelectedSectionId(sec.id);
+                        dispatchLiveSectionScroll(sec.id);
                         if (mobilePanel === "sections") {
                           setMobilePanel("edit");
                         }
@@ -2127,71 +2499,6 @@ export default function PreviewPage() {
                   </div>
                 );
               })}
-            </div>
-          </div>
-
-          {/* DOCKED STICKY BOTTOM ACTIONS (Always 100% visible, never cut off!) */}
-          <div className="p-3 bg-card border-t border-border/50 shrink-0 space-y-2 z-10">
-            <button
-              type="button"
-              onClick={() => {
-                setEditorMode("assets");
-                setMobilePanel("edit");
-              }}
-              className={cn(
-                "w-full py-2.5 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer",
-                editorMode === "assets"
-                  ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400 shadow-sm"
-                  : "border-border/60 hover:border-emerald-500/40 bg-card/60 hover:bg-emerald-500/10 text-muted-foreground hover:text-emerald-400"
-              )}
-              title="Replace photos in this website with zero code changes"
-            >
-              <Image className="w-3.5 h-3.5" />
-              <span>Change Photos &amp; Media</span>
-            </button>
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowAddMenu(!showAddMenu)}
-                className="w-full py-2.5 px-3 rounded-xl border-2 border-dashed border-border hover:border-pink-500/50 hover:bg-pink-500/5 text-xs font-bold text-muted-foreground hover:text-pink-500 flex items-center justify-center gap-2 transition-all cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ Add Section</span>
-              </button>
-
-              {showAddMenu && (
-                <div className="absolute left-0 bottom-full mb-2 w-full bg-card border border-border rounded-xl shadow-2xl p-2 z-50 space-y-1">
-                  <div className="px-2 py-1 text-[10px] font-bold uppercase text-muted-foreground border-b border-border/50">
-                    Add / Restore Section
-                  </div>
-                  {[
-                    { id: "navbar", name: "Navigation Header", category: "Header & Nav", icon: Monitor },
-                    { id: "hero", name: "Hero Section", category: "Hero & Banner", icon: Zap },
-                    { id: "services", name: "Services & Features", category: "Content", icon: Layers },
-                    { id: "about", name: "About Us & Story", category: "Content", icon: FileText },
-                    { id: "pricing", name: "Pricing & Plans", category: "Conversion", icon: Sparkles },
-                    { id: "testimonials", name: "Customer Reviews", category: "Social Proof", icon: Star },
-                    { id: "contact", name: "Contact & Inquiries", category: "Conversion", icon: Mail },
-                    { id: "announcement", name: "Announcement Banner", category: "Header & Nav", icon: AlertCircle },
-                    { id: "footer", name: "Website Footer", category: "Footer & Legal", icon: Shield },
-                  ]
-                    .filter((s) => !sections.some((x) => x.id === s.id))
-                    .map((sec) => {
-                      const SecIcon = sec.icon;
-                      return (
-                        <button
-                          key={sec.id}
-                          type="button"
-                          onClick={() => handleAddSection(sec)}
-                          className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-pink-500/10 hover:text-pink-500 text-xs font-medium flex items-center gap-2 transition-colors cursor-pointer"
-                        >
-                          <SecIcon className="w-3.5 h-3.5 text-pink-500" />
-                          <span>{sec.name}</span>
-                        </button>
-                      );
-                    })}
-                </div>
-              )}
             </div>
           </div>
         </aside>
@@ -2548,9 +2855,21 @@ export default function PreviewPage() {
                       <Sliders className="w-4 h-4 text-pink-500 shrink-0" />
                       <span className="truncate">{currentSection.name} Components</span>
                     </h3>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 shrink-0">
-                      Live Synced
-                    </span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleSaveSingleSection(currentSection.id)}
+                        disabled={savingManual}
+                        className="py-1 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm cursor-pointer transition-all disabled:opacity-50"
+                        title={`Save only ${currentSection.name} section`}
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Save Section</span>
+                      </button>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400">
+                        Live Synced
+                      </span>
+                    </div>
                   </div>
                   <p className="text-[11px] text-muted-foreground mt-1 truncate">
                     Click any field to edit. Use backspace &amp; typing to update live.
@@ -2603,6 +2922,23 @@ export default function PreviewPage() {
 
               {/* Editable Component Fields with Template-Accurate Names */}
               <div className="sb-right-content-body space-y-4 flex-1 overflow-y-auto p-4 pb-28">
+                {/* ➕ Add More Content to Section Banner */}
+                <div className="flex items-center justify-between p-3 rounded-xl border border-pink-500/30 bg-pink-500/10 mb-2">
+                  <div className="min-w-0 pr-2">
+                    <span className="text-xs font-bold text-foreground block truncate">Section Content Items</span>
+                    <span className="text-[10px] text-muted-foreground block truncate">Add more cards, items, or text live into {currentSection.name}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddMoreContent}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-pink-500 hover:bg-pink-600 text-white font-bold text-xs shadow-sm cursor-pointer transition-all shrink-0"
+                    title="Add more content to this section"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Add Content</span>
+                  </button>
+                </div>
+
                 {renderFriendlyFields(currentSection.id, currentProps, handleFieldChange, effectiveTemplateId, handleApplyThemeColorToProject)}
 
                 {/* Row Actions */}
@@ -2610,8 +2946,18 @@ export default function PreviewPage() {
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
+                      onClick={() => handleSaveSingleSection(currentSection.id)}
+                      disabled={savingManual}
+                      className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-50"
+                      title={`Save ${currentSection.name} section to project`}
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Save This Section</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={(e) => handleEraseSectionContent(currentSection.id, e)}
-                      className="flex-1 py-2 px-3 rounded-xl bg-muted/50 hover:bg-amber-500/15 text-amber-400 border border-border text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      className="py-2 px-3 rounded-xl bg-muted/50 hover:bg-amber-500/15 text-amber-400 border border-border text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <Eraser className="w-3.5 h-3.5" />
                       <span>Clear Text</span>
@@ -2619,10 +2965,10 @@ export default function PreviewPage() {
                     <button
                       type="button"
                       onClick={(e) => handleDeleteSection(currentSection.id, e)}
-                      className="flex-1 py-2 px-3 rounded-xl bg-muted/50 hover:bg-rose-500/15 text-rose-400 border border-border text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      className="py-2 px-3 rounded-xl bg-muted/50 hover:bg-rose-500/15 text-rose-400 border border-border text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
-                      <span>Delete Section</span>
+                      <span>Delete</span>
                     </button>
                   </div>
 
@@ -2667,13 +3013,13 @@ export default function PreviewPage() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={handleFinalizeChanges}
+                    onClick={handleSaveAllSections}
                     disabled={savingManual}
                     className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white font-bold text-xs shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
-                    title="Permanently finalize all edits to project code"
+                    title="Save and permanently finalize all sections across the entire website at once"
                   >
                     <Zap className="w-4 h-4 fill-amber-300 text-amber-300" />
-                    <span>{savingManual ? "Saving..." : "Save & Finalize to Project"}</span>
+                    <span>{savingManual ? "Saving All Sections..." : "Save All Sections at Once"}</span>
                   </button>
 
                   <button
@@ -2692,18 +3038,27 @@ export default function PreviewPage() {
           ) : editorMode === "assets" ? (
             /* REPLACE PHOTOS & MEDIA PANEL */
             <div className="flex flex-col h-full overflow-hidden">
-              <div className="p-4 border-b border-border/50 bg-card/60 flex-shrink-0">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-extrabold text-sm text-foreground flex items-center gap-1.5">
-                    <Image className="w-4 h-4 text-emerald-400" />
-                    <span>Replace Photos &amp; Media</span>
-                  </h3>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400">
+              <div className="p-3.5 border-b border-border/50 bg-card/60 flex-shrink-0 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditorMode("manual")}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-pink-500/15 hover:bg-pink-500/25 text-pink-400 border border-pink-500/30 text-xs font-bold transition-all shadow-sm cursor-pointer group"
+                    title="Return to Section Content Editor"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
+                    <span>Back to Content Editor</span>
+                  </button>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 shrink-0">
                     {projectAssets.length} Images Detected
                   </span>
                 </div>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  Click any image to replace it with your own photo. Live code remains 100% intact.
+                <div className="flex items-center gap-1.5 pt-0.5">
+                  <Image className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span className="font-extrabold text-xs text-foreground">Replace Photos &amp; Media</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-tight">
+                  Click any image to replace it with your own photo. Or click any section in the sidebar to return to content editing.
                 </p>
               </div>
 
@@ -2812,208 +3167,233 @@ export default function PreviewPage() {
                       <span>Revoke</span>
                     </button>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setEditorMode("manual")}
+                    className="w-full py-2.5 px-3 rounded-xl border border-border bg-muted/40 hover:bg-muted/70 text-muted-foreground hover:text-foreground text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Back to Content Editor</span>
+                  </button>
                 </div>
               </div>
             </div>
           ) : (
-            /* AI EDIT PANEL: Prompt Assistant & Autonomous Debugger */
-            <div className="sb-ai-panel overflow-y-auto pb-28">
-              <div>
-                <div className="flex items-center justify-between select-none">
-                  <h3 className="font-extrabold text-sm text-foreground flex items-center gap-1.5">
-                    <Bot className="w-4 h-4 text-indigo-400" />
-                    <span>AI Design Assistant</span>
-                  </h3>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400">
-                      AI service
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setRightSidebarCollapsed(true)}
-                      className="hidden lg:flex p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                      title="Collapse Editor Sidebar"
-                    >
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
+            /* AI EDIT PANEL: Full-Height Prompt Assistant with Bottom Message Sender */
+            <div className="flex flex-col h-full overflow-hidden bg-card/40">
+              {/* Header */}
+              <div className="p-3.5 border-b border-border/50 bg-card/70 flex-shrink-0 space-y-2 select-none">
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditorMode("manual")}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-pink-500/10 hover:bg-pink-500/20 text-pink-400 border border-pink-500/25 text-xs font-bold transition-all shadow-sm cursor-pointer group"
+                    title="Return to Section Content Editor"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
+                    <span>Content Editor</span>
+                  </button>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-500/15 border border-indigo-500/25 text-indigo-300 text-[11px] font-bold">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>AI Ready</span>
                   </div>
                 </div>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  Describe a change in natural language to update a saved template draft.
-                </p>
+
+                <div className="flex items-center justify-between pt-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-6 h-6 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                      <Sparkles className="w-3.5 h-3.5" />
+                    </div>
+                    <h3 className="font-extrabold text-xs text-foreground tracking-tight">AI Prompt Assistant</h3>
+                  </div>
+                  {aiHistory.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setAiHistory([
+                        {
+                          id: "init",
+                          role: "assistant",
+                          text: "Hello! Tell me any changes you'd like to make, and I will refactor your template code and update the live demo in real time.",
+                          timestamp: "Just now"
+                        }
+                      ])}
+                      className="text-[10px] text-muted-foreground hover:text-foreground font-semibold px-2 py-0.5 rounded hover:bg-muted/50 transition-colors cursor-pointer"
+                      title="Clear chat history"
+                    >
+                      Clear Chat
+                    </button>
+                  )}
+                </div>
               </div>
 
+              {/* Status / Unfinalized Changes Bar */}
               {hasUnfinalizedChanges && (
-                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
-                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                    <span>Testing AI Changes in Preview</span>
+                <div className="p-2.5 px-3.5 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between gap-2 flex-shrink-0 animate-in fade-in">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span className="text-[11px] font-bold text-amber-400 truncate">Testing AI Changes</span>
                   </div>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    Review generated edits in canvas above. Click <strong>Finalize Save</strong> to apply them permanently, or <strong>Revoke</strong> to revert back.
-                  </p>
-                  <div className="flex items-center gap-2 pt-1">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       type="button"
                       onClick={handleFinalizeChanges}
                       disabled={savingManual}
-                      className="flex-1 py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1 shadow cursor-pointer"
+                      className="py-1 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] flex items-center gap-1 shadow cursor-pointer transition-all disabled:opacity-50"
+                      title="Save and keep AI changes in your project draft"
                     >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Finalize AI Save</span>
+                      <Check className="w-3 h-3" />
+                      <span>{savingManual ? "Saving..." : "Save Draft"}</span>
                     </button>
                     <button
                       type="button"
                       onClick={handleRevokeChanges}
                       disabled={isRevoking}
-                      className="py-1.5 px-2.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 font-bold text-xs flex items-center justify-center gap-1 cursor-pointer"
+                      className="py-1 px-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 font-bold text-[10px] flex items-center gap-1 cursor-pointer transition-all disabled:opacity-50"
+                      title="Revert back to original code"
                     >
-                      <RotateCcw className="w-3.5 h-3.5" />
+                      <RotateCcw className="w-3 h-3" />
                       <span>Revoke</span>
                     </button>
                   </div>
                 </div>
               )}
 
-              {/* AI Engine Model Selection */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <label className="sb-control-label">AI Engine Model</label>
-                  <span className="text-[10px] text-indigo-500 font-semibold font-mono">Active Engine</span>
-                </div>
-                <select
-                  value={selectedAiModel}
-                  onChange={(e) => setSelectedAiModel(e.target.value)}
-                  className="sb-control-input text-xs font-medium cursor-pointer"
-                >
-                  <option value="gemini-1.5-flash">⚡ Google Gemini 1.5 Flash (Ultra Fast)</option>
-                  <option value="gemini-1.5-pro">🧠 Google Gemini 1.5 Pro (Deep Reasoning)</option>
-                  <option value="gpt-4o">✨ OpenAI GPT-4o (Creative Copywriter)</option>
-                  <option value="ollama">💻 Local Ollama / CUDA AI (Offline GPU)</option>
-                </select>
+              {/* Middle Chat Area: Full-Height Scrollable Conversation Stream */}
+              <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5 min-h-0">
+                {aiHistory.map((item) => (
+                  item.id === "init" ? (
+                    <div key={item.id} className="p-3.5 rounded-2xl bg-card/80 border border-border/80 text-foreground space-y-3 shadow-sm">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-lg bg-indigo-600 flex items-center justify-center text-white shadow-sm shrink-0">
+                          <Bot className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-bold text-foreground">AI Code Assistant</div>
+                          <div className="text-[10px] text-muted-foreground">Ready to edit template live in canvas</div>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Describe any changes in natural language. I will modify the template source code and update the center preview in real time.
+                      </p>
+                      <div className="space-y-1.5 pt-1 border-t border-border/40">
+                        <span className="text-[10px] font-bold uppercase text-muted-foreground/80 block">Quick Suggestions:</span>
+                        <div className="flex flex-col gap-1">
+                          {[
+                            "Change color theme to royal dark red",
+                            "Change headline to Jordan Cole",
+                            "Make background dark and buttons rounded",
+                            "Add 3 new feature cards"
+                          ].map((suggestion, sIdx) => (
+                            <button
+                              key={sIdx}
+                              type="button"
+                              onClick={() => {
+                                setAiInput(suggestion);
+                              }}
+                              className="text-left text-[11px] px-2.5 py-1.5 rounded-lg bg-muted/40 hover:bg-indigo-500/15 hover:text-indigo-300 border border-border/60 hover:border-indigo-500/30 text-foreground transition-all flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Sparkles className="w-2.5 h-2.5 text-indigo-400 shrink-0" />
+                              <span className="truncate">{suggestion}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      key={item.id}
+                      className={cn(
+                        "flex flex-col text-xs leading-relaxed max-w-[90%]",
+                        item.role === "assistant"
+                          ? "mr-auto items-start"
+                          : "ml-auto items-end"
+                      )}
+                    >
+                      <div className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground mb-1 px-1">
+                        {item.role === "assistant" ? (
+                          <>
+                            <Sparkles className="w-3 h-3 text-indigo-400" />
+                            <span>AI Assistant</span>
+                          </>
+                        ) : (
+                          <span>You</span>
+                        )}
+                        <span className="text-muted-foreground/50 font-normal">• {item.timestamp}</span>
+                      </div>
+
+                      <div
+                        className={cn(
+                          "p-3 rounded-2xl shadow-sm text-xs font-normal whitespace-pre-wrap break-words",
+                          item.role === "assistant"
+                            ? "bg-muted/70 border border-border/80 text-foreground rounded-tl-xs"
+                            : "bg-gradient-to-r from-indigo-600 to-indigo-700 text-white border border-indigo-500/40 rounded-tr-xs shadow-indigo-500/10"
+                        )}
+                      >
+                        {item.text}
+                      </div>
+                    </div>
+                  )
+                ))}
+
+                {/* AI Refactoring / Thinking Spinner */}
+                {isAiProcessing && (
+                  <div className="mr-auto items-start max-w-[90%] space-y-1">
+                    <div className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-400 px-1">
+                      <Sparkles className="w-3 h-3 animate-spin" />
+                      <span>AI Code Engine</span>
+                    </div>
+                    <div className="p-3 rounded-2xl rounded-tl-xs bg-indigo-500/10 border border-indigo-500/30 text-indigo-200 text-xs flex items-center gap-2.5 shadow-sm animate-pulse">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400 flex-shrink-0" />
+                      <div>
+                        <div className="font-semibold">Refactoring template code...</div>
+                        <div className="text-[10px] text-indigo-300/80">Updating live preview in center canvas</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div ref={chatEndRef} />
               </div>
 
-              {/* AI Prompt Input */}
-              <div className="space-y-2">
-                <label className="sb-control-label">Your Instruction</label>
-                <div className="relative">
+              {/* Bottom Message Sender: Docked at bottom */}
+              <div className="p-3 pb-4 border-t border-border/60 bg-card/95 backdrop-blur-md flex-shrink-0 space-y-2">
+                <div className="flex items-end gap-2 bg-background/90 border border-border/80 focus-within:border-indigo-500/80 focus-within:ring-1 focus-within:ring-indigo-500/30 rounded-2xl p-2 pl-3 shadow-inner transition-all">
                   <textarea
-                    rows={3}
-                    placeholder="e.g. Change theme to dark emerald green and write high-converting copy..."
+                    rows={1}
+                    placeholder="Ask AI to change anything..."
                     value={aiInput}
-                    onChange={(e) => setAiInput(e.target.value)}
+                    onChange={(e) => {
+                      setAiInput(e.target.value);
+                      e.target.style.height = "auto";
+                      e.target.style.height = Math.min(e.target.scrollHeight, 80) + "px";
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         executeAiPrompt();
                       }
                     }}
-                    className="sb-control-input resize-none pr-10"
+                    disabled={isAiProcessing}
+                    className="flex-1 bg-transparent border-0 outline-none resize-none text-xs text-foreground placeholder:text-muted-foreground/60 py-1 min-h-[32px] max-h-[80px] leading-relaxed"
                   />
                   <button
                     type="button"
                     onClick={() => executeAiPrompt()}
                     disabled={!aiInput.trim() || isAiProcessing}
-                    className="absolute right-2 bottom-2.5 p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-40 transition-colors"
+                    className="h-8 w-8 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center shrink-0 shadow transition-all disabled:opacity-30 disabled:hover:bg-indigo-600 cursor-pointer"
+                    title="Send (Enter ↵)"
                   >
-                    <Send className="w-3.5 h-3.5" />
+                    {isAiProcessing ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Send className="w-3.5 h-3.5" />
+                    )}
                   </button>
                 </div>
-              </div>
-
-              {/* 1-Click AI Preset Chips */}
-              <div>
-                <span className="text-[10px] font-bold uppercase text-muted-foreground block mb-2">
-                  ✨ Instant AI Transformations:
-                </span>
-                <div className="flex flex-col gap-1.5">
-                  {AI_PRESETS.map((preset, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => executeAiPrompt(preset.prompt)}
-                      disabled={isAiProcessing}
-                      className="sb-ai-chip"
-                    >
-                      <Sparkles className="w-3 h-3 text-indigo-400 flex-shrink-0" />
-                      <span>{preset.label}</span>
-                    </button>
-                  ))}
+                <div className="flex items-center justify-between text-[10px] text-muted-foreground/75 px-1 font-mono">
+                  <span>↵ Send</span>
+                  <span>Shift + ↵ New line</span>
                 </div>
-              </div>
-
-              {/* Refactoring Step Logs */}
-              {isAiProcessing && (
-                <div className="space-y-1.5 p-3 rounded-xl bg-muted/40 border border-border/60">
-                  <div className="flex items-center gap-2 text-xs font-bold text-indigo-400">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Refactoring Template Code...</span>
-                  </div>
-                  {aiLogs.map((log, i) => (
-                    <div key={i} className="sb-ai-log-step">
-                      {log}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* AI Chat History */}
-              <div className="space-y-2 pt-2 border-t border-border/40">
-                <span className="text-[10px] font-bold uppercase text-muted-foreground block">
-                  Assistant Log:
-                </span>
-                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                  {aiHistory.map((item) => (
-                    <div
-                      key={item.id}
-                      className={cn(
-                        "p-2.5 rounded-xl text-xs",
-                        item.role === "assistant"
-                          ? "bg-muted/50 border border-border text-foreground"
-                          : "bg-indigo-600/15 border border-indigo-500/30 text-indigo-300 ml-4"
-                      )}
-                    >
-                      <div className="flex items-center justify-between text-[10px] font-bold text-muted-foreground mb-1">
-                        <span>{item.role === "assistant" ? "🤖 AI Assistant" : "👤 You"}</span>
-                        <span>{item.timestamp}</span>
-                      </div>
-                      <p className="leading-relaxed">{item.text}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Autonomous AI Debugger & Finalize Actions */}
-              <div className="pt-3 border-t border-border/50 space-y-2">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleFinalizeChanges}
-                    disabled={savingManual || !hasUnfinalizedChanges}
-                    className="flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer disabled:opacity-40"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Save &amp; Finalize AI</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleRevokeChanges}
-                    disabled={isRevoking || !hasUnfinalizedChanges}
-                    className="py-2 px-3 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-40"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>Revoke</span>
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleRunAIDebugger}
-                  disabled={isDebugging}
-                  className="w-full py-2.5 px-3 rounded-xl border border-indigo-500/40 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 text-xs font-bold flex items-center justify-center gap-2 transition-all"
-                >
-                  <Wand2 className={cn("w-3.5 h-3.5", isDebugging && "animate-spin")} />
-                  <span>{isDebugging ? "Analyzing & Auto-Fixing..." : "Run AI Debugger & Fixer"}</span>
-                </button>
               </div>
             </div>
           )}
@@ -3774,29 +4154,6 @@ function ThemeColorPicker({
     setLocalInput(getFormattedColor(currentColor, fmt));
   };
 
-  const dispatchLiveIframeColor = (cleanHex) => {
-    try {
-      const iframes = document.querySelectorAll("iframe");
-      iframes.forEach((frame) => {
-        try {
-          frame.contentWindow?.postMessage(
-            { type: "UPDATE_THEME_COLOR", color: cleanHex },
-            "*"
-          );
-          if (frame.contentDocument) {
-            frame.contentDocument.documentElement.style.setProperty("--accent-gold", cleanHex);
-            frame.contentDocument.documentElement.style.setProperty("--accent-amber", cleanHex);
-            frame.contentDocument.documentElement.style.setProperty("--primary", cleanHex);
-            frame.contentDocument.documentElement.style.setProperty("--primary-color", cleanHex);
-            frame.contentDocument.documentElement.style.setProperty("--accent", cleanHex);
-            frame.contentDocument.documentElement.style.setProperty("--accent-color", cleanHex);
-            frame.contentDocument.documentElement.style.setProperty("--theme-color", cleanHex);
-          }
-        } catch (_) { }
-      });
-    } catch (_) { }
-  };
-
   const handleInputChange = (e) => {
     const raw = e.target.value;
     setLocalInput(raw);
@@ -4309,8 +4666,9 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
                   const newItem = {
                     id: `text-${Date.now()}-${props.textItems.length}`,
                     label: lastItem.label || "<SPAN> TEXT",
-                    text: "",
-                    originalText: ""
+                    text: `New content text #${props.textItems.length + 1}`,
+                    originalText: "",
+                    isNew: true
                   };
                   onChange("textItems", [...props.textItems, newItem]);
                 }}
@@ -4811,8 +5169,9 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
                   const newItem = {
                     id: `text-${Date.now()}-${props.textItems.length}`,
                     label: lastItem.label || "<SPAN> TEXT",
-                    text: "",
-                    originalText: ""
+                    text: `New content text #${props.textItems.length + 1}`,
+                    originalText: "",
+                    isNew: true
                   };
                   onChange("textItems", [...props.textItems, newItem]);
                 }}

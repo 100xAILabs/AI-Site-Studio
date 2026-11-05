@@ -34,6 +34,9 @@ class OrderItemResponse(BaseModel):
     thumbnail_url: Optional[str] = None
     slug: Optional[str] = None
     preview_url: Optional[str] = None
+    is_marketplace: Optional[bool] = True
+    template_status: Optional[str] = None
+    framework: Optional[str] = "HTML"
 
     model_config = {"from_attributes": True}
 

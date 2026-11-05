@@ -15,7 +15,7 @@ const useRouter = () => ({
 const useSearchParams = () => new URLSearchParams(window.location.search);
 import { useAppAuth } from "@/lib/auth";
 import {
-  LayoutGrid, LayoutList, Search, X, Sparkles, SlidersHorizontal, Filter,
+  Search, X, Sparkles, SlidersHorizontal, Filter,
   TrendingUp, ArrowRight, CornerDownLeft, Eye, Zap, Layers,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -56,6 +56,17 @@ const QUICK_CATEGORIES = [
   { label: "Events", value: "events" },
   { label: "Travel", value: "travel" },
   { label: "Fitness", value: "fitness" },
+  { label: "Beauty", value: "beauty" },
+  { label: "Legal", value: "legal" },
+  { label: "NGO & Charity", value: "ngo-charity" },
+  { label: "Automotive", value: "automotive" },
+  { label: "Blog & Magazine", value: "blog-magazine" },
+  { label: "Gaming", value: "gaming" },
+  { label: "Finance", value: "finance" },
+  { label: "Entertainment", value: "entertainment" },
+  { label: "Documentation", value: "documentation" },
+  { label: "Authentication", value: "authentication" },
+  { label: "Marketplace", value: "marketplace" },
 ];
 
 const TRENDING_SEARCHES = [
@@ -75,7 +86,7 @@ function highlightSearchMatch(text, query) {
   const parts = text.split(regex);
   return parts.map((part, i) =>
     part.toLowerCase() === query.trim().toLowerCase() ? (
-      <strong key={i} style={{ color: "#f26445" }}>
+      <strong key={i} className="text-purple-400 font-bold underline decoration-purple-500/50">
         {part}
       </strong>
     ) : (
@@ -87,7 +98,6 @@ function highlightSearchMatch(text, query) {
 function Marketplace() {
   const { getToken } = useAppAuth();
   const { filters, setFilter, setFilters, resetFilters } = useFilterStore();
-  const [view, setView] = useState("grid");
   const [searchInput, setSearchInput] = useState(filters.q ?? "");
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
 
@@ -328,16 +338,33 @@ function Marketplace() {
       <Navbar />
       <div className="marketplace-page marketplace-redesign">
         <div className="marketplace-container">
-          <section className="market-hero">
-            <div className="market-hero-topline"><span><i /> THE WEBSITE TEMPLATE LIBRARY</span><span>DESIGNED TO GET YOU STARTED</span></div>
-            <div className="market-hero-main">
-              <div>
-                <h1>Good ideas deserve<br /><em>a better starting point.</em></h1>
-                <p>Thoughtful, ready-to-customize websites for the things you want to make next.</p>
-              </div>
-              <button type="button" onClick={() => navigate("/studio")} className="market-hero-studio"><Sparkles size={17} /><span>Studio Creator</span><b aria-hidden="true">↗</b></button>
+          <header className="marketplace-hero-header">
+            <div className="marketplace-hero-badge">
+              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+              <span>Curated Template Marketplace</span>
+              <span className="marketplace-badge-dot" />
+              <span className="text-emerald-400 font-semibold">100% Production Ready</span>
             </div>
-          </section>
+            <div className="marketplace-hero-row">
+              <div className="marketplace-hero-text">
+                <h1 className="marketplace-hero-title">
+                  Production-Ready <span className="marketplace-title-gradient">Website Templates</span>
+                </h1>
+                <p className="marketplace-hero-sub">
+                  Modern, multi-page templates with instant live previews, responsive reflow, and AI Fill personalization.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate("/studio")}
+                className="marketplace-studio-cta"
+              >
+                <Sparkles className="w-4 h-4 text-purple-300" />
+                <span>Launch Studio Creator</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </header>
           <div className="marketplace-layout">
 
             {/* ── Sidebar ─────────────────────────────────────────── */}
@@ -351,13 +378,17 @@ function Marketplace() {
             <div className="marketplace-main">
 
               {/* ── Toolbar ──────────────────────────────────────── */}
-              <div className="marketplace-toolbar">
+              <div className={cn("marketplace-toolbar", isSearchFocused && "search-focused")}>
 
                 {/* Row 1 — Search bar + Amazon-Style Autocomplete Dropdown + Semantic toggle */}
                 <div className="toolbar-row">
                   <div
                     ref={searchWrapperRef}
-                    className={cn("marketplace-search-wrapper", filters.semantic && "ai-active")}
+                    className={cn(
+                      "marketplace-search-wrapper",
+                      filters.semantic && "ai-active",
+                      isSearchFocused && "dropdown-open"
+                    )}
                   >
                     <div className="marketplace-search">
                       <Search className="marketplace-search-icon" />
@@ -366,7 +397,7 @@ function Marketplace() {
                         placeholder={
                           filters.semantic
                             ? "Describe your dream website (e.g., 'sleek dark dashboard for SaaS')..."
-                            : "Search templates (instant matches like Amazon)..."
+                            : "Search templates ..........."
                         }
                         value={searchInput}
                         onFocus={() => setIsSearchFocused(true)}
@@ -406,7 +437,7 @@ function Marketplace() {
                           <>
                             <div className="amazon-dropdown-section">
                               <div className="amazon-dropdown-section-title">
-                                <TrendingUp className="w-3.5 h-3.5" style={{ color: "#f26445" }} />
+                                <TrendingUp className="w-3.5 h-3.5 text-purple-400" />
                                 <span>Trending Searches</span>
                               </div>
                               <div className="amazon-trending-pills">
@@ -583,23 +614,6 @@ function Marketplace() {
                       </button>
                     ))}
                   </div>
-
-                  <div className="toolbar-spacer" />
-
-                  <div className="view-toggle">
-                    {(["grid", "list"]).map((v) => (
-                      <button
-                        key={v}
-                        onClick={() => setView(v)}
-                        className={cn("view-btn", view === v && "active")}
-                        title={v === "grid" ? "Grid view" : "List view"}
-                      >
-                        {v === "grid"
-                          ? <LayoutGrid className="view-toggle-icon" />
-                          : <LayoutList className="view-toggle-icon" />}
-                      </button>
-                    ))}
-                  </div>
                 </div>
               </div>
 
@@ -646,7 +660,7 @@ function Marketplace() {
               <TemplateGrid
                 templates={displayedTemplates}
                 isLoading={isLoading && displayedTemplates.length === 0}
-                view={view}
+                view="grid"
                 onFavorite={(id) => token && favoriteMutation.mutate(id)}
                 onWishlist={(id) => token && wishlistMutation.mutate(id)}
               />
