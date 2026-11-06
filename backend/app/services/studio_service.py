@@ -27,6 +27,14 @@ from app.services.security_scanner import security_scanner
 from app.services.backend_generator import backend_generator, SUPPORTED_STACKS
 from app.core.local_project_manager import local_project_manager
 from app.services.framework_auditor import framework_auditor
+from app.services.architect_agent import architect_agent
+from app.services.text_agent import text_agent
+from app.services.site_compiler import (
+    generate_sitemap_xml,
+    generate_robots_txt,
+    inject_seo_and_social_tags,
+    run_comprehensive_audit,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1038,6 +1046,34 @@ def _enforce_multipage_navigation(
                 elif re.search(r'</head\s*>', html, flags=re.IGNORECASE):
                     html = re.sub(r'</head\s*>', f'<style>{nav_css}</style>\n</head>', html, count=1, flags=re.IGNORECASE)
 
+        # Guarantee working mobile menu toggle script if drawer or hamburger toggle exists
+        has_drawer = re.search(r'class=[\'"][^\'"]*(?:mobile-drawer|mobile-nav|mobile-menu)[^\'"]*[\'"]', html, flags=re.IGNORECASE)
+        has_toggle = re.search(r'class=[\'"][^\'"]*(?:mobile-toggle|hamburger|menu-btn)[^\'"]*[\'"]', html, flags=re.IGNORECASE)
+        if (has_drawer or has_toggle) and "mobileNavScriptInitialized" not in html:
+            toggle_script = """<script>
+/* Mobile Drawer Toggle Auto-Initialization */
+(function() {
+  window.mobileNavScriptInitialized = true;
+  document.addEventListener('DOMContentLoaded', function() {
+    var toggles = document.querySelectorAll('.mobile-toggle, .hamburger, [data-mobile-menu], .menu-btn, button[aria-label*="menu" i]');
+    var drawers = document.querySelectorAll('.mobile-drawer, .mobile-nav, .mobile-menu, [data-drawer]');
+    toggles.forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        drawers.forEach(function(drawer) {
+          drawer.classList.toggle('active');
+          drawer.classList.toggle('open');
+        });
+      });
+    });
+  });
+})();
+</script>"""
+            if re.search(r'</body\s*>', html, flags=re.IGNORECASE):
+                html = re.sub(r'</body\s*>', f"{toggle_script}\n</body>", html, count=1, flags=re.IGNORECASE)
+            else:
+                html += f"\n{toggle_script}"
+
         updated_pages[filename] = html
 
     return updated_pages
@@ -1628,7 +1664,7 @@ Specify exact palette, typography, spacing, layout grid, components, responsive 
             yield status("design", "completed", "Shared design system ready.")
 
             # ----------------------------------------------------------------
-            # Full-stack generation: Architect + DB Schema + Backend Dev agents
+            # Architect Agent: Project Manifest & System Architecture
             # ----------------------------------------------------------------
             backend_files: dict[str, str] = {}
             architecture: dict[str, Any] = {}
@@ -1636,17 +1672,31 @@ Specify exact palette, typography, spacing, layout grid, components, responsive 
             stack = detect_stack_from_prompt(prompt, category=category_name, genre=genre, requested_stack=stack)
             is_fullstack = (stack == "react-fastapi-postgresql")
 
+            yield {"type": "agent", "agent": AGENTS["architect"], "status": "running", "detail": f"Architect Agent designing project manifest and component contracts for {stack}…"}
+            try:
+                manifest = await architect_agent.design_manifest(
+                    prompt=prompt,
+                    category=category_name,
+                    genre=genre,
+                    plan=plan,
+                    design=design,
+                    answers=answers,
+                    stack=stack,
+                )
+            except Exception as arch_manifest_err:
+                logger.warning("Architect Agent manifest generation error: %s", arch_manifest_err)
+                manifest = architect_agent._build_fallback_manifest(prompt, category_name, genre, plan, answers, stack)
+
             if is_fullstack:
-                yield {"type": "agent", "agent": AGENTS["architect"], "status": "running", "detail": f"Designing database schema and API routes for {stack} stack…"}
                 try:
                     architecture = await backend_generator.generate_architecture(prompt, stack, plan)
                     table_count = len(architecture.get("db_tables", []))
                     route_count = len(architecture.get("api_routes", []))
-                    yield {"type": "agent", "agent": AGENTS["architect"], "status": "completed", "detail": f"Architecture ready: {table_count} DB table(s), {route_count} API route(s)."}
+                    yield {"type": "agent", "agent": AGENTS["architect"], "status": "completed", "detail": f"Architecture ready: {len(manifest.get('pages', []))} page contracts, {table_count} DB table(s), {route_count} API route(s)."}
                 except Exception as arch_exc:
                     logger.warning("Architect Agent failed: %s. Proceeding with minimal architecture.", arch_exc)
                     architecture = {"db_tables": [], "api_routes": [], "auth_strategy": "none", "stripe_needed": False, "stripe_flows": [], "frontend_components": [], "tech_notes": ""}
-                    yield {"type": "agent", "agent": AGENTS["architect"], "status": "completed", "detail": "Architecture planning used fallback (AI unavailable). Proceeding."}
+                    yield {"type": "agent", "agent": AGENTS["architect"], "status": "completed", "detail": f"Architecture ready: {len(manifest.get('pages', []))} page contracts defined."}
 
                 # Agent: DB Schema Agent
                 db_tables = architecture.get("db_tables", [])
@@ -1668,7 +1718,7 @@ Specify exact palette, typography, spacing, layout grid, components, responsive 
                     yield {"type": "agent", "agent": AGENTS["backend"], "status": "failed", "detail": f"Backend generation failed: {str(be_exc)[:150]}. Continuing with frontend only."}
                     backend_files = {}
             else:
-                yield {"type": "agent", "agent": AGENTS["architect"], "status": "completed", "detail": "Static architecture selected (pure client-side application)."}
+                yield {"type": "agent", "agent": AGENTS["architect"], "status": "completed", "detail": f"Project manifest finalized: {len(manifest.get('pages', []))} page contracts defined."}
                 yield {"type": "agent", "agent": AGENTS["database"], "status": "completed", "detail": "Static site selected (zero database dependencies needed)."}
                 yield {"type": "agent", "agent": AGENTS["backend"], "status": "completed", "detail": "Static site selected (no backend server required)."}
 
@@ -1825,6 +1875,32 @@ Specify exact palette, typography, spacing, layout grid, components, responsive 
                     logger.warning("React/Next.js frontend agent failed: %s. Falling back to HTML generation.", fe_exc)
                     yield {"type": "agent", "agent": AGENTS["frontend"], "status": "failed", "detail": f"React/Next.js generation failed: {str(fe_exc)[:150]}. Falling back to HTML preview."}
 
+            # ── Text & Copywriting Agent ────────────────────────────────────
+            yield {"type": "agent", "agent": AGENTS["frontend"], "status": "running", "detail": "Text Agent synthesizing authentic page copywriting and domain dictionaries…"}
+            try:
+                content_dict = await text_agent.generate_content_dictionary(
+                    prompt=prompt,
+                    category=category_name,
+                    genre=genre,
+                    plan=plan,
+                    answers=answers,
+                    manifest=manifest,
+                )
+            except Exception as txt_exc:
+                logger.warning("Text Agent failed: %s. Using deterministic fallback copy.", txt_exc)
+                content_dict = text_agent._build_fallback_dictionary(
+                    manifest.get("pages", plan.get("pages", [])),
+                    str(answers.get("business_name") or plan.get("title") or genre.title()),
+                    genre,
+                    prompt,
+                    answers,
+                )
+
+            manifest_pages = manifest.get("pages", [])
+            manifest_spec_by_fname = {p.get("filename"): p for p in manifest_pages if isinstance(p, dict)}
+            page_copy_dict = content_dict.get("pages", {})
+            brand_name = str(answers.get("business_name") or answers.get("author") or answers.get("brand") or plan.get("title") or genre.title()).strip()
+
             pages: dict[str, str] = {}
             # Generate all planned pages (up to 8) to create a comprehensive, multi-page experience
             page_list = plan.get("pages", [])[:8]
@@ -1932,6 +2008,33 @@ The user personally uploaded and labeled these authentic images specifically for
 {chr(10).join(page_specific_images[:8])}
 - MANDATORY CONTENT INTEGRITY & NO BLANK CARDS RULE: You MUST render these verified image URLs using `<img src="..." alt="...">` in your Hero banner, feature/service cards, about section, showcase grid, and testimonials. NEVER leave image cards blank, empty, or unrendered!"""
 
+                # ── Architect & Copywriting Contracts for this page ──
+                page_spec = manifest_spec_by_fname.get(filename, {})
+                page_copy = page_copy_dict.get(filename, {})
+
+                architect_page_mandate = ""
+                if page_spec:
+                    req_secs = page_spec.get("required_sections", [])
+                    forbid_secs = page_spec.get("forbidden_content", [])
+                    out_links = page_spec.get("outbound_links", [])
+                    ctas = page_spec.get("primary_ctas", [])
+                    architect_page_mandate = f"""### 📐 ARCHITECT AGENT SPECIFICATION FOR {filename.upper()} (ROLE: {str(page_spec.get('role', 'page')).upper()}):
+- PRIMARY FOCUS: {page_spec.get('primary_focus', page.get('purpose', ''))}
+- REQUIRED SECTIONS ON THIS PAGE:
+{chr(10).join(f"  * {s}" for s in req_secs)}
+- STRICTLY FORBIDDEN SECTIONS (PREVENT DUPLICATION WITH OTHER PAGES):
+{chr(10).join(f"  * {f}" for f in forbid_secs)}
+- MANDATORY OUTBOUND SIBLING LINKS:
+{chr(10).join(f"  * Link directly to {link}" for link in out_links)}
+- MANDATORY PRIMARY CALLS-TO-ACTION:
+{chr(10).join(f"  * Button/Link: '{cta.get('label')}' -> href=\"{cta.get('href')}\"" for cta in ctas)}"""
+
+                copy_guidance = ""
+                if page_copy:
+                    copy_guidance = f"""### ✍️ TEXT AGENT AUTHENTIC COPYWRITING DICTIONARY FOR {filename.upper()}:
+Render this authentic domain-specific copy directly into your sections. NEVER use placeholder lorem ipsum!
+{json.dumps(page_copy, ensure_ascii=False, indent=2)}"""
+
                 if len(page_list) > 1 and filename == "index.html":
                     page_role_guidance = f"""CRITICAL MULTI-PAGE HOMEPAGE (index.html) ARCHITECTURE:
 - This is the Home entrance page of a {len(page_list)}-page website ({', '.join(p.get('filename', '') for p in page_list)}).
@@ -1960,6 +2063,8 @@ Category: {category_name}; genre: {genre}
 User-approved build prompt (authoritative; follow it directly): {build_brief[:18000]}
 {profile_guidance}
 Page plan: {json.dumps(page, ensure_ascii=False)}
+{architect_page_mandate}
+{copy_guidance}
 {page_role_guidance}
 Full sitemap for consistent navigation: {json.dumps(compact_sitemap, ensure_ascii=False)[:3000]}
 {multipage_nav_mandate}
@@ -2008,6 +2113,8 @@ Output a full standalone HTML document for {filename}, with semantic markup, pag
 Brief highlights: {prompt[:1800]}
 Approved project requirements: {build_brief[:9000]}
 Page plan: {json.dumps(page, ensure_ascii=False)[:3500]}
+{architect_page_mandate}
+{copy_guidance}
 Sitemap: {json.dumps(compact_sitemap, ensure_ascii=False)[:1800]}
 {multipage_nav_mandate}
 {canonical_header_instruction}
@@ -2175,6 +2282,7 @@ Files: {json.dumps({k: (v if len(v) <= 6000 else f"{v[:3800]}\n<!-- ... [interio
                 ))
                 if "</html>" in repaired.lower() and len(repaired) >= 600:
                     pages[filename] = repaired
+
             if "index.html" in pages and _wrong_homepage(pages["index.html"]):
                 logger.warning("Testing Agent noted homepage structure may resemble an interior page; proceeding with generated version.")
                 audit.setdefault("findings", []).append({
@@ -2186,7 +2294,17 @@ Files: {json.dumps({k: (v if len(v) <= 6000 else f"{v[:3800]}\n<!-- ... [interio
                 audit["framework_audit"] = fw_report
                 if not audit.get("summary"):
                     audit["summary"] = f"Full-stack {stack} framework verified and production-ready."
-            yield status("testing", "completed", str(audit.get("summary") or "Testing and audit complete.")[:250])
+
+            # Comprehensive deterministic quality & link audit
+            planned_fnames = [_filename(p.get("filename", ""), i, str(p.get("name") or f"Page {i+1}")) for i, p in enumerate(page_list)]
+            comp_audit = run_comprehensive_audit(pages, planned_fnames)
+            audit["comprehensive_audit"] = comp_audit
+            if comp_audit.get("findings"):
+                audit.setdefault("findings", []).extend([
+                    {"severity": f.get("severity", "warning"), "page": f.get("file", "package"), "finding": f.get("message", "")}
+                    for f in comp_audit["findings"]
+                ])
+            yield status("testing", "completed", str(audit.get("summary") or comp_audit.get("summary") or "Testing and audit complete.")[:250])
 
             pages = {filename: _add_image_fallback(_ensure_styles(html), genre) for filename, html in pages.items()}
             for filename, html in pages.items():
@@ -2213,6 +2331,14 @@ HTML:
                 ))
                 if "</html>" in repaired.lower() and len(repaired) >= 600:
                     pages[filename] = repaired
+
+            # ── Deterministic SEO and Open Graph Injection across all pages ──
+            og_img = (stock_assets[0]["url"] if stock_assets else "")
+            for filename, html in pages.items():
+                copy_for_page = page_copy_dict.get(filename, {})
+                seo_title = copy_for_page.get("seo_title") or f"{filename.rsplit('.', 1)[0].title()} | {brand_name}"
+                seo_desc = copy_for_page.get("seo_description") or f"Official website of {brand_name}. High quality creative work and responsive digital experiences."
+                pages[filename] = inject_seo_and_social_tags(html, filename, seo_title, seo_desc, brand_name, og_img)
             pages = _enforce_multipage_navigation(pages, page_list, answers)
             pages, generated_assets = _split_inline_assets(pages)
             reference_issues = _site_reference_issues(pages, local_package_assets | set(generated_assets))
@@ -2272,6 +2398,13 @@ Audit: {json.dumps(audit, ensure_ascii=False)[:2000]}"""
                     if safe_fpath:
                         bundle.writestr(safe_fpath, fcontent)
                 bundle.writestr("data/site-content.json", json.dumps(site_content, ensure_ascii=False, indent=2))
+                # Generate standard compliant sitemap.xml and robots.txt
+                sitemap_xml = generate_sitemap_xml(list(pages.keys()))
+                robots_txt = generate_robots_txt()
+                bundle.writestr("sitemap.xml", sitemap_xml)
+                bundle.writestr("robots.txt", robots_txt)
+                bundle.writestr("data/project-manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+                bundle.writestr("data/content-dictionary.json", json.dumps(content_dict, ensure_ascii=False, indent=2))
                 bundle.writestr("README.md", readme)
                 bundle.writestr(".clinerules", clinerules)
                 bundle.writestr("studio-plan.json", json.dumps({"plan": plan, "answers": answers, "build_prompt": approved_build_prompt, "design": design, "stock_image_credits": plan.get("stock_image_credits", []), "seo_a11y_review": seo, "test_audit": audit, "architecture": architecture, "stack": stack}, ensure_ascii=False, indent=2))

@@ -168,7 +168,7 @@ export default function StudioPage() {
 
   const pipelineAgents = useMemo(() => {
     if (stack === "html-css-js") {
-      return AGENTS.filter((a) => !["Architect Agent", "DB Schema Agent", "Backend Dev Agent"].includes(a));
+      return AGENTS.filter((a) => !["DB Schema Agent", "Backend Dev Agent"].includes(a));
     }
     return AGENTS;
   }, [stack]);
