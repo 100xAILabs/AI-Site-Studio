@@ -234,6 +234,21 @@ function Dashboard() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [templatesSubTab, setTemplatesSubTab] = useState("purchased");
   const [studioProjectsSubTab, setStudioProjectsSubTab] = useState("created");
+  const [studioProjectsView, setStudioProjectsView] = useState(() => {
+    try {
+      return localStorage.getItem("studio_projects_view") || "grid";
+    } catch {
+      return "grid";
+    }
+  });
+  const [studioProjectsSearch, setStudioProjectsSearch] = useState("");
+
+  const handleSetStudioProjectsView = (view) => {
+    setStudioProjectsView(view);
+    try {
+      localStorage.setItem("studio_projects_view", view);
+    } catch {}
+  };
 
   // Template Redesign & Edit state
   const [uploadedTemplatesView, setUploadedTemplatesView] = useState("grid"); // "grid" | "table"
@@ -3666,6 +3681,23 @@ function Dashboard() {
                 const createdStudioProjects = allUserTemplates.filter(item => !purchasedTemplateIds.has(item.id));
                 const purchasedStudioProjects = allUserTemplates.filter(item => purchasedTemplateIds.has(item.id));
 
+                const query = (studioProjectsSearch || "").toLowerCase().trim();
+                const filteredCreated = createdStudioProjects.filter(item =>
+                  !query ||
+                  item.title?.toLowerCase().includes(query) ||
+                  item.framework?.toLowerCase().includes(query) ||
+                  item.short_description?.toLowerCase().includes(query) ||
+                  item.description?.toLowerCase().includes(query)
+                );
+
+                const filteredPurchased = purchasedStudioProjects.filter(item =>
+                  !query ||
+                  item.title?.toLowerCase().includes(query) ||
+                  item.framework?.toLowerCase().includes(query) ||
+                  item.short_description?.toLowerCase().includes(query) ||
+                  item.description?.toLowerCase().includes(query)
+                );
+
                 return (
                   <div className="mt-container">
                     {/* ── Main Header Card ── */}
@@ -3717,7 +3749,7 @@ function Dashboard() {
                         </div>
                       </div>
 
-                      {/* Toolbar Row: Subtabs Switcher */}
+                      {/* Toolbar Row: Subtabs Switcher + Search + View Toggle */}
                       <div className="mt-toolbar">
                         <div className="mt-tabs">
                           <button
@@ -3744,6 +3776,48 @@ function Dashboard() {
                             </span>
                           </button>
                         </div>
+
+                        {/* Search & Grid / Table Toggle */}
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <div className="mt-search-box">
+                            <Search className="mt-search-icon" />
+                            <input
+                              type="text"
+                              placeholder="Search studio projects..."
+                              value={studioProjectsSearch}
+                              onChange={(e) => setStudioProjectsSearch(e.target.value)}
+                              className="mt-search-input"
+                            />
+                            {studioProjectsSearch && (
+                              <button
+                                type="button"
+                                onClick={() => setStudioProjectsSearch("")}
+                                className="mt-search-clear"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="mt-view-toggle">
+                            <button
+                              type="button"
+                              onClick={() => handleSetStudioProjectsView("grid")}
+                              className={cn("mt-view-btn", studioProjectsView === "grid" && "active")}
+                              title="Grid View"
+                            >
+                              <LayoutGrid className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSetStudioProjectsView("table")}
+                              className={cn("mt-view-btn", studioProjectsView === "table" && "active")}
+                              title="Table View"
+                            >
+                              <List className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
@@ -3768,9 +3842,20 @@ function Dashboard() {
                             <Sparkles className="w-4 h-4" /> Pick a Template to Customize
                           </Link>
                         </div>
-                      ) : (
+                      ) : filteredCreated.length === 0 ? (
+                        <div className="text-center py-12 px-4 rounded-2xl border border-border/40 bg-card/30">
+                          <p className="text-xs text-muted-foreground font-semibold">No draft studio projects match &ldquo;{studioProjectsSearch}&rdquo;</p>
+                          <button
+                            type="button"
+                            onClick={() => setStudioProjectsSearch("")}
+                            className="mt-3 text-xs text-primary underline font-bold bg-transparent border-0 cursor-pointer"
+                          >
+                            Clear Search Filter
+                          </button>
+                        </div>
+                      ) : studioProjectsView === "grid" ? (
                         <div className="db-templates-grid">
-                          {createdStudioProjects.map((item) => {
+                          {filteredCreated.map((item) => {
                             const inCart = isInCart(item.id);
                             const isStudio = item.tags?.includes("studio-project") || item.template_origin === "studio";
 
@@ -3933,6 +4018,111 @@ function Dashboard() {
                             );
                           })}
                         </div>
+                      ) : (
+                        /* Table View for Draft Studio Projects */
+                        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-border/40 bg-muted/40 font-bold uppercase text-muted-foreground text-[10px] tracking-wider">
+                                <th className="p-4">Studio Draft Project</th>
+                                <th className="p-4">Framework</th>
+                                <th className="p-4">Status</th>
+                                <th className="p-4 text-right">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border/30">
+                              {filteredCreated.map((item) => {
+                                const isStudio = item.tags?.includes("studio-project") || item.template_origin === "studio";
+
+                                return (
+                                  <tr key={item.id} className="hover:bg-muted/20 transition-colors">
+                                    <td className="p-4">
+                                      <div className="flex items-center gap-3">
+                                        <div className="w-12 h-10 rounded-lg overflow-hidden bg-muted shrink-0 relative">
+                                          {item.thumbnail_url ? (
+                                            <img
+                                              src={item.thumbnail_url}
+                                              alt=""
+                                              className="w-full h-full object-cover"
+                                              onError={(e) => { e.target.style.display = "none"; }}
+                                            />
+                                          ) : (
+                                            <div className="w-full h-full flex items-center justify-center text-sm">💻</div>
+                                          )}
+                                        </div>
+                                        <div>
+                                          <div className="font-bold text-foreground text-xs flex items-center gap-2">
+                                            <span>{item.title || "Studio Project"}</span>
+                                            <span className="font-mono text-[10px] text-muted-foreground">#{String(item.id || "").slice(0, 6).toUpperCase()}</span>
+                                          </div>
+                                          <div className="text-[11px] text-muted-foreground line-clamp-1">{item.short_description || item.description || "Custom generated prototype."}</div>
+                                        </div>
+                                      </div>
+                                    </td>
+                                    <td className="p-4">
+                                      <span className="px-2 py-0.5 bg-muted text-foreground border border-border/50 rounded-md font-mono font-bold uppercase text-[10px]">
+                                        {item.framework || "HTML"}
+                                      </span>
+                                    </td>
+                                    <td className="p-4">
+                                      <span className="px-2 py-0.5 bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[10px] font-bold rounded-full uppercase flex items-center gap-1 w-fit">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" /> Draft
+                                      </span>
+                                    </td>
+                                    <td className="p-4 text-right">
+                                      <div className="flex items-center justify-end gap-1.5">
+                                        {isStudio ? (
+                                          <Link
+                                            href={`/studio/launch?template=${item.slug || item.id}`}
+                                            className="px-2.5 py-1.5 bg-gradient-to-r from-indigo-500 to-blue-600 text-white text-[11px] font-bold rounded-lg flex items-center gap-1 shadow-sm"
+                                          >
+                                            <Rocket className="w-3 h-3" /> Launch Hub
+                                          </Link>
+                                        ) : (
+                                          <Link
+                                            href={`/preview?template=${item.slug || item.id}`}
+                                            className="px-2.5 py-1.5 bg-primary text-white text-[11px] font-bold rounded-lg flex items-center gap-1 shadow-sm"
+                                          >
+                                            <Sparkles className="w-3 h-3" /> Studio
+                                          </Link>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setDeployTemplateId(item.id);
+                                            setDeployProjectName(item.title || "My Studio Project");
+                                            setIsDeployModalOpen(true);
+                                          }}
+                                          className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg border border-border/40 bg-muted/40 cursor-pointer"
+                                          title="Deploy"
+                                        >
+                                          <Zap className="w-3.5 h-3.5" />
+                                        </button>
+                                        <a
+                                          href={`${API_BASE}/preview/live/${item.id}`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg border border-border/40 bg-muted/40"
+                                          title="Live Demo Preview"
+                                        >
+                                          <Globe className="w-3.5 h-3.5" />
+                                        </a>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteCustomDraft(item.id, item.title)}
+                                          className="p-1.5 text-muted-foreground hover:text-rose-400 rounded-lg border border-border/40 bg-muted/40 cursor-pointer"
+                                          title="Delete Draft"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
                       )
                     ) : (
                       /* Purchased Studio Projects */
@@ -3949,9 +4139,20 @@ function Dashboard() {
                             <ShoppingBag className="w-4 h-4" /> Explore Marketplace
                           </Link>
                         </div>
-                      ) : (
+                      ) : filteredPurchased.length === 0 ? (
+                        <div className="text-center py-12 px-4 rounded-2xl border border-border/40 bg-card/30">
+                          <p className="text-xs text-muted-foreground font-semibold">No purchased studio projects match &ldquo;{studioProjectsSearch}&rdquo;</p>
+                          <button
+                            type="button"
+                            onClick={() => setStudioProjectsSearch("")}
+                            className="mt-3 text-xs text-primary underline font-bold bg-transparent border-0 cursor-pointer"
+                          >
+                            Clear Search Filter
+                          </button>
+                        </div>
+                      ) : studioProjectsView === "grid" ? (
                         <div className="db-templates-grid">
-                          {purchasedStudioProjects.map((item) => (
+                          {filteredPurchased.map((item) => (
                             <div key={item.id} className="db-template-card group">
                               {/* Thumbnail Header */}
                               <div className="db-template-thumb">
@@ -4065,6 +4266,97 @@ function Dashboard() {
                               </div>
                             </div>
                           ))}
+                        </div>
+                      ) : (
+                        /* Table View for Purchased Studio Projects */
+                        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-border/40 bg-muted/40 font-bold uppercase text-muted-foreground text-[10px] tracking-wider">
+                                <th className="p-4">Studio Project</th>
+                                <th className="p-4">Framework</th>
+                                <th className="p-4">Price Paid</th>
+                                <th className="p-4">Access</th>
+                                <th className="p-4 text-right">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border/30">
+                              {filteredPurchased.map((item) => (
+                                <tr key={item.id} className="hover:bg-muted/20 transition-colors">
+                                  <td className="p-4">
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-12 h-10 rounded-lg overflow-hidden bg-muted shrink-0 relative">
+                                        {item.thumbnail_url ? (
+                                          <img
+                                            src={item.thumbnail_url}
+                                            alt=""
+                                            className="w-full h-full object-cover"
+                                            onError={(e) => { e.target.style.display = "none"; }}
+                                          />
+                                        ) : (
+                                          <div className="w-full h-full flex items-center justify-center text-sm">📁</div>
+                                        )}
+                                      </div>
+                                      <div>
+                                        <div className="font-bold text-foreground text-xs">{item.title || "Purchased Project"}</div>
+                                        <div className="text-[11px] text-muted-foreground line-clamp-1">{item.short_description || "Custom generated prototype."}</div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="p-4">
+                                    <span className="px-2 py-0.5 bg-muted text-foreground border border-border/50 rounded-md font-mono font-bold uppercase text-[10px]">
+                                      {item.framework || "HTML"}
+                                    </span>
+                                  </td>
+                                  <td className="p-4 font-bold text-foreground">{formatPrice(item.price || 0)}</td>
+                                  <td className="p-4">
+                                    <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-bold rounded-full uppercase">
+                                      Full Access
+                                    </span>
+                                  </td>
+                                  <td className="p-4 text-right">
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => triggerDownload.mutate({ templateId: item.id, format: "zip" })}
+                                        className="px-2.5 py-1.5 bg-primary text-white text-[11px] font-bold rounded-lg flex items-center gap-1 shadow-sm cursor-pointer"
+                                      >
+                                        <Download className="w-3 h-3" /> Download ZIP
+                                      </button>
+                                      <Link
+                                        href={`/preview?template=${item.slug || item.id}`}
+                                        className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg border border-border/40 bg-muted/40"
+                                        title="Editor"
+                                      >
+                                        <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                                      </Link>
+                                      <a
+                                        href={`${API_BASE}/preview/live/${item.id}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg border border-border/40 bg-muted/40"
+                                        title="Live Demo Preview"
+                                      >
+                                        <Globe className="w-3.5 h-3.5 text-indigo-500" />
+                                      </a>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setDeployTemplateId(item.id);
+                                          setDeployProjectName(item.title || "My Studio Project");
+                                          setIsDeployModalOpen(true);
+                                        }}
+                                        className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg border border-border/40 bg-muted/40 cursor-pointer"
+                                        title="Deploy"
+                                      >
+                                        <Zap className="w-3.5 h-3.5 text-white" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
                         </div>
                       )
                     )}

@@ -3,6 +3,8 @@ import logging
 import re
 from typing import Any, Optional
 
+from .agent_memory import agent_memory
+
 logger = logging.getLogger(__name__)
 
 
@@ -111,12 +113,181 @@ def inject_seo_and_social_tags(
     return html
 
 
+def normalize_multi_page_navigation(
+    pages: dict[str, str],
+) -> tuple[dict[str, str], list[dict[str, Any]]]:
+    """
+    Deterministically cleans, normalizes, and repairs multi-page navigation,
+    header parity, cross-page relative links, duplicate DOM IDs, and markdown leakage.
+    Returns (repaired_pages, repairs_list).
+    """
+    repaired_pages: dict[str, str] = {}
+    repairs_log: list[dict[str, Any]] = []
+
+    # Map of all real HTML pages in this generated project
+    available_html_pages = {k.lower(): k for k in pages.keys() if k.lower().endswith(".html")}
+    is_multi_page = len(available_html_pages) > 1
+
+    for fname, raw_html in pages.items():
+        if not fname.lower().endswith(".html"):
+            repaired_pages[fname] = raw_html
+            continue
+
+        html = raw_html
+
+        # 1. Clean Trailing Markdown Fences & Conversational Leakage
+        if "</html>" in html.lower():
+            closing_match = re.search(r'</html>', html, flags=re.IGNORECASE)
+            if closing_match:
+                end_pos = closing_match.end()
+                trailing_content = html[end_pos:].strip()
+                if trailing_content:
+                    html = html[:end_pos] + "\n"
+                    repairs_log.append({
+                        "file": fname,
+                        "type": "markdown_code_fence_leakage",
+                        "description": f"Stripped {len(trailing_content)} chars of trailing markdown leakage after </html>",
+                    })
+                    agent_memory.record_mistake(
+                        category="syntax",
+                        mistake_trigger="markdown_code_fence_leakage",
+                        lesson_rule="Never emit markdown code fences or conversational text at the end of HTML files.",
+                        file_path=fname,
+                        severity="critical",
+                    )
+
+        # 2. Fix Duplicate Drawer Overlay IDs & Orphan Closing Tags
+        if html.count('id="drawerOverlay"') > 1 or html.count("id='drawerOverlay'") > 1:
+            # Keep only first occurrence of drawerOverlay
+            seen_overlay = False
+            def _dedup_overlay(m: re.Match) -> str:
+                nonlocal seen_overlay
+                if not seen_overlay:
+                    seen_overlay = True
+                    return m.group(0)
+                return ""
+
+            html = re.sub(
+                r'<div\b[^>]*\bid=[\'"]drawerOverlay[\'"][^>]*>\s*</div>',
+                _dedup_overlay,
+                html,
+                flags=re.IGNORECASE,
+            )
+            repairs_log.append({
+                "file": fname,
+                "type": "duplicate_overlay_id",
+                "description": "Removed duplicate #drawerOverlay DOM elements.",
+            })
+            agent_memory.record_mistake(
+                category="syntax",
+                mistake_trigger="duplicate_overlay_id",
+                lesson_rule="Ensure every DOM ID like #drawerOverlay is unique; never emit duplicate overlay elements.",
+                file_path=fname,
+                severity="high",
+            )
+
+        # Clean duplicate script tags
+        script_pattern = r'(<script\b[^>]*src=[\'"]([^\'"]+)[\'"][^>]*>\s*</script>)'
+        seen_scripts: set[str] = set()
+        def _dedup_script(m: re.Match) -> str:
+            src = m.group(2).strip()
+            if src in seen_scripts:
+                return ""
+            seen_scripts.add(src)
+            return m.group(1)
+
+        html = re.sub(script_pattern, _dedup_script, html, flags=re.IGNORECASE)
+
+        # 3. Multi-Page Navigation Normalization
+        if is_multi_page:
+            is_index_page = fname.lower() in {"index.html", "home.html"}
+
+            # Map common section hashes to dedicated sibling pages
+            section_to_page = {
+                "#about": "about.html",
+                "#bio": "about.html",
+                "#biography": "about.html",
+                "#projects": "projects.html",
+                "#work": "projects.html",
+                "#portfolio": "projects.html",
+                "#case-studies": "projects.html",
+                "#skills": "skills.html",
+                "#services": "services.html",
+                "#pricing": "pricing.html",
+                "#contact": "contact.html",
+            }
+
+            def _normalize_nav_link(m: re.Match) -> str:
+                full_tag = m.group(0)
+                href = m.group(1)
+
+                # Check if hash points directly to an existing sibling page
+                target_page = section_to_page.get(href.lower())
+                if target_page and target_page in available_html_pages:
+                    return full_tag.replace(href, target_page)
+
+                # On secondary pages, prefix homepage section hashes with index.html
+                if not is_index_page and href.startswith("#"):
+                    return full_tag.replace(href, f"index.html{href}")
+
+                return full_tag
+
+            # Scan and normalize inside <nav> and <header> blocks
+            html = re.sub(
+                r'<a\b[^>]*\bhref=[\'"](#[a-zA-Z0-9_\-]+)[\'"][^>]*>',
+                _normalize_nav_link,
+                html,
+                flags=re.IGNORECASE,
+            )
+
+            # Ensure current page has active highlight and others don't in desktop nav
+            clean_fname = fname.split("/")[-1].lower()
+            def _fix_active_highlight(nav_match: re.Match) -> str:
+                nav_block = nav_match.group(0)
+
+                # Helper to update active class per link
+                def _link_replacer(link_match: re.Match) -> str:
+                    link_tag = link_match.group(0)
+                    href = link_match.group(1).lower()
+
+                    is_current = (
+                        href == clean_fname or
+                        href.endswith(f"/{clean_fname}") or
+                        (clean_fname in {"index.html", "home.html"} and href in {"index.html", "home.html", "./", "/"})
+                    )
+
+                    # Strip existing active / aria-current
+                    cleaned = re.sub(r'\s+aria-current=[\'"]page[\'"]', "", link_tag, flags=re.IGNORECASE)
+                    cleaned = re.sub(r'\s+active\b', "", cleaned, flags=re.IGNORECASE)
+                    cleaned = re.sub(r'class=[\'"]([^\'"]*)[\'"]', lambda cm: f'class="{cm.group(1).replace("active", "").strip()}"', cleaned, flags=re.IGNORECASE)
+
+                    if is_current:
+                        if 'class="' in cleaned:
+                            cleaned = re.sub(r'class="([^"]*)"', r'class="\1 active"', cleaned, count=1)
+                        elif "class='" in cleaned:
+                            cleaned = re.sub(r"class='([^']*)'", r"class='\1 active'", cleaned, count=1)
+                        else:
+                            cleaned = cleaned.replace("<a", '<a class="active"', 1)
+                        cleaned = cleaned.replace(">", ' aria-current="page">', 1)
+
+                    return cleaned
+
+                return re.sub(r'<a\b[^>]*\bhref=[\'"]([^\'"]+)[\'"][^>]*>', _link_replacer, nav_block, flags=re.IGNORECASE)
+
+            html = re.sub(r'<nav\b[^>]*>.*?</nav\s*>', _fix_active_highlight, html, flags=re.IGNORECASE | re.DOTALL)
+
+        repaired_pages[fname] = html
+
+    return repaired_pages, repairs_log
+
+
 def run_comprehensive_audit(
     pages: dict[str, str],
     planned_filenames: list[str],
 ) -> dict[str, Any]:
     """
     Performs rigorous automated code quality, link integrity, and HTML validity checks.
+    Automatically logs any flaws into agent_memory for persistent learning.
     """
     findings = []
     generated_filenames = set(pages.keys())
@@ -124,12 +295,20 @@ def run_comprehensive_audit(
     # Check 1: Zero Missing Pages
     for planned in planned_filenames:
         if planned not in generated_filenames:
+            msg = f"Planned page '{planned}' was not generated in output package."
             findings.append({
                 "severity": "critical",
                 "file": planned,
                 "rule": "zero_missing_pages",
-                "message": f"Planned page '{planned}' was not generated in output package.",
+                "message": msg,
             })
+            agent_memory.record_mistake(
+                category="navigation",
+                mistake_trigger="missing_planned_page",
+                lesson_rule="All planned pages must physically exist and contain rich domain-specific content.",
+                file_path=planned,
+                severity="critical",
+            )
         else:
             content = pages[planned]
             if len(content) < 400:
@@ -147,12 +326,20 @@ def run_comprehensive_audit(
         for target in hrefs:
             clean_target = target.split("#")[0].lstrip("/")
             if clean_target and clean_target not in generated_filenames:
+                msg = f"Page '{fname}' links to '{clean_target}' which does not exist in package."
                 findings.append({
                     "severity": "high",
                     "file": fname,
                     "rule": "broken_internal_link",
-                    "message": f"Page '{fname}' links to '{clean_target}' which does not exist in package.",
+                    "message": msg,
                 })
+                agent_memory.record_mistake(
+                    category="navigation",
+                    mistake_trigger="broken_internal_link",
+                    lesson_rule="All relative links in headers, drawers, and buttons must link to files that actually exist in the package.",
+                    file_path=fname,
+                    severity="high",
+                )
 
         # Check for unlinked hash anchors in navigation
         nav_matches = re.findall(r'<nav\b[^>]*>(.*?)</nav\s*>', html, flags=re.IGNORECASE | re.DOTALL)
@@ -165,6 +352,13 @@ def run_comprehensive_audit(
                     "rule": "navigation_hash_anchor",
                     "message": f"Navigation on '{fname}' contains raw anchor links {dead_hashes} instead of sibling page links.",
                 })
+                agent_memory.record_mistake(
+                    category="navigation",
+                    mistake_trigger="navigation_hash_anchor",
+                    lesson_rule="In multi-page websites, never use bare anchor hashes (#section) on secondary pages. Always prefix with index.html#section or point to the dedicated page.",
+                    file_path=fname,
+                    severity="high",
+                )
 
         # Check 3: HTML Tag Balance
         if not re.search(r'</html>\s*$', html.strip(), flags=re.IGNORECASE):
@@ -174,6 +368,13 @@ def run_comprehensive_audit(
                 "rule": "unclosed_html_root",
                 "message": f"File '{fname}' is missing closing </html> tag.",
             })
+            agent_memory.record_mistake(
+                category="syntax",
+                mistake_trigger="unclosed_html_root",
+                lesson_rule="Every HTML document must end cleanly with </html> and have no unclosed tags or trailing markdown fences.",
+                file_path=fname,
+                severity="high",
+            )
 
     passed = len([f for f in findings if f["severity"] in {"critical", "high"}]) == 0
     return {

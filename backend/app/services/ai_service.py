@@ -441,7 +441,12 @@ class AIService:
                         if response.status_code == 200:
                             data = response.json()
                             try:
-                                text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                                candidate = data["candidates"][0]
+                                text = candidate["content"]["parts"][0]["text"].strip()
+                                finish_reason = candidate.get("finishReason", "")
+                                if finish_reason == "MAX_TOKENS":
+                                    logger.warning("Gemini model '%s' hit MAX_TOKENS limit (output was truncated).", try_model)
+                                    safe_print(f"   ⚠️ [AI Service] Gemini model '{try_model}' reached maxOutputTokens limit (output truncated).")
                                 if model_idx > 0:
                                     logger.info("Gemini fallback model '%s' succeeded after primary '%s' failed.", try_model, model_name)
                                     safe_print(f"   └─ ✅ Gemini fallback ({try_model}) generated output successfully.")
@@ -557,7 +562,12 @@ class AIService:
                     if response.status_code == 200:
                         data = response.json()
                         try:
-                            raw_content = data["choices"][0]["message"]["content"].strip()
+                            choice = data["choices"][0]
+                            raw_content = choice["message"]["content"].strip()
+                            finish_reason = choice.get("finish_reason")
+                            if finish_reason == "length":
+                                logger.warning(f"{provider_label} ({model_name}) hit max_tokens length limit (output was truncated).")
+                                safe_print(f"   ⚠️ [AI Service] {provider_label} ({model_name}) output was truncated by token limit.")
                             # Strip <think>...</think> chain-of-thought tags emitted by Qwen3/DeepSeek-R1
                             if "ollama" in provider_label.lower() or "cline" in provider_label.lower():
                                 raw_content = _strip_think_tags(raw_content)

@@ -3352,8 +3352,28 @@
 
 .db-templates-grid {
   display: grid !important;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)) !important;
+  grid-template-columns: 1fr !important;
   gap: 1.5rem !important;
+  width: 100% !important;
+  align-items: stretch !important;
+}
+
+@media (min-width: 640px) {
+  .db-templates-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  .db-templates-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (min-width: 1536px) {
+  .db-templates-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
 }
 
 .db-template-card {
@@ -3366,6 +3386,8 @@
   flex-direction: column !important;
   transition: all 0.25s ease !important;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25) !important;
+  width: 100% !important;
+  max-width: 100% !important;
 }
 
 .db-template-card:hover {
@@ -3377,15 +3399,18 @@
 .db-template-thumb {
   width: 100% !important;
   height: 190px !important;
+  max-height: 190px !important;
   position: relative !important;
   background-color: #0b0f19 !important;
   overflow: hidden !important;
+  flex-shrink: 0 !important;
 }
 
 .db-template-img {
   width: 100% !important;
   height: 100% !important;
   object-fit: cover !important;
+  object-position: top center !important;
   transition: transform 0.3s ease !important;
 }
 

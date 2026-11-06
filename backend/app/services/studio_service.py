@@ -29,11 +29,13 @@ from app.core.local_project_manager import local_project_manager
 from app.services.framework_auditor import framework_auditor
 from app.services.architect_agent import architect_agent
 from app.services.text_agent import text_agent
+from app.services.agent_memory import agent_memory
 from app.services.site_compiler import (
     generate_sitemap_xml,
     generate_robots_txt,
     inject_seo_and_social_tags,
     run_comprehensive_audit,
+    normalize_multi_page_navigation,
 )
 
 logger = logging.getLogger(__name__)
@@ -2057,21 +2059,20 @@ Render this authentic domain-specific copy directly into your sections. NEVER us
                 else:
                     page_role_guidance = "Root-page rule: index.html is the real homepage for the site. Build a welcoming hero and key offering sections for the exact brief."
 
+                learned_constraints = agent_memory.get_learned_constraints_prompt()
+
                 page_prompt = f"""You are the Frontend Dev Agent. Implement exactly one complete, production-quality, responsive HTML page. This is a separate page-by-page build; do not emit other pages or explanations.
-Original user brief highlights: <brief>{prompt[:3000]}</brief>
-Category: {category_name}; genre: {genre}
-User-approved build prompt (authoritative; follow it directly): {build_brief[:18000]}
+Category: {category_name} | Genre: {genre} | Page: {page_name} ({filename})
+Original user brief: <brief>{prompt[:2000]}</brief>
 {profile_guidance}
-Page plan: {json.dumps(page, ensure_ascii=False)}
+{learned_constraints}
 {architect_page_mandate}
 {copy_guidance}
 {page_role_guidance}
-Full sitemap for consistent navigation: {json.dumps(compact_sitemap, ensure_ascii=False)[:3000]}
+Full sitemap for consistent navigation: {json.dumps(compact_sitemap, ensure_ascii=False)[:2000]}
 {multipage_nav_mandate}
 {canonical_header_instruction}
-Owner answers relevant to this page: {json.dumps(answers, ensure_ascii=False)[:3500]}
-UI Designer system: {design[:2500]}
-User and automatically sourced image assets: {image_context}
+UI Designer system: {design[:2000]}
 {user_image_guidance}
 {page_image_guidance}
 CRITICAL CONTENT ACCURACY & ANTI-LAZINESS DIRECTIVE:
@@ -2110,17 +2111,14 @@ CRITICAL CONTENT ACCURACY & ANTI-LAZINESS DIRECTIVE:
 {STUDIO_CLINERULES}
 Output a full standalone HTML document for {filename}, with semantic markup, page-specific content, responsive inline CSS, and working browser-side interactions. Include complete head, body, style, and script blocks as needed; never return browser-default unstyled HTML. Use the UI Designer system as a concrete specification, and keep the same header, navigation, footer, typography, and design tokens used by the other generated pages. Build a clear visual hierarchy with deliberate whitespace, strong editorial composition, and restrained detail; use varied layouts instead of repeated card grids. Keep the page polished but concise enough to finish as valid HTML. Include SEO title/description, social metadata, clear relative navigation links using the supplied page filenames, descriptive image alt text, visible focus, keyboard access, and prefers-reduced-motion. Add purposeful animation that honors reduced motion. Make visible controls work in the browser or label them as demo-only; never invent testimonials, stats, credentials, prices, or success states. Forms must say when they are demo-only. Use supplied direct image URLs in relevant visual sections; preserve stock photo credits. Never use a Google search/results URL as an image source. Do not load frameworks, CDNs, tracking, or server APIs. Return HTML only, including the closing </body> and </html> tags."""
                 recovery_prompt = f"""The previous page response was incomplete. Regenerate a complete, concise standalone HTML document for {filename}; do not explain or continue with fragments.
-Brief highlights: {prompt[:1800]}
-Approved project requirements: {build_brief[:9000]}
-Page plan: {json.dumps(page, ensure_ascii=False)[:3500]}
+Category: {category_name} | Genre: {genre} | Page: {page_name} ({filename})
+{learned_constraints}
 {architect_page_mandate}
 {copy_guidance}
 Sitemap: {json.dumps(compact_sitemap, ensure_ascii=False)[:1800]}
 {multipage_nav_mandate}
 {canonical_header_instruction}
-Design system: {design[:1800]}
-Owner details: {json.dumps(answers, ensure_ascii=False)[:2500]}
-Images: {image_context[:10000]}
+Design system: {design[:1500]}
 {user_image_guidance}
 {page_image_guidance}
 Rules: Use semantic, responsive HTML with a complete head, body, style, and script where needed. Match the named page only. Include working relative navigation, accessible focus, alt text, and reduced-motion support. NON-LAZY & NO-BLANK-CARDS MANDATE: Every card, hero section, and project showcase MUST render a working <img> tag using the provided URLs. Never leave cards blank or empty. Return HTML only and include the exact closing </body></html> tags."""
@@ -2295,7 +2293,19 @@ Files: {json.dumps({k: (v if len(v) <= 6000 else f"{v[:3800]}\n<!-- ... [interio
                 if not audit.get("summary"):
                     audit["summary"] = f"Full-stack {stack} framework verified and production-ready."
 
-            # Comprehensive deterministic quality & link audit
+            pages = {filename: _add_image_fallback(_ensure_styles(html), genre) for filename, html in pages.items()}
+            for filename, html in pages.items():
+                for asset_url, asset_path in local_asset_paths.items():
+                    html = html.replace(asset_url, asset_path)
+                pages[filename] = html
+            pages = _enforce_multipage_navigation(pages, page_list, answers)
+
+            # Self-healing deterministic layout, tag, and navigation normalization
+            pages, norm_repairs = normalize_multi_page_navigation(pages)
+            if norm_repairs:
+                logger.info(f"Self-healed {len(norm_repairs)} multi-page navigation/layout issues across package.")
+
+            # Comprehensive deterministic quality & link audit (auto-persists learnings to agent_memory)
             planned_fnames = [_filename(p.get("filename", ""), i, str(p.get("name") or f"Page {i+1}")) for i, p in enumerate(page_list)]
             comp_audit = run_comprehensive_audit(pages, planned_fnames)
             audit["comprehensive_audit"] = comp_audit
@@ -2305,13 +2315,6 @@ Files: {json.dumps({k: (v if len(v) <= 6000 else f"{v[:3800]}\n<!-- ... [interio
                     for f in comp_audit["findings"]
                 ])
             yield status("testing", "completed", str(audit.get("summary") or comp_audit.get("summary") or "Testing and audit complete.")[:250])
-
-            pages = {filename: _add_image_fallback(_ensure_styles(html), genre) for filename, html in pages.items()}
-            for filename, html in pages.items():
-                for asset_url, asset_path in local_asset_paths.items():
-                    html = html.replace(asset_url, asset_path)
-                pages[filename] = html
-            pages = _enforce_multipage_navigation(pages, page_list, answers)
             local_package_assets = {asset_path for asset_path, _content in packaged_uploads}
             reference_issues = _site_reference_issues(pages, local_package_assets)
             for filename, issues in list(reference_issues.items())[:4]:
