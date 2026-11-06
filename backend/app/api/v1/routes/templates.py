@@ -28,7 +28,7 @@ from app.schemas.template import (
     TemplateCreate, TemplateUpdate, TemplateResponse,
     TemplateListResponse, TemplateFilterParams, TemplateCardResponse,
 )
-from app.models.template import TemplateFramework, TemplateLicense, TemplateStatus
+from app.models.template import Template, TemplateFramework, TemplateLicense, TemplateStatus
 from app.models.order import Order, OrderItem, OrderStatus
 from app.core.config import settings
 from app.core.security import generate_file_signature
@@ -672,29 +672,42 @@ async def purge_custom_drafts(
             logger.warning(f"Error deleting draft {d.id}: {del_err}")
 
     # 2. Delete local project directories for drafts from generated_projects/
-    root_dir = Path(__file__).resolve().parents[4]
-    gen_proj_dir = root_dir / "generated_projects"
-    if gen_proj_dir.is_dir():
-        for entry in os.listdir(gen_proj_dir):
-            if "-draft-" in entry or "draft" in entry.lower() or any(d_id in entry for d_id in deleted_ids):
-                try:
-                    full_p = gen_proj_dir / entry
-                    if full_p.is_dir():
-                        shutil.rmtree(full_p, ignore_errors=True)
-                    elif full_p.is_file():
-                        full_p.unlink(missing_ok=True)
-                except Exception:
-                    pass
+    possible_roots = [
+        Path(__file__).resolve().parents[4],
+        Path(__file__).resolve().parents[5] if len(Path(__file__).resolve().parents) > 5 else None,
+        Path.cwd(),
+    ]
+    seen_dirs = set()
+    for r in possible_roots:
+        if r and (r / "generated_projects").is_dir():
+            gen_proj_dir = (r / "generated_projects").resolve()
+            if gen_proj_dir in seen_dirs:
+                continue
+            seen_dirs.add(gen_proj_dir)
+            for entry in os.listdir(gen_proj_dir):
+                if "-draft-" in entry or "draft" in entry.lower() or any(d_id in entry for d_id in deleted_ids):
+                    try:
+                        full_p = gen_proj_dir / entry
+                        if full_p.is_dir():
+                            shutil.rmtree(full_p, ignore_errors=True)
+                        elif full_p.is_file():
+                            full_p.unlink(missing_ok=True)
+                    except Exception:
+                        pass
 
     # 3. Clean up temp live previews
-    temp_prev_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews")
-    if os.path.isdir(temp_prev_dir):
-        for entry in os.listdir(temp_prev_dir):
-            if any(d_id in entry for d_id in deleted_ids) or "-draft-" in entry:
-                try:
-                    shutil.rmtree(os.path.join(temp_prev_dir, entry), ignore_errors=True)
-                except Exception:
-                    pass
+    temp_dirs = [
+        os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews"),
+        os.path.join(tempfile.gettempdir(), "ai_site_studio_previews"),
+    ]
+    for temp_prev_dir in temp_dirs:
+        if os.path.isdir(temp_prev_dir):
+            for entry in os.listdir(temp_prev_dir):
+                if any(d_id in entry for d_id in deleted_ids) or "-draft-" in entry or "draft" in entry.lower():
+                    try:
+                        shutil.rmtree(os.path.join(temp_prev_dir, entry), ignore_errors=True)
+                    except Exception:
+                        pass
 
     fast_catalog.invalidate()
     return {"status": "success", "deleted_count": len(deleted_ids), "deleted_ids": deleted_ids}

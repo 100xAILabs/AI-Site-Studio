@@ -624,6 +624,33 @@ def create_application() -> FastAPI:
 
     import os
 
+    @app.get("/static/thumbnails/{filename:path}")
+    async def get_or_generate_thumbnail(filename: str):
+        import os
+        from pathlib import Path
+        from fastapi.responses import FileResponse, Response
+        from app.services.screenshot_service import ScreenshotService, _THUMBNAILS_DIR
+
+        clean_filename = os.path.basename(filename)
+        file_path = _THUMBNAILS_DIR / clean_filename
+        if file_path.is_file():
+            return FileResponse(file_path, media_type="image/svg+xml")
+
+        alt_path = Path("static") / "thumbnails" / clean_filename
+        if alt_path.is_file():
+            return FileResponse(alt_path, media_type="image/svg+xml")
+
+        clean_id = clean_filename.replace(".svg", "").replace(".png", "")
+        svg_content = ScreenshotService.generate_for_project(clean_id)
+        try:
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(svg_content)
+        except Exception:
+            pass
+
+        return Response(content=svg_content, media_type="image/svg+xml")
+
     os.makedirs("static", exist_ok=True)
 
     app.mount("/static", StaticFiles(directory="static"), name="static")
