@@ -1,0 +1,69 @@
+{
+  "version": "1.0",
+  "updated_at": "2026-11-06T13:45:51.354332+00:00",
+  "total_mistakes_logged": 11,
+  "lessons": [
+    {
+      "id": "lesson_multi_page_nav_hashes",
+      "category": "navigation",
+      "title": "Cross-Page Relative Navigation Mandate",
+      "rule": "In multi-page websites, NEVER use bare anchor hashes (e.g. href=\"#featured\", href=\"#services\", href=\"#about\") in the navigation of secondary pages. All cross-page links must be relative (e.g. href=\"about.html\", href=\"projects.html\", href=\"skills.html\", or href=\"index.html#featured\").",
+      "mistake_trigger": "navigation_hash_anchor",
+      "severity": "high",
+      "occurrence_count": 2,
+      "last_seen": "2026-11-06T18:00:00Z"
+    },
+    {
+      "id": "lesson_shared_layout_parity",
+      "category": "layout",
+      "title": "Header & Footer Route Consistency",
+      "rule": "The desktop <header> and mobile navigation drawer MUST provide the exact same page routes across all sibling pages. Only the .active class / aria-current=\"page\" attribute may differ to highlight the current active file.",
+      "mistake_trigger": "inconsistent_navigation_parity",
+      "severity": "high",
+      "occurrence_count": 2,
+      "last_seen": "2026-11-06T18:00:00Z"
+    },
+    {
+      "id": "lesson_zero_markdown_leakage",
+      "category": "syntax",
+      "title": "Zero Markdown or Conversational Leakage",
+      "rule": "Never include markdown backtick fences (```html or ```) or conversational commentary (e.g. 'This completes the HTML structure...') in generated code files. Output pure, clean HTML/CSS/JS only.",
+      "mistake_trigger": "markdown_code_fence_leakage",
+      "severity": "critical",
+      "occurrence_count": 3,
+      "last_seen": "2026-11-06T13:45:51.339554+00:00",
+      "last_file": "index.html"
+    },
+    {
+      "id": "lesson_dom_tag_balance",
+      "category": "syntax",
+      "title": "Strict DOM Tag Matching & Unique IDs",
+      "rule": "Ensure every opened tag has a single matching closing tag. Never emit orphan </div> closing tags or duplicate overlay IDs (such as multiple id=\"drawerOverlay\").",
+      "mistake_trigger": "unmatched_closing_tag",
+      "severity": "high",
+      "occurrence_count": 1,
+      "last_seen": "2026-11-06T18:00:00Z"
+    },
+    {
+      "id": "lesson_mobile_drawer_controller",
+      "category": "mobile",
+      "title": "Universal Mobile Drawer Functionality",
+      "rule": "Every page with a hamburger button (#mobileMenuBtn) MUST have a corresponding mobile drawer (#mobileDrawer) and overlay (#drawerOverlay), wired with a clean working JavaScript open/close toggle script.",
+      "mistake_trigger": "missing_drawer_markup",
+      "severity": "high",
+      "occurrence_count": 1,
+      "last_seen": "2026-11-06T18:00:00Z"
+    },
+    {
+      "id": "lesson_duplicate_overlay_id",
+      "category": "syntax",
+      "title": "Duplicate Overlay Id",
+      "rule": "Ensure every DOM ID like #drawerOverlay is unique; never emit duplicate overlay elements.",
+      "mistake_trigger": "duplicate_overlay_id",
+      "severity": "high",
+      "occurrence_count": 2,
+      "last_seen": "2026-11-06T13:45:51.354332+00:00",
+      "last_file": "index.html"
+    }
+  ]
+}
