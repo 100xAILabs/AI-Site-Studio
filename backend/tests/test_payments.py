@@ -3,6 +3,7 @@ Unit tests for payments flow with Stripe webhook validation.
 """
 
 import pytest
+from decimal import Decimal
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from unittest.mock import patch
@@ -22,7 +23,6 @@ async def test_complete_payment_flow(auth_client: AsyncClient, db: AsyncSession)
     await db.flush()
 
     # 2. Seed a Template
-    from decimal import Decimal
     template = Template(
         title="Premium SaaS Theme",
         slug="premium-saas-theme",
@@ -54,6 +54,11 @@ async def test_complete_payment_flow(auth_client: AsyncClient, db: AsyncSession)
     assert order_data["status"] == "pending"
     order_id = order_data["id"]
 
+    # Capture the ACTUAL order total (may include country-based tax)
+    # and convert to cents so the webhook amount matches exactly.
+    order_total_usd = Decimal(str(order_data["total"]))
+    order_amount_cents = int(order_total_usd * 100)
+
     # 4. Initiate Payment session via POST /api/v1/payment/initiate
     initiate_payload = {
         "order_id": order_id,
@@ -81,14 +86,14 @@ async def test_complete_payment_flow(auth_client: AsyncClient, db: AsyncSession)
     assert verify_res.status_code == 400
 
     # 6. Simulate Stripe Webhook for succeeded payment intent
-    # Mismatched amount webhook should fail
+    # Mismatched amount webhook should fail (send $25.00 for a $49+ order)
     with patch("stripe.Webhook.construct_event") as mock_construct:
         mock_construct.return_value = {
             "type": "payment_intent.succeeded",
             "data": {
                 "object": {
                     "id": gateway_payment_id,
-                    "amount": 2500, # $25.00 instead of $49.00
+                    "amount": 2500,  # $25.00 — always less than $49.00 base price
                     "amount_received": 2500,
                     "metadata": {
                         "order_id": str(order_id)
@@ -112,15 +117,15 @@ async def test_complete_payment_flow(auth_client: AsyncClient, db: AsyncSession)
         )
         assert webhook_res.status_code == 400
 
-    # Successful webhook confirmation
+    # Successful webhook confirmation — use the exact order total (includes tax)
     with patch("stripe.Webhook.construct_event") as mock_construct:
         mock_construct.return_value = {
             "type": "payment_intent.succeeded",
             "data": {
                 "object": {
                     "id": gateway_payment_id,
-                    "amount": 4900, # $49.00
-                    "amount_received": 4900,
+                    "amount": order_amount_cents,
+                    "amount_received": order_amount_cents,
                     "metadata": {
                         "order_id": str(order_id)
                     }
@@ -143,3 +148,4 @@ async def test_complete_payment_flow(auth_client: AsyncClient, db: AsyncSession)
     get_res = await auth_client.get(f"/api/v1/orders/{order_id}")
     assert get_res.status_code == 200
     assert get_res.json()["status"] == "completed"
+

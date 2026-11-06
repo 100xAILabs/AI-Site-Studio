@@ -74,23 +74,28 @@ class FastCatalogManager:
                 return self._catalog
 
             try:
-                from app.core.database import AsyncSessionLocal
-
-                # Always load via an isolated session to prevent concurrency conflicts with caller's transaction
-                async with AsyncSessionLocal() as session:
-                    stmt = (
-                        select(Template)
-                        .options(selectinload(Template.category))
-                        .where(
-                            Template.is_marketplace == True,
-                            Template.status == TemplateStatus.PUBLISHED,
-                            Template.slug.notlike("%-custom-%"),
-                            Template.title.notlike("%(Customized)%"),
-                            Template.title.notlike("Customized %"),
-                        )
+                stmt = (
+                    select(Template)
+                    .options(selectinload(Template.category))
+                    .where(
+                        Template.is_marketplace == True,
+                        Template.status == TemplateStatus.PUBLISHED,
+                        Template.slug.notlike("%-custom-%"),
+                        Template.title.notlike("%(Customized)%"),
+                        Template.title.notlike("Customized %"),
                     )
-                    result = await session.execute(stmt)
+                )
+
+                if db is not None:
+                    # Use caller-provided session (e.g. during testing with an in-memory DB)
+                    result = await db.execute(stmt)
                     templates = result.scalars().all()
+                else:
+                    from app.core.database import AsyncSessionLocal
+                    # Load via an isolated session to avoid concurrency conflicts with caller's transaction
+                    async with AsyncSessionLocal() as session:
+                        result = await session.execute(stmt)
+                        templates = result.scalars().all()
 
                 cached_items: List[Dict[str, Any]] = []
                 for t in templates:

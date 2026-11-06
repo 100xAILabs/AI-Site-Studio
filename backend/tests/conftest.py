@@ -70,6 +70,18 @@ def mock_smtp_email(monkeypatch):
     monkeypatch.setattr("app.api.v1.routes.auth.send_smtp_email_sync", lambda *args, **kwargs: None)
 
 @pytest.fixture(autouse=True)
+def invalidate_fast_catalog():
+    """
+    Reset the fast catalog in-memory cache before every test so the
+    test's SQLite DB session is used for catalog queries instead of
+    the production AsyncSessionLocal.
+    """
+    from app.services.fast_catalog import fast_catalog
+    fast_catalog.invalidate()
+    yield
+    fast_catalog.invalidate()
+
+@pytest.fixture(autouse=True)
 async def setup_db():
     """Create and drop all database tables per test to ensure total isolation."""
     async with engine.begin() as conn:

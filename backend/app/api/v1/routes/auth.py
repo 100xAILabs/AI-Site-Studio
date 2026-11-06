@@ -621,11 +621,16 @@ async def register(
     from app.models.user import UserRole
     base_username = email.split("@")[0]
     unique_username = await repo.get_unique_username(base_username)
+    # Auto-upgrade role to SELLER when registering with a corporate/business email domain
+    effective_role = role
+    if effective_role != "seller" and is_company_email(email):
+        effective_role = "seller"
+
     user = User(
         email=email,
         username=unique_username,
         hashed_password=hash_password(password),
-        role=UserRole.SELLER if role.lower() == "seller" else UserRole.BUYER,
+        role=UserRole.SELLER if effective_role == "seller" else UserRole.BUYER,
         is_email_verified=False
     )
     db.add(user)
