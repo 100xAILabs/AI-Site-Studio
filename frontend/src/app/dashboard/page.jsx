@@ -3667,247 +3667,399 @@ function Dashboard() {
                 const purchasedStudioProjects = allUserTemplates.filter(item => purchasedTemplateIds.has(item.id));
 
                 return (
-                  <div className="glass-premium p-6 sm:p-8 space-y-6">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-border/30 pb-5">
-                      <div>
-                        <h3 className="font-extrabold text-xl text-slate-900 dark:text-foreground flex items-center gap-2">
-                          <Cpu className="w-5 h-5 text-primary" /> Studio Projects Workspace
-                        </h3>
-                        <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-0.5">
-                          Manage your custom created drafts and unlocked purchased projects.
-                        </p>
+                  <div className="mt-container">
+                    {/* ── Main Header Card ── */}
+                    <div className="mt-header-card">
+                      {/* Top Row: Title + Description + Top Action CTA */}
+                      <div className="mt-header-top">
+                        <div className="mt-header-title-box">
+                          <div className="mt-header-icon">
+                            <Cpu className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h2 className="mt-title">
+                                Studio Projects Workspace
+                                <span className="mt-count-badge">
+                                  {studioProjectsSubTab === "created"
+                                    ? `${createdStudioProjects.length} Draft Projects`
+                                    : `${purchasedStudioProjects.length} Purchased Projects`}
+                                </span>
+                              </h2>
+                            </div>
+                            <p className="mt-desc">
+                              Manage your custom created drafts and unlocked purchased projects. Open in Studio, deploy, or download clean code.
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Top CTA buttons */}
+                        <div className="flex items-center gap-2">
+                          {studioProjectsSubTab === "created" && createdStudioProjects.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={handlePurgeAllDrafts}
+                              disabled={purgingDrafts}
+                              className="px-3.5 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                              title="Delete all draft projects"
+                            >
+                              {purgingDrafts ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                              <span>Purge All Drafts</span>
+                            </button>
+                          )}
+                          <Link
+                            href="/marketplace"
+                            className="mt-cta-btn"
+                          >
+                            <ShoppingBag className="w-4 h-4" />
+                            <span>Explore Marketplace</span>
+                          </Link>
+                        </div>
                       </div>
 
-                      {/* Segmented Sub-Tab Switcher & Purge Button */}
-                      <div className="flex items-center gap-3 flex-wrap">
-                        {studioProjectsSubTab === "created" && createdStudioProjects.length > 0 && (
+                      {/* Toolbar Row: Subtabs Switcher */}
+                      <div className="mt-toolbar">
+                        <div className="mt-tabs">
                           <button
                             type="button"
-                            onClick={handlePurgeAllDrafts}
-                            disabled={purgingDrafts}
-                            className="px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
-                            title="Delete all draft projects"
+                            onClick={() => setStudioProjectsSubTab("created")}
+                            className={cn("mt-tab-btn", studioProjectsSubTab === "created" && "active")}
                           >
-                            {purgingDrafts ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                            <span>Purge All Drafts</span>
+                            <Sparkles className="w-4 h-4" style={{ color: studioProjectsSubTab === "created" ? "#ec4899" : "#64748b" }} />
+                            <span>Draft Projects</span>
+                            <span className={cn("mt-tab-count", studioProjectsSubTab === "created" ? "active" : "inactive")}>
+                              {createdStudioProjects.length}
+                            </span>
                           </button>
-                        )}
-                        <div className="subtab-container self-start">
-                        <button
-                          type="button"
-                          onClick={() => setStudioProjectsSubTab("created")}
-                          className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 flex items-center gap-2 cursor-pointer ${studioProjectsSubTab === "created"
-                            ? "subtab-btn-active-primary"
-                            : "subtab-btn-inactive"
-                            }`}
-                        >
-                          <Sparkles className="w-3.5 h-3.5" />
-                          <span>Draft Projects</span>
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${studioProjectsSubTab === "created" ? "subtab-pill-active" : "subtab-pill-inactive"
-                            }`}>
-                            {createdStudioProjects.length}
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setStudioProjectsSubTab("purchased")}
-                          className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 flex items-center gap-2 cursor-pointer ${studioProjectsSubTab === "purchased"
-                            ? "subtab-btn-active-blue"
-                            : "subtab-btn-inactive"
-                            }`}
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Purchased Projects</span>
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${studioProjectsSubTab === "purchased" ? "subtab-pill-active" : "subtab-pill-inactive"
-                            }`}>
-                            {purchasedStudioProjects.length}
-                          </span>
-                        </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setStudioProjectsSubTab("purchased")}
+                            className={cn("mt-tab-btn", studioProjectsSubTab === "purchased" && "active")}
+                          >
+                            <CheckCircle2 className="w-4 h-4" style={{ color: studioProjectsSubTab === "purchased" ? "#4f46e5" : "#64748b" }} />
+                            <span>Purchased Projects</span>
+                            <span className={cn("mt-tab-count", studioProjectsSubTab === "purchased" ? "active" : "inactive")}>
+                              {purchasedStudioProjects.length}
+                            </span>
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
+                    {/* ── Content Area ── */}
                     {templatesLoading && (!templateResponse || templateResponse.length === 0) ? (
-                      <div className="text-center py-12">
+                      <div className="py-20 text-center rounded-2xl border border-border/50 bg-card">
                         <Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-600" />
-                        <p className="text-xs text-slate-600 dark:text-slate-400 mt-2 font-medium">Loading your studio projects...</p>
+                        <p className="text-xs text-muted-foreground mt-3 font-semibold">Loading your studio projects...</p>
                       </div>
                     ) : studioProjectsSubTab === "created" ? (
                       /* Draft / Unpurchased Studio Projects */
                       createdStudioProjects.length === 0 ? (
-                        <div className="text-center p-6 py-10 border-2 border-dashed border-indigo-200 dark:border-indigo-900 rounded-2xl bg-white dark:bg-slate-900 flex flex-col justify-center items-center shadow-sm">
-                          <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center mb-3"><Cpu className="w-6 h-6 text-indigo-600 dark:text-indigo-400" /></div>
-                          <p className="text-base font-extrabold text-slate-900 dark:text-white">No Draft Studio Projects</p>
-                          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 max-w-sm mx-auto leading-relaxed font-medium">You don't have any unpurchased draft projects.</p>
+                        <div className="mt-empty-card">
+                          <div className="mt-empty-icon">
+                            <Cpu className="w-7 h-7" />
+                          </div>
+                          <h4 className="mt-empty-title">No Draft Studio Projects</h4>
+                          <p className="mt-empty-desc">
+                            You don't have any unpurchased draft projects. Pick any marketplace template or customize a new project with AI Site Studio.
+                          </p>
+                          <Link href="/marketplace" className="mt-empty-btn">
+                            <Sparkles className="w-4 h-4" /> Pick a Template to Customize
+                          </Link>
                         </div>
                       ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-8 justify-items-start">
-                          {createdStudioProjects.map((item) => (
-                            <div key={item.id} className="w-full max-w-[340px] group relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-indigo-500 transition-all duration-300 flex flex-col justify-between overflow-hidden shadow-md hover:shadow-xl p-5 space-y-4">
-                              {item.thumbnail_url && <img src={item.thumbnail_url} alt={`${item.title} preview`} className="-mx-5 -mt-5 mb-1 h-40 w-[calc(100%+2.5rem)] object-cover" loading="lazy" />}
-                              {/* Header Badges */}
-                              <div className="flex items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
-                                <span className="px-2.5 py-1 bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 font-extrabold text-[10px] uppercase rounded-md border border-indigo-300 dark:border-indigo-800">
-                                  Draft Project
-                                </span>
-                                <span className="px-2.5 py-1 bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 font-extrabold text-[10px] uppercase rounded-md border border-blue-300 dark:border-blue-800">
-                                  {item.framework || "HTML"}
-                                </span>
-                              </div>
+                        <div className="db-templates-grid">
+                          {createdStudioProjects.map((item) => {
+                            const inCart = isInCart(item.id);
+                            const isStudio = item.tags?.includes("studio-project") || item.template_origin === "studio";
 
-                              <div className="space-y-3 flex-1 flex flex-col justify-between">
-                                <div className="space-y-1.5">
-                                  <h4 className="font-extrabold text-base text-slate-900 dark:text-white line-clamp-1" title={item.title}>
-                                    {item.title}
-                                  </h4>
-                                  <p className="text-xs text-slate-600 dark:text-slate-300 font-medium line-clamp-2 leading-relaxed">
-                                    {item.short_description || "Custom generated prototype."}
-                                  </p>
-                                </div>
-
-                                <div className="space-y-2 pt-3 border-t border-slate-200 dark:border-slate-800">
-                                  {/* Private Studio builds stay in the user's workspace and are not marketplace purchases. */}
-                                  {!item.tags?.includes("studio-project") && <button
-                                    type="button"
-                                    onClick={() => {
-                                      addToCart({
-                                        templateId: item.id,
-                                        title: item.title,
-                                        price: item.price || 49,
-                                        thumbnail: item.thumbnail_url,
-                                        licenseType: "regular",
-                                      });
+                            return (
+                              <div key={item.id} className="db-template-card group">
+                                {/* Thumbnail Header */}
+                                <div className="db-template-thumb">
+                                  {item.thumbnail_url ? (
+                                    <img
+                                      src={item.thumbnail_url}
+                                      alt={item.title || "Studio Project"}
+                                      className="db-template-img"
+                                      onError={(e) => {
+                                        e.target.style.display = "none";
+                                        if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = "flex";
+                                      }}
+                                    />
+                                  ) : null}
+                                  <div
+                                    className="w-full h-full absolute inset-0 flex items-center justify-center"
+                                    style={{
+                                      display: item.thumbnail_url ? "none" : "flex",
+                                      background: "linear-gradient(135deg, hsla(var(--primary)/0.2) 0%, hsla(var(--secondary)/0.2) 100%)",
                                     }}
-                                    className={cn(
-                                      "w-full py-2.5 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md border-0",
-                                      isInCart(item.id)
-                                        ? "bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-2 border-blue-300 dark:border-blue-700"
-                                        : "bg-indigo-600 hover:bg-indigo-700 text-white"
-                                    )}
                                   >
-                                    <ShoppingCart className="w-4 h-4" />
-                                    <span>{isInCart(item.id) ? "In Cart" : `Buy ($${item.price || 49})`}</span>
-                                  </button>}
+                                    <span style={{ fontSize: "2rem" }}>💻</span>
+                                  </div>
 
-                                  {/* Live Editor & Live Demo */}
-                                  <div className="flex gap-2">
-                                    {(item.tags?.includes("studio-project") || item.template_origin === "studio") ? (
-                                      <>
-                                        <Link
-                                          to={`/studio/launch?template=${item.slug || item.id}`}
-                                          className="flex-1 py-2 bg-violet-600 hover:bg-violet-700 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all text-decoration-none shadow-sm"
-                                        >
-                                          <Rocket className="w-3.5 h-3.5" /> Launch Hub
-                                        </Link>
-                                        <Link
-                                          to={`/preview?template=${item.slug || item.id}`}
-                                          className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all text-decoration-none"
-                                        >
-                                          <Wand2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Edit
-                                        </Link>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Link
-                                          to={`/preview?template=${item.slug || item.id}`}
-                                          className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all text-decoration-none"
-                                        >
-                                          <Wand2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Editor
-                                        </Link>
-                                        <a
-                                          href={`${API_BASE}/preview/live/${item.id}`}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all text-decoration-none text-center"
-                                        >
-                                          <ExternalLink className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Demo
-                                        </a>
-                                      </>
-                                    )}
+                                  {/* Top-Left Floating Badge */}
+                                  <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                                    <span className="px-2 py-0.5 bg-gradient-to-r from-indigo-500 to-blue-600 text-white text-[9px] font-black uppercase tracking-wider rounded-full shadow-sm flex items-center gap-1">
+                                      <Sparkles className="w-2.5 h-2.5" /> Draft Project
+                                    </span>
+                                  </div>
+
+                                  {/* Top-Right Framework Badge & Delete */}
+                                  <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
+                                    <span className="px-2 py-0.5 bg-black/60 backdrop-blur-md text-white text-[9px] font-mono font-bold uppercase rounded-md border border-white/10">
+                                      {item.framework || "HTML"}
+                                    </span>
                                     <button
                                       type="button"
-                                      onClick={() => handleDeleteCustomDraft(item.id, item.title)}
-                                      className="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/25 transition-colors cursor-pointer shrink-0"
-                                      title="Delete Draft"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteCustomDraft(item.id, item.title);
+                                      }}
+                                      className="w-5 h-5 rounded-md bg-black/60 hover:bg-rose-600/80 backdrop-blur-md text-white/70 hover:text-white flex items-center justify-center border border-white/10 transition-colors cursor-pointer"
+                                      title="Delete draft"
                                     >
-                                      <Trash2 className="w-3.5 h-3.5" />
+                                      <Trash2 className="w-3 h-3" />
                                     </button>
                                   </div>
                                 </div>
+
+                                {/* Card Content Body */}
+                                <div className="db-template-body">
+                                  <div className="db-template-header-text">
+                                    <h4 className="db-template-title" title={item.title}>
+                                      {item.title || "Studio Project"}
+                                    </h4>
+                                    <p className="db-template-desc">
+                                      {item.short_description || item.description || "Custom generated prototype."}
+                                    </p>
+                                  </div>
+
+                                  {/* Pricing & Metadata Strip */}
+                                  <div className="db-template-meta-row">
+                                    <div>
+                                      <span className="text-[11px] text-muted-foreground">Draft ID: </span>
+                                      <span className="font-mono text-muted-foreground font-bold">#{String(item.id || "").slice(0, 6).toUpperCase()}</span>
+                                    </div>
+                                    <span className="text-[10px] font-bold text-amber-400 flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" /> Editable
+                                    </span>
+                                  </div>
+
+                                  {/* Action Buttons Hub */}
+                                  <div className="db-template-actions-box">
+                                    {/* Primary Action Button */}
+                                    {isStudio ? (
+                                      <Link
+                                        href={`/studio/launch?template=${item.slug || item.id}`}
+                                        className="db-btn-ai-studio"
+                                      >
+                                        <Rocket className="w-3.5 h-3.5 text-white" />
+                                        <span style={{ color: "#ffffff" }}>Launch Hub</span>
+                                      </Link>
+                                    ) : (
+                                      <Link
+                                        href={`/preview?template=${item.slug || item.id}`}
+                                        className="db-btn-ai-studio"
+                                      >
+                                        <Sparkles className="w-3.5 h-3.5 text-white" />
+                                        <span style={{ color: "#ffffff" }}>Open in AI Studio</span>
+                                      </Link>
+                                    )}
+
+                                    {/* Action Grid (2x2) */}
+                                    <div className="db-template-btn-grid">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setDeployTemplateId(item.id);
+                                          setDeployProjectName(item.title || "My Studio Project");
+                                          setIsDeployModalOpen(true);
+                                        }}
+                                        className="db-btn-publish"
+                                        title="Deploy / Publish"
+                                      >
+                                        <Zap className="w-3 h-3 text-white" />
+                                        <span style={{ color: "#ffffff" }}>Deploy</span>
+                                      </button>
+
+                                      <a
+                                        href={`${API_BASE}/preview/live/${item.id}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="db-btn-secondary"
+                                        title="Live Demo Preview"
+                                      >
+                                        <Globe className="w-3.5 h-3.5 text-indigo-500" />
+                                        <span>Demo</span>
+                                      </a>
+
+                                      {!isStudio && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            addToCart({
+                                              id: item.id,
+                                              templateId: item.id,
+                                              title: item.title,
+                                              price: item.price || 49,
+                                              thumbnail: item.thumbnail_url || "",
+                                              framework: item.framework || "HTML",
+                                              licenseType: "regular",
+                                            });
+                                          }}
+                                          className={cn("db-btn-review", inCart && "bg-indigo-500/10 text-indigo-600 font-extrabold")}
+                                          title="Add to cart"
+                                        >
+                                          <ShoppingCart className="w-3.5 h-3.5" />
+                                          <span>{inCart ? "In Cart" : `Buy ($${item.price || 49})`}</span>
+                                        </button>
+                                      )}
+
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteCustomDraft(item.id, item.title)}
+                                        className="db-btn-secondary text-rose-400 hover:text-rose-300"
+                                        title="Delete draft"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                                        <span>Delete</span>
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )
                     ) : (
                       /* Purchased Studio Projects */
                       purchasedStudioProjects.length === 0 ? (
-                        <div className="text-center py-12 text-slate-600 dark:text-slate-400 border-2 border-dashed border-slate-300 dark:border-slate-800 rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-sm">
-                          <Folder className="w-8 h-8 text-blue-600 mx-auto mb-3 opacity-80" />
-                          <p className="text-sm font-extrabold text-slate-900 dark:text-white">No Purchased Studio Projects</p>
-                          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 max-w-md mx-auto font-medium">
+                        <div className="mt-empty-card">
+                          <div className="mt-empty-icon">
+                            <Folder className="w-7 h-7" />
+                          </div>
+                          <h4 className="mt-empty-title">No Purchased Studio Projects</h4>
+                          <p className="mt-empty-desc">
                             When you purchase a custom studio project from your drafts or marketplace, its full source code and direct download links will appear here.
                           </p>
+                          <Link href="/marketplace" className="mt-empty-btn">
+                            <ShoppingBag className="w-4 h-4" /> Explore Marketplace
+                          </Link>
                         </div>
                       ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 justify-items-start">
+                        <div className="db-templates-grid">
                           {purchasedStudioProjects.map((item) => (
-                            <div key={item.id} className="w-full max-w-[280px] group relative rounded-xl border-2 border-blue-200 dark:border-blue-900 bg-white dark:bg-slate-900 hover:border-blue-400 transition-all duration-300 flex flex-col justify-between overflow-hidden shadow-sm hover:shadow-md">
-                              {/* ID Card Compact Thumbnail */}
-                              <div className="relative h-[140px] w-full overflow-hidden bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-800 shrink-0">
+                            <div key={item.id} className="db-template-card group">
+                              {/* Thumbnail Header */}
+                              <div className="db-template-thumb">
                                 {item.thumbnail_url ? (
-                                  <img src={item.thumbnail_url} alt={item.title || ""} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400">
-                                    <Folder className="w-6 h-6 opacity-60" />
-                                  </div>
-                                )}
-                                <div className="absolute top-2 left-2 flex gap-1">
-                                  <span className="px-2 py-0.5 bg-blue-600 text-white border border-blue-500 rounded-full text-[9px] font-extrabold uppercase flex items-center gap-0.5 shadow-sm">
+                                  <img
+                                    src={item.thumbnail_url}
+                                    alt={item.title || "Studio Project"}
+                                    className="db-template-img"
+                                    onError={(e) => {
+                                      e.target.style.display = "none";
+                                      if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = "flex";
+                                    }}
+                                  />
+                                ) : null}
+                                <div
+                                  className="w-full h-full absolute inset-0 flex items-center justify-center"
+                                  style={{
+                                    display: item.thumbnail_url ? "none" : "flex",
+                                    background: "linear-gradient(135deg, hsla(var(--primary)/0.15) 0%, hsla(var(--secondary)/0.15) 100%)",
+                                  }}
+                                >
+                                  <Folder className="w-8 h-8 text-primary opacity-60" />
+                                </div>
+
+                                {/* Top-Left Floating Badges */}
+                                <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                                  <span className="px-2 py-0.5 bg-emerald-500 text-white text-[9px] font-black uppercase tracking-wider rounded-full shadow-sm flex items-center gap-1">
                                     <CheckCircle2 className="w-2.5 h-2.5" /> Purchased
                                   </span>
                                 </div>
-                                <span className="absolute top-2 right-2 px-2 py-0.5 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-full text-[9px] font-extrabold uppercase shadow-sm">
-                                  {item.framework || "HTML"}
-                                </span>
+
+                                {/* Top-Right Framework Badge */}
+                                <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
+                                  <span className="px-2 py-0.5 bg-black/60 backdrop-blur-md text-white text-[9px] font-mono font-bold uppercase rounded-md border border-white/10">
+                                    {item.framework || "HTML"}
+                                  </span>
+                                </div>
                               </div>
 
-                              <div className="p-3 flex-1 flex flex-col justify-between space-y-2">
-                                <div>
-                                  <h4 className="font-extrabold text-xs text-slate-900 dark:text-white line-clamp-1" title={item.title}>
-                                    {item.title}
+                              {/* Card Content Body */}
+                              <div className="db-template-body">
+                                <div className="db-template-header-text">
+                                  <h4 className="db-template-title" title={item.title}>
+                                    {item.title || "Purchased Project"}
                                   </h4>
-                                  <p className="text-[10px] text-slate-600 dark:text-slate-400 font-medium line-clamp-1 mt-0.5">
+                                  <p className="db-template-desc">
                                     {item.short_description || "Custom generated prototype."}
                                   </p>
                                 </div>
 
-                                <div className="space-y-1.5 pt-1.5 border-t border-slate-200 dark:border-slate-800">
-                                  {/* Download Source ZIP */}
+                                {/* Metadata Strip */}
+                                <div className="db-template-meta-row">
+                                  <div>
+                                    <span className="text-[11px] text-muted-foreground">Price Paid: </span>
+                                    <span className="font-extrabold text-foreground">{formatPrice(item.price || 0)}</span>
+                                  </div>
+                                  <span className="text-[10px] font-medium text-muted-foreground">
+                                    Full Access
+                                  </span>
+                                </div>
+
+                                {/* Action Buttons Hub */}
+                                <div className="db-template-actions-box">
+                                  {/* Primary Download Button */}
                                   <button
                                     type="button"
                                     onClick={() => triggerDownload.mutate({ templateId: item.id, format: "zip" })}
-                                    className="w-full py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white border border-blue-500 rounded-lg text-[11px] font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm"
+                                    className="db-btn-ai-studio"
                                   >
-                                    <Download className="w-3 h-3" />
-                                    <span>Download ZIP</span>
+                                    <Download className="w-3.5 h-3.5 text-white" />
+                                    <span style={{ color: "#ffffff" }}>Download Source ZIP</span>
                                   </button>
-                                  {/* Live Editor & Live Demo */}
-                                  <div className="flex gap-1.5">
+
+                                  {/* Secondary Action Grid */}
+                                  <div className="db-template-btn-grid">
                                     <Link
-                                      to={`/preview?template=${item.slug || item.id}`}
-                                      className="flex-1 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-bold rounded-lg text-[11px] flex items-center justify-center gap-1 transition-all text-decoration-none"
+                                      href={`/preview?template=${item.slug || item.id}`}
+                                      className="db-btn-secondary"
+                                      title="Open in AI Studio"
                                     >
-                                      <Wand2 className="w-3 h-3 text-indigo-600" /> Editor
+                                      <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                                      <span>Editor</span>
                                     </Link>
+
                                     <a
                                       href={`${API_BASE}/preview/live/${item.id}`}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      className="flex-1 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-bold rounded-lg text-[11px] flex items-center justify-center gap-1 transition-all text-decoration-none"
+                                      className="db-btn-secondary"
+                                      title="Live Demo Preview"
                                     >
-                                      <ExternalLink className="w-3 h-3 text-indigo-600" /> Demo
+                                      <Globe className="w-3.5 h-3.5 text-indigo-500" />
+                                      <span>Demo</span>
                                     </a>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setDeployTemplateId(item.id);
+                                        setDeployProjectName(item.title || "My Studio Project");
+                                        setIsDeployModalOpen(true);
+                                      }}
+                                      className="db-btn-publish"
+                                      title="Deploy / Publish"
+                                    >
+                                      <Zap className="w-3 h-3 text-white" />
+                                      <span style={{ color: "#ffffff" }}>Deploy</span>
+                                    </button>
                                   </div>
                                 </div>
                               </div>

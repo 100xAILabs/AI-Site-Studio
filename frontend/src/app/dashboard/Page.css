@@ -1587,14 +1587,14 @@
   align-items: center;
   gap: 0.375rem;
   padding: 0.375rem;
-  background-color: #e2e8f0;
-  border: 1px solid #cbd5e1;
+  background-color: #f1f5f9;
+  border: 1px solid #e2e8f0;
   border-radius: 0.875rem;
 }
 
 :is(.dark .subtab-container) {
-  background-color: #8cacdf;
-  border-color: #334155;
+  background-color: rgba(15, 23, 42, 0.8);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .subtab-btn-active-primary {
