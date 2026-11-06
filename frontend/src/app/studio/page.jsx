@@ -80,6 +80,42 @@ export default function StudioPage() {
   const currentActiveAgent = buildStore.activeAgent || activeAgent;
   const currentEvents = buildStore.events?.length ? buildStore.events : events;
 
+  useEffect(() => {
+    let alive = true;
+    getToken().then((token) => api.get("/categories", token)).then((data) => {
+      if (alive) setCategories(Array.isArray(data) ? data : []);
+    }).catch(() => { });
+    return () => { alive = false; };
+  }, []); // Auth is loaded before the protected Studio route mounts.
+
+  const displayCategories = useMemo(() => {
+    const apiSlugs = new Set((categories || []).map((c) => c.slug));
+    const merged = [
+      ...(categories || []),
+      ...STUDIO_TAXONOMY.filter((st) => !apiSlugs.has(st.value)).map((st) => ({
+        id: st.value,
+        name: st.label,
+        slug: st.value,
+        subCategories: st.subCategories,
+      })),
+    ];
+    return merged.map((c) => {
+      const taxonomyMatch = STUDIO_TAXONOMY.find((t) => t.value === c.slug || t.label.toLowerCase() === (c.name || "").toLowerCase());
+      return {
+        ...c,
+        subCategories: taxonomyMatch?.subCategories || [],
+      };
+    });
+  }, [categories]);
+
+  const selectedCategory = useMemo(() => {
+    return displayCategories.find((item) => String(item.id) === String(categoryId) || item.slug === categoryId);
+  }, [displayCategories, categoryId]);
+
+  const availableSubCategories = useMemo(() => {
+    return selectedCategory?.subCategories || [];
+  }, [selectedCategory]);
+
   const autoDetectedStack = useMemo(() => {
     const categoryName = (displayCategories.find((c) => String(c.id) === String(categoryId) || c.slug === categoryId)?.name || "").toLowerCase();
     const catSlug = (displayCategories.find((c) => String(c.id) === String(categoryId) || c.slug === categoryId)?.slug || "").toLowerCase();
@@ -153,42 +189,6 @@ export default function StudioPage() {
     setCurrentStep(newStep);
     buildStore.setCurrentStep(newStep);
   };
-
-  useEffect(() => {
-    let alive = true;
-    getToken().then((token) => api.get("/categories", token)).then((data) => {
-      if (alive) setCategories(Array.isArray(data) ? data : []);
-    }).catch(() => {});
-    return () => { alive = false; };
-  }, []); // Auth is loaded before the protected Studio route mounts.
-
-  const displayCategories = useMemo(() => {
-    const apiSlugs = new Set((categories || []).map((c) => c.slug));
-    const merged = [
-      ...(categories || []),
-      ...STUDIO_TAXONOMY.filter((st) => !apiSlugs.has(st.value)).map((st) => ({
-        id: st.value,
-        name: st.label,
-        slug: st.value,
-        subCategories: st.subCategories,
-      })),
-    ];
-    return merged.map((c) => {
-      const taxonomyMatch = STUDIO_TAXONOMY.find((t) => t.value === c.slug || t.label.toLowerCase() === (c.name || "").toLowerCase());
-      return {
-        ...c,
-        subCategories: taxonomyMatch?.subCategories || [],
-      };
-    });
-  }, [categories]);
-
-  const selectedCategory = useMemo(() => {
-    return displayCategories.find((item) => String(item.id) === String(categoryId) || item.slug === categoryId);
-  }, [displayCategories, categoryId]);
-
-  const availableSubCategories = useMemo(() => {
-    return selectedCategory?.subCategories || [];
-  }, [selectedCategory]);
   const selectedSiteType = `${selectedCategory?.name || ""} ${genre}`;
   const constructionPattern = /construction|contractor|building company|roofing|remodel(?:ing)?|renovation|home improvement|(?:home|house|custom|commercial|residential) builder/i;
   const portfolioPattern = /\bportfolio\b|\bresume\b|résumé|\bcv\b|personal\s+(?:site|website)\b|photographer\s+portfolio/i;
@@ -447,75 +447,75 @@ export default function StudioPage() {
   const previewImage = uploadedAssets[0]?.url;
   const uploadFields = plan?.image_uploads?.length ? plan.image_uploads : isPortfolioRequest
     ? [
-        { role: "portrait", label: "Portrait", hint: "Your profile photo or headshot", multiple: false },
-        { role: "skills", label: "Skills & tools", hint: "Logos for your skills or tools", multiple: true },
-        { role: "project", label: "Projects", hint: "Screenshots or photos of your work", multiple: true },
-      ]
+      { role: "portrait", label: "Portrait", hint: "Your profile photo or headshot", multiple: false },
+      { role: "skills", label: "Skills & tools", hint: "Logos for your skills or tools", multiple: true },
+      { role: "project", label: "Projects", hint: "Screenshots or photos of your work", multiple: true },
+    ]
     : isConstructionRequest
       ? [
-          { role: "project", label: "Completed projects", hint: "Real site photos or project images", multiple: true },
-          { role: "team", label: "Team", hint: "Your real crew or team photos", multiple: true },
-          { role: "equipment", label: "Equipment & work sites", hint: "Your equipment or active job-site photos", multiple: true },
-        ]
+        { role: "project", label: "Completed projects", hint: "Real site photos or project images", multiple: true },
+        { role: "team", label: "Team", hint: "Your real crew or team photos", multiple: true },
+        { role: "equipment", label: "Equipment & work sites", hint: "Your equipment or active job-site photos", multiple: true },
+      ]
       : /\btea\b/i.test(siteImageContext)
-      ? [
+        ? [
           { role: "general", label: "Tea brand & menu images", hint: "Logo, tea varieties, drinks, ingredients, packaging, or menu photos", multiple: true },
           { role: "project", label: "Tea preparation & location", hint: "Your real tea service, storefront, garden, or customer experience", multiple: true },
         ]
-      : /cafe|coffee|restaurant|bakery|food|dining|menu/i.test(siteImageContext)
-      ? [
-          { role: "general", label: "Restaurant brand & menu", hint: "Logo, signature dishes, drinks, ingredients, or menu photos", multiple: true },
-          { role: "project", label: "Dining space & experience", hint: "Your real storefront, interior, kitchen, or dining experience", multiple: true },
-        ]
-      : /real estate|property|realtor|estate agent/i.test(siteImageContext)
-      ? [
-          { role: "general", label: "Agency branding", hint: "Logo and agent or office images", multiple: true },
-          { role: "project", label: "Property listings", hint: "Real homes, developments, and listing images", multiple: true },
-        ]
-      : /event|conference|festival|wedding/i.test(siteImageContext)
-      ? [
-          { role: "general", label: "Event identity", hint: "Event logo, theme, and promotional imagery", multiple: true },
-          { role: "project", label: "Venue & program", hint: "Venue, speakers, performers, or past event photos", multiple: true },
-        ]
-      : /school|education|course|training|academy|university/i.test(siteImageContext)
-      ? [
-          { role: "general", label: "School or program branding", hint: "Logo and learning materials", multiple: true },
-          { role: "project", label: "Campus & learning", hint: "Real classrooms, courses, and student activities", multiple: true },
-        ]
-      : /health|clinic|medical|dental|wellness|therapy/i.test(siteImageContext)
-      ? [
-          { role: "general", label: "Practice branding & care", hint: "Logo, clinic, equipment, or published care information", multiple: true },
-          { role: "team", label: "Practitioner & facility photos", hint: "Real staff and spaces, with permission to publish", multiple: true },
-        ]
-      : /hotel|travel|tour|hospitality|accommodation/i.test(siteImageContext)
-      ? [
-          { role: "general", label: "Property or tour identity", hint: "Logo, destination, and experience imagery", multiple: true },
-          { role: "project", label: "Rooms, places & experiences", hint: "Real rooms, destinations, tours, or amenities", multiple: true },
-        ]
-      : /software|saas|\bapp\b|technology|digital product/i.test(siteImageContext)
-      ? [
-          { role: "general", label: "Product & brand assets", hint: "Logo, product interface, app screens, or feature visuals", multiple: true },
-          { role: "project", label: "Screenshots & workflows", hint: "Real product screens, dashboards, or workflow examples", multiple: true },
-        ]
-      : /salon|beauty|spa|barber|skincare/i.test(siteImageContext)
-      ? [
-          { role: "general", label: "Beauty brand & services", hint: "Logo, products, treatments, or service imagery", multiple: true },
-          { role: "project", label: "Space & results", hint: "Your real salon, studio, or work examples with permission", multiple: true },
-        ]
-      : /fitness|gym|sports|yoga|personal trainer/i.test(siteImageContext)
-      ? [
-          { role: "general", label: "Fitness brand & programs", hint: "Logo, classes, equipment, or training programs", multiple: true },
-          { role: "project", label: "Studio & activities", hint: "Your real facility, classes, or events", multiple: true },
-        ]
-      : /architecture|architect|interior design|landscape design/i.test(siteImageContext)
-      ? [
-          { role: "general", label: "Studio & design identity", hint: "Logo, studio, plans, or material samples", multiple: true },
-          { role: "project", label: "Spaces & completed work", hint: "Real buildings, interiors, landscapes, or project renders", multiple: true },
-        ]
-      : [
-          { role: "general", label: `${genre || selectedCategory?.name || "Project"} brand & key images`, hint: "Logo, products, location, or key visuals relevant to this project", multiple: true },
-          { role: "project", label: `${genre || selectedCategory?.name || "Project"} photos & examples`, hint: "Real work, services, spaces, or examples relevant to this project", multiple: true },
-        ];
+        : /cafe|coffee|restaurant|bakery|food|dining|menu/i.test(siteImageContext)
+          ? [
+            { role: "general", label: "Restaurant brand & menu", hint: "Logo, signature dishes, drinks, ingredients, or menu photos", multiple: true },
+            { role: "project", label: "Dining space & experience", hint: "Your real storefront, interior, kitchen, or dining experience", multiple: true },
+          ]
+          : /real estate|property|realtor|estate agent/i.test(siteImageContext)
+            ? [
+              { role: "general", label: "Agency branding", hint: "Logo and agent or office images", multiple: true },
+              { role: "project", label: "Property listings", hint: "Real homes, developments, and listing images", multiple: true },
+            ]
+            : /event|conference|festival|wedding/i.test(siteImageContext)
+              ? [
+                { role: "general", label: "Event identity", hint: "Event logo, theme, and promotional imagery", multiple: true },
+                { role: "project", label: "Venue & program", hint: "Venue, speakers, performers, or past event photos", multiple: true },
+              ]
+              : /school|education|course|training|academy|university/i.test(siteImageContext)
+                ? [
+                  { role: "general", label: "School or program branding", hint: "Logo and learning materials", multiple: true },
+                  { role: "project", label: "Campus & learning", hint: "Real classrooms, courses, and student activities", multiple: true },
+                ]
+                : /health|clinic|medical|dental|wellness|therapy/i.test(siteImageContext)
+                  ? [
+                    { role: "general", label: "Practice branding & care", hint: "Logo, clinic, equipment, or published care information", multiple: true },
+                    { role: "team", label: "Practitioner & facility photos", hint: "Real staff and spaces, with permission to publish", multiple: true },
+                  ]
+                  : /hotel|travel|tour|hospitality|accommodation/i.test(siteImageContext)
+                    ? [
+                      { role: "general", label: "Property or tour identity", hint: "Logo, destination, and experience imagery", multiple: true },
+                      { role: "project", label: "Rooms, places & experiences", hint: "Real rooms, destinations, tours, or amenities", multiple: true },
+                    ]
+                    : /software|saas|\bapp\b|technology|digital product/i.test(siteImageContext)
+                      ? [
+                        { role: "general", label: "Product & brand assets", hint: "Logo, product interface, app screens, or feature visuals", multiple: true },
+                        { role: "project", label: "Screenshots & workflows", hint: "Real product screens, dashboards, or workflow examples", multiple: true },
+                      ]
+                      : /salon|beauty|spa|barber|skincare/i.test(siteImageContext)
+                        ? [
+                          { role: "general", label: "Beauty brand & services", hint: "Logo, products, treatments, or service imagery", multiple: true },
+                          { role: "project", label: "Space & results", hint: "Your real salon, studio, or work examples with permission", multiple: true },
+                        ]
+                        : /fitness|gym|sports|yoga|personal trainer/i.test(siteImageContext)
+                          ? [
+                            { role: "general", label: "Fitness brand & programs", hint: "Logo, classes, equipment, or training programs", multiple: true },
+                            { role: "project", label: "Studio & activities", hint: "Your real facility, classes, or events", multiple: true },
+                          ]
+                          : /architecture|architect|interior design|landscape design/i.test(siteImageContext)
+                            ? [
+                              { role: "general", label: "Studio & design identity", hint: "Logo, studio, plans, or material samples", multiple: true },
+                              { role: "project", label: "Spaces & completed work", hint: "Real buildings, interiors, landscapes, or project renders", multiple: true },
+                            ]
+                            : [
+                              { role: "general", label: `${genre || selectedCategory?.name || "Project"} brand & key images`, hint: "Logo, products, location, or key visuals relevant to this project", multiple: true },
+                              { role: "project", label: `${genre || selectedCategory?.name || "Project"} photos & examples`, hint: "Real work, services, spaces, or examples relevant to this project", multiple: true },
+                            ];
 
   return (
     <div className="studio-app min-h-screen bg-[#080b12] text-slate-100">
@@ -656,11 +656,10 @@ export default function StudioPage() {
                       key={sub}
                       type="button"
                       onClick={() => setGenre(sub)}
-                      className={`text-xs px-2.5 py-1 rounded-lg border transition ${
-                        genre.toLowerCase() === sub.toLowerCase()
+                      className={`text-xs px-2.5 py-1 rounded-lg border transition ${genre.toLowerCase() === sub.toLowerCase()
                           ? "bg-violet-500/30 border-violet-400 text-violet-200 font-bold shadow-sm shadow-violet-500/20"
                           : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white"
-                      }`}
+                        }`}
                     >
                       {sub}
                     </button>
@@ -789,11 +788,10 @@ export default function StudioPage() {
                     key={s.step}
                     type="button"
                     onClick={() => setCurrentStep(s.step)}
-                    className={`rounded-xl px-3.5 py-1.5 text-xs font-bold transition ${
-                      currentStep === s.step
+                    className={`rounded-xl px-3.5 py-1.5 text-xs font-bold transition ${currentStep === s.step
                         ? "bg-violet-600 text-white shadow-md shadow-violet-600/30"
                         : "text-slate-400 hover:text-white"
-                    }`}
+                      }`}
                   >
                     {s.label}
                   </button>
