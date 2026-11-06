@@ -830,10 +830,28 @@ def _enforce_multipage_navigation(
     owner_email = str(answers.get("email") or "contact@studio.local").strip()
     owner_address = str(answers.get("address") or "123 Serenity Avenue, Luxury District").strip()
 
-    # Build mapping from page stem / keywords to actual filename
+    # Build mapping from page stem / keywords / industry synonyms to actual filename
     page_map: dict[str, str] = {}
     canonical_filenames: list[str] = []
     canonical_page_titles: dict[str, str] = {}
+
+    # Comprehensive industry synonyms for deterministic subpage resolution
+    PAGE_SYNONYMS: dict[str, set[str]] = {
+        "about.html": {"about", "bio", "biography", "profile", "story", "about-me", "about_me", "aboutme", "who-we-are", "history", "experience", "background", "author"},
+        "projects.html": {"projects", "project", "work", "works", "portfolio", "case-studies", "casestudies", "gallery", "showcase", "featured", "featured-works", "my-work", "creations"},
+        "work.html": {"projects", "project", "work", "works", "portfolio", "case-studies", "casestudies", "gallery", "showcase", "featured"},
+        "skills.html": {"skills", "skill", "tools", "technologies", "tech", "stack", "expertise", "capabilities", "tech-stack", "proficiencies"},
+        "contact.html": {"contact", "contact-me", "contact-us", "get-in-touch", "touch", "hire", "hire-me", "reach", "inquire", "estimate", "quote", "connect", "message"},
+        "services.html": {"services", "service", "offerings", "what-we-do", "solutions", "packages", "capabilities"},
+        "pricing.html": {"pricing", "plans", "tiers", "rates", "membership", "price", "packages"},
+        "menu.html": {"menu", "food", "drinks", "dishes", "menu-items", "dining"},
+        "rooms.html": {"rooms", "suites", "accommodation", "stay", "villas"},
+        "team.html": {"team", "staff", "crew", "specialists", "trainers", "instructors"},
+        "features.html": {"features", "architecture", "product-features", "specs"},
+        "classes.html": {"classes", "programs", "schedule", "workshops"},
+        "courses.html": {"courses", "curriculum", "lessons", "admissions"},
+    }
+
     for i, p in enumerate(page_list):
         fname = _filename(p.get("filename", ""), i, str(p.get("name") or f"Page {i+1}"))
         if fname in pages:
@@ -848,6 +866,25 @@ def _enforce_multipage_navigation(
                 for part in re.split(r"[^a-z0-9]+", name):
                     if len(part) >= 4 and part not in {"page", "view", "more", "home"}:
                         page_map[part] = fname
+            # Inject synonyms
+            for syn in PAGE_SYNONYMS.get(fname, set()):
+                if syn not in page_map:
+                    page_map[syn] = fname
+
+    # Helper to rewrite any text-labeled navigation links targeting sibling pages
+    def rewrite_nav_link_text(m: re.Match) -> str:
+        full_tag = m.group(0)
+        tag_start, curr_href, tag_mid, inner_text, tag_end = m.group(1), m.group(2), m.group(3), m.group(4), m.group(5)
+        clean_text = re.sub(r'[^a-z0-9]+', '-', inner_text.strip().lower()).strip('-')
+        target_file = page_map.get(clean_text)
+        if not target_file:
+            for word in clean_text.split('-'):
+                if word in page_map:
+                    target_file = page_map[word]
+                    break
+        if target_file:
+            return f'{tag_start}href="{target_file}"{tag_mid}>{inner_text}{tag_end}'
+        return full_tag
 
     # Step 1: Clean and verify index.html as the multi-page hub
     index_html = pages.get("index.html")
@@ -864,6 +901,19 @@ def _enforce_multipage_navigation(
 
     index_html = re.sub(r'(href=[\'"])#([a-zA-Z0-9_\-]+)([\'"])', replace_index_href, index_html)
 
+    # In navigation elements (nav/header), rewrite any text-labeled anchor link matching a sibling page
+    index_html = re.sub(
+        r'(<nav\b[^>]*>.*?</nav\s*>)',
+        lambda nm: re.sub(
+            r'(<a\b[^>]*\b)href=[\'"]#[^\'"]*[\'"]([^>]*>)(.*?)(</a\s*>)',
+            rewrite_nav_link_text,
+            nm.group(1),
+            flags=re.IGNORECASE | re.DOTALL
+        ),
+        index_html,
+        flags=re.IGNORECASE | re.DOTALL
+    )
+
     # Ensure index.html navigation links contain all planned pages
     for fname in canonical_filenames:
         if fname != "index.html" and f'href="{fname}"' not in index_html and f"href='{fname}'" not in index_html:
@@ -872,6 +922,11 @@ def _enforce_multipage_navigation(
             if nav_ul:
                 insert_li = f'<li><a href="{fname}" class="nav-link">{pname}</a></li>\n'
                 index_html = index_html[:nav_ul.start(3)] + insert_li + index_html[nav_ul.start(3):]
+            else:
+                nav_box = re.search(r'(<nav\b[^>]*>)(.*?)(</nav\s*>)', index_html, flags=re.IGNORECASE | re.DOTALL)
+                if nav_box:
+                    insert_a = f'<a href="{fname}" class="nav-link">{pname}</a>\n'
+                    index_html = index_html[:nav_box.start(3)] + insert_a + index_html[nav_box.start(3):]
 
     pages["index.html"] = index_html
 
@@ -923,6 +978,19 @@ def _enforce_multipage_navigation(
             return m.group(0)
 
         html = re.sub(r'(href=[\'"])#([a-zA-Z0-9_\-]+)([\'"])', replace_href, html)
+
+        # Also rewrite any text-labeled nav links targeting sibling pages
+        html = re.sub(
+            r'(<nav\b[^>]*>.*?</nav\s*>)',
+            lambda nm: re.sub(
+                r'(<a\b[^>]*\b)href=[\'"]#[^\'"]*[\'"]([^>]*>)(.*?)(</a\s*>)',
+                rewrite_nav_link_text,
+                nm.group(1),
+                flags=re.IGNORECASE | re.DOTALL
+            ),
+            html,
+            flags=re.IGNORECASE | re.DOTALL
+        )
 
         if filename != "index.html":
             # Adapt canonical header for this interior page
@@ -1107,7 +1175,13 @@ class StudioService:
         request = f"""Create a useful, detailed website plan for this user request.
 The user selected marketplace category: {category}
 The user selected genre/site type: {genre}
-The user explicitly chose this architecture: {page_structure}. For single_page, create one Home page only and organize all requested content as sections on that page. For multi_page, create a Home page plus distinct, relevant interior pages (at least two pages total when the brief supports it).
+The user explicitly chose this architecture: {page_structure}.
+- For single_page, create one Home page only (index.html) and organize all requested content as scrolling sections on that page.
+- For multi_page:
+  * Create a Home page (index.html) plus distinct, dedicated interior pages (at least 3 to 5 pages total: e.g. about.html, projects.html/work.html, skills.html, contact.html, services.html).
+  * CRITICAL ARCHITECTURE RULE FOR index.html: index.html is an introductory gateway & teaser homepage ONLY! It MUST NOT contain the full about biography, full project list, full skills grid, or full contact form.
+  * On index.html, provide teaser sections with prominent call-to-action links leading to dedicated interior pages (e.g. "View All Projects", "Read My Story", "Get in Touch").
+  * Interior pages must hold the deep, complete content (e.g. complete case studies on projects.html, complete career background on about.html, interactive contact form on contact.html).
 {profile_guidance}
 {stack_guidance}
 User brief:
@@ -1858,13 +1932,35 @@ The user personally uploaded and labeled these authentic images specifically for
 {chr(10).join(page_specific_images[:8])}
 - MANDATORY CONTENT INTEGRITY & NO BLANK CARDS RULE: You MUST render these verified image URLs using `<img src="..." alt="...">` in your Hero banner, feature/service cards, about section, showcase grid, and testimonials. NEVER leave image cards blank, empty, or unrendered!"""
 
+                if len(page_list) > 1 and filename == "index.html":
+                    page_role_guidance = f"""CRITICAL MULTI-PAGE HOMEPAGE (index.html) ARCHITECTURE:
+- This is the Home entrance page of a {len(page_list)}-page website ({', '.join(p.get('filename', '') for p in page_list)}).
+- DO NOT dump the full content of the other pages on index.html!
+- index.html must feature:
+  1. A welcoming, high-impact Hero banner with headline, subheadline, and primary CTAs linking directly to interior pages (e.g. <a href="projects.html" class="btn">Explore Work</a> <a href="contact.html" class="btn">Contact Me</a>).
+  2. Brief teaser highlights: a 2-3 sentence Bio preview with `<a href="about.html">Read Full Story &rarr;</a>`, 2-3 featured works preview with `<a href="projects.html">View All Projects &rarr;</a>`, and an invitation banner with `<a href="contact.html">Get In Touch &rarr;</a>`.
+- SIBLING RELATIVE LINKS ONLY:
+{nav_links_preview}
+- STRICTLY BAN INLINE ANCHOR HASH LINKS IN NAVIGATION: In header navigation, drawer menu, and CTA buttons, you MUST link directly to the physical sibling pages:
+{nav_links_preview}
+- NEVER use href="#about", href="#projects", href="#skills", href="#contact" on a multi-page site! Always link to the real page files: href="about.html", href="projects.html", etc."""
+                elif len(page_list) > 1:
+                    page_role_guidance = f"""CRITICAL MULTI-PAGE INTERIOR PAGE DIRECTIVE FOR {filename}:
+- This is the dedicated '{page_name}' page ({filename}) of a {len(page_list)}-page website.
+- Focus deeply and exclusively on this page's topic: {page_name}. Include complete, rich, domain-specific sections as planned.
+- DO NOT replicate the homepage Hero or other unrelated page sections.
+- Shared navigation header and mobile drawer must link to index.html and all sibling pages with this page ({filename}) marked with class="active" aria-current="page":
+{nav_links_preview}"""
+                else:
+                    page_role_guidance = "Root-page rule: index.html is the real homepage for the site. Build a welcoming hero and key offering sections for the exact brief."
+
                 page_prompt = f"""You are the Frontend Dev Agent. Implement exactly one complete, production-quality, responsive HTML page. This is a separate page-by-page build; do not emit other pages or explanations.
 Original user brief highlights: <brief>{prompt[:3000]}</brief>
 Category: {category_name}; genre: {genre}
 User-approved build prompt (authoritative; follow it directly): {build_brief[:18000]}
 {profile_guidance}
 Page plan: {json.dumps(page, ensure_ascii=False)}
-Root-page rule: index.html is the real homepage for the whole requested site. Build a welcoming, site-specific hero and key offering sections for the exact brief. Never make it an About, Contact, Products listing, or blog detail page. Interior pages must focus only on their named purpose.
+{page_role_guidance}
 Full sitemap for consistent navigation: {json.dumps(compact_sitemap, ensure_ascii=False)[:3000]}
 {multipage_nav_mandate}
 {canonical_header_instruction}

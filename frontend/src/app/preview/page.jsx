@@ -891,18 +891,19 @@ export default function PreviewPage() {
   const [newPagePreset, setNewPagePreset] = useState("content");
 
   const handleSelectPage = (page) => {
+    const isFile = page.id && !page.id.startsWith("#");
     setActivePage(page.id);
     setEditorMode("manual");
-    if (page.sectionKey && sections.some((s) => s.id === page.sectionKey)) {
-      setSelectedSectionId(page.sectionKey);
-      dispatchLiveSectionScroll(page.sectionKey);
-    } else if (page.id.startsWith("#")) {
+    if (isFile) {
+      // Force fresh reload of the canvas iframe for the selected subpage file
+      setIframeKey((k) => k + 1);
+    } else {
       const sId = page.id.replace("#", "");
       setSelectedSectionId(sId);
       dispatchLiveSectionScroll(sId);
-    } else if (page.sectionKey) {
+    }
+    if (page.sectionKey && sections.some((s) => s.id === page.sectionKey)) {
       setSelectedSectionId(page.sectionKey);
-      dispatchLiveSectionScroll(page.sectionKey);
     }
     setNotice(`✓ Switched to "${page.title}" (${page.path || page.id})`);
     setTimeout(() => setNotice(""), 3000);
@@ -2794,7 +2795,7 @@ export default function PreviewPage() {
                   >
                     {viewMode === "live" && liveServerUrl ? (
                       <iframe
-                        key={iframeKey}
+                        key={`${iframeKey}-${activePage}`}
                         src={liveServerUrl}
                         title="Live Demo Preview"
                         sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"

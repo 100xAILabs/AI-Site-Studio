@@ -196,7 +196,10 @@ export default function StudioPage() {
   const isConstructionRequest = constructionPattern.test(prompt) || (!promptHasProjectType && constructionPattern.test(selectedSiteType));
   const isPortfolioRequest = !isConstructionRequest && (portfolioPattern.test(prompt) || (!promptHasProjectType && portfolioPattern.test(selectedSiteType)));
   const siteImageContext = promptHasProjectType ? prompt : `${selectedSiteType} ${prompt}`;
-  const effectivePageStructure = pageStructure || (isPortfolioRequest ? "single_page" : isConstructionRequest ? "multi_page" : "");
+  const wantsSinglePageExplicit = /\b(?:single[\s\-]*page|one[\s\-]*page|one[\s\-]*pager|landing\s+page|single\s+scrolling\s+page)\b/i.test(prompt);
+  const wantsMultiPageExplicit = /\b(?:multi[\s\-]*pages?|multiple\s+pages?|separate\s+pages?|several\s+pages?|different\s+pages?|sub[\s\-]*pages?)\b/i.test(prompt);
+  // Default to multi_page architecture unless the user explicitly requested a single-page / landing page
+  const effectivePageStructure = pageStructure || (wantsMultiPageExplicit ? "multi_page" : wantsSinglePageExplicit ? "single_page" : "multi_page");
 
   async function buildPlan(event) {
     event.preventDefault();
