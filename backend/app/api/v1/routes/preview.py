@@ -68,6 +68,7 @@ class ManualEditRequest(BaseModel):
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     page_edits: Optional[dict] = None
+    use_ai: bool = False
 
 
 class AIEditRequest(BaseModel):
@@ -282,9 +283,17 @@ async def list_live_preview_assets(
                             "updated_at": datetime.fromtimestamp(full_path.stat().st_mtime, timezone.utc).isoformat(),
                         })
 
+    import tempfile
+    backup_root = Path(tempfile.gettempdir()) / "ai_site_studio" / "asset_backups" / str(template.id)
+    slug_base = template.slug.split("-custom-")[0].split("-draft-")[0] if (template and template.slug) else template_id
+    master_backup_root = Path(tempfile.gettempdir()) / "ai_site_studio" / "pristine_master_assets" / slug_base
     ts = int(time.time())
     for a in assets:
         a["preview_url"] = f"/api/v1/preview/live/{template_id}/{a['rel_path']}?t={ts}"
+        b_file = (backup_root / a["rel_path"]).resolve()
+        b_orig = (backup_root / f"{a['rel_path']}.orig").resolve()
+        m_file = (master_backup_root / a["rel_path"]).resolve()
+        a["has_backup"] = bool(b_file.exists() or b_orig.exists() or m_file.exists())
 
     return {"template_id": template_id, "assets": assets, "total": len(assets)}
 
@@ -294,6 +303,7 @@ async def replace_live_preview_asset(
     template_id: str,
     target_rel_path: str = Form(...),
     file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -302,21 +312,7 @@ async def replace_live_preview_asset(
     """
     from app.core.local_project_manager import local_project_manager
     from app.repositories.template_repo import TemplateRepository
-    from app.core.storage import storage
-    from app.models.stored_file import StoredFile
     import time
-    import zipfile
-    import io
-
-    allowed_types = {
-        "image/jpeg", "image/png", "image/webp", "image/svg+xml",
-        "image/gif", "image/x-icon", "image/vnd.microsoft.icon", "application/octet-stream"
-    }
-    if file.content_type and file.content_type not in allowed_types:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported image type '{file.content_type}'. Please upload PNG, JPG, WebP, or SVG."
-        )
 
     content = await file.read()
     if not content or len(content) > 15 * 1024 * 1024:
@@ -324,60 +320,147 @@ async def replace_live_preview_asset(
 
     template_repo = TemplateRepository(db)
     template = await template_repo.get_by_id_or_slug(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    user_role = getattr(current_user.role, "value", current_user.role)
+    if template.seller_id != current_user.id and str(user_role).lower() not in ("admin", "super_admin"):
+        raise HTTPException(status_code=403, detail="Only the owner of this private draft can replace its assets")
+
+    from app.core.local_project_manager import _clean_rel_path
+    clean_target = _clean_rel_path(target_rel_path)
+    if not clean_target:
+        raise HTTPException(status_code=400, detail="Invalid asset path")
+    target_rel_path = clean_target
     slug = template.slug if (template and template.slug) else template_id
 
-    # 1. Update on disk via local_project_manager
-    updated = False
-    try:
-        local_project_manager.replace_project_asset(slug, target_rel_path, content)
-        updated = True
-    except Exception:
-        if slug != template_id:
-            try:
-                local_project_manager.replace_project_asset(template_id, target_rel_path, content)
-                updated = True
-            except Exception:
-                pass
+    # Check local_project_manager first (for Studio generated projects)
+    available_assets = local_project_manager.list_project_assets(slug)
+    if not any(asset.get("rel_path") == target_rel_path for asset in available_assets):
+        available_assets = local_project_manager.list_project_assets(template_id)
+    has_local_asset = any(asset.get("rel_path") == target_rel_path for asset in available_assets)
 
-    # 2. Update temp preview directory if present
+    # Check temp preview directory (for live template previews & drafts)
     import tempfile
-    temp_dest = Path(tempfile.gettempdir()) / "ai_site_studio" / "live_previews" / str(template_id) / target_rel_path
-    if temp_dest.parent.exists():
+    temp_root = Path(tempfile.gettempdir()) / "ai_site_studio" / "live_previews" / str(template.id)
+    temp_dest = (temp_root / target_rel_path).resolve()
+    temp_file_exists = False
+    try:
+        temp_dest.relative_to(temp_root.resolve())
+        temp_file_exists = temp_dest.is_file()
+    except ValueError:
+        temp_file_exists = False
+
+    if not has_local_asset and not temp_file_exists:
+        raise HTTPException(status_code=404, detail="Asset not found in this project")
+
+    # Accept only decoded raster images. SVG and unverified uploads can execute
+    # script when served inline from the application's origin.
+    try:
+        from PIL import Image
+        image = Image.open(io.BytesIO(content))
+        image.verify()
+        detected_type = Image.MIME.get(image.format)
+        if detected_type not in {"image/jpeg", "image/png", "image/webp", "image/gif"}:
+            raise ValueError("Unsupported image format")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Upload a valid PNG, JPEG, WebP, or GIF image")
+
+    # Save original backup before replacing if not already backed up
+    backup_root = Path(tempfile.gettempdir()) / "ai_site_studio" / "asset_backups" / str(template.id)
+    backup_file = (backup_root / target_rel_path).resolve()
+    backup_orig = (backup_root / f"{target_rel_path}.orig").resolve()
+    backup_root.mkdir(parents=True, exist_ok=True)
+    backup_orig.parent.mkdir(parents=True, exist_ok=True)
+
+    # Master pristine assets directory that NEVER gets overwritten
+    slug_base = template.slug.split("-custom-")[0].split("-draft-")[0] if (template and template.slug) else str(template_id)
+    master_backup_root = Path(tempfile.gettempdir()) / "ai_site_studio" / "pristine_master_assets" / slug_base
+    master_backup_file = (master_backup_root / target_rel_path).resolve()
+    master_backup_root.mkdir(parents=True, exist_ok=True)
+    master_backup_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Read original bytes before replacing
+    existing_bytes = None
+    if temp_file_exists and temp_dest.exists():
         try:
-            temp_dest.write_bytes(content)
-            updated = True
+            existing_bytes = temp_dest.read_bytes()
+        except Exception:
+            pass
+    elif has_local_asset:
+        try:
+            project_dir = local_project_manager._resolve_project_dir(slug)
+            candidate_orig = project_dir / "latest" / target_rel_path
+            if candidate_orig.exists():
+                existing_bytes = candidate_orig.read_bytes()
         except Exception:
             pass
 
-    # 3. If template has a StoredFile ZIP archive in DB, also update the ZIP in place
-    if template and template.download_assets and template.download_assets.get("zip"):
-        zip_url = template.download_assets.get("zip")
+    if existing_bytes:
+        if not master_backup_file.exists():
+            try:
+                master_backup_file.write_bytes(existing_bytes)
+            except Exception as m_err:
+                logger.warning("Could not save master pristine asset backup: %s", m_err)
+        if not backup_orig.exists():
+            try:
+                backup_orig.write_bytes(existing_bytes)
+            except Exception as b_err:
+                logger.warning("Could not save .orig backup: %s", b_err)
+        if not backup_file.exists():
+            try:
+                backup_file.write_bytes(existing_bytes)
+            except Exception as b_err:
+                logger.warning("Could not backup original asset: %s", b_err)
+
+    # 1. Update in local_project_manager if this project is tracked there
+    if has_local_asset:
+        try:
+            local_project_manager.replace_project_asset(slug, target_rel_path, content)
+        except Exception:
+            if slug != template_id:
+                try:
+                    local_project_manager.replace_project_asset(template_id, target_rel_path, content)
+                except Exception as err:
+                    logger.warning("Failed to save asset via local_project_manager: %s", err)
+
+    # 2. Update temp preview directory on disk
+    if temp_file_exists:
+        try:
+            temp_dest.write_bytes(content)
+            logger.info("Replaced live preview asset on disk: %s", temp_dest)
+        except Exception as disk_err:
+            logger.warning("Failed to write replaced asset to disk: %s", disk_err)
+
+    # 3. Synchronize with template's stored ZIP archive in DB
+    download_assets = template.download_assets or {}
+    zip_url = download_assets.get("zip")
+    if zip_url:
         match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
         if match:
-            try:
-                sf_id = uuid.UUID(match.group(1))
-                stored = await storage.get_file(db, sf_id)
-                if stored:
-                    old_zip_bytes = stored[0]
-                    buf = io.BytesIO()
-                    clean_target = target_rel_path.replace("\\", "/").lstrip("/")
-                    with zipfile.ZipFile(io.BytesIO(old_zip_bytes), "r") as z_in, zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z_out:
-                        for item in z_in.infolist():
-                            norm_name = item.filename.replace("\\", "/").lstrip("/")
-                            if norm_name == clean_target or norm_name.endswith(f"/{clean_target}"):
-                                z_out.writestr(item.filename, content)
-                            else:
-                                z_out.writestr(item.filename, z_in.read(item.filename))
-                    new_zip_bytes = buf.getvalue()
-                    await storage.save_file(
-                        db=db,
-                        file_id=sf_id,
-                        filename=f"{template.slug or template_id}.zip",
-                        content=new_zip_bytes,
-                        content_type="application/zip",
-                    )
-            except Exception as e:
-                logger.warning("Could not sync asset replacement into ZIP: %s", e)
+            from app.models.stored_file import StoredFile
+            file_id = uuid.UUID(match.group(1))
+            res = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
+            sf = res.scalar_one_or_none()
+            if sf and sf.data:
+                try:
+                    new_zip_buffer = io.BytesIO()
+                    with zipfile.ZipFile(io.BytesIO(sf.data), "r") as z_in:
+                        with zipfile.ZipFile(new_zip_buffer, "w", zipfile.ZIP_DEFLATED) as z_out:
+                            for item in z_in.infolist():
+                                item_bytes = z_in.read(item.filename)
+                                if (
+                                    item.filename == target_rel_path
+                                    or item.filename.replace("\\", "/") == target_rel_path
+                                    or item.filename.endswith("/" + target_rel_path)
+                                    or os.path.basename(item.filename) == os.path.basename(target_rel_path)
+                                ):
+                                    item_bytes = content
+                                z_out.writestr(item, item_bytes)
+                    sf.data = new_zip_buffer.getvalue()
+                    sf.size = len(sf.data)
+                    await db.commit()
+                except Exception as zip_err:
+                    logger.warning("Failed to update asset in stored ZIP: %s", zip_err)
 
     ts = int(time.time())
     return {
@@ -386,6 +469,193 @@ async def replace_live_preview_asset(
         "rel_path": target_rel_path,
         "preview_url": f"/api/v1/preview/live/{template_id}/{target_rel_path}?t={ts}",
         "size_bytes": len(content),
+    }
+
+
+class RestoreAssetRequest(BaseModel):
+    target_rel_path: str
+
+
+@router.post("/live/{template_id}/assets/restore")
+async def restore_live_preview_asset(
+    template_id: str,
+    request: RestoreAssetRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Restores a replaced photo back to its original image from backup or source archive.
+    """
+    import tempfile
+    import zipfile
+    import io
+    import time
+    from app.core.local_project_manager import local_project_manager
+    from app.repositories.template_repo import TemplateRepository
+
+    template_repo = TemplateRepository(db)
+    template = await template_repo.get_by_id_or_slug(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    target_rel_path = request.target_rel_path.lstrip("/\\").replace("\\", "/")
+    slug = template.slug if (template and template.slug) else template_id
+
+    backup_root = Path(tempfile.gettempdir()) / "ai_site_studio" / "asset_backups" / str(template.id)
+    backup_orig = (backup_root / f"{target_rel_path}.orig").resolve()
+    backup_file = (backup_root / target_rel_path).resolve()
+
+    original_bytes = None
+
+    # Priority 0: Check permanent master pristine assets
+    slug_base = template.slug.split("-custom-")[0].split("-draft-")[0] if (template and template.slug) else str(template_id)
+    master_backup_root = Path(tempfile.gettempdir()) / "ai_site_studio" / "pristine_master_assets" / slug_base
+    master_backup_file = (master_backup_root / target_rel_path).resolve()
+    if master_backup_file.exists() and master_backup_file.stat().st_size > 0:
+        original_bytes = master_backup_file.read_bytes()
+
+    if not original_bytes and backup_orig.exists() and backup_orig.stat().st_size > 0:
+        original_bytes = backup_orig.read_bytes()
+    elif not original_bytes and backup_file.exists() and backup_file.stat().st_size > 0:
+        original_bytes = backup_file.read_bytes()
+
+    # Fallback 1: Search other asset backup folders
+    if not original_bytes:
+        try:
+            all_backups_root = Path(tempfile.gettempdir()) / "ai_site_studio" / "asset_backups"
+            for cand in all_backups_root.rglob(Path(target_rel_path).name):
+                if cand.is_file() and cand.stat().st_size > 0:
+                    original_bytes = cand.read_bytes()
+                    break
+        except Exception:
+            pass
+
+    # Fallback 2: Check master/parent marketplace template
+    if not original_bytes:
+        try:
+            slug_base = template.slug.split("-custom-")[0].split("-draft-")[0]
+            m_res = await db.execute(
+                select(Template).where(
+                    Template.is_marketplace == True,
+                    or_(
+                        Template.slug == slug_base,
+                        Template.slug.like(f"{slug_base}%"),
+                    )
+                )
+            )
+            master_tmpl = m_res.scalars().first()
+            if master_tmpl:
+                master_preview = Path(tempfile.gettempdir()) / "ai_site_studio" / "live_previews" / str(master_tmpl.id)
+                cand_file = (master_preview / target_rel_path).resolve()
+                if cand_file.exists():
+                    original_bytes = cand_file.read_bytes()
+                elif master_tmpl.download_assets and master_tmpl.download_assets.get("zip"):
+                    m_zip_url = master_tmpl.download_assets.get("zip")
+                    match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(m_zip_url))
+                    if match:
+                        from app.models.stored_file import StoredFile
+                        f_res = await db.execute(select(StoredFile).where(StoredFile.id == uuid.UUID(match.group(1))))
+                        m_sf = f_res.scalar_one_or_none()
+                        if m_sf and m_sf.data:
+                            with zipfile.ZipFile(io.BytesIO(m_sf.data), "r") as z_in:
+                                for item in z_in.namelist():
+                                    if (
+                                        item == target_rel_path
+                                        or item.replace("\\", "/") == target_rel_path
+                                        or item.endswith("/" + target_rel_path)
+                                        or os.path.basename(item) == os.path.basename(target_rel_path)
+                                    ):
+                                        original_bytes = z_in.read(item)
+                                        break
+        except Exception as master_err:
+            logger.warning("Could not resolve original asset from master template: %s", master_err)
+
+    # Fallback 3: check sibling live preview directories on disk
+    if not original_bytes:
+        try:
+            all_previews_root = Path(tempfile.gettempdir()) / "ai_site_studio" / "live_previews"
+            for cand in all_previews_root.rglob(Path(target_rel_path).name):
+                if cand.is_file() and str(template.id) not in str(cand):
+                    original_bytes = cand.read_bytes()
+                    break
+        except Exception:
+            pass
+
+    # Fallback 4: check local_project_manager before_edit
+    if not original_bytes:
+        project_dir = local_project_manager._resolve_project_dir(slug)
+        before_file = project_dir / "before_edit" / target_rel_path
+        if before_file.exists():
+            original_bytes = before_file.read_bytes()
+
+    if not original_bytes:
+        raise HTTPException(status_code=404, detail="Original image backup not found for this asset")
+
+    # 1. Restore to temp preview directory on disk
+    temp_root = Path(tempfile.gettempdir()) / "ai_site_studio" / "live_previews" / str(template.id)
+    temp_dest = (temp_root / target_rel_path).resolve()
+    try:
+        temp_dest.relative_to(temp_root.resolve())
+        temp_dest.write_bytes(original_bytes)
+        logger.info("Restored original live preview asset on disk: %s", temp_dest)
+    except Exception as disk_err:
+        logger.warning("Could not write restored asset to disk: %s", disk_err)
+
+    # 2. Restore to local_project_manager if available
+    try:
+        local_project_manager.replace_project_asset(slug, target_rel_path, original_bytes)
+    except Exception:
+        if slug != template_id:
+            try:
+                local_project_manager.replace_project_asset(template_id, target_rel_path, original_bytes)
+            except Exception:
+                pass
+
+    # 3. Synchronize with template stored ZIP archive
+    download_assets = template.download_assets or {}
+    zip_url = download_assets.get("zip")
+    if zip_url:
+        match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
+        if match:
+            from app.models.stored_file import StoredFile
+            file_id = uuid.UUID(match.group(1))
+            res = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
+            sf = res.scalar_one_or_none()
+            if sf and sf.data:
+                try:
+                    new_zip_buffer = io.BytesIO()
+                    with zipfile.ZipFile(io.BytesIO(sf.data), "r") as z_in:
+                        with zipfile.ZipFile(new_zip_buffer, "w", zipfile.ZIP_DEFLATED) as z_out:
+                            for item in z_in.infolist():
+                                item_bytes = z_in.read(item.filename)
+                                if (
+                                    item.filename == target_rel_path
+                                    or item.filename.replace("\\", "/") == target_rel_path
+                                    or item.filename.endswith("/" + target_rel_path)
+                                    or os.path.basename(item.filename) == os.path.basename(target_rel_path)
+                                ):
+                                    item_bytes = original_bytes
+                                z_out.writestr(item, item_bytes)
+                    sf.data = new_zip_buffer.getvalue()
+                    sf.size = len(sf.data)
+                    await db.commit()
+                except Exception as zip_err:
+                    logger.warning("Failed to restore asset in stored ZIP: %s", zip_err)
+
+    # 4. Remove backup files now that it is restored
+    for b_candidate in (backup_file, backup_orig):
+        if b_candidate.exists():
+            try:
+                b_candidate.unlink()
+            except Exception:
+                pass
+
+    ts = int(time.time())
+    return {
+        "success": True,
+        "message": "Original photo restored successfully.",
+        "rel_path": target_rel_path,
+        "preview_url": f"/api/v1/preview/live/{template_id}/{target_rel_path}?t={ts}",
     }
 
 
@@ -1472,7 +1742,7 @@ async def get_live_preview_extracted_data(
 @router.post("/live/{template_id}/fork-draft")
 async def fork_live_preview_draft(
     template_id: str,
-    current_user: Optional[User] = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -1541,7 +1811,9 @@ async def fork_live_preview_draft(
         is_on_sale=template.is_on_sale,
         category_id=template.category_id,
         status=TemplateStatus.DRAFT,
-        seller_id=current_user.id if current_user else template.seller_id,
+        is_marketplace=False,
+        template_origin="custom_draft",
+        seller_id=current_user.id,
         thumbnail_url=template.thumbnail_url,
         preview_url=template.preview_url,
         tags=template.tags,
@@ -1648,6 +1920,8 @@ async def edit_live_preview_manual(
                 is_on_sale=template.is_on_sale,
                 category_id=template.category_id,
                 status=TemplateStatus.DRAFT,
+                is_marketplace=False,
+                template_origin="custom_draft",
                 seller_id=current_user.id if current_user else template.seller_id,
                 thumbnail_url=template.thumbnail_url,
                 preview_url=template.preview_url,
@@ -1938,50 +2212,70 @@ async def edit_live_preview_manual(
                             files_dict[fname] = files_dict[fname].replace(orig, new_t)
                             updated_filenames.add(fname)
 
-    # 3. Use Gemini for smart content/styling updates across all files
-    files_str = ""
-    for name, content in files_dict.items():
-        files_str += f"\n--- FILE: {name} ---\n{content}\n"
+    # 3. AI Code Refactor (Step 2): Only invoked when user chooses "AI Save" (request.use_ai=True)
+    if request.use_ai:
+        files_str = ""
+        ordered_files = sorted(
+            files_dict.items(),
+            key=lambda item: (
+                0 if os.path.basename(item[0]).lower() in ("index.html", "app.jsx", "app.tsx", "page.jsx", "main.jsx") else
+                1 if item[0].lower().endswith((".html", ".jsx", ".tsx", ".js", ".ts")) else 2,
+                len(item[1]),
+            ),
+        )
+        # Keep prompt + requested JSON output beneath the common 8k-token TPM tier.
+        # One character is conservatively budgeted as ~4 tokens for source code.
+        context_budget = 12_000
+        for name, content in ordered_files:
+            if context_budget <= 0:
+                break
+            # Include complete files only; skipping a large generated bundle is safer than
+            # handing the model a syntactically truncated component.
+            block = f"\n--- FILE: {name} ---\n{content}\n"
+            if len(block) > context_budget:
+                continue
+            files_str += block
+            context_budget -= len(block)
 
-    page_edits_str = ""
-    if request.page_edits:
-        page_edits_str = "\nAlso apply these page-specific content overrides:\n"
-        for page_name, edits in request.page_edits.items():
-            page_name_clean = page_name.replace(".html", "").replace(".jsx", "").replace(".js", "").replace(".tsx", "").replace(".ts", "")
-            page_edits_str += f"- For page/file '{page_name}' (If the template is a single-page template/only has index.html, map these changes to the corresponding section like #{page_name_clean} or the '{page_name_clean}' area inside index.html):\n"
-            if edits.get("title"):
-                page_edits_str += f"  * Set main title/header/headline to: \"{edits['title']}\"\n"
-            if edits.get("subtitle"):
-                page_edits_str += f"  * Set subtitle / hook text to: \"{edits['subtitle']}\"\n"
-            if edits.get("description"):
-                page_edits_str += f"  * Set main body content/description/story to: \"{edits['description']}\"\n"
-            if edits.get("cta_text"):
-                page_edits_str += f"  * Set primary Call to Action (CTA) button text to: \"{edits['cta_text']}\"\n"
-            if edits.get("cta_link"):
-                page_edits_str += f"  * Set primary Call to Action (CTA) button link/href/action to: \"{edits['cta_link']}\"\n"
-            if edits.get("phone"):
-                page_edits_str += f"  * Set phone number to: \"{edits['phone']}\"\n"
-            if edits.get("email"):
-                page_edits_str += f"  * Set contact email to: \"{edits['email']}\"\n"
-            if edits.get("address"):
-                page_edits_str += f"  * Set address / location to: \"{edits['address']}\"\n"
-            if edits.get("tabs") and isinstance(edits["tabs"], list):
-                page_edits_str += f"  * Set section tabs/pills labels to: {edits['tabs']}\n"
-            if edits.get("filters") and isinstance(edits["filters"], list):
-                page_edits_str += f"  * Set category filter buttons to: {edits['filters']}\n"
-            if edits.get("cards") and isinstance(edits["cards"], list):
-                for idx_c, card in enumerate(edits["cards"]):
-                    page_edits_str += f"  * Item/Card #{idx_c+1}: title=\"{card.get('title','')}\", description=\"{card.get('desc','')}\", tag=\"{card.get('tag','')}\", stack=\"{card.get('stack','')}\"\n"
-            if edits.get("textItems") and isinstance(edits["textItems"], list):
-                for ti in edits["textItems"]:
-                    orig = ti.get("originalText") or ti.get("text")
-                    new_t = ti.get("text")
-                    if orig and new_t and orig != new_t:
-                        page_edits_str += f"  * Replace text snippet \"{orig}\" with: \"{new_t}\"\n"
-                    elif not orig and new_t:
-                        page_edits_str += f"  * Add new text content element: \"{new_t}\" ({ti.get('label') or 'element'})\n"
+        page_edits_str = ""
+        if request.page_edits:
+            page_edits_str = "\nAlso apply these page-specific content overrides:\n"
+            for page_name, edits in request.page_edits.items():
+                page_name_clean = page_name.replace(".html", "").replace(".jsx", "").replace(".js", "").replace(".tsx", "").replace(".ts", "")
+                page_edits_str += f"- For page/file '{page_name}' (If the template is a single-page template/only has index.html, map these changes to the corresponding section like #{page_name_clean} or the '{page_name_clean}' area inside index.html):\n"
+                if edits.get("title"):
+                    page_edits_str += f"  * Set main title/header/headline to: \"{edits['title']}\"\n"
+                if edits.get("subtitle"):
+                    page_edits_str += f"  * Set subtitle / hook text to: \"{edits['subtitle']}\"\n"
+                if edits.get("description"):
+                    page_edits_str += f"  * Set main body content/description/story to: \"{edits['description']}\"\n"
+                if edits.get("cta_text"):
+                    page_edits_str += f"  * Set primary Call to Action (CTA) button text to: \"{edits['cta_text']}\"\n"
+                if edits.get("cta_link"):
+                    page_edits_str += f"  * Set primary Call to Action (CTA) button link/href/action to: \"{edits['cta_link']}\"\n"
+                if edits.get("phone"):
+                    page_edits_str += f"  * Set phone number to: \"{edits['phone']}\"\n"
+                if edits.get("email"):
+                    page_edits_str += f"  * Set contact email to: \"{edits['email']}\"\n"
+                if edits.get("address"):
+                    page_edits_str += f"  * Set address / location to: \"{edits['address']}\"\n"
+                if edits.get("tabs") and isinstance(edits["tabs"], list):
+                    page_edits_str += f"  * Set section tabs/pills labels to: {edits['tabs']}\n"
+                if edits.get("filters") and isinstance(edits["filters"], list):
+                    page_edits_str += f"  * Set category filter buttons to: {edits['filters']}\n"
+                if edits.get("cards") and isinstance(edits["cards"], list):
+                    for idx_c, card in enumerate(edits["cards"]):
+                        page_edits_str += f"  * Item/Card #{idx_c+1}: title=\"{card.get('title','')}\", description=\"{card.get('desc','')}\", tag=\"{card.get('tag','')}\", stack=\"{card.get('stack','')}\"\n"
+                if edits.get("textItems") and isinstance(edits["textItems"], list):
+                    for ti in edits["textItems"]:
+                        orig = ti.get("originalText") or ti.get("text")
+                        new_t = ti.get("text")
+                        if orig and new_t and orig != new_t:
+                            page_edits_str += f"  * Replace text snippet \"{orig}\" with: \"{new_t}\"\n"
+                        elif not orig and new_t:
+                            page_edits_str += f"  * Add new text content element: \"{new_t}\" ({ti.get('label') or 'element'})\n"
 
-    edit_prompt = f"""You are a specialized React/HTML code refactoring tool.
+        edit_prompt = f"""You are a specialized React/HTML code refactoring tool.
 Your task is to take the provided website template files and replace specific business fields and styles with these new values:
 - Business Name: {request.business_name}
 - About Description: {request.about}
@@ -2011,43 +2305,45 @@ Format the JSON response exactly like this:
 Here are the codebase files:
 {files_str}
 """
-    def clean_code_response(text: str, language: str) -> str:
-        text = text.strip()
-        if text.startswith(f"```{language}"):
-            text = text.replace(f"```{language}", "", 1)
-        elif text.startswith("```"):
-            text = text.replace("```", "", 1)
-        if text.endswith("```"):
-            text = text[:-3]
-        return text.strip()
+        def clean_code_response(text: str, language: str) -> str:
+            text = text.strip()
+            if text.startswith(f"```{language}"):
+                text = text.replace(f"```{language}", "", 1)
+            elif text.startswith("```"):
+                text = text.replace("```", "", 1)
+            if text.endswith("```"):
+                text = text[:-3]
+            return text.strip()
 
-    try:
-        import json
-        raw_code = await ai_service._generate_content(edit_prompt, response_mime_type="application/json", feature_name="code_assistant")
-        chunks = json.loads(clean_code_response(raw_code, "json"))
-        if isinstance(chunks, list):
-            for chunk in chunks:
-                filename = chunk.get("filename")
-                find_str = chunk.get("find")
-                replace_str = chunk.get("replace")
-                if not filename or find_str is None or replace_str is None:
-                    continue
-                matched_name = None
-                for name in files_dict:
-                    if name == filename or name.endswith("/" + filename) or name.endswith("\\" + filename) or os.path.basename(name) == filename:
-                        matched_name = name
-                        break
-                if matched_name:
-                    if find_str in files_dict[matched_name]:
-                        files_dict[matched_name] = files_dict[matched_name].replace(find_str, replace_str)
-                        updated_filenames.add(matched_name)
-                    else:
-                        cleaned_find = find_str.strip()
-                        if cleaned_find and cleaned_find in files_dict[matched_name]:
-                            files_dict[matched_name] = files_dict[matched_name].replace(cleaned_find, replace_str.strip())
+        try:
+            import json
+            raw_code = await ai_service._generate_content(edit_prompt, response_mime_type="application/json", feature_name="code_assistant")
+            chunks = json.loads(clean_code_response(raw_code, "json"))
+            if isinstance(chunks, list):
+                for chunk in chunks:
+                    filename = chunk.get("filename")
+                    find_str = chunk.get("find")
+                    replace_str = chunk.get("replace")
+                    if not filename or find_str is None or replace_str is None:
+                        continue
+                    matched_name = None
+                    for name in files_dict:
+                        if name == filename or name.endswith("/" + filename) or name.endswith("\\" + filename) or os.path.basename(name) == filename:
+                            matched_name = name
+                            break
+                    if matched_name:
+                        if find_str in files_dict[matched_name]:
+                            files_dict[matched_name] = files_dict[matched_name].replace(find_str, replace_str)
                             updated_filenames.add(matched_name)
-    except Exception as e_ai:
-        logger.warning(f"AI edit refactor fallback notice: {e_ai}")
+                        else:
+                            cleaned_find = find_str.strip()
+                            if cleaned_find and cleaned_find in files_dict[matched_name]:
+                                files_dict[matched_name] = files_dict[matched_name].replace(cleaned_find, replace_str.strip())
+                                updated_filenames.add(matched_name)
+        except Exception as e_ai:
+            logger.warning(f"AI edit refactor fallback notice: {e_ai}")
+    else:
+        logger.info("Manual edit direct save: use_ai=False - applied Step 1 fast direct replacements without invoking AI LLM.")
 
     # If no files updated by AI or direct text, update business name and primary color directly
     if not updated_filenames:
@@ -2630,11 +2926,10 @@ async def edit_live_preview_find_replace(
     if not zip_url:
         raise HTTPException(status_code=400, detail="Template does not have source ZIP assets")
         
-    file_id_str = zip_url.split("/")[-1]
-    try:
-        file_id = uuid.UUID(file_id_str)
-    except ValueError:
+    match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
+    if not match:
         raise HTTPException(status_code=400, detail="External/Invalid zip storage format")
+    file_id = uuid.UUID(match.group(1))
         
     result = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
     stored_file = result.scalar_one_or_none()
@@ -2758,6 +3053,8 @@ async def edit_live_preview_ai(
                 is_on_sale=template.is_on_sale,
                 category_id=template.category_id,
                 status=TemplateStatus.DRAFT,
+                is_marketplace=False,
+                template_origin="custom_draft",
                 seller_id=current_user.id if current_user else template.seller_id,
                 thumbnail_url=template.thumbnail_url,
                 preview_url=template.preview_url,
@@ -2787,11 +3084,10 @@ async def edit_live_preview_ai(
     if not zip_url:
         raise HTTPException(status_code=400, detail="Template does not have source ZIP assets")
         
-    file_id_str = zip_url.split("/")[-1]
-    try:
-        file_id = uuid.UUID(file_id_str)
-    except ValueError:
+    match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
+    if not match:
         raise HTTPException(status_code=400, detail="External/Invalid zip storage format")
+    file_id = uuid.UUID(match.group(1))
         
     result = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
     stored_file = result.scalar_one_or_none()
@@ -2806,12 +3102,15 @@ async def edit_live_preview_ai(
     # 1. Read all editable files in the preview dir or ZIP (HTML, JS, JSX, CSS)
     files_dict = {}
     preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
+    # 1. Read all files from preview dir or ZIP
+    files_dict = {}
+    preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
     if os.path.isdir(preview_dir):
         for root_d, _, f_list in os.walk(preview_dir):
             for fn in f_list:
                 rel = os.path.relpath(os.path.join(root_d, fn), preview_dir).replace("\\", "/")
                 is_build = any(d in rel.split("/") for d in ["dist", "build", "out", "node_modules", ".output"])
-                if (fn.endswith(".html") or fn.endswith(".jsx") or fn.endswith(".js") or fn.endswith(".css") or fn.endswith(".tsx") or fn.endswith(".ts")) and not is_build:
+                if (fn.endswith((".html", ".htm", ".jsx", ".js", ".css", ".tsx", ".ts"))) and not is_build:
                     try:
                         with open(os.path.join(root_d, fn), "r", encoding="utf-8", errors="ignore") as f_in:
                             files_dict[rel] = f_in.read()
@@ -2821,7 +3120,7 @@ async def edit_live_preview_ai(
         with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
             for name in z_in.namelist():
                 is_build = any(d in name.replace("\\", "/").split("/") for d in ["dist", "build", "out", "node_modules", ".output"])
-                if (name.endswith(".html") or name.endswith(".jsx") or name.endswith(".js") or name.endswith(".css") or name.endswith(".tsx") or name.endswith(".ts")) and not is_build:
+                if (name.endswith((".html", ".htm", ".jsx", ".js", ".css", ".tsx", ".ts"))) and not is_build:
                     try:
                         files_dict[name] = z_in.read(name).decode("utf-8", errors="ignore")
                     except Exception:
@@ -2829,10 +3128,26 @@ async def edit_live_preview_ai(
 
     if not files_dict:
         raise HTTPException(status_code=400, detail="Could not locate code files in template archive")
-        
-    # 2. Use Gemini to do AI editing/refinement across the codebase
-    files_str = ""
+
+    # Filter out minified vendor libraries for AI prompt to prevent token overflow & hallucination
+    VENDOR_SKIP = (
+        ".min.", "bootstrap", "fontawesome", "font-awesome", "ionicons", "jquery",
+        "swiper", "magnific-popup", "pushy", "normalize.css", "animate.css",
+        "fonts.googleapis", "fonts.gstatic", ".map", "package-lock.json"
+    )
+    prompt_files = {}
     for name, content in files_dict.items():
+        is_vendor = any(vk in name.lower() for vk in VENDOR_SKIP)
+        if not is_vendor:
+            prompt_files[name] = content
+
+    # Fallback to all files if filtering removed everything
+    if not prompt_files:
+        prompt_files = files_dict
+
+    # 2. Use Gemini to do AI editing/refinement across the priority template files
+    files_str = ""
+    for name, content in prompt_files.items():
         files_str += f"\n--- FILE: {name} ---\n{content}\n"
 
     ai_prompt = f"""You are a senior lead web developer.
@@ -2842,18 +3157,18 @@ Even if the user request is simple (e.g. "change color to red", "change title to
 
 Rules:
 1. Return a JSON list of search-and-replace blocks. Do NOT return the entire file content.
-2. The "find" string must match the target code exactly, including leading spaces and indentation.
+2. The "find" string must match the target code inside the files, including leading spaces and indentation where possible.
 3. The "replace" string must contain the updated code to replace it.
 4. Keep the search blocks as small and precise as possible to avoid mistakes.
-5. If changing colors or styling, update CSS variables, root variables, or inline/utility classes as needed.
-6. If adding content or sections, duplicate an existing item/card/component structure and place the new one right where it belongs.
+5. If changing titles, names, copy or headings, locate the exact text or tags in the HTML file (e.g. index.html) and replace them cleanly.
+6. If changing colors or styling, update CSS variables, root variables, or inline/utility classes as needed.
 
 Format the JSON response exactly like this:
 [
   {{
     "filename": "index.html",
-    "find": "const [title, setTitle] = useState('Old Title');",
-    "replace": "const [title, setTitle] = useState('New Title');"
+    "find": "<h1>Old Name</h1>",
+    "replace": "<h1>New Name</h1>"
   }}
 ]
 
@@ -2881,44 +3196,93 @@ Here are the codebase files:
                 chunks = []
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to refine template code via AI: {str(e)}")
-        
-    # Apply chunks to files_dict
+
+    # Apply chunks to files_dict with multi-tier matching (exact -> newline-normalized -> stripped -> fuzzy regex)
     updated_filenames = set()
     for chunk in chunks:
         filename = chunk.get("filename")
         find_str = chunk.get("find")
         replace_str = chunk.get("replace")
-        if not filename or find_str is None or replace_str is None:
+        if not filename or find_str is None or replace_str is None or not str(find_str).strip():
             continue
+
         matched_name = None
         for name in files_dict:
             if name == filename or name.endswith("/" + filename) or name.endswith("\\" + filename) or os.path.basename(name) == filename:
                 matched_name = name
                 break
-        if matched_name:
-            if find_str in files_dict[matched_name]:
-                files_dict[matched_name] = files_dict[matched_name].replace(find_str, replace_str)
-                updated_filenames.add(matched_name)
-                print(f"Applied AI replacement chunk for {matched_name}")
-            else:
-                # Try simple replacement if exact match failed due to spacing
-                cleaned_find = find_str.strip()
-                if cleaned_find and cleaned_find in files_dict[matched_name]:
-                    files_dict[matched_name] = files_dict[matched_name].replace(cleaned_find, replace_str.strip())
-                    updated_filenames.add(matched_name)
-                    print(f"Applied fuzzy-spaced AI replacement chunk for {matched_name}")
 
-    # 3. Overwrite files in ZIP
+        if not matched_name and len(files_dict) == 1:
+            matched_name = next(iter(files_dict.keys()))
+
+        if matched_name:
+            curr_content = files_dict[matched_name]
+            # Tier 1: Exact match
+            if find_str in curr_content:
+                files_dict[matched_name] = curr_content.replace(find_str, replace_str, 1)
+                updated_filenames.add(matched_name)
+                print(f"[AI Edit] Applied exact replacement for {matched_name}")
+            else:
+                # Tier 2: Newline-normalized match (\r\n vs \n)
+                norm_curr = curr_content.replace("\r\n", "\n")
+                norm_find = find_str.replace("\r\n", "\n")
+                norm_replace = replace_str.replace("\r\n", "\n")
+                if norm_find in norm_curr:
+                    has_crlf = "\r\n" in curr_content
+                    norm_curr = norm_curr.replace(norm_find, norm_replace, 1)
+                    files_dict[matched_name] = norm_curr.replace("\n", "\r\n") if has_crlf else norm_curr
+                    updated_filenames.add(matched_name)
+                    print(f"[AI Edit] Applied newline-normalized replacement for {matched_name}")
+                else:
+                    # Tier 3: Stripped whitespace match
+                    cleaned_find = find_str.strip()
+                    if cleaned_find and cleaned_find in curr_content:
+                        files_dict[matched_name] = curr_content.replace(cleaned_find, replace_str.strip(), 1)
+                        updated_filenames.add(matched_name)
+                        print(f"[AI Edit] Applied stripped replacement for {matched_name}")
+                    else:
+                        # Tier 4: Fuzzy multi-whitespace regex match
+                        try:
+                            pattern = re.escape(cleaned_find)
+                            pattern = re.sub(r'\\\s+', r'\\s+', pattern)
+                            if re.search(pattern, curr_content):
+                                files_dict[matched_name] = re.sub(pattern, replace_str.strip(), curr_content, count=1)
+                                updated_filenames.add(matched_name)
+                                print(f"[AI Edit] Applied regex fuzzy replacement for {matched_name}")
+                        except Exception:
+                            pass
+
+    # If no files were updated, inform the user honestly
+    if not updated_filenames:
+        return {
+            "status": "warning",
+            "template_id": str(template_id),
+            "message": f"Could not match target code for: \"{request.prompt[:60]}\". Please specify the exact heading or text to replace."
+        }
+
+    # 3. Overwrite files in ZIP with flexible path mapping
     new_zip_buffer = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
         with zipfile.ZipFile(new_zip_buffer, "w", zipfile.ZIP_DEFLATED) as z_out:
             for item in z_in.infolist():
                 content = z_in.read(item.filename)
-                if item.filename in updated_filenames:
-                    content = files_dict[item.filename].encode("utf-8")
-                    print(f"Saved AI edited file to ZIP: {item.filename}")
+                matching_key = None
+                for u in updated_filenames:
+                    if (
+                        item.filename == u
+                        or item.filename.replace("\\", "/") == u
+                        or item.filename.endswith("/" + u)
+                        or os.path.basename(item.filename) == u
+                        or u.endswith("/" + item.filename)
+                    ):
+                        matching_key = u
+                        break
+
+                if matching_key and matching_key in files_dict:
+                    content = files_dict[matching_key].encode("utf-8")
+                    print(f"[AI Edit] Saved edited file to ZIP: {item.filename}")
                 z_out.writestr(item, content)
-                
+
     new_zip_bytes = new_zip_buffer.getvalue()
 
     # 4. Save the updated ZIP back to the database as an isolated StoredFile
@@ -2936,21 +3300,32 @@ Here are the codebase files:
     }
     db.add(template)
     await db.flush()
-    
-    # 5. Extract updated files ONLY into this user draft's isolated live preview directory
+
+    # 5. Extract updated files into this user draft's isolated live preview directory
     preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
     shutil.rmtree(preview_dir, ignore_errors=True)
     os.makedirs(preview_dir, exist_ok=True)
     from app.services.security_scanner import security_scanner
     security_scanner.sanitize_extract_zip(new_zip_bytes, Path(preview_dir))
-    
+
+    # Also directly write updated files to preview_dir as a guarantee
+    for u_name in updated_filenames:
+        target_disk_path = os.path.join(preview_dir, u_name)
+        try:
+            os.makedirs(os.path.dirname(target_disk_path), exist_ok=True)
+            with open(target_disk_path, "w", encoding="utf-8") as f_out:
+                f_out.write(files_dict[u_name])
+            print(f"[AI Edit] Directly wrote updated file to disk: {target_disk_path}")
+        except Exception as e:
+            print(f"[AI Edit] Notice writing to disk: {e}")
+
     # Commit session changes
     await db.commit()
-    
+
     return {
         "status": "success",
         "template_id": str(template_id),
-        "message": f"Applied changes for: \"{request.prompt[:60]}\""
+        "message": f"Applied changes to {len(updated_filenames)} file(s): \"{request.prompt[:60]}\""
     }
 
 
@@ -3039,12 +3414,6 @@ async def serve_live_preview(
     watermark_payload = """
 <!-- Injected Watermark Grid Overlay -->
 <div class="preview-watermark-grid"></div>
-
-<!-- Injected Purchase Footer Banner -->
-<div class="preview-purchase-footer-banner">
-  <span>🔒 Watermarked Draft Preview. Purchase this template to download clean project assets.</span>
-  <a href="__PURCHASE_URL__" target="_top">Purchase Template &rarr;</a>
-</div>
 
 <style>
   /* Disable text selection across all elements */
@@ -3860,27 +4229,27 @@ async def serve_live_preview(
                     shutil.rmtree(preview_dir, ignore_errors=True)
                 os.makedirs(preview_dir, exist_ok=True)
 
-                from app.models import StoredFile
-                result = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
-                stored_file = result.scalar_one_or_none()
-                if not stored_file:
-                    raise HTTPException(status_code=404, detail="Source template archive file not found")
                 from app.core.storage import storage
-                stored_file_data = await storage.get_file(db, file_id)
-                if not stored_file_data:
+                archive_temp_dir = Path(tempfile.mkdtemp(prefix="studio_preview_archive_"))
+                archive_path = archive_temp_dir / "source-upload"
+                stored_file = await storage.copy_to_path(db, file_id, archive_path)
+                if not stored_file:
+                    shutil.rmtree(archive_temp_dir, ignore_errors=True)
                     raise HTTPException(status_code=404, detail="Source template archive data not found")
-                zip_data = stored_file_data[0]
 
                 # Extract ZIP or write raw HTML file
                 from app.services.security_scanner import security_scanner
-                if not zipfile.is_zipfile(io.BytesIO(zip_data)):
-                    # Raw HTML file uploaded directly
-                    index_dest = os.path.join(preview_dir, "index.html")
-                    with open(index_dest, "wb") as f:
-                        f.write(zip_data)
-                else:
-                    # Use security_scanner.sanitize_extract_zip to safely extract clean website files
-                    security_scanner.sanitize_extract_zip(zip_data, Path(preview_dir))
+                try:
+                    if not zipfile.is_zipfile(archive_path):
+                        # Raw HTML file uploaded directly
+                        shutil.copyfile(archive_path, os.path.join(preview_dir, "index.html"))
+                    else:
+                        archive_report = security_scanner.scan_zip_file(archive_path, stored_file.original_filename or "template.zip")
+                        if not archive_report.get("is_safe"):
+                            raise HTTPException(status_code=400, detail=archive_report.get("reason", "Archive failed security inspection"))
+                        security_scanner.sanitize_extract_zip_file(archive_path, Path(preview_dir))
+                finally:
+                    shutil.rmtree(archive_temp_dir, ignore_errors=True)
 
                 # Re-detect package.json after extraction
                 package_json_path = detect_project_ui_package_json(preview_dir)
@@ -3903,9 +4272,22 @@ async def serve_live_preview(
             serve_root = preview_dir
             build_dir = None
 
-            # Detect if this template is pure HTML / static
+            # Detect if this template is pure HTML / static vs modern framework
             template_fw_str = (template.framework.value if template.framework else "").lower()
-            is_html_template = template_fw_str in ("html", "vanilla", "static")
+            
+            # Check package.json to verify if modern framework dependencies exist
+            has_framework_deps = False
+            if package_json_path and os.path.exists(package_json_path):
+                try:
+                    with open(package_json_path, "r", encoding="utf-8") as _pf:
+                        _pdata = json.load(_pf)
+                        _all_deps = {**_pdata.get("dependencies", {}), **_pdata.get("devDependencies", {})}
+                        if any(k in _all_deps for k in ["react", "react-dom", "vue", "next", "nuxt", "svelte", "@angular/core", "astro", "vite"]):
+                            has_framework_deps = True
+                except Exception:
+                    pass
+
+            is_html_template = (template_fw_str in ("html", "vanilla", "static")) and not has_framework_deps
 
             if is_html_template:
                 # Pure HTML templates run instantly in browser without Node/Vite compilation
@@ -3929,27 +4311,56 @@ async def serve_live_preview(
                         if build_dir:
                             break
 
-                # If project is not yet compiled, compile React / Vite project into static bundle
+                # Compile any package-based SPA (React, Vue, Angular, etc.) into a static bundle.
                 if not build_dir:
                     try:
-                        from app.services.deployment_providers.local_provider import local_provider
-                        build_success, build_logs, candidate_path = await local_provider.build(
+                        from app.services.deployment_providers.local_provider import local_deployment_provider
+                        build_success, build_logs, candidate_path = await local_deployment_provider.build(
                             project_root,
                             deployment_id=str(template_id)
                         )
                         if build_success and candidate_path and os.path.exists(candidate_path):
                             build_dir = candidate_path
+                        elif not build_success:
+                            logger.error(
+                                "Live preview build failed for %s (%s): %s",
+                                template_id,
+                                template_fw_str or "unknown framework",
+                                str(build_logs or "No build output")[-4000:],
+                            )
                     except Exception as e_build:
-                        logger.warning(f"Auto-compilation for React/Vite preview failed: {e_build}")
+                        logger.exception("Auto-compilation failed for %s preview %s", template_fw_str or "framework", template_id)
 
             if build_dir:
                 serve_root = build_dir
+            elif package_json_path:
+                # A framework's source index.html is only an empty mount point
+                # (for example <div id="app"></div>). Never serve it as if it
+                # were a finished website when compilation failed. Prefer an
+                # actual static mirror packaged beside frontend/ instead.
+                preview_root = Path(preview_dir).resolve()
+                framework_root = Path(project_root).resolve()
+                mirror_root = None
+                for root, dirs, files in os.walk(preview_root):
+                    dirs[:] = [d for d in dirs if d not in {"node_modules", ".git", ".venv", "dist", "build", ".output", "backend"}]
+                    current = Path(root).resolve()
+                    if framework_root in current.parents:
+                        dirs[:] = []
+                        continue
+                    if current == framework_root:
+                        continue
+                    if "index.html" in files:
+                        mirror_root = root
+                        break
+                if mirror_root:
+                    serve_root = mirror_root
+                else:
+                    logger.info("Static build unavailable for %s (%s); serving via in-browser React runner.", template_id, template_fw_str)
+                    return await serve_fallback("Preview compilation fallback")
             elif os.path.exists(os.path.join(project_root, "index.html")):
                 # The generator crafted a complete standalone responsive HTML with Tailwind CDN & full domain content in project_root.
                 # Serve this actual generated user template instead of falling back to a generic template!
                 serve_root = project_root
-            elif package_json_path:
-                return await serve_fallback("Preview compilation fallback")
             else:
                 serve_root = project_root
     
@@ -4205,18 +4616,33 @@ async def serve_live_preview(
           return originalOpen.apply(this, [method, url, ...args]);
         }};
 
-        // 1. Instantly rewrite history state to relative path so client-side routers match the root route
+        // 1. Client-Side Router Harmonizer: match live preview prefix dynamically
         try {{
-          if ({should_rewrite_history} && window.location.pathname.startsWith(basePrefix)) {{
-            let targetPath = window.location.pathname.slice(basePrefix.length);
-            if (!targetPath.startsWith('/')) {{
-              targetPath = '/' + targetPath;
+          const liveMatch = window.location.pathname.match(/^\\/api\\/v1\\/preview\\/live\\/[^\\/]+/);
+          const activePrefix = liveMatch ? liveMatch[0] : basePrefix;
+          if (activePrefix && window.location.pathname.startsWith(activePrefix)) {{
+            let targetPath = window.location.pathname.slice(activePrefix.length);
+            if (!targetPath || !targetPath.startsWith('/')) {{
+              targetPath = '/' + (targetPath || '');
             }}
             window.history.replaceState(null, '', targetPath);
           }}
         }} catch (e) {{
-          console.error("[Live Preview Sandbox] Failed to replace initial state:", e);
+          console.warn("[Live Preview Sandbox] History rewrite non-critical notice:", e);
         }}
+
+        // React Router Root Render Watchdog (guarantees Home renders if router lagged)
+        window.addEventListener('DOMContentLoaded', function() {{
+          setTimeout(function() {{
+            const rootEl = document.getElementById('root') || document.getElementById('app');
+            if (rootEl && rootEl.children.length === 0) {{
+              try {{
+                window.history.replaceState(null, '', '/');
+                window.dispatchEvent(new PopStateEvent('popstate', {{ state: null }}));
+              }} catch (_) {{}}
+            }}
+          }}, 350);
+        }});
     
         // 4. Live Theme Color Synchronizer & Dynamic CSS Variable Override
         function applyLiveThemeColor(color) {{
@@ -4348,8 +4774,17 @@ async def serve_live_preview(
 
           // (2) Logo Monogram / Code
           if (key === 'logoText') {{
-            const logoEls = document.querySelectorAll('.brand-code, .logo-monogram, [data-bind="logoText"], .logo-code, .monogram');
-            logoEls.forEach(function(el) {{ el.textContent = value; }});
+            const logoEls = document.querySelectorAll('.brand-code, .logo-monogram, [data-bind="logoText"], .logo-code, .monogram, .logo-mark, .brand-mark, .navbar-logo, .logo');
+            logoEls.forEach(function(el) {{
+              // Preserve a neighboring brand name or decorative icon within combined logo links.
+              const textNode = Array.from(el.childNodes).find(function(n) {{ return n.nodeType === Node.TEXT_NODE && n.nodeValue.trim(); }});
+              if (textNode) textNode.nodeValue = textNode.nodeValue.replace(textNode.nodeValue.trim(), value);
+              else if (!el.querySelector('span, strong, svg, img, i')) el.textContent = value;
+              else {{
+                const mark = el.querySelector('.brand-code, .logo-monogram, .logo-mark, .brand-mark, [data-bind="logoText"]');
+                if (mark) mark.textContent = value;
+              }}
+            }});
             return;
           }}
 
@@ -4659,6 +5094,75 @@ async def serve_live_preview(
                     html_content = html_content.replace("<html>", f"<html>\n  {sandbox_script}", 1)
                 else:
                     html_content = sandbox_script + "\n" + html_content
+
+                # Make generated hamburger controls usable in demos even when a
+                # model emitted visual markup without attaching a click handler.
+                mobile_nav_fallback = r'''<style id="studio-mobile-nav-fallback-style">
+@media (max-width: 768px) {
+  .studio-preview-forced-open { position: fixed !important; z-index: 99998 !important; top: 64px !important; right: 12px !important; left: 12px !important; width: auto !important; max-height: calc(100dvh - 80px) !important; overflow-y: auto !important; display: flex !important; flex-direction: column !important; gap: 8px !important; padding: 16px !important; border: 1px solid rgba(148,163,184,.32) !important; border-radius: 16px !important; background: #0c1020 !important; color: #f8fafc !important; box-shadow: 0 18px 60px rgba(0,0,0,.55) !important; visibility: visible !important; opacity: 1 !important; transform: none !important; }
+  .studio-preview-forced-open a { display: flex !important; align-items: center !important; min-height: 44px !important; color: inherit !important; }
+}
+</style><script id="studio-mobile-nav-fallback">
+(() => {
+  if (window.__studioMobileNavFallback) return;
+  window.__studioMobileNavFallback = true;
+  const isMobile = () => window.matchMedia('(max-width: 768px)').matches;
+  const findMenu = (button) => {
+    const id = button.getAttribute('aria-controls');
+    if (id) { const controlled = document.getElementById(id); if (controlled) return controlled; }
+    const selector = button.getAttribute('data-target') || button.getAttribute('data-mobile-menu');
+    if (selector) { try { const target = document.querySelector(selector); if (target) return target; } catch (_) {} }
+    const scope = button.closest('header, [role="banner"], .navbar, .site-header') || document;
+    const namedMenu = scope.querySelector('.mobile-drawer, .mobile-nav, .mobile-menu, [data-drawer], [id*="mobile-menu"], nav');
+    if (namedMenu) return namedMenu;
+    return Array.from(scope.children).find((node) => node !== button && node.querySelector?.('a[href]')) || null;
+  };
+  const setOpen = (button, menu, open) => {
+    if (!menu) return;
+    menu.classList.toggle('studio-preview-forced-open', open);
+    if (open) { menu.removeAttribute('hidden'); menu.setAttribute('aria-hidden', 'false'); }
+    else if (menu.classList.contains('studio-preview-forced-open')) menu.setAttribute('aria-hidden', 'true');
+    if (button) button.setAttribute('aria-expanded', String(open));
+  };
+  document.addEventListener('click', (event) => {
+    if (!isMobile()) return;
+    const button = event.target.closest('button, [role="button"], [data-mobile-toggle]');
+    const header = button?.closest('header, [role="banner"], .navbar, .site-header');
+    const box = button?.getBoundingClientRect();
+    const compactHeaderButton = Boolean(header && box && box.width <= 64 && box.height <= 64 && (button.querySelector('svg') || button.textContent.trim().length <= 3));
+    if (button && (button.matches('[data-mobile-toggle], .mobile-toggle, .hamburger, .menu-btn, .menu-toggle, .mobile-menu-button, button[aria-label*="menu" i]') || button.hasAttribute('aria-controls') || compactHeaderButton)) {
+      const menu = findMenu(button);
+      if (!menu) return;
+      const expandedBeforeClick = button.getAttribute('aria-expanded');
+      window.setTimeout(() => {
+        if (button.getAttribute('aria-expanded') !== expandedBeforeClick) return;
+        const forcedOpen = menu.classList.contains('studio-preview-forced-open');
+        const wasOpen = expandedBeforeClick === 'true' || forcedOpen;
+        setOpen(button, menu, !wasOpen);
+      }, 0);
+      return;
+    }
+    const openMenu = event.target.closest('.studio-preview-forced-open');
+    if (openMenu && event.target.closest('a')) {
+      openMenu.classList.remove('studio-preview-forced-open');
+      openMenu.setAttribute('aria-hidden', 'true');
+      document.querySelectorAll('[aria-expanded="true"]').forEach((item) => item.setAttribute('aria-expanded', 'false'));
+    }
+  }, true);
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    document.querySelectorAll('.studio-preview-forced-open').forEach((menu) => {
+      menu.classList.remove('studio-preview-forced-open'); menu.setAttribute('aria-hidden', 'true');
+    });
+    document.querySelectorAll('[aria-expanded="true"]').forEach((button) => button.setAttribute('aria-expanded', 'false'));
+  });
+})();
+</script>'''
+                if "</body>" in html_content.lower():
+                    body_end = html_content.lower().rfind("</body>")
+                    html_content = html_content[:body_end] + mobile_nav_fallback + "\n" + html_content[body_end:]
+                else:
+                    html_content += mobile_nav_fallback
     
                 # Inject Watermarks & Copy/Inspect/Print Restrictions before </body>
                 target_slug = template.slug if (template and template.slug) else str(template_id)
@@ -4667,12 +5171,6 @@ async def serve_live_preview(
                 watermark_payload = """
     <!-- Injected Watermark Grid Overlay -->
     <div class="preview-watermark-grid"></div>
-    
-    <!-- Injected Purchase Footer Banner -->
-    <div class="preview-purchase-footer-banner">
-      <span>🔒 Watermarked Draft Preview. Purchase this template to download clean project assets.</span>
-      <a href="__PURCHASE_URL__" target="_top">Purchase Template &rarr;</a>
-    </div>
     
     <style>
       /* Disable text selection across all elements */
@@ -4810,6 +5308,7 @@ class ManualEditRequest(BaseModel):
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     page_edits: Optional[dict] = None
+    use_ai: bool = False
 
 
 class AIEditRequest(BaseModel):

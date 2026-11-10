@@ -171,7 +171,8 @@ async def get_order(
         select(Order)
         .options(
             selectinload(Order.items).selectinload(OrderItem.template),
-            selectinload(Order.user)
+            selectinload(Order.user),
+            selectinload(Order.payment),
         )
     )
     if order_uuid:
@@ -195,4 +196,40 @@ async def get_order(
     if not (is_buyer or is_admin or is_seller_of_item):
         raise HTTPException(status_code=403, detail="Access denied to this order receipt")
 
-    return OrderResponse.model_validate(order)
+    # Persist immutable invoice metadata if missing
+    meta = dict(order.extra_metadata or {})
+    changed = False
+    if "invoice_number" not in meta:
+        meta["invoice_number"] = order.order_number
+        meta["invoice_issued_at"] = order.created_at.isoformat() if order.created_at else None
+        changed = True
+    if changed:
+        order.extra_metadata = meta
+        await db.commit()
+
+    resp = OrderResponse.model_validate(order)
+    if not resp.items:
+        item_title = order.notes or "Official AI Site Studio License Package"
+        if order.extra_metadata and order.extra_metadata.get("type") == "ai_credits":
+            credits = order.extra_metadata.get("credits_to_add", "")
+            item_title = f"AI Gemini Compute Pack (+{credits} Credits)"
+        elif order.extra_metadata and order.extra_metadata.get("type") == "subscription_plan":
+            plan_id = order.extra_metadata.get("plan_id", "Pro")
+            item_title = f"Site Studio Subscription: {str(plan_id).title()}"
+        
+        from app.schemas.order import OrderItemResponse
+        resp.items = [
+            OrderItemResponse(
+                id=order.id,
+                template_id=None,
+                quantity=1,
+                price=order.total,
+                price_currency=(order.extra_metadata or {}).get("currency", "USD"),
+                title=item_title,
+                license_type="commercial",
+                framework="Production Codebase",
+                developer_name="Site Studio Creator",
+            )
+        ]
+
+    return resp

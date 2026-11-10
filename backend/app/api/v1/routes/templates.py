@@ -47,7 +47,7 @@ import httpx
 
 
 async def _read_upload_limited(file: UploadFile) -> bytes:
-    """Read an upload with a strict size cap instead of buffering unbounded input."""
+    """Buffer only small uploads for the detailed analyzer; large uploads use streaming paths."""
     max_bytes = settings.MAX_UPLOAD_SIZE_BYTES
     if file.size is not None and file.size > max_bytes:
         raise HTTPException(
@@ -67,6 +67,17 @@ async def _read_upload_limited(file: UploadFile) -> bytes:
     finally:
         await file.close()
     return bytes(content)
+
+
+def _get_upload_size(file: UploadFile) -> int:
+    """Return the spooled upload size even when the ASGI server did not provide it."""
+    if file.size is not None:
+        return int(file.size)
+    current = file.file.tell()
+    file.file.seek(0, os.SEEK_END)
+    size = file.file.tell()
+    file.file.seek(current)
+    return size
 
 class GitAnalyzeRequest(BaseModel):
     git_url: str
@@ -108,6 +119,7 @@ async def list_templates(
     page_size: int = Query(20, ge=1, le=100),
     semantic: bool = Query(False, description="Use AI semantic search"),
     developer: Optional[str] = Query(None, description="Developer/seller name"),
+    seller_id: Optional[uuid.UUID] = Query(None, description="Seller UUID"),
     response: Response = None,
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
@@ -119,6 +131,12 @@ async def list_templates(
     import json
     import hashlib
 
+    user_role_val = getattr(current_user, "role", None)
+    if user_role_val is not None:
+        user_role_str = user_role_val.value if hasattr(user_role_val, "value") else str(user_role_val)
+        if user_role_str.lower() == "seller":
+            seller_id = current_user.id
+
     filters = TemplateFilterParams(
         q=q, category=category, sub_category=sub_category, min_price=min_price, max_price=max_price,
         rating=rating, is_free=is_free, is_on_sale=is_on_sale,
@@ -128,6 +146,7 @@ async def list_templates(
         technology=technology, date_added=date_added,
         sort=sort, page=page, page_size=page_size, semantic=semantic,
         developer=developer,
+        seller_id=seller_id,
     )
 
     # Ultra-Fast In-Memory Engine for non-semantic search and catalog filters (< 1ms latency)
@@ -240,7 +259,7 @@ async def list_git_repos(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Either GitHub username, Personal Access Token, or connected GitHub account is required"
         )
-    
+
     headers = {"Accept": "application/vnd.github+json"}
     if auth_token:
         headers["Authorization"] = f"token {auth_token}"
@@ -258,7 +277,7 @@ async def list_git_repos(
                 except Exception:
                     pass
                 raise HTTPException(status_code=response.status_code, detail=detail)
-            
+
             repos = response.json()
             return [
                 {
@@ -330,7 +349,7 @@ async def get_template(
                 await cache_set(CacheKeys.template(result.slug), base_dump, ttl=CacheKeys.CACHE_TTL_MEDIUM)
             if str(result.id) != slug:
                 await cache_set(CacheKeys.template(str(result.id)), base_dump, ttl=CacheKeys.CACHE_TTL_MEDIUM)
-            
+
     return result
 
 
@@ -359,13 +378,43 @@ async def update_template(
         )
 
     user_role = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
-    if template.seller_id != current_user.id and user_role.lower() not in ("admin", "super_admin"):
+    is_admin = user_role.lower() in ("admin", "super_admin")
+    is_owner = template.seller_id == current_user.id
+    if not is_owner and template.seller_id is None:
+        user_names = {
+            current_user.full_name.lower() if getattr(current_user, "full_name", None) else "",
+            current_user.display_name.lower() if getattr(current_user, "display_name", None) else "",
+            current_user.username.lower() if getattr(current_user, "username", None) else "",
+        }
+        user_names.discard("")
+        if template.developer_name and template.developer_name.lower() in user_names:
+            template.seller_id = current_user.id
+            is_owner = True
+
+    if not is_owner and not is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You are not authorized to update this template"
         )
 
     update_dict = data.model_dump(exclude_unset=True)
+    if "category" in update_dict:
+        cat_val = update_dict.pop("category")
+        if cat_val and not update_dict.get("category_id"):
+            from app.models.category import Category
+            from sqlalchemy import select, or_, func
+            cat_res = await db.execute(
+                select(Category.id).where(
+                    or_(
+                        Category.slug == str(cat_val).lower(),
+                        func.lower(Category.name) == str(cat_val).lower()
+                    )
+                ).limit(1)
+            )
+            found_cat_id = cat_res.scalar_one_or_none()
+            if found_cat_id:
+                update_dict["category_id"] = found_cat_id
+
     if "price" in update_dict and update_dict["price"] is not None:
         update_dict["price"] = Decimal(str(update_dict["price"]))
         update_dict["is_free"] = update_dict["price"] == 0
@@ -398,6 +447,11 @@ async def analyze_project_zip(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Supported upload formats: ZIP archives (.zip) or HTML documents (.html, .htm)"
         )
+    if _get_upload_size(file) > settings.MAX_UPLOAD_SIZE_BYTES:
+        file.file.seek(0)
+        report = project_analyzer.analyze_zip_stream_quick(file.file, file.filename or "template.zip")
+        await file.close()
+        return report
     content = await _read_upload_limited(file)
     return await project_analyzer.analyze_zip(content, file.filename)
 
@@ -429,12 +483,8 @@ async def analyze_git_repo(
             detail="Only HTTPS repositories hosted on GitHub, GitLab, or Bitbucket are supported."
         )
 
-    # Inject personal access token into HTTPS URL for private repositories
-    if token and git_url.startswith("https://github.com/"):
-        git_url = git_url.replace("https://github.com/", f"https://{token}@github.com/")
-
     try:
-        result = await project_analyzer.analyze_git_repo(git_url)
+        result = await project_analyzer.analyze_git_repo(git_url, token=token)
         zip_bytes = result.pop("_zip_bytes")
         filename = result.pop("_filename")
 
@@ -450,13 +500,14 @@ async def analyze_git_repo(
         result["stored_zip_url"] = stored_zip_url
         return result
 
+    except TimeoutError as e:
+        raise HTTPException(status_code=408, detail=str(e)) from e
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error("Git repository import failed (%s)", type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to import and analyze the repository. Check that it is accessible and try again."
-        )
+        ) from e
 
 
 @router.post("/audit")
@@ -474,8 +525,13 @@ async def audit_template_zip(
             detail="File must be a ZIP archive (.zip)",
         )
 
-    content = await _read_upload_limited(file)
     from app.services.security_scanner import security_scanner
+    if _get_upload_size(file) > settings.MAX_UPLOAD_SIZE_BYTES:
+        file.file.seek(0)
+        report = security_scanner.scan_zip_stream(file.file, file.filename or "template.zip")
+        await file.close()
+        return report
+    content = await _read_upload_limited(file)
     report = security_scanner.audit_zip_template(content, file.filename)
     return report
 
@@ -531,13 +587,27 @@ async def reupload_template_zip(
             detail="You can only re-upload template files for your own templates.",
         )
 
-    zip_bytes = await _read_upload_limited(file)
     from app.models.stored_file import StoredFile
     from app.api.v1.routes.files import create_signed_url
     from app.services.project_analyzer import project_analyzer
 
+    file_size = int(file.size or 0)
+    if not file_size:
+        file.file.seek(0, os.SEEK_END)
+        file_size = file.file.tell()
+        file.file.seek(0)
+    use_streaming = file_size > settings.MAX_UPLOAD_SIZE_BYTES
+
     # 1. Run automatic project analysis & security scan on the re-uploaded file
-    analysis = await project_analyzer.analyze_zip(zip_bytes, file.filename)
+    if use_streaming:
+        file.file.seek(0)
+        analysis = project_analyzer.analyze_zip_stream_quick(file.file, file.filename or "template.zip")
+        if not analysis.get("success"):
+            await file.close()
+            raise HTTPException(status_code=400, detail=analysis.get("error", "Archive failed security inspection"))
+    else:
+        zip_bytes = await _read_upload_limited(file)
+        analysis = await project_analyzer.analyze_zip(zip_bytes, file.filename)
     if analysis.get("success"):
         detected_fw = analysis.get("framework_detected")
         if detected_fw:
@@ -583,16 +653,30 @@ async def reupload_template_zip(
             }
 
     # 2. Save to StoredFile table in PostgreSQL
-    sf = StoredFile(
-        filename=f"templates/{t_uuid}_{file.filename}",
-        original_filename=file.filename,
-        content_type="application/zip" if file.filename.lower().endswith(".zip") else "text/html",
-        size=len(zip_bytes),
-        data=zip_bytes,
-        created_by_id=current_user.id,
-    )
-    db.add(sf)
-    await db.flush()
+    if use_streaming:
+        from app.core.storage import storage
+        file.file.seek(0)
+        stored_url = await storage.upload_file_from_file(
+            db=db, file_obj=file.file, size=file_size, folder=f"templates/{t_uuid}",
+            original_filename=file.filename or "template.zip",
+            content_type="application/zip" if (file.filename or "").lower().endswith(".zip") else "text/html",
+        )
+        sf_id = storage._parse_file_id(stored_url)
+        sf = await db.get(StoredFile, sf_id) if sf_id else None
+        await file.close()
+        if not sf:
+            raise HTTPException(status_code=500, detail="Uploaded template metadata could not be saved")
+    else:
+        sf = StoredFile(
+            filename=f"templates/{t_uuid}_{file.filename}",
+            original_filename=file.filename,
+            content_type="application/zip" if file.filename.lower().endswith(".zip") else "text/html",
+            size=len(zip_bytes),
+            data=zip_bytes,
+            created_by_id=current_user.id,
+        )
+        db.add(sf)
+        await db.flush()
 
     signed_url = create_signed_url(sf.id, expires_in_seconds=86400 * 365)
     download_assets = dict(template.download_assets or {})
@@ -729,6 +813,7 @@ async def delete_template(
 async def download_template(
     template_id: str | uuid.UUID,
     format: Optional[str] = "zip",
+    request: Request = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -740,7 +825,7 @@ async def download_template(
     template = await template_repo.get_by_id(template_id)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
-        
+
     is_authorized_creator = str(template.seller_id) == str(current_user.id)
     template_status = getattr(template.status, "value", str(template.status)).lower()
     is_admin = current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
@@ -762,7 +847,7 @@ async def download_template(
             raise HTTPException(status_code=403, detail="Purchase required to download this template")
 
     await template_repo.increment_downloads(template_id)
-    
+
     from app.models.download import Download
     download_log = Download(
         user_id=current_user.id,
@@ -771,19 +856,48 @@ async def download_template(
     db.add(download_log)
     await db.flush()
     await db.commit()
-    
+
     download_assets = template.download_assets or {}
-    zip_url = download_assets.get("zip")
-    if not zip_url:
+    zip_url = download_assets.get("zip") or download_assets.get("source")
+
+    # Robust file UUID detection from URL or template model
+    file_uuid = storage._parse_file_id(zip_url) if zip_url else None
+    if not file_uuid and template.source_file_id:
+        file_uuid = template.source_file_id
+
+    if not zip_url and not file_uuid:
         raise HTTPException(status_code=400, detail="Source zip file not configured for this template")
-        
-    # Stored files require a short-lived signature. External URLs retain their
-    # provider-managed access controls.
-    if zip_url.startswith(settings.STORAGE_BASE_URL.rstrip("/") + "/"):
-        file_id = zip_url.rsplit("/", 1)[-1]
-        expires = int(datetime.now(timezone.utc).timestamp()) + 3600
-        signature = generate_file_signature(file_id, expires)
-        zip_url = f"{zip_url}?expires={expires}&signature={signature}"
+
+    if file_uuid:
+        file_id_str = str(file_uuid)
+        expires = int(datetime.now(timezone.utc).timestamp()) + 86400  # 24-hour validity
+        signature = generate_file_signature(file_id_str, expires)
+
+        # Build clean download URL using current request host or configured storage URL
+        if request and request.base_url:
+            base_url = str(request.base_url).rstrip("/")
+            download_url = f"{base_url}/api/v1/files/{file_id_str}?expires={expires}&signature={signature}"
+        else:
+            clean_base = storage.build_url(file_uuid).split("?")[0]
+            download_url = f"{clean_base}?expires={expires}&signature={signature}"
+        return {"download_url": download_url}
+
+    # Fallback for external or pre-configured URLs: strip dirty query and re-sign if internal
+    clean_url = str(zip_url).split("?")[0]
+    raw_id = clean_url.rsplit("/", 1)[-1]
+    try:
+        f_uuid = uuid.UUID(raw_id)
+        file_id_str = str(f_uuid)
+        expires = int(datetime.now(timezone.utc).timestamp()) + 86400
+        signature = generate_file_signature(file_id_str, expires)
+        if request and request.base_url:
+            base_url = str(request.base_url).rstrip("/")
+            download_url = f"{base_url}/api/v1/files/{file_id_str}?expires={expires}&signature={signature}"
+        else:
+            download_url = f"{clean_url}?expires={expires}&signature={signature}"
+        return {"download_url": download_url}
+    except Exception:
+        pass
 
     return {"download_url": zip_url}
 

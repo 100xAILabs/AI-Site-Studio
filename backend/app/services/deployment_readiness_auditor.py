@@ -18,7 +18,6 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.core.config import settings
 from app.core.local_project_manager import local_project_manager
 from app.services.framework_auditor import framework_auditor
 
@@ -53,13 +52,6 @@ class DeploymentReadinessAuditor:
     applies permanent auto-healing before building,
     and self-heals build and runtime errors automatically.
     """
-
-    def __init__(self):
-        self.default_db_url = getattr(
-            settings,
-            "USER_PROJECTS_DATABASE_URL",
-            "postgresql+asyncpg://neondb_owner:npg_17RiWabLMqdQ@ep-fancy-voice-b4vhh03l-pooler.c-6.us-east-2.aws.neon.tech/neondb?ssl=require",
-        )
 
     def audit_and_heal_source(
         self,
@@ -219,18 +211,20 @@ class DeploymentReadinessAuditor:
                 for af in auditor_findings:
                     findings.append(f"[Backend Heal] {af.get('file')}: {af.get('fix')}")
 
-                # Ensure project .env has the verified USER_PROJECTS_DATABASE_URL
+                # Supply a safe template only. Never copy platform credentials into customer projects.
                 env_candidates = [
-                    source_path / "backend" / ".env",
-                    source_path / ".env",
+                    source_path / "backend" / ".env.example",
+                    source_path / ".env.example",
                 ]
                 for env_file in env_candidates:
-                    if env_file.parent.exists():
+                    if env_file.parent.exists() and not env_file.exists():
                         env_file.write_text(
-                            f"DATABASE_URL={self.default_db_url}\nSECRET_KEY=production-secret-key-studio\n",
+                            "POSTGRES_PASSWORD=replace-with-a-unique-random-password\n"
+                            "DATABASE_URL=replace-with-your-project-database-url\n"
+                            "SECRET_KEY=replace-with-a-unique-random-secret-of-at-least-32-characters\n",
                             encoding="utf-8"
                         )
-                        findings.append("Configured production PostgreSQL database URL in project .env")
+                        findings.append("Added a safe .env.example; configure project-specific secrets before deployment")
                         healed_files.append(str(env_file.relative_to(source_path)))
                         break
             except Exception as err:

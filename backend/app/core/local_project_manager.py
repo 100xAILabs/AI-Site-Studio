@@ -21,6 +21,7 @@ import io
 import json
 import logging
 import os
+import re
 import shutil
 import zipfile
 from datetime import datetime, timezone
@@ -37,10 +38,64 @@ GENERATED_PROJECTS_DIR = WORKSPACE_ROOT / "generated_projects"
 
 
 def _clean_rel_path(path: str) -> str:
-    """Normalize and sanitize relative file paths."""
-    clean = path.replace("\\", "/").lstrip("/")
-    parts = [p for p in clean.split("/") if p and p not in (".", "..")]
+    """Return a safe normalized relative path, rejecting traversal and absolute paths."""
+    if not isinstance(path, str) or "\x00" in path:
+        return ""
+    clean = path.replace("\\", "/")
+    if clean.startswith("/") or re.match(r"^[A-Za-z]:", clean):
+        return ""
+    parts = [p for p in clean.split("/") if p and p != "."]
+    reserved_names = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+    if len(clean) > 1024 or any(
+        p == ".."
+        or any(char in p for char in ':*?"<>|')
+        or p.endswith((".", " "))
+        or len(p) > 240
+        or p.split(".", 1)[0].upper() in reserved_names
+        for p in parts
+    ):
+        return ""
     return "/".join(parts)
+
+
+def _safe_project_name(value: str) -> str:
+    """Restrict project directory names to a single portable path segment."""
+    name = str(value or "").strip()
+    if not name or name in (".", "..") or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name):
+        return ""
+    return name
+
+
+def _contained_path(base: Path, relative: str) -> Optional[Path]:
+    """Resolve a child path and ensure symlinks cannot escape the intended root."""
+    safe_rel = _clean_rel_path(relative)
+    if not safe_rel:
+        return None
+    root = base.resolve()
+    destination = (root / safe_rel).resolve()
+    try:
+        destination.relative_to(root)
+    except ValueError:
+        return None
+    return destination
+
+
+def _is_within(root: Path, candidate: Path) -> bool:
+    try:
+        candidate.resolve().relative_to(root.resolve())
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _is_project_child(root: Path, candidate: Path) -> bool:
+    """Require project folders to be direct, non-link children of the project root."""
+    if candidate.is_symlink() or getattr(candidate, "is_junction", lambda: False)():
+        return False
+    try:
+        return candidate.resolve().parent == root.resolve()
+    except OSError:
+        return False
 
 
 class LocalProjectManager:
@@ -50,14 +105,16 @@ class LocalProjectManager:
 
     def _resolve_project_dir(self, identifier: str) -> Path:
         """Find an existing folder by slug or template_id, or return the standard path."""
-        clean_id = str(identifier).strip()
+        clean_id = _safe_project_name(str(identifier))
+        if not clean_id:
+            return self.base_dir / "__invalid_project_identifier__"
         direct = self.base_dir / clean_id
-        if direct.exists() and direct.is_dir():
-            return direct
+        if direct.exists():
+            return direct if direct.is_dir() and _is_project_child(self.base_dir, direct) else self.base_dir / "__invalid_project_identifier__"
 
         # Search for matching metadata
         for sub in self.base_dir.iterdir():
-            if sub.is_dir():
+            if sub.is_dir() and not sub.is_symlink() and _is_within(self.base_dir, sub):
                 meta_file = sub / "metadata.json"
                 if meta_file.exists():
                     try:
@@ -80,8 +137,12 @@ class LocalProjectManager:
         """
         Store the initial generated project into 'before_edit/' and 'latest/'.
         """
-        project_folder_name = slug or str(template_id)
+        project_folder_name = _safe_project_name(slug) or _safe_project_name(str(template_id))
+        if not project_folder_name:
+            raise ValueError("Invalid project identifier")
         project_dir = self.base_dir / project_folder_name
+        if not _is_project_child(self.base_dir, project_dir):
+            raise ValueError("Invalid project path")
         before_edit_dir = project_dir / "before_edit"
         latest_dir = project_dir / "latest"
 
@@ -90,12 +151,13 @@ class LocalProjectManager:
 
         # Write files into both before_edit and latest
         for rel_path, content in files.items():
-            safe_rel = _clean_rel_path(rel_path)
-            if not safe_rel:
+            if not _clean_rel_path(rel_path):
                 continue
 
             for target_base in (before_edit_dir, latest_dir):
-                dest = target_base / safe_rel
+                dest = _contained_path(target_base, rel_path)
+                if dest is None:
+                    continue
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 if isinstance(content, str):
                     dest.write_text(content, encoding="utf-8", errors="replace")
@@ -103,8 +165,9 @@ class LocalProjectManager:
                     dest.write_bytes(content)
 
         # Also create a quick template_id pointer folder if slug was used
-        if slug and str(template_id) != slug:
-            id_alias_file = self.base_dir / f".id_{str(template_id)}.txt"
+        safe_template_id = _safe_project_name(str(template_id))
+        if slug and safe_template_id and str(template_id) != slug:
+            id_alias_file = self.base_dir / f".id_{safe_template_id}.txt"
             try:
                 id_alias_file.write_text(slug, encoding="utf-8")
             except Exception:
@@ -147,6 +210,8 @@ class LocalProjectManager:
         Preserves 'before_edit/' untouched.
         """
         project_dir = self._resolve_project_dir(slug or str(template_id))
+        if not _is_within(self.base_dir, project_dir):
+            raise ValueError("Invalid project path")
         if not project_dir.exists():
             return self.save_initial_project(template_id, slug or str(template_id), files)
 
@@ -169,12 +234,13 @@ class LocalProjectManager:
 
         # Write files into revision folder and update latest
         for rel_path, content in files.items():
-            safe_rel = _clean_rel_path(rel_path)
-            if not safe_rel:
+            if not _clean_rel_path(rel_path):
                 continue
 
             for target_base in (rev_dir, latest_dir):
-                dest = target_base / safe_rel
+                dest = _contained_path(target_base, rel_path)
+                if dest is None:
+                    continue
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 if isinstance(content, str):
                     dest.write_text(content, encoding="utf-8", errors="replace")
@@ -211,7 +277,12 @@ class LocalProjectManager:
         100% pristine and untouched.
         """
         source_dir = self._resolve_project_dir(str(source_identifier))
+        target_slug = _safe_project_name(target_slug) or _safe_project_name(str(target_template_id))
+        if not target_slug:
+            raise ValueError("Invalid target project identifier")
         target_project_dir = self.base_dir / target_slug
+        if not _is_project_child(self.base_dir, target_project_dir):
+            raise ValueError("Invalid target project path")
         target_project_dir.mkdir(parents=True, exist_ok=True)
 
         target_latest = target_project_dir / "latest"
@@ -251,9 +322,11 @@ class LocalProjectManager:
         (target_project_dir / "metadata.json").write_text(
             json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
         )
-        alias_file = self.base_dir / f".id_{str(target_template_id)}.txt"
+        safe_target_id = _safe_project_name(str(target_template_id))
+        alias_file = self.base_dir / f".id_{safe_target_id}.txt" if safe_target_id else None
         try:
-            alias_file.write_text(target_slug, encoding="utf-8")
+            if alias_file:
+                alias_file.write_text(target_slug, encoding="utf-8")
         except Exception:
             pass
 
@@ -273,8 +346,9 @@ class LocalProjectManager:
         clean_id = str(identifier).strip()
 
         # Check for pointer file
-        alias_file = self.base_dir / f".id_{clean_id}.txt"
-        if alias_file.exists():
+        safe_id = _safe_project_name(clean_id)
+        alias_file = self.base_dir / f".id_{safe_id}.txt" if safe_id else None
+        if alias_file and alias_file.exists():
             try:
                 clean_id = alias_file.read_text(encoding="utf-8-sig").strip()
             except Exception:
@@ -302,6 +376,24 @@ class LocalProjectManager:
         """Helper to unpack an in-memory ZIP and save it to local storage."""
         files: dict[str, str | bytes] = {}
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            entries = zf.infolist()
+            if len(entries) > 1000:
+                raise ValueError("Project archive contains too many files (limit: 1000).")
+            total_uncompressed = 0
+            for info in entries:
+                if info.is_dir():
+                    continue
+                if not _clean_rel_path(info.filename):
+                    raise ValueError("Project archive contains an unsafe file path.")
+                if info.file_size > 25 * 1024 * 1024:
+                    raise ValueError("Project archive contains a file larger than 25 MB.")
+                total_uncompressed += info.file_size
+                if total_uncompressed > 100 * 1024 * 1024:
+                    raise ValueError("Project archive expands beyond the 100 MB limit.")
+                if info.file_size > 1024 * 1024 and info.compress_size == 0:
+                    raise ValueError("Project archive contains a suspicious compressed entry.")
+                if info.compress_size and info.file_size / info.compress_size > 200:
+                    raise ValueError("Project archive contains a suspicious compression ratio.")
             for name in zf.namelist():
                 if name.endswith("/"):
                     continue
@@ -413,11 +505,16 @@ class LocalProjectManager:
         Preserves 'before_edit/' untouched and writes an entry into 'revisions/'.
         """
         clean_rel = _clean_rel_path(rel_path)
+        if not clean_rel:
+            raise ValueError("Invalid asset path")
         project_dir = self._resolve_project_dir(str(identifier).strip())
-        if not project_dir.exists():
+        if not project_dir.exists() or not _is_within(self.base_dir, project_dir):
             raise FileNotFoundError(f"Project directory for '{identifier}' not found")
 
-        latest_dest = project_dir / "latest" / clean_rel
+        latest_dir = project_dir / "latest"
+        latest_dest = _contained_path(latest_dir, clean_rel)
+        if latest_dest is None or not latest_dest.is_file():
+            raise FileNotFoundError("Asset does not exist in this project")
         latest_dest.parent.mkdir(parents=True, exist_ok=True)
         latest_dest.write_bytes(new_bytes)
 
@@ -433,7 +530,10 @@ class LocalProjectManager:
         rev_num = int(meta.get("current_revision", 0)) + 1
         ts_slug = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         rev_folder_name = f"rev_{rev_num:03d}_{ts_slug}_asset_replace"
-        rev_dest = project_dir / "revisions" / rev_folder_name / clean_rel
+        rev_root = project_dir / "revisions" / rev_folder_name
+        rev_dest = _contained_path(rev_root, clean_rel)
+        if rev_dest is None:
+            raise ValueError("Invalid asset path")
         rev_dest.parent.mkdir(parents=True, exist_ok=True)
         rev_dest.write_bytes(new_bytes)
 

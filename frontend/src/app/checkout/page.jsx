@@ -263,8 +263,13 @@ export default function Checkout() {
       try {
         const res = await api.post(`/templates/${item.template_id}/download?format=zip`, {}, authToken);
         if (res?.download_url) {
+          let downloadUrl = res.download_url;
+          if (authToken && !downloadUrl.includes("token=")) {
+            const sep = downloadUrl.includes("?") ? "&" : "?";
+            downloadUrl = `${downloadUrl}${sep}token=${encodeURIComponent(authToken)}`;
+          }
           const link = document.createElement("a");
-          link.href = res.download_url;
+          link.href = downloadUrl;
           link.download = "";
           document.body.appendChild(link);
           link.click();

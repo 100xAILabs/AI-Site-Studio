@@ -94,7 +94,7 @@ function StudioLaunchPage() {
     id: templateId || buildStore.completedTemplateId || "studio-project",
     title: buildStore.projectTitle || buildStore.plan?.title || "My Studio Website",
     short_description: buildStore.plan?.summary || "Your custom compiled website is ready for live preview, visual edits, or production deployment.",
-    framework: buildStore.plan?.stack?.frontend === "react" ? "react" : "html",
+    framework: buildStore.plan?.stack?.frontend || "html",
     pages_count: buildStore.plan?.pages?.length || 1,
     status: "draft",
     price: 0,
@@ -102,10 +102,14 @@ function StudioLaunchPage() {
 
   // Website details
   const siteTitle = effectiveTemplate?.title || "My Studio Website";
-  const isReact = effectiveTemplate?.framework === "react";
-  const frameworkName = isReact
+  const selectedFramework = String(effectiveTemplate?.framework || "html").toLowerCase();
+  const frameworkName = selectedFramework === "react"
     ? "React + FastAPI + PostgreSQL (Full-Stack)"
-    : "HTML5 + Modern CSS + JavaScript (Lightweight)";
+    : selectedFramework === "vue"
+      ? "Vue + FastAPI + PostgreSQL (Full-Stack)"
+      : selectedFramework === "angular"
+        ? "Angular + FastAPI + PostgreSQL (Full-Stack)"
+        : "HTML5 + Modern CSS + JavaScript (Lightweight)";
 
   const targetIdentifier = effectiveTemplate?.id || effectiveTemplate?.slug || templateId;
   const liveDemoUrl = targetIdentifier ? `${API_URL}/preview/live/${targetIdentifier}/` : "";

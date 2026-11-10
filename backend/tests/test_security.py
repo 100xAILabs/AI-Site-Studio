@@ -20,6 +20,19 @@ async def test_unauthenticated_requests_fail(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_preview_draft_mutations_require_authentication(client: AsyncClient):
+    fork = await client.post("/api/v1/preview/live/example-template/fork-draft")
+    assert fork.status_code == 401
+
+    replace = await client.post(
+        "/api/v1/preview/live/example-template/assets/replace",
+        data={"target_rel_path": "assets/logo.png"},
+        files={"file": ("logo.png", b"not-an-image", "image/png")},
+    )
+    assert replace.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_role_authorization_guards(client: AsyncClient, db: AsyncSession):
     """Verify that role based access controls are enforced."""
     # Seed a standard buyer user

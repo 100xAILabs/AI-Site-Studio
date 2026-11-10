@@ -82,46 +82,55 @@ function ProtectedRoute({ children, requiredRole }) {
   return children;
 }
 
+function AppRouteContent() {
+  const location = useLocation();
+
+  return (
+    <div key={location.pathname} className="app-route-transition">
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/marketplace" element={<Marketplace />} />
+          <Route path="/studio" element={<ProtectedRoute><StudioPage /></ProtectedRoute>} />
+          <Route path="/studio/launch" element={<ProtectedRoute><StudioLaunchPage /></ProtectedRoute>} />
+          <Route path="/studio/deploy" element={<ProtectedRoute><StudioDeployPage /></ProtectedRoute>} />
+          <Route path="/marketplace/generate" element={<Navigate to="/studio" replace />} />
+          <Route path="/marketplace/:slug" element={<TemplateDetailsPage />} />
+          <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="/contact" element={<ContactPage />} />
+          <Route path="/get-started" element={<GetStarted />} />
+          <Route path="/sign-in" element={<SignIn />} />
+          <Route path="/login" element={<Navigate to="/sign-in" replace />} />
+          <Route path="/sign-up" element={<Navigate to="/register" replace />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/verify-otp" element={<VerifyOTPPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/onboarding" element={<Onboarding />} />
+          <Route path="/preview" element={<PreviewPage />} />
+          <Route path="/storybook" element={<StorybookPage />} />
+          <Route path="/cart" element={<Checkout />} />
+          <Route path="/checkout" element={<Checkout />} />
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/deployments/:id" element={<ProtectedRoute><DeployedWebsiteDetailsPage /></ProtectedRoute>} />
+          <Route path="/dashboard/deployments/:id" element={<ProtectedRoute><DeployedWebsiteDetailsPage /></ProtectedRoute>} />
+          <Route path="/dashboard/receipt/:orderId" element={<ReceiptPage />} />
+          <Route path="/dashboard/payout-receipt/:withdrawalId" element={<PayoutReceiptPage />} />
+          <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPanel /></ProtectedRoute>} />
+          <Route path="/privacy" element={<PrivacyPolicyPage />} />
+          <Route path="/terms" element={<TermsPage />} />
+        </Routes>
+      </ErrorBoundary>
+    </div>
+  );
+}
+
 function App() {
   return (
     <BrowserRouter>
       <OAuthRedirectHandler />
       <div className="app-root-container">
-
-        <ErrorBoundary>
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/marketplace" element={<Marketplace />} />
-            <Route path="/studio" element={<ProtectedRoute><StudioPage /></ProtectedRoute>} />
-            <Route path="/studio/launch" element={<ProtectedRoute><StudioLaunchPage /></ProtectedRoute>} />
-            <Route path="/studio/deploy" element={<ProtectedRoute><StudioDeployPage /></ProtectedRoute>} />
-            <Route path="/marketplace/generate" element={<Navigate to="/studio" replace />} />
-            <Route path="/marketplace/:slug" element={<TemplateDetailsPage />} />
-            <Route path="/pricing" element={<PricingPage />} />
-            <Route path="/about" element={<AboutPage />} />
-            <Route path="/contact" element={<ContactPage />} />
-            <Route path="/get-started" element={<GetStarted />} />
-            <Route path="/sign-in" element={<SignIn />} />
-            <Route path="/login" element={<Navigate to="/sign-in" replace />} />
-            <Route path="/sign-up" element={<Navigate to="/register" replace />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/verify-otp" element={<VerifyOTPPage />} />
-            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-            <Route path="/onboarding" element={<Onboarding />} />
-            <Route path="/preview" element={<PreviewPage />} />
-            <Route path="/storybook" element={<StorybookPage />} />
-            <Route path="/cart" element={<Checkout />} />
-            <Route path="/checkout" element={<Checkout />} />
-            <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-            <Route path="/deployments/:id" element={<ProtectedRoute><DeployedWebsiteDetailsPage /></ProtectedRoute>} />
-            <Route path="/dashboard/deployments/:id" element={<ProtectedRoute><DeployedWebsiteDetailsPage /></ProtectedRoute>} />
-            <Route path="/dashboard/receipt/:orderId" element={<ProtectedRoute><ReceiptPage /></ProtectedRoute>} />
-            <Route path="/dashboard/payout-receipt/:withdrawalId" element={<ProtectedRoute><PayoutReceiptPage /></ProtectedRoute>} />
-            <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPanel /></ProtectedRoute>} />
-            <Route path="/privacy" element={<PrivacyPolicyPage />} />
-            <Route path="/terms" element={<TermsPage />} />
-          </Routes>
-        </ErrorBoundary>
+        <AppRouteContent />
         <SupportButton />
         <StudioBuildFloatingWidget />
         <Toaster richColors position="top-center" theme="dark" />

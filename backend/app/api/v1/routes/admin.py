@@ -349,11 +349,16 @@ async def list_all_orders(
     return [{
         "id": str(o.id),
         "order_number": o.order_number,
-        "buyer_email": o.user.email,
+        "invoice_number": o.order_number,
+        "buyer_email": o.user.email if o.user else "N/A",
+        "buyer_name": (o.user.full_name or o.user.username) if o.user else "Customer",
         "total": float(o.total),
-        "status": o.status,
-        "created_at": o.created_at.isoformat(),
-        "items": [item.template.title for item in o.items if item.template]
+        "subtotal": float(o.subtotal),
+        "tax": float(o.tax),
+        "status": o.status.value if hasattr(o.status, "value") else str(o.status),
+        "created_at": o.created_at.isoformat() if o.created_at else None,
+        "items": [item.template.title for item in o.items if item.template] if o.items else ([o.notes] if o.notes else ["Template License Package"]),
+        "receipt_url": f"/dashboard/receipt/{o.id}",
     } for o in orders]
 
 

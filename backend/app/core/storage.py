@@ -8,8 +8,11 @@ import asyncio
 import logging
 import mimetypes
 import uuid
+import re
+import os
+import shutil
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import BinaryIO, Optional, Tuple
 from urllib.parse import urlparse
 
 import boto3
@@ -91,18 +94,13 @@ class StorageService:
         return f"{self.public_url}/{file_id}"
 
     def _parse_file_id(self, url: str) -> Optional[uuid.UUID]:
-        if url.startswith(self.public_url):
-            path = url[len(self.public_url) :].lstrip("/")
-        else:
-            path = urlparse(url).path.rstrip("/").split("/")[-1]
-
-        if not path:
-            return None
-
-        try:
-            return uuid.UUID(path)
-        except ValueError:
-            return None
+        match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(url))
+        if match:
+            try:
+                return uuid.UUID(match.group(1))
+            except ValueError:
+                pass
+        return None
 
     async def upload_file(
         self,
@@ -154,6 +152,80 @@ class StorageService:
 
         return self.build_url(stored_file.id)
 
+    def local_file_path(self, storage_key: str) -> Path:
+        root = Path(settings.LOCAL_STORAGE_DIR).resolve()
+        candidate = (root / storage_key).resolve()
+        candidate.relative_to(root)
+        return candidate
+
+    async def upload_file_from_file(
+        self,
+        db: AsyncSession,
+        file_obj: BinaryIO,
+        size: int,
+        folder: str,
+        original_filename: str,
+        content_type: Optional[str] = None,
+    ) -> str:
+        """Stream an upload to object storage or local disk without holding it in RAM."""
+        ext = Path(original_filename).suffix
+        storage_key = f"{folder}/{uuid.uuid4().hex}{ext}"
+        content_type = content_type or mimetypes.guess_type(original_filename)[0] or "application/octet-stream"
+        file_obj.seek(0)
+
+        if self.is_cloud_storage:
+            s3 = self._get_s3_client()
+            await asyncio.to_thread(
+                s3.upload_fileobj,
+                file_obj,
+                self.bucket_name,
+                storage_key,
+                ExtraArgs={"ContentType": content_type},
+            )
+        else:
+            target = self.local_file_path(storage_key)
+            target.parent.mkdir(parents=True, exist_ok=True)
+
+            def copy_upload():
+                file_obj.seek(0)
+                with target.open("wb") as out:
+                    shutil.copyfileobj(file_obj, out, length=8 * 1024 * 1024)
+
+            await asyncio.to_thread(copy_upload)
+
+        stored_file = StoredFile(
+            storage_key=storage_key,
+            original_filename=Path(original_filename).name[:255],
+            content_type=content_type,
+            size=size,
+            data=b"",
+        )
+        db.add(stored_file)
+        await db.flush()
+        return self.build_url(stored_file.id)
+
+    async def get_file_record(self, db: AsyncSession, file_id: uuid.UUID) -> Optional[StoredFile]:
+        result = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
+        return result.scalar_one_or_none()
+
+    async def copy_to_path(self, db: AsyncSession, file_id: uuid.UUID, destination: Path) -> Optional[StoredFile]:
+        """Materialize a stored object on disk for streaming scans and previews."""
+        stored_file = await self.get_file_record(db, file_id)
+        if not stored_file:
+            return None
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if stored_file.data:
+            await asyncio.to_thread(destination.write_bytes, stored_file.data)
+        elif self.is_cloud_storage:
+            s3 = self._get_s3_client()
+            await asyncio.to_thread(s3.download_file, self.bucket_name, stored_file.storage_key, str(destination))
+        else:
+            source = self.local_file_path(stored_file.storage_key)
+            if not source.is_file():
+                return None
+            await asyncio.to_thread(shutil.copyfile, source, destination)
+        return stored_file
+
     async def get_file(
         self,
         db: AsyncSession,
@@ -189,6 +261,15 @@ class StorageService:
             except ClientError as e:
                 logger.error(f"[Storage] Failed to retrieve {stored_file.storage_key} from cloud: {e}")
                 return None
+
+        # Large locally stored uploads live on disk; small legacy blobs remain in BYTEA.
+        try:
+            local_path = self.local_file_path(stored_file.storage_key)
+            if local_path.is_file():
+                file_bytes = await asyncio.to_thread(local_path.read_bytes)
+                return file_bytes, stored_file.content_type, stored_file.original_filename
+        except (OSError, ValueError):
+            pass
 
         return None
 

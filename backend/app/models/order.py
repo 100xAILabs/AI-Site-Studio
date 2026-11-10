@@ -54,6 +54,19 @@ class Order(UUIDMixin, TimestampMixin, Base):
     items: Mapped[List["OrderItem"]] = relationship(back_populates="order", cascade="all, delete-orphan")
     payment: Mapped[Optional["Payment"]] = relationship(back_populates="order", uselist=False, cascade="all, delete-orphan")
 
+    @property
+    def invoice_number(self) -> str:
+        return self.order_number
+
+    @property
+    def gateway(self) -> Optional[str]:
+        if self.payment and hasattr(self.payment, "gateway"):
+            gw = self.payment.gateway
+            return gw.value if hasattr(gw, "value") else str(gw)
+        if self.extra_metadata and self.extra_metadata.get("upi_utr"):
+            return "UPI"
+        return "Stripe"
+
     def __repr__(self) -> str:
         return f"<Order {self.order_number} [{self.status}]>"
 
@@ -117,3 +130,14 @@ class OrderItem(UUIDMixin, TimestampMixin, Base):
             return "HTML"
         fw = getattr(self.template, "framework", "HTML")
         return getattr(fw, "value", str(fw)) if fw else "HTML"
+
+    @property
+    def developer_name(self) -> Optional[str]:
+        if self.template:
+            dev = getattr(self.template, "developer_name", None)
+            if dev:
+                return dev
+            if getattr(self.template, "seller", None):
+                seller = self.template.seller
+                return getattr(seller, "full_name", None) or getattr(seller, "username", None) or "Verified Seller"
+        return "Site Studio Seller"

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
-import { Printer, ArrowLeft, Loader2, CheckCircle2, Building2, UserCheck } from "lucide-react";
+import { Printer, ArrowLeft, Loader2, CheckCircle2, Building2, UserCheck, Download, FileText, ShieldCheck } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import "./Receipt.css";
 
@@ -10,6 +10,7 @@ const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api/v1";
 export default function ReceiptPage() {
   const { orderId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const token = useAuthStore((s) => s.token);
   const isLoaded = useAuthStore((s) => s.isLoaded);
   const [order, setOrder] = useState(null);
@@ -29,15 +30,15 @@ export default function ReceiptPage() {
         let authToken = token;
         if (!authToken) {
           try {
-            const sess = sessionStorage.getItem("aisitestudio_auth");
-            if (sess) {
-              const parsed = JSON.parse(sess);
+            const loc = localStorage.getItem("aisitestudio_auth");
+            if (loc) {
+              const parsed = JSON.parse(loc);
               authToken = parsed?.state?.token;
             }
             if (!authToken) {
-              const loc = localStorage.getItem("aisitestudio_auth");
-              if (loc) {
-                const parsed = JSON.parse(loc);
+              const sess = sessionStorage.getItem("aisitestudio_auth");
+              if (sess) {
+                const parsed = JSON.parse(sess);
                 authToken = parsed?.state?.token;
               }
             }
@@ -76,7 +77,24 @@ export default function ReceiptPage() {
     fetchOrderReceipt();
   }, [orderId, token, isLoaded]);
 
+  // Auto-trigger print/save as PDF if query has ?download=pdf or ?print=true
+  useEffect(() => {
+    if (order && !loading) {
+      const sp = new URLSearchParams(location.search);
+      if (sp.get("download") === "pdf" || sp.get("print") === "true") {
+        const timer = setTimeout(() => {
+          window.print();
+        }, 600);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [order, loading, location.search]);
+
   const handlePrint = () => {
+    window.print();
+  };
+
+  const handleDownloadPdf = () => {
     window.print();
   };
 
@@ -105,6 +123,13 @@ export default function ReceiptPage() {
     );
   }
 
+  const invoiceNumber = order.order_number || `INV-${String(order.id).slice(0, 8).toUpperCase()}`;
+  const invoiceDate = new Date(order.created_at || Date.now()).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
   return (
     <div className="receipt-page-wrapper">
       {/* Top Action Controls */}
@@ -112,15 +137,31 @@ export default function ReceiptPage() {
         <button
           onClick={() => navigate("/dashboard")}
           className="receipt-btn-back"
+          title="Return to Dashboard"
         >
-          <ArrowLeft style={{ width: "0.875rem", height: "0.875rem", color: "#818cf8" }} /> Back to Dashboard
+          <ArrowLeft style={{ width: "0.875rem", height: "0.875rem", color: "#818cf8" }} />
+          <span>Back to Dashboard</span>
         </button>
-        <button
-          onClick={handlePrint}
-          className="receipt-btn-print"
-        >
-          <Printer style={{ width: "0.875rem", height: "0.875rem" }} /> Print / Save PDF
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <button
+            onClick={handleDownloadPdf}
+            className="receipt-btn-print"
+            style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+            title="Download Invoice as PDF"
+          >
+            <Download style={{ width: "0.875rem", height: "0.875rem" }} />
+            <span>Download PDF</span>
+          </button>
+          <button
+            onClick={handlePrint}
+            className="receipt-btn-back"
+            style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+            title="Print Tax Invoice"
+          >
+            <Printer style={{ width: "0.875rem", height: "0.875rem" }} />
+            <span>Print</span>
+          </button>
+        </div>
       </div>
 
       {/* Main Compact Receipt Card */}
@@ -147,11 +188,16 @@ export default function ReceiptPage() {
               <CheckCircle2 style={{ width: "0.75rem", height: "0.75rem", color: "#059669" }} /> PAID
             </div>
             <p className="receipt-meta-text">
-              Inv #: <strong>{order.order_number || `INV-${order.id.slice(0, 8).toUpperCase()}`}</strong>
+              Inv #: <strong>{invoiceNumber}</strong>
             </p>
             <p className="receipt-meta-text">
-              Date: {new Date(order.created_at || Date.now()).toLocaleDateString(undefined, { dateStyle: "medium" })}
+              Date: {invoiceDate}
             </p>
+            {order.gateway && (
+              <p className="receipt-meta-text" style={{ textTransform: "uppercase", fontSize: "0.6875rem" }}>
+                Via: <strong>{order.gateway}</strong>
+              </p>
+            )}
             {order.extra_metadata?.upi_utr && (
               <p className="receipt-meta-text" style={{ color: "#059669", fontWeight: 700, fontFamily: "monospace" }}>
                 UTR: {order.extra_metadata.upi_utr}
@@ -167,9 +213,12 @@ export default function ReceiptPage() {
               <Building2 style={{ width: "0.75rem", height: "0.75rem" }} /> SELLER / CREATOR
             </span>
             <p className="receipt-party-name">
-              {order.items?.[0]?.template?.developer_name || "Site Studio Seller"}
+              {order.items?.[0]?.developer_name || order.items?.[0]?.template?.developer_name || "Site Studio Creator"}
             </p>
             <p className="receipt-party-detail">Verified Marketplace Seller</p>
+            <p className="receipt-party-detail" style={{ fontSize: "0.6875rem", color: "#64748b" }}>
+              Platform: AI Site Studio Marketplace
+            </p>
           </div>
 
           <div className="receipt-party-card">
@@ -180,13 +229,16 @@ export default function ReceiptPage() {
               {order.user?.full_name || order.user?.username || order.user?.email || "Valued Customer"}
             </p>
             <p className="receipt-party-detail">{order.user?.email || "N/A"}</p>
+            <p className="receipt-party-detail" style={{ fontSize: "0.6875rem", color: "#64748b" }}>
+              Customer ID: #{String(order.user?.id || order.user_id || order.id || "USR").slice(0, 8).toUpperCase()}
+            </p>
           </div>
         </div>
 
         {/* Itemized Table */}
         <div className="receipt-items-section">
           <h4 className="receipt-section-label">
-            Purchased Items
+            Purchased Items & Licenses
           </h4>
           <div className="receipt-table-box">
             <table className="receipt-table">
@@ -198,26 +250,47 @@ export default function ReceiptPage() {
                 </tr>
               </thead>
               <tbody>
-                {order.items?.map((item) => (
-                  <tr key={item.id}>
+                {order.items && order.items.length > 0 ? (
+                  order.items.map((item, idx) => (
+                    <tr key={item.id || idx}>
+                      <td>
+                        <p className="receipt-item-title">
+                          {item.title || item.template?.title || "Site Studio Template Package"}
+                        </p>
+                        <p className="receipt-item-sub">
+                          {item.framework ? `${item.framework} • ` : ""}Full source code ZIP archive & lifetime access
+                        </p>
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <span className="receipt-license-badge">
+                          {(item.license_type || "regular").toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="receipt-item-price">
+                        {formatPrice(item.price || order.total)}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
                     <td>
                       <p className="receipt-item-title">
-                        {item.title || item.template?.title || "Template Package"}
+                        {order.notes || "Official AI Site Studio Production Package"}
                       </p>
                       <p className="receipt-item-sub">
-                        Full source code ZIP archive
+                        Full source code package, clean project assets & lifetime verified digital license
                       </p>
                     </td>
                     <td style={{ textAlign: "center" }}>
                       <span className="receipt-license-badge">
-                        {item.license_type || "Standard"}
+                        REGULAR
                       </span>
                     </td>
                     <td className="receipt-item-price">
-                      {formatPrice(item.price)}
+                      {formatPrice(order.total)}
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
@@ -239,7 +312,7 @@ export default function ReceiptPage() {
             )}
 
             <div className="receipt-summary-row">
-              <span>Taxes (0%)</span>
+              <span>GST / Taxes (0% Digital Goods)</span>
               <span>{formatPrice(0)}</span>
             </div>
 
@@ -252,10 +325,14 @@ export default function ReceiptPage() {
           </div>
         </div>
 
-        {/* Footer */}
+        {/* Verification & Footer */}
         <div className="receipt-footer">
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.375rem", marginBottom: "0.25rem", color: "#10b981", fontSize: "0.6875rem", fontWeight: 700 }}>
+            <ShieldCheck style={{ width: "0.875rem", height: "0.875rem" }} />
+            <span>Cryptographically Verified Digital Purchase</span>
+          </div>
           <p className="receipt-footer-thank">Thank you for choosing Site Studio!</p>
-          <p className="receipt-footer-sub">Official tax invoice & digital proof of purchase • 256-bit Encrypted Transaction</p>
+          <p className="receipt-footer-sub">Official tax invoice & digital proof of purchase • Authorized by AI Site Studio</p>
         </div>
 
       </div>

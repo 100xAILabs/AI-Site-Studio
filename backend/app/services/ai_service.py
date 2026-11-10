@@ -447,6 +447,8 @@ class AIService:
                                 if finish_reason == "MAX_TOKENS":
                                     logger.warning("Gemini model '%s' hit MAX_TOKENS limit (output was truncated).", try_model)
                                     safe_print(f"   ⚠️ [AI Service] Gemini model '{try_model}' reached maxOutputTokens limit (output truncated).")
+                                    # Never pass a partial source/JSON payload to callers as a successful result.
+                                    continue
                                 if model_idx > 0:
                                     logger.info("Gemini fallback model '%s' succeeded after primary '%s' failed.", try_model, model_name)
                                     safe_print(f"   └─ ✅ Gemini fallback ({try_model}) generated output successfully.")
@@ -568,6 +570,7 @@ class AIService:
                             if finish_reason == "length":
                                 logger.warning(f"{provider_label} ({model_name}) hit max_tokens length limit (output was truncated).")
                                 safe_print(f"   ⚠️ [AI Service] {provider_label} ({model_name}) output was truncated by token limit.")
+                                return None
                             # Strip <think>...</think> chain-of-thought tags emitted by Qwen3/DeepSeek-R1
                             if "ollama" in provider_label.lower() or "cline" in provider_label.lower():
                                 raw_content = _strip_think_tags(raw_content)
@@ -959,15 +962,19 @@ class AIService:
             elif provider == "gemini" and self._gemini_api_keys():
                 try:
                     gemini_model = self.get_model_for_feature(feature_name, provider="gemini")
+                    successful_model = {"name": gemini_model}
                     safe_print(f"[AI Service] Invoking Google Gemini ({gemini_model}) for '{feature_name}'...")
                     res = await self._call_gemini_api(
                         prompt,
                         gemini_model,
                         response_mime_type,
-                        on_model_success=lambda actual_model: report_provider_success("gemini", actual_model),
+                        on_model_success=lambda actual_model: (
+                            successful_model.update(name=actual_model),
+                            report_provider_success("gemini", actual_model),
+                        ),
                     )
                     if res:
-                        safe_print(f"   └─ ✅ Gemini ({gemini_model}) generated output successfully.")
+                        safe_print(f"   └─ ✅ Gemini ({successful_model['name']}) generated output successfully.")
                         return res
                 except Exception as e:
                     logger.warning(f"Gemini attempt failed for feature '{feature_name}': {e}")

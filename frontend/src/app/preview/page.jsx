@@ -784,6 +784,8 @@ export default function PreviewPage() {
   const [projectAssets, setProjectAssets] = useState([]);
   const [loadingAssets, setLoadingAssets] = useState(false);
   const [replacingAssetPath, setReplacingAssetPath] = useState(null);
+  const [restoringAssetPath, setRestoringAssetPath] = useState(null);
+  const [replacedAssetPaths, setReplacedAssetPaths] = useState(new Set());
   const [assetTimestamp, setAssetTimestamp] = useState(Date.now());
   const assetFileInputRef = useRef(null);
   const [selectedAssetForUpload, setSelectedAssetForUpload] = useState(null);
@@ -823,20 +825,27 @@ export default function PreviewPage() {
     if (!file || !selectedAssetForUpload || !templateId) return;
 
     setReplacingAssetPath(selectedAssetForUpload.rel_path);
-    const formData = new FormData();
-    formData.append("target_rel_path", selectedAssetForUpload.rel_path);
-    formData.append("file", file);
-
     try {
-      const res = await fetch(`${API_BASE}/preview/live/${templateId}/assets/replace`, {
+      const draftId = await ensureUserDraftCopy();
+      if (!draftId || !authToken) throw new Error("Sign in to edit this asset. Your changes are saved to a private draft.");
+      const formData = new FormData();
+      formData.append("target_rel_path", selectedAssetForUpload.rel_path);
+      formData.append("file", file);
+      const res = await fetch(`${API_BASE}/preview/live/${draftId}/assets/replace`, {
         method: "POST",
+        headers: { Authorization: `Bearer ${authToken}` },
         body: formData,
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setAssetTimestamp(Date.now());
+        const newTs = Date.now();
+        setAssetTimestamp(newTs);
         setIframeKey((k) => k + 1);
         setHasUnfinalizedChanges(true);
+        setReplacedAssetPaths((prev) => new Set([...prev, selectedAssetForUpload.rel_path]));
+        setProjectAssets((prev) =>
+          prev.map((a) => (a.rel_path === selectedAssetForUpload.rel_path ? { ...a, has_backup: true, timestamp: newTs } : a))
+        );
         setNotice(`✓ Replaced photo "${selectedAssetForUpload.filename}"! Code remains 100% intact.`);
         setTimeout(() => setNotice(""), 4000);
         await fetchProjectAssets();
@@ -848,6 +857,45 @@ export default function PreviewPage() {
     } finally {
       setReplacingAssetPath(null);
       setSelectedAssetForUpload(null);
+    }
+  };
+
+  const handleRestoreAsset = async (asset) => {
+    if (!asset || !templateId) return;
+    setRestoringAssetPath(asset.rel_path);
+    try {
+      const draftId = customDraftId || activeTemplateId;
+      const res = await fetch(`${API_BASE}/preview/live/${draftId}/assets/restore`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ target_rel_path: asset.rel_path }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const newTs = Date.now();
+        setAssetTimestamp(newTs);
+        setIframeKey((k) => k + 1);
+        setReplacedAssetPaths((prev) => {
+          const next = new Set(prev);
+          next.delete(asset.rel_path);
+          return next;
+        });
+        setProjectAssets((prev) =>
+          prev.map((a) => (a.rel_path === asset.rel_path ? { ...a, has_backup: false, timestamp: newTs } : a))
+        );
+        setNotice(`✓ Returned original photo for "${asset.filename}"!`);
+        setTimeout(() => setNotice(""), 4000);
+        await fetchProjectAssets();
+      } else {
+        alert(data.detail || "Failed to return asset.");
+      }
+    } catch (err) {
+      alert("Error returning asset: " + err.message);
+    } finally {
+      setRestoringAssetPath(null);
     }
   };
   const [mobilePanel, setMobilePanel] = useState("preview");
@@ -1441,14 +1489,27 @@ export default function PreviewPage() {
   };
 
   const handleResetSection = () => {
-    const resetValue = initialSectionPropsRef.current?.[currentSection.id]
-      || defaultSectionPropsRef.current?.[currentSection.id];
+    const resetValue = initialSectionPropsRef.current?.[currentSection?.id]
+      || defaultSectionPropsRef.current?.[currentSection?.id];
     if (!resetValue) {
-      setNotice(`No saved starting values are available for ${currentSection.name}.`);
+      setNotice(`No saved starting values are available for ${currentSection?.name || "this section"}.`);
       return;
     }
     setSectionProps((prev) => ({ ...prev, [currentSection.id]: { ...resetValue } }));
-    setNotice(`Reset ${currentSection.name} to its original values.`);
+
+    // Instantly sync the reset values back to the live iframe DOM
+    Object.entries(resetValue).forEach(([k, v]) => {
+      dispatchLiveContentUpdate(currentSection.id, k, v);
+    });
+
+    if (resetValue.themeColor) {
+      dispatchLiveIframeColor(resetValue.themeColor);
+    }
+
+    // Refresh iframe to guarantee DOM clean state
+    setIframeKey((prev) => prev + 1);
+
+    setNotice(`✓ Reset "${currentSection?.name || "Section"}" to original values.`);
     setTimeout(() => setNotice(""), 3000);
   };
 
@@ -1518,8 +1579,16 @@ export default function PreviewPage() {
   };
 
   const [savingManual, setSavingManual] = useState(false);
-  const handleSaveManual = async () => {
-    setSavingManual(true);
+  const [savingWithAi, setSavingWithAi] = useState(false);
+
+  const handleSaveManual = async (useAi = false) => {
+    if (useAi) {
+      setSavingWithAi(true);
+      setNotice("🤖 Scanning entire codebase with AI and saving changes...");
+    } else {
+      setSavingManual(true);
+      setNotice("⚡ Fast-saving your changes directly...");
+    }
     try {
       if (activeTemplateId !== "default") {
         const targetId = customDraftId || activeTemplateId;
@@ -1565,7 +1634,8 @@ export default function PreviewPage() {
           secondary_color: brand.secondary_color,
           contact_email: sectionProps.contact?.email || brand.contact_email,
           contact_phone: sectionProps.contact?.phone || brand.contact_phone,
-          page_edits
+          page_edits,
+          use_ai: !!useAi
         });
         const newDraftId = res?.template_id || res?.data?.template_id;
         if (!newDraftId) throw new Error("The save endpoint did not return a draft ID.");
@@ -1578,7 +1648,11 @@ export default function PreviewPage() {
         setViewMode("live");
         setIframeKey((prev) => prev + 1);
         setShowSaveSuccess(true);
-        setNotice("✓ Finalized & saved to your private project draft!");
+        if (useAi) {
+          setNotice("✓ AI Save complete: Entire codebase verified & saved to your private draft!");
+        } else {
+          setNotice("✓ Saved directly to your private project draft!");
+        }
         return true;
       } else {
         setNotice("Preview changes are local to this session. Select a template to save a draft.");
@@ -1588,11 +1662,12 @@ export default function PreviewPage() {
       setNotice(`Could not save changes: ${e?.message || "Please try again."}`);
     } finally {
       setSavingManual(false);
+      setSavingWithAi(false);
       setTimeout(() => setNotice(""), 6000);
     }
   };
-  const handleFinalizeChanges = async () => {
-    const res = await handleSaveManual();
+  const handleFinalizeChanges = async (useAi = false) => {
+    const res = await handleSaveManual(useAi);
     if (res !== false) {
       setHasUnfinalizedChanges(false);
     }
@@ -1688,6 +1763,7 @@ export default function PreviewPage() {
 
   const handleRevokeChanges = async () => {
     setIsRevoking(true);
+    setNotice("↩️ Revoking all changes and restoring original template...");
     try {
       const targetId = customDraftId || effectiveTemplateId;
       if (targetId && targetId !== "default") {
@@ -1699,28 +1775,31 @@ export default function PreviewPage() {
       }
       if (initialSectionPropsRef.current) {
         setSectionProps(JSON.parse(JSON.stringify(initialSectionPropsRef.current)));
+        // Dispatch each section's reset values to live iframe DOM
+        Object.entries(initialSectionPropsRef.current).forEach(([secId, sProps]) => {
+          if (sProps && typeof sProps === "object") {
+            Object.entries(sProps).forEach(([k, v]) => {
+              dispatchLiveContentUpdate(secId, k, v);
+            });
+          }
+        });
       }
       const origColor =
         initialSectionPropsRef.current?.navbar?.themeColor ||
         initialSectionPropsRef.current?.hero?.themeColor ||
         brand?.primary_color ||
         "#4F46E5";
-      const iframes = document.querySelectorAll("iframe");
-      iframes.forEach((frame) => {
-        try {
-          frame.contentWindow?.postMessage({ type: "UPDATE_THEME_COLOR", color: origColor }, "*");
-        } catch (_) {}
-      });
+      dispatchLiveIframeColor(origColor);
       setIframeKey((prev) => prev + 1);
       setHasUnfinalizedChanges(false);
       setShowSaveSuccess(false);
-      setNotice("↩️ Revoked all unfinalized changes. Restored original template state.");
+      setNotice("✓ Revoked all changes. Restored original template state.");
     } catch (err) {
       console.warn("Could not revoke changes:", err);
       setNotice(`Could not revoke changes: ${err?.message || "Please try again."}`);
     } finally {
       setIsRevoking(false);
-      setTimeout(() => setNotice(""), 5000);
+      setTimeout(() => setNotice(""), 4000);
     }
   };
 
@@ -2135,13 +2214,24 @@ export default function PreviewPage() {
 
             <button
               type="button"
-              onClick={handleFinalizeChanges}
-              disabled={savingManual}
+              onClick={() => handleFinalizeChanges(false)}
+              disabled={savingManual || savingWithAi}
               className="sb-primary-gradient-btn"
-              title="Save and compile edits to website"
+              title="Fast direct save: Saves your edits directly into files without calling AI (Instant)"
             >
               <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
-              <span>{savingManual ? "Saving..." : "Save & Finalize"}</span>
+              <span>{savingManual ? "Saving..." : "Save"}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleFinalizeChanges(true)}
+              disabled={savingManual || savingWithAi}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 hover:from-violet-500 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-500/25 transition-all border border-indigo-400/30 cursor-pointer disabled:opacity-50"
+              title="AI Deep Save: Scans and refactors the entire codebase using AI to verify all references"
+            >
+              <Sparkles className={`w-3.5 h-3.5 text-amber-300 ${savingWithAi ? "animate-spin" : ""}`} />
+              <span>{savingWithAi ? "AI Scanning..." : "AI Save"}</span>
             </button>
 
             {hasUnfinalizedChanges && (
@@ -2174,7 +2264,7 @@ export default function PreviewPage() {
                 {/* Tech Stack Badge */}
                 <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/5 border border-white/10 text-[11px] font-semibold text-slate-300">
                   <Code className="w-3.5 h-3.5 text-violet-400" />
-                  <span>{templateData?.framework === "react" ? "React + FastAPI" : "HTML5 + CSS + JS"}</span>
+                  <span>{({ react: "React + FastAPI", vue: "Vue + FastAPI", angular: "Angular + FastAPI", nextjs: "Next.js + FastAPI" }[String(templateData?.framework || "html").toLowerCase()] || "HTML5 + CSS + JS")}</span>
                 </span>
 
                 <button
@@ -2207,13 +2297,23 @@ export default function PreviewPage() {
           <div className="flex lg:hidden items-center gap-1.5">
             <button
               type="button"
-              onClick={handleFinalizeChanges}
-              disabled={savingManual}
+              onClick={() => handleFinalizeChanges(false)}
+              disabled={savingManual || savingWithAi}
               className="sb-primary-gradient-btn py-1.5 px-2.5 text-xs flex items-center gap-1"
-              title="Save changes"
+              title="Fast direct save"
             >
               <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
               <span>{savingManual ? "Saving" : "Save"}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleFinalizeChanges(true)}
+              disabled={savingManual || savingWithAi}
+              className="py-1.5 px-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-1 border border-indigo-400/30 disabled:opacity-50"
+              title="AI deep save across entire codebase"
+            >
+              <Sparkles className={`w-3 h-3 text-amber-300 ${savingWithAi ? "animate-spin" : ""}`} />
+              <span>{savingWithAi ? "AI..." : "AI Save"}</span>
             </button>
 
             {templateData && (
@@ -2230,89 +2330,6 @@ export default function PreviewPage() {
                 )}
               </button>
             )}
-
-            {/* Mobile Actions Dropdown Trigger */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowMobileActionMenu(!showMobileActionMenu)}
-                className="p-2 rounded-xl border border-border/60 bg-muted/40 hover:bg-muted text-foreground transition-all"
-                title="More Actions"
-                aria-label="More actions"
-              >
-                <MoreVertical className="w-4 h-4" />
-              </button>
-
-              {showMobileActionMenu && (
-                <div
-                  className="absolute right-0 top-full mt-2 w-52 bg-card border border-border rounded-xl shadow-2xl p-1.5 z-50 space-y-1 animate-fade-in"
-                  onClick={() => setShowMobileActionMenu(false)}
-                >
-                  {templateData && (
-                    <button
-                      type="button"
-                      onClick={handleBuyNow}
-                      className="w-full text-left px-3 py-2 rounded-lg bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-400 hover:bg-amber-500/30 text-xs font-bold flex items-center gap-2"
-                    >
-                      <ShoppingBag className="w-3.5 h-3.5" />
-                      <span>Buy Template & License</span>
-                    </button>
-                  )}
-
-                  {templateData && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const targetId = customDraftId || activeTemplateId;
-                        navigate(`/dashboard?tab=deployments&deployTemplate=${targetId}&autoOpen=true`);
-                      }}
-                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-emerald-500/10 text-emerald-400 text-xs font-semibold flex items-center gap-2"
-                    >
-                      <Zap className="w-3.5 h-3.5" />
-                      <span>Deploy Live</span>
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => setViewMode(viewMode === "live" ? "designed" : "live")}
-                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-muted text-foreground text-xs font-semibold flex items-center gap-2"
-                  >
-                    {viewMode === "live" ? <Code className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 text-emerald-400" />}
-                    <span>{viewMode === "live" ? "Switch to Output View" : "Switch to Live Demo"}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleCopyCode}
-                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-muted text-foreground text-xs font-semibold flex items-center gap-2"
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>Copy Code</span>
-                  </button>
-
-                  {hasUnfinalizedChanges && (
-                    <button
-                      type="button"
-                      onClick={handleRevokeChanges}
-                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-rose-500/15 text-rose-400 text-xs font-semibold flex items-center gap-2"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      <span>Revoke Changes</span>
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={handleResetSection}
-                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-muted text-muted-foreground text-xs font-semibold flex items-center gap-2"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>Reset Section to Default</span>
-                  </button>
-                </div>
-              )}
-            </div>
           </div>
         </div>
       </header>
@@ -2852,9 +2869,9 @@ export default function PreviewPage() {
               <div className="p-4 border-b border-border/50 bg-card/60 flex-shrink-0 flex items-center justify-between select-none">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between pr-2">
-                    <h3 className="font-extrabold text-sm text-foreground flex items-center gap-1.5 truncate">
+                    <h3 className="font-extrabold text-sm text-foreground flex items-center gap-1.5 min-w-0">
                       <Sliders className="w-4 h-4 text-pink-500 shrink-0" />
-                      <span className="truncate">{currentSection.name} Components</span>
+                      <span className="font-extrabold">{currentSection.name}</span>
                     </h3>
                     <div className="flex items-center gap-2 shrink-0">
                       <button
@@ -2872,7 +2889,7 @@ export default function PreviewPage() {
                       </span>
                     </div>
                   </div>
-                  <p className="text-[11px] text-muted-foreground mt-1 truncate">
+                  <p className="text-[11px] text-muted-foreground mt-1 leading-normal">
                     Click any field to edit. Use backspace &amp; typing to update live.
                   </p>
                 </div>
@@ -2899,19 +2916,29 @@ export default function PreviewPage() {
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       type="button"
-                      onClick={handleFinalizeChanges}
-                      disabled={savingManual}
-                      className="py-1 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] flex items-center gap-1 shadow cursor-pointer"
-                      title="Finalize & permanently save changes to project"
+                      onClick={() => handleFinalizeChanges(false)}
+                      disabled={savingManual || savingWithAi}
+                      className="py-1 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] flex items-center gap-1 shadow cursor-pointer transition-all disabled:opacity-50"
+                      title="Fast direct save: Saves your edits directly into HTML/CSS files without invoking AI"
                     >
                       <Check className="w-3 h-3" />
-                      <span>{savingManual ? "Saving..." : "Finalize Save"}</span>
+                      <span>{savingManual ? "Saving..." : "Save"}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleFinalizeChanges(true)}
+                      disabled={savingManual || savingWithAi}
+                      className="py-1 px-2 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-[10px] flex items-center gap-1 shadow cursor-pointer border border-indigo-400/30 transition-all disabled:opacity-50"
+                      title="AI deep save: Scans and refactors the entire codebase using AI to verify all references"
+                    >
+                      <Sparkles className={`w-3 h-3 text-amber-300 ${savingWithAi ? "animate-spin" : ""}`} />
+                      <span>{savingWithAi ? "Scanning..." : "AI Save"}</span>
                     </button>
                     <button
                       type="button"
                       onClick={handleRevokeChanges}
-                      disabled={isRevoking}
-                      className="py-1 px-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 font-bold text-[10px] flex items-center gap-1 cursor-pointer"
+                      disabled={isRevoking || savingManual || savingWithAi}
+                      className="py-1 px-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 font-bold text-[10px] flex items-center gap-1 cursor-pointer transition-all disabled:opacity-50"
                       title="Revoke all changes and revert back to original state"
                     >
                       <RotateCcw className="w-3 h-3" />
@@ -2923,23 +2950,6 @@ export default function PreviewPage() {
 
               {/* Editable Component Fields with Template-Accurate Names */}
               <div className="sb-right-content-body space-y-4 flex-1 overflow-y-auto p-4 pb-28">
-                {/* ➕ Add More Content to Section Banner */}
-                <div className="flex items-center justify-between p-3 rounded-xl border border-pink-500/30 bg-pink-500/10 mb-2">
-                  <div className="min-w-0 pr-2">
-                    <span className="text-xs font-bold text-foreground block truncate">Section Content Items</span>
-                    <span className="text-[10px] text-muted-foreground block truncate">Add more cards, items, or text live into {currentSection.name}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleAddMoreContent}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-pink-500 hover:bg-pink-600 text-white font-bold text-xs shadow-sm cursor-pointer transition-all shrink-0"
-                    title="Add more content to this section"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>+ Add Content</span>
-                  </button>
-                </div>
-
                 {renderFriendlyFields(currentSection.id, currentProps, handleFieldChange, effectiveTemplateId, handleApplyThemeColorToProject)}
 
                 {/* Row Actions */}
@@ -3072,18 +3082,19 @@ export default function PreviewPage() {
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       type="button"
-                      onClick={handleFinalizeChanges}
-                      disabled={savingManual}
-                      className="py-1 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] flex items-center gap-1 shadow cursor-pointer"
+                      onClick={() => handleFinalizeChanges(false)}
+                      disabled={savingManual || savingWithAi}
+                      className="py-1 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] flex items-center gap-1 shadow cursor-pointer transition-all disabled:opacity-50"
+                      title="Save photo changes"
                     >
                       <Check className="w-3 h-3" />
-                      <span>Finalize</span>
+                      <span>{savingManual ? "Saving..." : "Save"}</span>
                     </button>
                     <button
                       type="button"
                       onClick={handleRevokeChanges}
-                      disabled={isRevoking}
-                      className="py-1 px-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 font-bold text-[10px] flex items-center gap-1 cursor-pointer"
+                      disabled={isRevoking || savingManual || savingWithAi}
+                      className="py-1 px-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 font-bold text-[10px] flex items-center gap-1 cursor-pointer transition-all disabled:opacity-50"
                     >
                       <RotateCcw className="w-3 h-3" />
                       <span>Revoke</span>
@@ -3110,7 +3121,8 @@ export default function PreviewPage() {
                       <div className="flex items-center gap-3">
                         <div className="w-14 h-14 rounded-lg overflow-hidden bg-black/40 border border-border flex items-center justify-center shrink-0">
                           <img
-                            src={`${API_BASE}/preview/live/${templateId}/${asset.rel_path}?t=${assetTimestamp}`}
+                            key={`${asset.rel_path}-${assetTimestamp}-${asset.timestamp || ""}`}
+                            src={`${API_BASE}/preview/live/${templateId}/${asset.rel_path}?t=${asset.timestamp || assetTimestamp}`}
                             alt={asset.filename}
                             className="w-full h-full object-cover"
                             onError={(e) => { e.target.style.display = 'none'; }}
@@ -3125,24 +3137,48 @@ export default function PreviewPage() {
                           </div>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleTriggerReplaceAsset(asset)}
-                        disabled={replacingAssetPath === asset.rel_path}
-                        className="w-full py-1.5 px-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                      >
-                        {replacingAssetPath === asset.rel_path ? (
-                          <>
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                            <span>Uploading...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Upload className="w-3.5 h-3.5" />
-                            <span>Replace This Photo</span>
-                          </>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleTriggerReplaceAsset(asset)}
+                          disabled={replacingAssetPath === asset.rel_path || restoringAssetPath === asset.rel_path}
+                          className="flex-1 py-1.5 px-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          {replacingAssetPath === asset.rel_path ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>Uploading...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Upload className="w-3.5 h-3.5" />
+                              <span>Replace This Photo</span>
+                            </>
+                          )}
+                        </button>
+
+                        {(asset.has_backup || replacedAssetPaths.has(asset.rel_path)) && (
+                          <button
+                            type="button"
+                            onClick={() => handleRestoreAsset(asset)}
+                            disabled={restoringAssetPath === asset.rel_path || replacingAssetPath === asset.rel_path}
+                            className="py-1.5 px-3 rounded-lg border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0 disabled:opacity-50"
+                            title="Return photo back to original template state"
+                          >
+                            {restoringAssetPath === asset.rel_path ? (
+                              <>
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                <span>Returning...</span>
+                              </>
+                            ) : (
+                              <>
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Return</span>
+                              </>
+                            )}
+                          </button>
                         )}
-                      </button>
+                      </div>
                     </div>
                   ))
                 )}
@@ -3237,18 +3273,28 @@ export default function PreviewPage() {
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       type="button"
-                      onClick={handleFinalizeChanges}
-                      disabled={savingManual}
+                      onClick={() => handleFinalizeChanges(false)}
+                      disabled={savingManual || savingWithAi}
                       className="py-1 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] flex items-center gap-1 shadow cursor-pointer transition-all disabled:opacity-50"
-                      title="Save and keep AI changes in your project draft"
+                      title="Fast direct save: Saves your edits directly into files without invoking AI"
                     >
                       <Check className="w-3 h-3" />
-                      <span>{savingManual ? "Saving..." : "Save Draft"}</span>
+                      <span>{savingManual ? "Saving..." : "Save"}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleFinalizeChanges(true)}
+                      disabled={savingManual || savingWithAi}
+                      className="py-1 px-2.5 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-[10px] flex items-center gap-1 shadow cursor-pointer border border-indigo-400/30 transition-all disabled:opacity-50"
+                      title="AI deep save: Scans and refactors the entire codebase using AI to verify all references"
+                    >
+                      <Sparkles className={`w-3 h-3 text-amber-300 ${savingWithAi ? "animate-spin" : ""}`} />
+                      <span>{savingWithAi ? "Scanning..." : "AI Save"}</span>
                     </button>
                     <button
                       type="button"
                       onClick={handleRevokeChanges}
-                      disabled={isRevoking}
+                      disabled={isRevoking || savingManual || savingWithAi}
                       className="py-1 px-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 font-bold text-[10px] flex items-center gap-1 cursor-pointer transition-all disabled:opacity-50"
                       title="Revert back to original code"
                     >

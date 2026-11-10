@@ -7,7 +7,7 @@ Provides: database sessions, current user extraction, role guards.
 from typing import Optional
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -87,16 +87,33 @@ async def get_current_user(
 
 
 async def get_current_user_optional(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> Optional[User]:
     """Same as get_current_user but returns None instead of raising for public routes."""
-    if not credentials:
-        return None
-    try:
-        return await get_current_user(credentials=credentials, db=db)
-    except HTTPException:
-        return None
+    if credentials:
+        try:
+            return await get_current_user(credentials=credentials, db=db)
+        except HTTPException:
+            pass
+
+    # Check query param token for direct browser asset downloads (e.g. window.open)
+    if request:
+        token = request.query_params.get("token")
+        if token:
+            try:
+                payload = decode_token(token)
+                sub = payload.get("sub")
+                if sub:
+                    repo = UserRepository(db)
+                    user = await repo.get_by_id(UUID(str(sub)))
+                    if user and user.is_active:
+                        return user
+            except Exception:
+                pass
+
+    return None
 
 
 def require_role(*roles: UserRole):

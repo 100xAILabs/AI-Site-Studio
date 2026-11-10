@@ -8,7 +8,6 @@ import { persist } from "zustand/middleware";
 
 const SESSION_KEY = "aisitestudio_auth";
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api/v1";
-try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
 
 export const resolveMediaUrl = (url) => {
   if (!url || typeof url !== "string") return "";
@@ -19,12 +18,16 @@ export const resolveMediaUrl = (url) => {
   return url;
 };
 
-// Keep bearer tokens in tab-scoped storage so injected scripts cannot read a persistent local token.
+// Dual-layer session storage: Tab-scoped session with cross-tab localStorage fallback
 const tabIsolatedStorage = {
   getItem: (name) => {
     try {
       const sessionVal = sessionStorage.getItem(name);
       if (sessionVal) return JSON.parse(sessionVal);
+    } catch (e) {}
+    try {
+      const localVal = localStorage.getItem(name);
+      if (localVal) return JSON.parse(localVal);
     } catch (e) {}
     return null;
   },
@@ -32,11 +35,13 @@ const tabIsolatedStorage = {
     try {
       const str = JSON.stringify(value);
       sessionStorage.setItem(name, str);
+      localStorage.setItem(name, str);
     } catch (e) {}
   },
   removeItem: (name) => {
     try {
       sessionStorage.removeItem(name);
+      localStorage.removeItem(name);
     } catch (e) {}
   },
 };

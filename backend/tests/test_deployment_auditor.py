@@ -72,7 +72,7 @@ def test_deployment_auditor_backend_db_heal():
         assert "asyncpg" in req_content
 
         db_content = (backend_dir / "database.py").read_text(encoding="utf-8")
-        assert "postgresql+asyncpg://" in db_content
+        assert 'os.environ["DATABASE_URL"]' in db_content
 
 
 def test_build_failure_self_healing():

@@ -58,6 +58,7 @@ export default function StudioPage() {
   const [genre, setGenre] = useState("");
   const [pageStructure, setPageStructure] = useState("");
   const [prompt, setPrompt] = useState("");
+  const promptRef = useRef(null);
   const [plan, setPlan] = useState(null);
   const [currentStep, setCurrentStep] = useState(1);
   const [buildPrompt, setBuildPrompt] = useState("");
@@ -122,7 +123,15 @@ export default function StudioPage() {
     const genreLower = (genre || "").toLowerCase();
     const promptLower = (prompt || "").toLowerCase();
 
-    // 1. Static HTML showcase categories (marketing, company, portfolio, brochure, presentation)
+    // Explicit stack instructions take priority over the type of project.
+    const frameworkContext = `${promptLower} ${genreLower}`;
+    const frameworkMatch = frameworkContext.match(/\b(?:use|using|built\s+with|build\s+with|create(?:d)?\s+(?:it\s+)?(?:in|with)|develop(?:ed)?\s+(?:it\s+)?(?:in|with)|framework\s*(?:is|:)?|tech\s+stack\s*(?:is|:)?|stack\s*(?:is|:)?)\s+(?:the\s+)?(react(?:\.js)?|vue(?:\.js)?|angular)\b|\b(react(?:\.js)?|vue(?:\.js)?|angular)\s+(?:website|site|app|application|portfolio)\b|\b(?:website|site|app|application|portfolio)\s+(?:in|with|using)\s+(react(?:\.js)?|vue(?:\.js)?|angular)\b|\b(?:create|build|make|develop|write|built|made|created|developed|written)\b.{0,100}\b(?:in|with|using)\s+(react(?:\.js)?|vue(?:\.js)?|angular)\b/i);
+    if (frameworkMatch) {
+      const requestedFramework = (frameworkMatch.slice(1).find(Boolean) || "react").toLowerCase().replace(".js", "");
+      return `${requestedFramework}-fastapi-postgresql`;
+    }
+
+    // Ordinary showcase and business websites use the lightweight static stack.
     const htmlCategories = [
       "portfolio", "personal", "resume", "cv", "showcase", "photography",
       "artist", "restaurant", "cafe", "food", "menu", "bakery", "event",
@@ -132,10 +141,10 @@ export default function StudioPage() {
     ];
     const isHtmlCat = htmlCategories.some((c) => categoryName.includes(c) || catSlug.includes(c) || genreLower.includes(c));
 
-    // 2. Portfolio, showcase, or company informational request in prompt
+    // Portfolio, showcase, or company informational request in prompt
     const isShowcaseOrPortfolio = /\b(?:portfolio|resume|résumé|cv|curriculum\s+vitae|personal\s+(?:site|website)|developer\s+portfolio|designer\s+portfolio|freelancer\s+portfolio|photographer|showcase\s+my\s+work|showcase\s+our\s+work|show\s+what\s+we\s+do|show\s+the\s+user\s+what\s+they\s+do|software\s+company(?:\s+website)?|company\s+website|agency\s+website|startup\s+showcase|agency|consultancy)\b/i.test(promptLower);
 
-    // 3. Explicit backend command for the website application itself
+    // Explicit backend command for the website application itself
     const explicitBackendTriggers = /\b(?:user\s+login\s+system|user\s+authentication\s+system|user\s+registration\s+system|shopping\s+cart\s+with\s+(?:stripe|checkout|payment)|(?:hotel\s+)?booking\s+(?:system|engine)\s+with\s+(?:live\s+)?database|(?:room|table)\s+reservation\s+(?:system\s+with\s+database|database)|admin\s+crud\s+portal|saas\s+dashboard\s+with\s+database\s+crud|full[\s\-]*stack\s+(?:web\s+)?app(?:lication)?\s+with\s+database|build\s+a\s+full[\s\-]*stack\s+app)\b/i;
     const hasExplicitBackend = explicitBackendTriggers.test(promptLower);
 
@@ -143,7 +152,7 @@ export default function StudioPage() {
       return "html-css-js";
     }
 
-    // 4. Scrub developer skills, experience, and bio from prompt
+    // Scrub developer skills, experience, and bio from prompt
     // "React", "Python", "SQL", "Postgres", "FastAPI" when describing developer skills MUST NOT trigger fullstack
     let scrubbedPrompt = promptLower;
     const skillScrubPatterns = [
@@ -185,6 +194,12 @@ export default function StudioPage() {
     }
   }, [buildStore.plan]);
 
+  useEffect(() => {
+    if (loadingPlan || (plan && !isGenerating)) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [loadingPlan, plan, isGenerating, currentStep]);
+
   const changeStep = (newStep) => {
     setCurrentStep(newStep);
     buildStore.setCurrentStep(newStep);
@@ -204,6 +219,20 @@ export default function StudioPage() {
   async function buildPlan(event) {
     event.preventDefault();
     setError("");
+    if (prompt.trim().length < 10) {
+      setError("Add a few details about your website (at least 10 characters) to continue.");
+      promptRef.current?.focus();
+      return;
+    }
+    if (!categoryId) {
+      setError("Choose a category to continue.");
+      return;
+    }
+    if (/\[[^\]]+\]/.test(prompt)) {
+      setError("Replace any bracketed placeholders with your details before planning your website.");
+      promptRef.current?.focus();
+      return;
+    }
     setLoadingPlan(true);
     buildStore.setPlanning(true);
     buildStore.setPrompt(prompt);
@@ -534,18 +563,11 @@ export default function StudioPage() {
             <h1>From a rough idea<br /><span>to a complete website.</span></h1>
             <p>Shape the plan, and let nine focused agents analyze your requirements and build your website or full-stack application.</p>
           </div>
-          <div className="studio-agent-preview" aria-label="Studio workflow">
-            <span className="studio-agent-orbit"><Sparkles size={22} /></span>
-            <span className="studio-agent-caption">YOUR BUILD TEAM</span>
-            <strong>Nine agents.<br />One finished site.</strong>
-            <div className="studio-agent-dots">{AGENTS.map((agent, index) => <i key={agent} title={agent} className={index === 0 ? "active" : ""} />)}</div>
-            <small>Plan · Architect · Database · Backend · Frontend · Review</small>
-          </div>
         </div>
 
         {loadingPlan ? (
           /* ── Planning Agent Loading Screen ── */
-          <div className="flex flex-col items-center justify-center rounded-3xl border border-violet-500/20 bg-gradient-to-b from-violet-950/30 via-[#0c111b] to-[#070b12] p-8 sm:p-14 text-center shadow-2xl relative overflow-hidden my-6">
+          <div className="studio-planning-loader flex flex-col items-center justify-center rounded-3xl border border-violet-500/20 bg-gradient-to-b from-violet-950/30 via-[#0c111b] to-[#070b12] p-8 sm:p-14 text-center shadow-2xl relative overflow-hidden my-6">
             <div className="absolute top-0 right-0 -mr-20 -mt-20 h-64 w-64 rounded-full bg-violet-600/15 blur-3xl pointer-events-none" />
             <div className="relative mb-6">
               <div className="flex h-20 w-20 items-center justify-center rounded-2xl border border-violet-400/30 bg-violet-500/10 shadow-lg shadow-violet-500/20">
@@ -587,20 +609,40 @@ export default function StudioPage() {
           </div>
         ) : !plan ? (
           /* ── Step 1: Initial Prompt & Details Form ── */
-          <form onSubmit={buildPlan} className="grid gap-5 rounded-3xl border border-white/10 bg-white/[0.035] p-5 shadow-2xl shadow-black/20 sm:p-8">
+          <form onSubmit={buildPlan} className="studio-brief-form grid gap-5 rounded-3xl border border-white/10 bg-white/[0.035] p-5 shadow-2xl shadow-black/20 sm:p-8">
             <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-200">What kind of website do you want?</label>
-              <textarea required minLength={10} maxLength={100000} value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={6} placeholder="Describe the site, who it is for, what visitors should do, and any style you have in mind…" className="w-full resize-y rounded-2xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-slate-600 focus:border-violet-400/60" />
-              <div className="mt-1 text-right text-xs text-slate-600">{prompt.length.toLocaleString()}/100,000</div>
+              <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+                <div>
+                  <label htmlFor="studio-website-brief" className="block text-base font-bold text-slate-100">Tell us about your website</label>
+                  <p className="mt-1 text-sm text-slate-400">A few notes are enough. You can refine the details in the next step.</p>
+                </div>
+                <span className="text-xs font-medium text-slate-500">Required · at least 10 characters</span>
+              </div>
+              <textarea
+                ref={promptRef}
+                id="studio-website-brief"
+                maxLength={12000}
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                rows={5}
+                placeholder={"I need a website for [business or project].\nIt is for [the people you want to reach].\nPlease include [important pages, content, or features].\nThe main thing visitors should do is [action].\nI want it to feel [style, mood, or colors]."}
+                className="w-full resize-y rounded-2xl border border-white/10 bg-[#0c111b] px-4 py-3.5 text-sm leading-6 text-white outline-none transition placeholder:text-slate-500 focus:border-violet-400/60"
+              />
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <p className="text-slate-400">Helpful details: audience, what you offer, key content, and visual style.</p>
+                <span className="shrink-0 text-slate-500">{prompt.length.toLocaleString()}/12,000</span>
+              </div>
+
+
             </div>
-            <fieldset>
+            <fieldset className="studio-page-structure">
               <legend className="mb-2 block text-sm font-semibold text-slate-200">How many pages should your website have?</legend>
               <div className="grid gap-3 sm:grid-cols-2">
                 {[
                   { value: "single_page", title: "Single page", description: "One scrolling page with all content and sections." },
                   { value: "multi_page", title: "Multiple pages", description: "Separate pages for the main parts of your website." },
                 ].map((option) => (
-                  <label key={option.value} className={`cursor-pointer rounded-2xl border p-4 transition ${pageStructure === option.value ? "border-violet-400 bg-violet-400/10" : "border-white/10 bg-[#0c111b] hover:border-white/20"}`}>
+                  <label key={option.value} className={`cursor-pointer rounded-2xl border p-4 transition focus-within:ring-2 focus-within:ring-violet-400 focus-within:ring-offset-2 focus-within:ring-offset-[#080b12] ${effectivePageStructure === option.value ? "border-violet-400 bg-violet-400/10" : "border-white/10 bg-[#0c111b] hover:border-white/20"}`}>
                     <input className="sr-only" type="radio" name="page-structure" value={option.value} checked={effectivePageStructure === option.value} onChange={() => setPageStructure(option.value)} required />
                     <span className="block text-sm font-semibold text-white">{option.title}</span>
                     <span className="mt-1 block text-xs leading-5 text-slate-400">{option.description}</span>
@@ -614,7 +656,6 @@ export default function StudioPage() {
                   Marketplace Category <span className="text-violet-400 font-normal">({displayCategories.length} categories)</span>
                 </label>
                 <select
-                  required
                   value={categoryId}
                   onChange={(e) => {
                     const newId = e.target.value;
@@ -660,8 +701,8 @@ export default function StudioPage() {
                       type="button"
                       onClick={() => setGenre(sub)}
                       className={`text-xs px-2.5 py-1 rounded-lg border transition ${genre.toLowerCase() === sub.toLowerCase()
-                          ? "bg-violet-500/30 border-violet-400 text-violet-200 font-bold shadow-sm shadow-violet-500/20"
-                          : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white"
+                        ? "bg-violet-500/30 border-violet-400 text-violet-200 font-bold shadow-sm shadow-violet-500/20"
+                        : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white"
                         }`}
                     >
                       {sub}
@@ -670,6 +711,15 @@ export default function StudioPage() {
                 </div>
               </div>
             )}
+            <p className="text-xs text-slate-400" role="status" aria-live="polite">
+              {prompt.trim().length < 10
+                ? "Add at least 10 characters of detail so the planner can use your requirements."
+                : !categoryId
+                  ? "Choose a category to continue."
+                  : /\[[^\]]+\]/.test(prompt)
+                    ? "Replace any bracketed placeholders with your details."
+                    : "Your brief is ready. You can still refine the content in the next step."}
+            </p>
             {error && <p role="alert" className="rounded-xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">{error}</p>}
             <button disabled={loadingPlan || !categoryId || !effectivePageStructure || prompt.trim().length < 10} className="inline-flex w-fit items-center justify-center gap-2 rounded-xl bg-violet-500 px-5 py-3 text-sm font-bold text-white transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50">
               <WandSparkles size={17} />
@@ -759,7 +809,7 @@ export default function StudioPage() {
           /* ── Post-Plan Multi-Page Step Workflow ── */
           <div className="space-y-6">
             {/* Top Stepper Navigation */}
-            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5">
+            <div className="studio-stepper-header flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5">
               <div className="flex items-center gap-3">
                 <button
                   type="button"
@@ -781,19 +831,19 @@ export default function StudioPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5 rounded-2xl border border-white/10 bg-black/40 p-1.5">
+              <div className="studio-steps-nav flex items-center gap-1.5 rounded-2xl border border-white/10 bg-black/40 p-1.5">
                 {[
                   { step: 2, label: "1. Pages & Design" },
-                  { step: 3, label: `2. Questions (${completedQuestions.length}/${clarificationQuestions.length})` },
-                  { step: 4, label: "3. Assets & Build" },
+                  ...(clarificationQuestions.length > 0 ? [{ step: 3, label: `2. Questions (${completedQuestions.length}/${clarificationQuestions.length})` }] : []),
+                  { step: 4, label: `${clarificationQuestions.length > 0 ? "3" : "2"}. Assets & Build` },
                 ].map((s) => (
                   <button
                     key={s.step}
                     type="button"
                     onClick={() => setCurrentStep(s.step)}
                     className={`rounded-xl px-3.5 py-1.5 text-xs font-bold transition ${currentStep === s.step
-                        ? "bg-violet-600 text-white shadow-md shadow-violet-600/30"
-                        : "text-slate-400 hover:text-white"
+                      ? "bg-violet-600 text-white shadow-md shadow-violet-600/30"
+                      : "text-slate-400 hover:text-white"
                       }`}
                   >
                     {s.label}
@@ -804,8 +854,8 @@ export default function StudioPage() {
 
             {/* ── STEP 2: Pages & Architecture Blueprint ── */}
             {currentStep === 2 && (
-              <div className="space-y-6">
-                <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
+              <div className="studio-proposal-step space-y-6">
+                <div className="studio-proposal-card rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
                   <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">Planning Agent · Proposal</p>
@@ -813,7 +863,7 @@ export default function StudioPage() {
                       <p className="mt-2 text-sm leading-6 text-slate-400 max-w-3xl">{plan.summary}</p>
                     </div>
                     <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-slate-300">
-                      {selectedPageCount} of {plan.pages.length} pages · {selectedPageCount === 1 ? "single page" : "multi page"}
+                      {selectedPageCount} of {plan.pages.length} {plan.pages.length === 1 ? "page" : "pages"} · {selectedPageCount === 1 ? "single page" : "multi page"}
                     </span>
                   </div>
 
@@ -827,7 +877,7 @@ export default function StudioPage() {
                     </span>
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className={`studio-proposal-pages grid gap-3 ${plan.pages.length > 1 ? "sm:grid-cols-2" : "grid-cols-1"}`}>
                     {plan.pages.map((page, index) => (
                       <article key={page.filename} className={`rounded-2xl border bg-[#0c111b] p-4 transition ${page.included === false ? "border-white/5 opacity-60" : "border-white/10 hover:border-violet-500/30"}`}>
                         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -868,7 +918,7 @@ export default function StudioPage() {
                 </div>
 
                 {/* Visual Concept */}
-                <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
+                <div className="studio-visual-concept rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
                   <div className="mb-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">UI Designer Agent · Visual Concept</p>
                     <h2 className="mt-2 text-xl font-bold">Planned Visual Direction &amp; Color Scheme</h2>
@@ -905,10 +955,10 @@ export default function StudioPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => changeStep(3)}
+                    onClick={() => changeStep(clarificationQuestions.length > 0 ? 3 : 4)}
                     className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-6 py-3 text-xs font-bold text-white shadow-lg shadow-violet-600/25 hover:bg-violet-500 transition"
                   >
-                    <span>Continue to Clarifications (Step 2)</span>
+                    <span>{clarificationQuestions.length > 0 ? "Continue to Clarifications" : "Continue to Assets & Build"}</span>
                     <ArrowRight size={15} />
                   </button>
                 </div>
@@ -1013,125 +1063,138 @@ export default function StudioPage() {
 
             {/* ── STEP 4: Assets & Build Prompt ── */}
             {currentStep === 4 && (
-              <div className="space-y-6">
-                <div className="grid gap-6 lg:grid-cols-2">
-                  {/* Left: Image Assets */}
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
-                    <div className="flex items-center gap-2 mb-2">
-                      <ImagePlus size={18} className="text-violet-300" />
-                      <h3 className="font-bold text-base text-white">Choose Images &amp; Logos</h3>
-                    </div>
-                    <p className="text-xs text-slate-400 leading-relaxed">
-                      Upload up to 16 images for your site. If left empty, Studio automatically uses relevant high-quality stock photos.
-                    </p>
+              <div className="studio-build-step space-y-6">
+                <header className="studio-build-intro">
+                  <div>
+                    <p className="studio-build-kicker">FINAL REVIEW · STEP 3</p>
+                    <h2>Assets &amp; build brief</h2>
+                    <p>Add your images, review the instructions, then start the build. Your original brief and answers are included.</p>
+                  </div>
+                  <span className="studio-stack-pill"><Cpu size={15} /> {stack === "vue-fastapi-postgresql" ? "Vue · FastAPI · PostgreSQL" : stack === "angular-fastapi-postgresql" ? "Angular · FastAPI · PostgreSQL" : stack === "react-fastapi-postgresql" ? "React · FastAPI · PostgreSQL" : "HTML · CSS · JavaScript"}</span>
+                </header>
 
-                    <div className="mt-4 space-y-2.5">
+                <div className="studio-build-grid grid gap-6 lg:grid-cols-2">
+                  {/* Left: Image Assets */}
+                  <section className="studio-assets-card rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
+                    <div className="studio-section-heading">
+                      <div className="studio-section-icon"><ImagePlus size={18} /></div>
+                      <div>
+                        <h3>Project images</h3>
+                        <p>Optional · add up to 16 images</p>
+                      </div>
+                    </div>
+                    <p className="studio-assets-description">
+                      Add a logo, screenshots, or photos that belong to your project. Leave this empty and Studio will choose relevant stock photos.
+                    </p>
+                    <div className="studio-upload-meter" aria-label={`${uploadedAssets.length} of 16 images uploaded`}>
+                      <span>{uploadedAssets.length} <span>/ 16 images</span></span>
+                      <div><i style={{ width: `${Math.min(100, (uploadedAssets.length / 16) * 100)}%` }} /></div>
+                    </div>
+
+                    <div className="studio-upload-list">
                       {uploadFields.map((field) => (
-                        <label key={`${field.role}-${field.label}`} className="block rounded-xl border border-white/10 bg-[#0c111b] p-3 transition hover:border-violet-500/30">
-                          <span className="block text-xs font-semibold text-slate-200">{field.label}</span>
-                          <span className="mt-0.5 block text-[11px] text-slate-500">{field.hint}</span>
-                          <input className="mt-2 block w-full text-xs text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-500/15 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-violet-200" type="file" accept="image/*" multiple={field.multiple} disabled={uploadingImages || uploadedAssets.length >= 16} onChange={(event) => { uploadPortfolioImages(field, event.target.files); event.target.value = ""; }} />
+                        <label key={`${field.role}-${field.label}`} className="studio-upload-field">
+                          <span className="studio-upload-field-icon"><ImagePlus size={16} /></span>
+                          <span className="studio-upload-field-copy">
+                            <strong>{field.label}</strong>
+                            <span>{field.hint}</span>
+                          </span>
+                          <input className="studio-file-input" type="file" accept="image/*" multiple={field.multiple} disabled={uploadingImages || uploadedAssets.length >= 16} onChange={(event) => { uploadPortfolioImages(field, event.target.files); event.target.value = ""; }} />
                         </label>
                       ))}
                     </div>
 
+                    {uploadingImages && <p className="studio-upload-status"><LoaderCircle size={14} className="animate-spin" /> Uploading images…</p>}
+
                     {uploadedAssets.length > 0 && (
-                      <div className="mt-5 space-y-3">
-                        <div className="flex items-center justify-between border-t border-white/10 pt-4">
-                          <span className="text-xs font-bold uppercase tracking-wider text-violet-300">
-                            Uploaded Photos ({uploadedAssets.length}/16)
-                          </span>
-                        </div>
-                        <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                      <div className="studio-uploaded-assets">
+                        <h4>Added images <span>{uploadedAssets.length}</span></h4>
+                        <div className="studio-uploaded-list">
                           {uploadedAssets.map((asset, index) => (
-                            <div key={`${asset.url}-${index}`} className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#0a0e17] p-2 text-xs">
-                              <img src={asset.url} alt="" className="h-10 w-10 rounded-lg object-cover" />
-                              <div className="flex-1 truncate">
-                                <p className="font-semibold text-white truncate">{asset.title || "Custom Photo"}</p>
-                                <p className="text-[10px] text-violet-300">{asset.role} · {asset.page_target || "index.html"}</p>
+                            <div key={`${asset.url}-${index}`} className="studio-uploaded-item">
+                              <img src={asset.url} alt="" />
+                              <div>
+                                <strong>{asset.title || "Custom image"}</strong>
+                                <span>{asset.role} · {asset.page_target || "index.html"}</span>
                               </div>
-                              <button type="button" onClick={() => setUploadedAssets((curr) => curr.filter((_, i) => i !== index))} className="text-slate-500 hover:text-rose-400 p-1">
-                                <Trash2 size={13} />
+                              <button type="button" aria-label={`Remove ${asset.title || "image"}`} onClick={() => setUploadedAssets((curr) => curr.filter((_, i) => i !== index))}>
+                                <Trash2 size={15} />
                               </button>
                             </div>
                           ))}
                         </div>
                       </div>
                     )}
-                  </div>
+                  </section>
 
                   {/* Right: Editable Build Prompt */}
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7 flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <h3 className="font-bold text-base text-white">Full Build Brief</h3>
-                        <span className="rounded-full bg-violet-500/10 border border-violet-500/30 px-2.5 py-0.5 text-[10px] font-bold text-violet-300">Ready to Code</span>
+                  <section className="studio-brief-card rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
+                    <div className="studio-brief-card-header">
+                      <div className="studio-section-heading">
+                        <div className="studio-section-icon"><FileText size={18} /></div>
+                        <div>
+                          <h3>Build brief</h3>
+                          <p>Review and edit what the agents will build</p>
+                        </div>
                       </div>
-                      <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                        The Planning Agent compiles your answers and architecture into a full blueprint for the code agents.
-                      </p>
-
-                      {!buildPrompt ? (
-                        <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-8 text-center">
-                          <FileText className="h-8 w-8 text-violet-400 mx-auto mb-2 opacity-60" />
-                          <p className="text-xs text-slate-400">Click below to generate and preview the editable code brief.</p>
-                          <button
-                            type="button"
-                            onClick={createBuildPrompt}
-                            disabled={loadingBuildPrompt}
-                            className="mt-4 inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-violet-500 transition"
-                          >
-                            {loadingBuildPrompt ? <LoaderCircle size={15} className="animate-spin" /> : <WandSparkles size={15} />}
-                            <span>{loadingBuildPrompt ? "Generating Brief..." : "Create Project Brief"}</span>
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          <textarea
-                            value={buildPrompt}
-                            maxLength={60000}
-                            onChange={(e) => setBuildPrompt(e.target.value)}
-                            rows={10}
-                            className="w-full resize-y rounded-xl border border-white/10 bg-[#080b12] p-3 font-mono text-xs leading-5 text-slate-200 outline-none focus:border-violet-400"
-                          />
-                          <button
-                            type="button"
-                            onClick={createBuildPrompt}
-                            disabled={loadingBuildPrompt}
-                            className="w-full rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-white/5 transition"
-                          >
-                            {loadingBuildPrompt ? "Updating..." : "Refresh from Q&amp;A"}
-                          </button>
-                        </div>
-                      )}
+                      {buildPrompt && <span className="studio-ready-pill"><CheckCircle2 size={14} /> Ready to build</span>}
                     </div>
+                    <p className="studio-brief-description">This brief combines your original request, selected pages, and answers. You can edit it before building.</p>
 
-                    <div className="pt-6 border-t border-white/10 mt-6 space-y-3">
-                      <button
-                        type="button"
-                        onClick={startGeneration}
-                        disabled={!buildPrompt || buildPrompt.trim().length < 50}
-                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 via-indigo-600 to-violet-700 py-3.5 px-4 text-sm font-extrabold text-white shadow-xl shadow-violet-600/30 hover:opacity-95 transition disabled:opacity-40 cursor-pointer"
-                      >
-                        <WandSparkles size={17} />
-                        <span>Build My Website</span>
-                        <ArrowRight size={16} />
+                    {!buildPrompt ? (
+                      <div className="studio-brief-empty">
+                        <FileText size={25} />
+                        <div>
+                          <strong>Your build brief is ready to prepare</strong>
+                          <span>Generate a complete, editable set of instructions for the website.</span>
+                        </div>
+                        <button type="button" onClick={createBuildPrompt} disabled={loadingBuildPrompt}>
+                          {loadingBuildPrompt ? <LoaderCircle size={16} className="animate-spin" /> : <WandSparkles size={16} />}
+                          {loadingBuildPrompt ? "Preparing brief…" : "Generate build brief"}
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="studio-brief-editor-meta">
+                          <span><span className="studio-editor-dot" /> Editable instructions</span>
+                          <span>{buildPrompt.length.toLocaleString()} / 60,000 characters</span>
+                        </div>
+                        <textarea
+                          value={buildPrompt}
+                          maxLength={60000}
+                          onChange={(e) => setBuildPrompt(e.target.value)}
+                          rows={20}
+                          aria-label="Editable website build brief"
+                          className="studio-brief-textarea"
+                        />
+                        <div className="studio-brief-refresh-row">
+                          <span>Changed your answers? Refresh the brief to sync it.</span>
+                          <button type="button" onClick={createBuildPrompt} disabled={loadingBuildPrompt}>
+                            {loadingBuildPrompt ? <LoaderCircle size={14} className="animate-spin" /> : <WandSparkles size={14} />}
+                            {loadingBuildPrompt ? "Refreshing…" : "Refresh from answers"}
+                          </button>
+                        </div>
+                      </>
+                    )}
+
+                    <div className="studio-build-action">
+                      <button type="button" onClick={startGeneration} disabled={!buildPrompt || buildPrompt.trim().length < 50}>
+                        <WandSparkles size={18} />
+                        <span>Build my website</span>
+                        <ArrowRight size={17} />
                       </button>
-                      <p className="text-center text-[11px] text-slate-500">
-                        Agents build, test, and package your site. Once complete, you will be taken to your Launch Hub.
-                      </p>
+                      <p>Your agents will build, review, and package the project. You’ll then continue to the Launch Hub.</p>
                     </div>
-                  </div>
+                  </section>
                 </div>
 
                 {/* Bottom Step Actions */}
-                <div className="flex items-center justify-between pt-4 border-t border-white/10">
+                <div className="studio-build-back-row">
                   <button
                     type="button"
-                    onClick={() => changeStep(3)}
-                    className="rounded-xl border border-white/10 bg-white/5 px-5 py-3 text-xs font-bold text-slate-300 hover:bg-white/10 hover:text-white transition"
+                    onClick={() => changeStep(clarificationQuestions.length > 0 ? 3 : 2)}
                   >
-                    ← Back to Questions
+                    <ArrowLeft size={15} /> {clarificationQuestions.length > 0 ? "Back to questions" : "Back to pages & design"}
                   </button>
                 </div>
               </div>

@@ -48,7 +48,8 @@ class Settings(BaseSettings):
     # Deliberately has no fallback to DATABASE_URL: shop data must never enter the Studio DB.
     COMMERCE_DATABASE_URL: str = ""
     # Dedicated PostgreSQL database for user-generated projects & templates (dark-glade-72449628)
-    USER_PROJECTS_DATABASE_URL: str = "postgresql+asyncpg://neondb_owner:npg_17RiWabLMqdQ@ep-fancy-voice-b4vhh03l-pooler.c-6.us-east-2.aws.neon.tech/neondb?ssl=require"
+    # Configure only through the deployment environment. Never commit shared credentials.
+    USER_PROJECTS_DATABASE_URL: str = ""
 
     # -- Redis -----------------------------------------------------------------
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -247,6 +248,7 @@ class Settings(BaseSettings):
 
     # -- File Storage ----------------------------------------------------------
     STORAGE_BACKEND: str = "postgres"  # "postgres", "r2", or "s3"
+    LOCAL_STORAGE_DIR: str = str(BASE_DIR / "uploads")
     STORAGE_BASE_URL: str = "http://localhost:8000/api/v1/files"
 
     # -- Razorpay --------------------------------------------------------------
@@ -294,31 +296,42 @@ class Settings(BaseSettings):
     CUSTOM_DOMAIN_TLS_ENABLED: bool = False
 
     FRONTEND_URL: str = "http://localhost:5173"
-    ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+    ALLOWED_ORIGINS: str = ""
 
     # -- File Uploads ----------------------------------------------------------
+    # In-memory deep-analysis threshold only. Upload endpoints stream larger
+    # files to disk/object storage and do not use this as an upload size cap.
     MAX_UPLOAD_SIZE_MB: int = 50
     ALLOWED_IMAGE_TYPES: str = "image/jpeg,image/png,image/webp,image/gif"
     PIXABAY_API_KEY: str = ""
+    # Shared npm package cache used by React/Vue/etc. preview builds.
+    NPM_CACHE_DIR: str = str(BASE_DIR / ".cache" / "npm")
+    GIT_CLONE_TIMEOUT_SECONDS: int = 300
 
     # -- Computed Properties ---------------------------------------------------
     @property
     def ALLOWED_ORIGINS_LIST(self) -> List[str]:
         origins = set()
-        origins.add("http://localhost:8000")
-        origins.add("http://127.0.0.1:8000")
-        origins.add("http://localhost:5173")
-        origins.add("http://127.0.0.1:5173")
+        is_local_environment = self.ENVIRONMENT.lower() in ("development", "local", "test")
+        if is_local_environment:
+            origins.update({
+                "http://localhost:8000",
+                "http://127.0.0.1:8000",
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+            })
         for o in self.ALLOWED_ORIGINS.split(","):
             cleaned = o.strip()
             if not cleaned:
+                continue
+            if not is_local_environment and cleaned.lower().startswith(("http://localhost", "http://127.0.0.1", "http://[::1]")):
                 continue
             origins.add(cleaned)
             origins.add(cleaned.rstrip("/"))
             origins.add(cleaned.rstrip("/") + "/")
         if self.FRONTEND_URL:
             f_clean = self.FRONTEND_URL.strip()
-            if f_clean:
+            if f_clean and (is_local_environment or not f_clean.lower().startswith(("http://localhost", "http://127.0.0.1", "http://[::1]"))):
                 origins.add(f_clean)
                 origins.add(f_clean.rstrip("/"))
                 origins.add(f_clean.rstrip("/") + "/")

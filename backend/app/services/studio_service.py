@@ -207,10 +207,49 @@ def _local_uploaded_file_id(url: str) -> uuid.UUID | None:
 
 def _profile_guidance(profile: str) -> str:
     if profile == "portfolio":
-        return "PORTFOLIO QUALITY BAR: Honor the selected page structure. Build a polished personal brand with a distinctive introduction using the owner's real name and role, selected work with case-study context, skills/tools, experience or education when supplied, and a clear contact path. Use uploaded portrait, skill/tool, and project images according to their roles. Never fabricate clients, outcomes, qualifications, metrics, or testimonials. Use expressive editorial art direction and purposeful motion while keeping the work easy to scan."
+        return "PORTFOLIO QUALITY BAR: Honor the selected page structure. Use only the person's name and professional title explicitly supplied in the original brief or owner answers, preserving the exact spelling and scope. A single first name must stay a first name; never infer a surname from the account profile, username, email, or other context. A single role must stay that role; never add a second title such as Full-Stack Developer unless the owner said so. Do not invent experience, employers, credentials, skills, clients, outcomes, metrics, or testimonials. Include selected work, skills/tools, experience, or education only when supplied, and provide a clear contact path. Use uploaded portrait, skill/tool, and project images according to their roles. Use expressive editorial art direction and a cohesive, visibly animated motion system while keeping the work easy to scan."
     if profile == "construction":
         return "CONSTRUCTION QUALITY BAR: Build a credible contractor site with a clear estimate/contact path, service area, practical service categories, and real completed-project proof. For a multi-page site, prefer Home, Services, Projects, and Contact/Request an Estimate; add About only when the brief supports it. Use uploaded project, team, and equipment images in their matching roles. Never invent licenses, insurance, safety records, years in business, project values, client names, reviews, or guarantees. Use confident architectural art direction, clear project details, and restrained purposeful motion."
     return "GENERAL QUALITY BAR: Identify the site's actual industry and main visitor task, then choose art direction and page structure that fit that use. Avoid default SaaS styling, repeated generic cards, filler content, and fabricated facts. Use supplied images in their stated roles and purposeful motion throughout the experience."
+
+
+def _owner_display_name(prompt: str, answers: dict[str, Any] | None = None) -> str:
+    """Return a user-supplied display name without consulting account profile fields."""
+    answers = answers or {}
+    for key in ("name", "person_name", "full_name", "author"):
+        value = str(answers.get(key) or "").strip()
+        if value:
+            return value[:100]
+
+    identity = str(answers.get("identity") or "").strip()
+    if identity:
+        # The identity clarification may also contain a title/intro. The leading
+        # name segment is authoritative; the original answer remains available
+        # to generation prompts for the role and introduction.
+        leading = re.split(r"[,;|\n]|\s+[-–—]\s+|\s+(?:who\s+is|as\s+an?|and\s+I\s+am|I\s+am|I['’]m)\b|\s+is\s+(?:an?|the)\b", identity, maxsplit=1, flags=re.IGNORECASE)[0].strip()
+        leading = re.sub(r"^(?:my name is|i am|i['’]m|name is)\s+", "", leading, flags=re.IGNORECASE).strip()
+        if (
+            leading
+            and len(leading.split()) <= 4
+            and not re.match(r"^(?:a|an|the)\s", leading, re.IGNORECASE)
+            and not re.search(r"\b(?:engineer|developer|designer|architect|manager|founder|student|teacher|photographer|consultant)\b", leading, re.IGNORECASE)
+        ):
+            return leading[:100]
+
+    return _extract_prompt_details(prompt).get("name", "")
+
+
+def _identity_fidelity_note(prompt: str, answers: dict[str, Any] | None = None) -> str:
+    answers = answers or {}
+    display_name = _owner_display_name(prompt, answers)
+    identity_answer = str(answers.get("identity") or "").strip()
+    lines = ["OWNER IDENTITY ACCURACY (authoritative):"]
+    if display_name:
+        lines.append(f'- Render the owner name exactly as supplied: "{display_name}". Do not append, infer, or expand a surname.')
+    if identity_answer:
+        lines.append(f'- Identity answer verbatim: "{identity_answer[:1200]}". Use only the title/role stated here; do not add another role.')
+    lines.append("- Use the original request and owner answers as the only source for the person's name, role, skills, and bio. Ignore account display names and usernames. If a detail was not supplied, omit it rather than guessing.")
+    return "\n".join(lines)
 
 def _extract_prompt_details(prompt: str) -> dict[str, str]:
     """Analyze the user's initial prompt and pre-extract key business & personal entities."""
@@ -235,16 +274,16 @@ def _extract_prompt_details(prompt: str) -> dict[str, str]:
 
     # 3. Name extraction (Portfolio / Person / Company / Business)
     name_patterns = [
-        r'(?:portfolio|website|resume|cv)\s+for\s+([A-Z][a-zA-Z\s]{1,30}?)(?=[,.\n]|\s+with|\s+who|\s+is|\s+a\b|$)',
-        r"(?:my name is|i am|i'm)\s+([A-Z][a-zA-Z\s]{1,30}?)(?=[,.\n]|$)",
+        r"(?:portfolio|website|resume|cv)\s+for\s+([A-Za-z][A-Za-z'’-]*(?:\s+[A-Za-z][A-Za-z'’-]*){0,2})(?=[,.!\n]|\s+(?:with|who|is|as|and|to|that|a|an)\b|$)",
+        r"(?:my name is|i am|i'm)\s+([A-Za-z][A-Za-z'’-]*(?:\s+[A-Za-z][A-Za-z'’-]*){0,2})(?=[,.!\n]|\s+(?:and|as|who|which|a|an|the|working|based|at|with)\b|$)",
         r'\b([A-Z][a-zA-Z0-9\s]{1,25}\s+(?:Residency|Hotel|Resort|Lodge|Inn|Studio|Agency|Technologies|Solutions|Cafe|Bistro|Restaurant|Clinic|Store|Shop))\b',
     ]
     for np in name_patterns:
         m = re.search(np, prompt, re.IGNORECASE)
         if m:
             candidate = m.group(1).strip()
-            if candidate and len(candidate.split()) <= 4:
-                details["name"] = candidate.title()
+            if candidate and len(candidate.split()) <= 4 and not re.match(r"^(?:a|an|the)\s", candidate, re.IGNORECASE) and not re.search(r"\b(?:engineer|developer|designer|architect|manager|founder|student|teacher|photographer|consultant)\b", candidate, re.IGNORECASE):
+                details["name"] = candidate
                 break
 
     # 4. Pricing / Rates extraction
@@ -268,6 +307,102 @@ def _extract_prompt_details(prompt: str) -> dict[str, str]:
 
     return details
 
+
+def _clarification_topic(question: str) -> str:
+    text = str(question or "").lower()
+    if re.search(r"\bemail\b", text):
+        return "email"
+    if re.search(r"\b(?:phone|mobile|whatsapp|telephone)\b", text):
+        return "phone"
+    if re.search(r"\b(?:prices?|pricing|rates?|costs?|budget)\b", text):
+        return "pricing"
+    if re.search(r"\b(?:opening hours|hours|timings|check-in|check-out|date|schedule)\b", text):
+        return "timings"
+    if re.search(r"\b(?:address|location|city|region|service area)\b", text):
+        return "location"
+    if re.search(r"\b(?:names?|identity|brand|company|business)\b", text):
+        return "identity"
+    if re.search(r"\b(?:audience|visitors|customers|clients|learners|users|students)\b", text):
+        return "audience"
+    if re.search(r"\b(?:skills?|tools?|technology|technologies|languages?)\b", text):
+        return "skills"
+    if re.search(r"\b(?:projects?|case stud|portfolio|work experience|work samples?)\b", text):
+        return "projects"
+    if re.search(r"\b(?:pages?|sitemap|sections?)\b", text):
+        return "pages"
+    if re.search(r"\b(?:courses?|programs?|classes|menus?|products?|services?|offerings?|content|features?)\b", text):
+        return "offerings"
+    if re.search(r"\b(?:contact|booking|reservations?|enroll|register|sign up|call to action|next step|main action)\b", text):
+        return "next_step"
+    if re.search(r"\b(?:style|visual|design|colors?|colours?|tone|mood|aesthetic)\b", text):
+        return "visual_style"
+    return " ".join(re.findall(r"[a-z0-9]+", text))[:120]
+
+
+def _brief_answers_clarification(question: str, prompt: str, facts: dict[str, str]) -> bool:
+    text = str(prompt or "").lower()
+    topic = question if question in {"email", "phone", "pricing", "timings", "location", "identity", "audience", "skills", "projects", "offerings", "next_step", "visual_style"} else _clarification_topic(question)
+    if topic == "email":
+        return bool(facts.get("contact_email"))
+    if topic == "phone":
+        return bool(facts.get("contact_phone"))
+    if topic == "pricing":
+        return bool(facts.get("pricing")) or bool(re.search(r"\b(?:free|no prices?|prices? not shown|contact for pricing)\b", text))
+    if topic == "timings":
+        return bool(facts.get("timings")) or bool(re.search(r"\b(?:open|available|scheduled|schedule|event date|hours?)\b.{0,100}\b(?:am|pm|daily|weekdays|weekends|\d{1,2}:\d{2}|\d{1,2}[/-]\d{1,2})", text))
+    if topic == "location":
+        return bool(facts.get("address")) or bool(re.search(r"\b(?:located in|based in|address is|location is|serves? the|service area is)\b\s*\w{2,}(?:\s+\w+){0,8}", text))
+    if topic == "identity":
+        return bool(facts.get("name")) or bool(re.search(r"\b(?:my name is|i am|i'm|the company is|the business is|brand name is)\b", text))
+    if topic == "audience":
+        return bool(re.search(r"\b(?:target audience|designed for|made for|aimed at|serves?\s+(?:students|learners|families|businesses|homeowners|professionals|visitors|customers|clients)|for\s+(?:students|learners|families|businesses|homeowners|professionals|visitors|customers|clients|beginners|small businesses|local residents))\b", text))
+    if topic == "skills":
+        return bool(re.search(r"\b(?:skills?|tools?|technologies|languages?|we teach|we cover|we train in)\b.{0,240}\b\w{2,}", text))
+    if topic == "projects":
+        return bool(re.search(r"\b(?:projects?|case studies|featured work|work samples)\b\s*(?:include|are|:|such as|like|in|—|-)\s*\w{2,}", text))
+    if topic == "pages":
+        return bool(re.search(r"\b(?:pages?|sections?)\b.{0,160}\b(?:home|about|services?|projects?|work|skills?|contact|pricing|features?|menu|courses?|gallery|faq|team)\b", text))
+    if topic == "offerings":
+        return bool(re.search(r"\b(?:we|i|our|the|it|they)\s+(?:teach|offer|provide|sell|serve|feature|include|speciali[sz]e|run)\b.{0,240}\b\w{2,}", text)) or bool(re.search(r"\b(?:courses?|programs?|classes|menu|products?|services?|features?)\s*(?:include|are|:|such as|like)\s*\w{2,}", text)) or bool(re.search(r"\b(?:including|must include|should include|must have|should have)\b.{0,240}\b\w{2,}", text))
+    if topic == "next_step":
+        return bool(re.search(r"\b(?:(?:main|primary)\s+(?:call to action|action)\s*(?:is|should be|:)\s*\w+|visitors should\s+\w+|encourage visitors to\s+\w+|book now|enroll now|register now|sign up|contact us|request a quote|reserve a table|place an order)\b", text))
+    if topic == "visual_style":
+        return bool(re.search(r"\b(?:style is|style should be|visual direction is|color palette|colour palette|aesthetic is|mood is|feel like|look like)\b.{0,100}\b\w{2,}", text)) or bool(re.search(r"\b(?:modern|minimalist|editorial|playful|luxurious|bold|clean|professional|elegant|colorful|colourful|dark|light)\b", text))
+    return False
+
+
+def _filter_clarification_questions(questions: list[dict[str, Any]], prompt: str, facts: dict[str, str]) -> list[dict[str, Any]]:
+    filtered: list[dict[str, Any]] = []
+    seen_topics: set[str] = set()
+    topic_patterns = {
+        "email": r"\bemail\b",
+        "phone": r"\b(?:phone|mobile|whatsapp|telephone)\b",
+        "pricing": r"\b(?:price|pricing|rate|cost|budget)\b",
+        "timings": r"\b(?:opening hours|hours|timings|check-in|check-out|dates?|schedules?)\b",
+        "location": r"\b(?:addresses?|locations?|cities|regions?|service area)\b",
+        "identity": r"\b(?:names?|identity|brand|companies|business(?:es)?)\b",
+        "audience": r"\b(?:audience|visitors|customers|clients|learners|users)\b",
+        "skills": r"\b(?:skills?|tools?|technology|technologies|languages?)\b",
+        "projects": r"\b(?:projects?|case stud|portfolio|work experience|work samples?)\b",
+        "pages": r"\b(?:pages?|sitemap|sections?)\b",
+        "offerings": r"\b(?:courses?|programs?|classes|menus?|products?|services?|offerings?|content|features?)\b",
+        "next_step": r"\b(?:contacts?|booking|reservations?|enroll|register|sign up|call to action|next step|main action)\b",
+        "visual_style": r"\b(?:style|visual|design|colors?|colours?|tone|mood|aesthetic)\b",
+    }
+    for question in questions:
+        if not isinstance(question, dict):
+            continue
+        text = str(question.get("question") or "").strip()
+        topic = _clarification_topic(text)
+        question_topics = {name for name, pattern in topic_patterns.items() if re.search(pattern, text, re.IGNORECASE)} or {topic}
+        if not text or any(_brief_answers_clarification(name, prompt, facts) for name in question_topics) or question_topics & seen_topics:
+            continue
+        seen_topics.update(question_topics)
+        filtered.append(question)
+        if len(filtered) >= 4:
+            break
+    return filtered
+
 HTML_STATIC_CATEGORIES = {
     "portfolio", "personal", "resume", "cv", "showcase", "photography",
     "artist", "restaurant", "cafe", "food", "menu", "bakery", "event",
@@ -286,8 +421,8 @@ PORTFOLIO_TERMS = (
 def detect_stack_from_prompt(prompt: str, category: str = "", genre: str = "", requested_stack: str = "auto") -> str:
     """
     Intelligently analyzes the user's prompt and requirements:
-    - Pure static showcase categories (Portfolio, Personal, Resume, CV, Photography, Restaurant, Cafe, Brochure, Event, Business, Agency, Software Company Showcases):
-      -> ALWAYS chooses 'html-css-js' (HTML5 + CSS + JavaScript).
+    - Ordinary showcase and business websites default to 'html-css-js' (HTML5 + CSS + JavaScript).
+    - An explicitly requested supported framework/stack takes priority over category-based defaults.
     - If the user lists developer skills (React, Python, Postgres, SQL, FastAPI, etc.) or bio/experience:
       -> It is recognized as their skill/background, NEVER a full-stack website requirement.
     - If anything explicitly requires an interactive application backend for the site itself (live database, user logins,
@@ -297,10 +432,28 @@ def detect_stack_from_prompt(prompt: str, category: str = "", genre: str = "", r
     """
     if requested_stack == "html-css-js":
         return "html-css-js"
+    if requested_stack in {"react-fastapi-postgresql", "vue-fastapi-postgresql", "angular-fastapi-postgresql"}:
+        return requested_stack
 
     cat_lower = str(category or "").strip().lower()
     genre_lower = str(genre or "").strip().lower()
     prompt_lower = str(prompt or "").strip().lower()
+    framework_context = f"{prompt_lower} {genre_lower}"
+
+    # Honor an explicitly requested frontend framework before static category heuristics.
+    # This lets a portfolio, restaurant, or brochure use the requested framework.
+    # Skill lists alone are not framework requests. Require directive/context wording.
+    explicit_framework_patterns = [
+        r"\b(?:use|using|built\s+with|build\s+with|create(?:d)?\s+(?:it\s+)?(?:in|with)|develop(?:ed)?\s+(?:it\s+)?(?:in|with)|framework\s*(?:is|:)?|tech\s+stack\s*(?:is|:)?|stack\s*(?:is|:)?)\s+(?:the\s+)?(?P<framework>react(?:\.js)?|vue(?:\.js)?|angular)\b",
+        r"\b(?P<framework>react(?:\.js)?|vue(?:\.js)?|angular)\s+(?:website|site|app|application|portfolio)\b",
+        r"\b(?:website|site|app|application|portfolio)\s+(?:in|with|using)\s+(?P<framework>react(?:\.js)?|vue(?:\.js)?|angular)\b",
+        r"\b(?:create|build|make|develop|write|built|made|created|developed|written)\b.{0,100}\b(?:in|with|using)\s+(?P<framework>react(?:\.js)?|vue(?:\.js)?|angular)\b",
+    ]
+    for pattern in explicit_framework_patterns:
+        match = re.search(pattern, framework_context, re.IGNORECASE)
+        if match:
+            framework = match.group("framework").lower().replace(".js", "")
+            return f"{framework}-fastapi-postgresql"
 
     # Rule 1: Check if the category or genre is strictly a static HTML showcase/presentation category
     is_html_category = (
@@ -368,6 +521,21 @@ def detect_stack_from_prompt(prompt: str, category: str = "", genre: str = "", r
 
 
 def _stack_guidance(stack: str) -> str:
+    frontend = SUPPORTED_STACKS.get(stack, {}).get("frontend")
+    if frontend in {"vue", "angular"}:
+        frontend_spec = (
+            "Vue 3 + TypeScript + Vite + Vue Router, Composition API, and .vue single-file components"
+            if frontend == "vue"
+            else "Angular 18+ + TypeScript, standalone components, and Angular Router"
+        )
+        return f"""SELECTED TECH STACK: {frontend.title()} + FastAPI + PostgreSQL
+FULL-STACK ARCHITECTURE SPECIFICATION:
+- Production Frontend: {frontend_spec}. Generate a complete runnable project with package.json, framework config, entry point, route table, one component per planned page, shared responsive navigation/footer, API client, and setup README.
+- Production Backend: FastAPI (Python 3.12) REST API with SQLAlchemy 2.0 async mapped ORM models and PostgreSQL.
+- Ensure each page is registered as a real route and all internal navigation links resolve.
+- Provide an accessible mobile menu button wired to its drawer with aria-controls/aria-expanded; support click, keyboard, Escape, and close-on-navigation.
+- Build a static HTML/CSS/JS mirror of every route for the marketplace preview.
+"""
     if stack == "react-fastapi-postgresql":
         return """SELECTED TECH STACK: React + FastAPI + PostgreSQL (Emergent Full-Stack Standard)
 FULL-STACK ARCHITECTURE SPECIFICATION:
@@ -808,6 +976,54 @@ def _site_reference_issues(pages: dict[str, str], asset_paths: set[str]) -> dict
     return issues
 
 
+def _enforce_single_page_navigation(pages: dict[str, str]) -> dict[str, str]:
+    """Turn accidental page-file links in an SPA into working in-page anchors."""
+    if "index.html" not in pages:
+        return pages
+    html = pages["index.html"]
+    links = list(re.finditer(r"(?is)<a\b[^>]*\bhref\s*=\s*([\"'])([^\"']+\.html(?:[?#][^\"']*)?)\1[^>]*>(.*?)</a\s*>", html))
+    if not links:
+        return pages
+
+    heading_matches = list(re.finditer(r"(?is)<h([1-6])\b([^>]*)>(.*?)</h\1\s*>", html))
+    used_ids = set(re.findall(r"(?is)\bid\s*=\s*['\"]([^'\"]+)", html))
+    aliases: dict[str, str] = {}
+    for match in links:
+        url = urlsplit(match.group(2))
+        slug = re.sub(r"[^a-z0-9-]+", "-", posixpath.basename(url.path).lower().removesuffix(".html")).strip("-")
+        if slug and slug not in used_ids:
+            link_text = re.sub(r"<[^>]+>", " ", match.group(3)).lower()
+            terms = {word for word in re.findall(r"[a-z0-9]+", f"{slug} {link_text}") if len(word) > 2}
+            best = None
+            best_score = 0
+            for heading in heading_matches:
+                heading_text = re.sub(r"<[^>]+>", " ", heading.group(3)).lower()
+                score = sum(1 for term in terms if term in heading_text)
+                if score > best_score:
+                    best, best_score = heading, score
+            if best and best_score:
+                attrs = best.group(2)
+                if not re.search(r"\bid\s*=", attrs, re.IGNORECASE):
+                    aliases[best.group(0)] = f'<h{best.group(1)}{attrs} id="{slug}">{best.group(3)}</h{best.group(1)}>'
+                used_ids.add(slug)
+
+    for old, new in aliases.items():
+        html = html.replace(old, new, 1)
+    if not re.search(r"\bid\s*=\s*['\"]top['\"]", html, re.IGNORECASE):
+        html = re.sub(r"(?is)<body\b(?![^>]*\bid=)([^>]*)>", r'<body id="top"\1>', html, count=1)
+
+    def localize(match: re.Match[str]) -> str:
+        quote, href = match.group(1), match.group(2)
+        url = urlsplit(href)
+        slug = re.sub(r"[^a-z0-9-]+", "-", posixpath.basename(url.path).lower().removesuffix(".html")).strip("-")
+        target = slug if slug in used_ids else "top"
+        return f"href={quote}#{target}{quote}"
+
+    html = re.sub(r"(?is)\bhref\s*=\s*([\"'])([^\"']+\.html(?:[?#][^\"']*)?)\1", localize, html)
+    pages["index.html"] = html
+    return pages
+
+
 def _wrong_homepage(html: str) -> bool:
     heading = re.search(r"<h1\b[^>]*>(.*?)</h1\s*>", html, flags=re.IGNORECASE | re.DOTALL)
     if not heading:
@@ -1210,6 +1426,12 @@ class StudioService:
         extracted_lines = [f"- {k.replace('_', ' ').title()}: {v}" for k, v in extracted_facts.items() if v]
         extracted_summary = "\n".join(extracted_lines) if extracted_lines else "None explicitly extracted; prompt asks for fresh structure."
 
+        sitemap_guidance = (
+            "SINGLE-PAGE SITE MAP: Return exactly one page named Home with filename index.html. Put every requested topic in a distinct scrolling section on that page. Internal navigation must use #section-id anchors only; do not create or link to about.html, projects.html, contact.html, or any other page file."
+            if page_structure == "single_page" else
+            "DYNAMIC MULTI-CATEGORY SITEMAP INSTRUCTIONS:\n- Tailor the pages directly to the specific industry in the user's prompt (1-8 pages total):\n  * Portfolio / CV / Personal: Home (index.html), About & Bio (about.html), Projects & Case Studies (projects.html), Skills & Tools (skills.html), Contact (contact.html)\n  * SaaS / Tech Product: Home (index.html), Features & Architecture (features.html), Pricing & Tiers (pricing.html), About / Docs (about.html), Contact / Demo (contact.html)\n  * E-Commerce / Store: Home (index.html), Shop Catalog (shop.html), Collections (collections.html), About Our Story (about.html), Contact & Help (contact.html)\n  * Restaurant / Cafe / Dining: Home (index.html), Food & Drink Menu (menu.html), About / Our Chef (about.html), Reservations & Location (contact.html)\n  * Agency / Consulting / Studio: Home (index.html), Services (services.html), Case Studies (work.html), Team (team.html), Contact & Quote (contact.html)\n  * Real Estate / Property: Home (index.html), Featured Listings (listings.html), Neighborhoods (neighborhoods.html), About Agents (about.html), Contact (contact.html)\n  * Healthcare / Medical / Clinic: Home (index.html), Treatments & Care (treatments.html), Specialists & Team (team.html), Book Appointment (contact.html)\n  * Residency / Hotel / Hospitality: Home (index.html), Rooms & Suites (rooms.html), Dining & Restaurant (dining.html), Amenities (amenities.html), Contact & Location (contact.html)\n  * Education / Academy / Courses: Home (index.html), Course Offerings (courses.html), Admissions & Pricing (admissions.html), Contact (contact.html)\n  * Fitness / Gym / Yoga / Studio: Home (index.html), Classes & Programs (classes.html), Membership & Pricing (pricing.html), Trainers (trainers.html), Contact (contact.html)\n- Preserve interior page filenames. For each page provide a page-specific outline and primary action."
+        )
+
         request = f"""Create a useful, detailed website plan for this user request.
 The user selected marketplace category: {category}
 The user selected genre/site type: {genre}
@@ -1225,22 +1447,12 @@ The user explicitly chose this architecture: {page_structure}.
 User brief:
 <brief>{prompt[:100000]}</brief>
 
+SOURCE OF TRUTH: Treat the complete user brief as requirements, not background. Carry every named audience, offering, feature, page, contact detail, design preference, and other concrete fact into the plan. Never omit a supplied detail or ask the user to repeat it.
+
 ALREADY-EXTRACTED FACTS FROM USER PROMPT (CRITICAL — DO NOT ASK FOR THESE):
 {extracted_summary}
 
-DYNAMIC MULTI-CATEGORY SITEMAP INSTRUCTIONS:
-- Tailor the pages directly to the specific industry in the user's prompt (1-8 pages total):
-  * Portfolio / CV / Personal: Home (index.html), About & Bio (about.html), Projects & Case Studies (projects.html), Skills & Tools (skills.html), Contact (contact.html)
-  * SaaS / Tech Product: Home (index.html), Features & Architecture (features.html), Pricing & Tiers (pricing.html), About / Docs (about.html), Contact / Demo (contact.html)
-  * E-Commerce / Store: Home (index.html), Shop Catalog (shop.html), Collections (collections.html), About Our Story (about.html), Contact & Help (contact.html)
-  * Restaurant / Cafe / Dining: Home (index.html), Food & Drink Menu (menu.html), About / Our Chef (about.html), Reservations & Location (contact.html)
-  * Agency / Consulting / Studio: Home (index.html), Services (services.html), Case Studies (work.html), Team (team.html), Contact & Quote (contact.html)
-  * Real Estate / Property: Home (index.html), Featured Listings (listings.html), Neighborhoods (neighborhoods.html), About Agents (about.html), Contact (contact.html)
-  * Healthcare / Medical / Clinic: Home (index.html), Treatments & Care (treatments.html), Specialists & Team (team.html), Book Appointment (contact.html)
-  * Residency / Hotel / Hospitality: Home (index.html), Rooms & Suites (rooms.html), Dining & Restaurant (dining.html), Amenities (amenities.html), Contact & Location (contact.html)
-  * Education / Academy / Courses: Home (index.html), Course Offerings (courses.html), Admissions & Pricing (admissions.html), Contact (contact.html)
-  * Fitness / Gym / Yoga / Studio: Home (index.html), Classes & Programs (classes.html), Membership & Pricing (pricing.html), Trainers (trainers.html), Contact (contact.html)
-- Preserve interior page filenames. For each page provide a page-specific outline and primary action.
+{sitemap_guidance}
 
 CRITICAL QUESTION ATOMICITY & ZERO-REDUNDANCY DIRECTIVES:
 1. NEVER ASK QUESTIONS FOR FACTS ALREADY EXTRACTED FROM THE USER PROMPT:
@@ -1252,7 +1464,7 @@ CRITICAL QUESTION ATOMICITY & ZERO-REDUNDANCY DIRECTIVES:
    - If skills, services, or menu items are listed, DO NOT ask for them!
 2. NEVER ASK COMPOUND OR MULTI-PART QUESTIONS. Never combine multiple items into one question.
 3. Every question must be strictly ATOMIC (1 topic, 1 sentence, clear placeholder).
-4. Ask 2 to 4 clarifying questions ONLY for information that is TRULY MISSING from the prompt. If the prompt is already comprehensive, ask only 1-2 preference questions (e.g. primary call-to-action text or preferred visual tone).
+4. Ask 0 to 4 clarifying questions, and only for important information that is TRULY MISSING from the prompt. If the prompt already answers a question, do not ask it again. If the brief is comprehensive, return an empty questions array.
 
 DYNAMIC SEPARATE IMAGE UPLOADS:
 Provide 2 to 4 separate, atomic upload slots matching the specific business type (e.g. Profile photo for portfolio; Products for store; Property exterior & rooms for hotel; Signature dishes for restaurant; UI screenshots for SaaS).
@@ -1278,27 +1490,6 @@ Return JSON only with keys: title, summary, architecture_type (single_page or mu
             except Exception as e2:
                 logger.warning("Gemini planning retry also failed: %s. Generating structured fallback plan...", e2)
                 data = self._build_fallback_plan(prompt, category, genre, page_structure)
-        # Match questions against extracted details to prefill answers
-        prefilled_answers = {}
-        for q in data.get("questions", []):
-            if not isinstance(q, dict):
-                continue
-            qid = str(q.get("id") or "").lower()
-            qtext = str(q.get("question") or "").lower()
-            if ("email" in qid or "email" in qtext) and "contact_email" in extracted_facts:
-                prefilled_answers[q.get("id")] = extracted_facts["contact_email"]
-            elif ("phone" in qid or "whatsapp" in qid or "phone" in qtext or "whatsapp" in qtext) and "contact_phone" in extracted_facts:
-                prefilled_answers[q.get("id")] = extracted_facts["contact_phone"]
-            elif ("name" in qid or "identity" in qid or "name" in qtext) and "name" in extracted_facts:
-                prefilled_answers[q.get("id")] = extracted_facts["name"]
-            elif ("price" in qid or "rate" in qid or "price" in qtext or "rate" in qtext) and "pricing" in extracted_facts:
-                prefilled_answers[q.get("id")] = extracted_facts["pricing"]
-            elif ("address" in qid or "location" in qid or "address" in qtext) and "address" in extracted_facts:
-                prefilled_answers[q.get("id")] = extracted_facts["address"]
-            elif ("timing" in qid or "hour" in qid or "check" in qtext or "timing" in qtext) and "timings" in extracted_facts:
-                prefilled_answers[q.get("id")] = extracted_facts["timings"]
-
-        data["prefilled_answers"] = prefilled_answers
         data["extracted_facts"] = extracted_facts
         pages = data.get("pages") if isinstance(data.get("pages"), list) else []
         normalized = []
@@ -1380,7 +1571,7 @@ Return JSON only with keys: title, summary, architecture_type (single_page or mu
             if len(normalized_questions) == 8:
                 break
         data["questions"] = normalized_questions
-        if profile == "portfolio" and len(data["questions"]) < 3:
+        if profile == "portfolio" and not data["questions"]:
             fallback_questions = [
                 {"id": "identity", "question": "What name, role, and short introduction should appear on your portfolio?", "input_type": "textarea", "required": True, "placeholder": "Your name, professional title, and short intro"},
                 {"id": "work", "question": "Which projects or work experience should be featured? (Share your role, technologies used, and company or client)", "input_type": "textarea", "required": True, "placeholder": "Role, company/client, technologies used, and key accomplishments"},
@@ -1389,7 +1580,7 @@ Return JSON only with keys: title, summary, architecture_type (single_page or mu
                 {"id": "contact_phone", "question": "What mobile or WhatsApp number should visitors use for 1-click WhatsApp chat and SMS? (Include country code)", "input_type": "text", "required": False, "placeholder": "+91 98765 43210"},
                 {"id": "extra_points", "question": "Any extra points, awards, or custom sections you want on your page? (Skip if none)", "input_type": "textarea", "required": False, "placeholder": "Certifications, education, key achievements, or additional details"},
             ]
-        elif profile == "construction" and len(data["questions"]) < 3:
+        elif profile == "construction" and not data["questions"]:
             fallback_questions = [
                 {"id": "company", "question": "What is the company name and short introduction?", "input_type": "textarea", "required": True, "placeholder": "Business name and verified background"},
                 {"id": "services", "question": "Which construction services do you provide, and for what kinds of clients?", "input_type": "textarea", "required": True, "placeholder": "Residential/commercial services and specialties"},
@@ -1398,7 +1589,7 @@ Return JSON only with keys: title, summary, architecture_type (single_page or mu
                 {"id": "credentials", "question": "Which licenses, insurance details, safety credentials, or memberships may be published? Leave blank if none.", "input_type": "textarea", "required": False, "placeholder": "Only verified credentials"},
                 {"id": "estimate_contact", "question": "How should customers request an estimate or contact your team?", "input_type": "textarea", "required": True, "placeholder": "Phone, email, office hours, or booking link"},
             ]
-        elif len(data["questions"]) < 3:
+        elif not data["questions"]:
             site_type = f"{category} {genre} {prompt}".lower()
             fallback_groups = [
                 (r"restaurant|cafe|coffee shop|bakery|food|dining", [
@@ -1461,7 +1652,21 @@ Return JSON only with keys: title, summary, architecture_type (single_page or mu
                 ]
         else:
             fallback_questions = data["questions"]
-        data["questions"] = fallback_questions
+        data["questions"] = _filter_clarification_questions(fallback_questions, prompt, extracted_facts)
+        prefilled_answers = {}
+        for question in data["questions"]:
+            topic = _clarification_topic(str(question.get("question") or "").lower())
+            fact_key = {
+                "email": "contact_email",
+                "phone": "contact_phone",
+                "pricing": "pricing",
+                "location": "address",
+                "timings": "timings",
+                "identity": "name",
+            }.get(topic)
+            if fact_key and extracted_facts.get(fact_key):
+                prefilled_answers[question.get("id")] = extracted_facts[fact_key]
+        data["prefilled_answers"] = prefilled_answers
         allowed_image_roles = {
             "hero", "portrait", "skills", "project", "team", "equipment", "general",
             "rooms", "suite", "dining", "restaurant", "food", "menu", "amenities",
@@ -1527,10 +1732,17 @@ Return JSON only: {{\"primary\":\"#RRGGBB\",\"accent\":\"#RRGGBB\",\"background\
         stack = detect_stack_from_prompt(prompt, category, genre, requested_stack=stack)
         profile_guidance = _profile_guidance(_site_profile(category, genre, prompt))
         stack_guidance = _stack_guidance(stack)
+        architecture_mandate = (
+            "SINGLE-PAGE APPLICATION: Deliver only index.html (or the equivalent single route in the chosen framework). Every navigation item and CTA must target a real section on that same page with a matching id. Never emit .html links to separate pages. Include all approved sitemap content as distinct scrolling sections."
+            if page_structure == "single_page" else
+            "MULTI-PAGE APPLICATION: Implement every approved page as a real page/route and make all navigation links resolve to it."
+        )
         request = f"""You are the Planning Agent. Create the complete, editable project prompt that will be shown to the user and then passed directly to code-generation agents.
 Original request: <brief>{prompt[:100000]}</brief>
+{_identity_fidelity_note(prompt, answers)}
 Category/site type: {category} / {genre}
 Chosen architecture: {page_structure}
+{architecture_mandate}
 {stack_guidance}
 Approved sitemap and sections: {json.dumps(plan.get('pages', []), ensure_ascii=False)[:7000]}
 Owner answers: {json.dumps(answers, ensure_ascii=False)[:7000]}
@@ -1555,10 +1767,10 @@ Write a thorough, clear specification with headings for:
    - NON-LAZY ALL-DATA MANDATE: Detail every section with full, rich content using ALL provided owner answers and skills.
    - 1:1 ASSET UTILIZATION: If owner-uploaded gallery or portfolio images are provided, explicitly require a dedicated card for EVERY single uploaded photograph without omitting or repeating any image.
 6. Real Content & Working Actions (use owner answers for email, mobile, phone, address, and amenities/skills)
-7. Image Placement & Motion System (detail the exact placement of every uploaded photo: profile photo in About/Bio, logo in Header/Footer, and all uploaded photos in the gallery/showcase with zero duplicates)
+7. Image Placement & Motion System (detail the exact placement of every uploaded photo: profile photo in About/Bio, logo in Header/Footer, and all uploaded photos in the gallery/showcase with zero duplicates; define a cohesive, visibly animated system with a staggered hero entrance, scroll reveals, image reveals, refined hover/focus transitions, and reduced-motion support)
 8. Acceptance Criteria
 
-Make the site distinctive, polished, responsive, and visibly animated with a coherent motion system and reduced-motion support. Use owner answers as source of truth. Never invent facts, credentials, testimonials, prices, results, or backend behavior. Avoid generic filler, broken links/images, repeated card grids, and browser-default styling. No code fences. Output only the editable prompt, plain text, 900-6500 words maximum (prefer 1200-2200 words)."""
+Make the site distinctive, polished, responsive, and visibly animated with a coherent motion system and reduced-motion support. Specify a lively but purposeful system: staggered hero entrance, scroll-triggered section reveals, image reveals, refined hover/focus transitions, and animated navigation states where suitable. Use CSS transitions/keyframes and a small IntersectionObserver when useful; avoid heavy libraries, excessive parallax, and motion that blocks reading. Use owner answers as source of truth. Never invent facts, credentials, testimonials, prices, results, or backend behavior. Avoid generic filler, broken links/images, repeated card grids, and browser-default styling. No code fences. Output only the editable prompt, plain text, 900-6500 words maximum (prefer 1200-2200 words)."""
         result = await ai_service._generate_content(
             request, response_mime_type="text/plain", feature_name="planning_agent",
             preferred_provider="groq", provider_order_override=ANALYSIS_PROVIDER_ORDER,
@@ -1643,7 +1855,10 @@ Make the site distinctive, polished, responsive, and visibly animated with a coh
         print(f"🚀 [Studio Service] Starting generation for user {user_key} | prompt='{prompt[:50]}...' | stack={stack}", flush=True)
         try:
             yield status("planning", "completed", "Using your reviewed build prompt directly as the source of truth.")
-            build_brief = approved_build_prompt
+            identity_fidelity_note = _identity_fidelity_note(prompt, answers)
+            build_brief = f"APPROVED BUILD PROMPT:\n{approved_build_prompt}\n\n{identity_fidelity_note}"
+            portfolio_profile = _site_profile(category_name, genre, prompt) == "portfolio"
+            explicit_display_name = _owner_display_name(prompt, answers)
 
             yield status("design", "running", "Building the shared visual system and motion rules.")
             design_sitemap = [
@@ -1657,7 +1872,8 @@ Approved visual direction: {str(plan.get('design_direction') or '')[:2500]}
 {profile_guidance}
 Sitemap: {json.dumps(design_sitemap, ensure_ascii=False)[:3500]}
 Owner details relevant to visual design: {json.dumps(answers, ensure_ascii=False)[:1500]}
-Specify exact palette, typography, spacing, layout grid, components, responsive breakpoints, image treatment, interaction states, and purposeful animations. Include keyboard focus and prefers-reduced-motion rules. Never invent facts. Make the design usable across every listed page. Return concise implementation guidance, not source code."""
+{identity_fidelity_note}
+Specify exact palette, typography, spacing, layout grid, components, responsive breakpoints, image treatment, interaction states, and a visibly animated but polished motion system (staggered hero entrance, scroll reveals, image transitions, hover/focus feedback, and active navigation state where suitable). Respect keyboard focus and prefers-reduced-motion. Avoid heavy animation libraries and excessive parallax. Never invent facts. Make the design usable across every listed page. Return concise implementation guidance, not source code."""
             design = await ai_service._generate_content(
                 design_prompt, response_mime_type="text/plain", feature_name="designer_agent",
                 preferred_provider="groq", provider_order_override=ANALYSIS_PROVIDER_ORDER,
@@ -1672,7 +1888,7 @@ Specify exact palette, typography, spacing, layout grid, components, responsive 
             architecture: dict[str, Any] = {}
             # Enforce strict stack detection to ensure portfolios and static categories stay HTML
             stack = detect_stack_from_prompt(prompt, category=category_name, genre=genre, requested_stack=stack)
-            is_fullstack = (stack == "react-fastapi-postgresql")
+            is_fullstack = stack in {"react-fastapi-postgresql", "vue-fastapi-postgresql", "angular-fastapi-postgresql"}
 
             yield {"type": "agent", "agent": AGENTS["architect"], "status": "running", "detail": f"Architect Agent designing project manifest and component contracts for {stack}…"}
             try:
@@ -1688,6 +1904,14 @@ Specify exact palette, typography, spacing, layout grid, components, responsive 
             except Exception as arch_manifest_err:
                 logger.warning("Architect Agent manifest generation error: %s", arch_manifest_err)
                 manifest = architect_agent._build_fallback_manifest(prompt, category_name, genre, plan, answers, stack)
+
+            if portfolio_profile:
+                shared_components = manifest.setdefault("shared_components", {})
+                shared_header = shared_components.setdefault("header", {})
+                shared_header["brand_name"] = explicit_display_name or "Portfolio"
+                if explicit_display_name:
+                    shared_footer = shared_components.setdefault("footer", {})
+                    shared_footer["copyright_text"] = f"© 2026 {explicit_display_name}. All rights reserved."
 
             if is_fullstack:
                 try:
@@ -1854,7 +2078,7 @@ Specify exact palette, typography, spacing, layout grid, components, responsive 
             # ── React / Next.js frontend for full-stack stacks ──────────────
             react_files: dict[str, str] = {}
             stack_info = SUPPORTED_STACKS.get(stack, {})
-            if is_fullstack and stack_info.get("frontend") in {"react", "nextjs"}:
+            if is_fullstack and stack_info.get("frontend") in {"react", "nextjs", "vue", "angular"}:
                 yield {"type": "agent", "agent": AGENTS["frontend"], "status": "running", "detail": f"Generating {stack_info['frontend'].title()} frontend components and pages…"}
                 try:
                     frontend_pairs = await backend_generator.generate_react_frontend(
@@ -1892,7 +2116,7 @@ Specify exact palette, typography, spacing, layout grid, components, responsive 
                 logger.warning("Text Agent failed: %s. Using deterministic fallback copy.", txt_exc)
                 content_dict = text_agent._build_fallback_dictionary(
                     manifest.get("pages", plan.get("pages", [])),
-                    str(answers.get("business_name") or plan.get("title") or genre.title()),
+                    str((explicit_display_name or "Portfolio") if portfolio_profile else (answers.get("business_name") or plan.get("title") or genre.title())),
                     genre,
                     prompt,
                     answers,
@@ -1901,7 +2125,7 @@ Specify exact palette, typography, spacing, layout grid, components, responsive 
             manifest_pages = manifest.get("pages", [])
             manifest_spec_by_fname = {p.get("filename"): p for p in manifest_pages if isinstance(p, dict)}
             page_copy_dict = content_dict.get("pages", {})
-            brand_name = str(answers.get("business_name") or answers.get("author") or answers.get("brand") or plan.get("title") or genre.title()).strip()
+            brand_name = str((explicit_display_name or "Portfolio") if portfolio_profile else (answers.get("business_name") or answers.get("author") or answers.get("brand") or plan.get("title") or genre.title())).strip()
 
             pages: dict[str, str] = {}
             # Generate all planned pages (up to 8) to create a comprehensive, multi-page experience
@@ -1938,6 +2162,9 @@ Specify exact palette, typography, spacing, layout grid, components, responsive 
 - RELATIVE LINKS ONLY: All header links, mobile drawer links, and footer links MUST use relative filenames: e.g. href="index.html", href="rooms.html", href="dining.html".
 - STRICTLY FORBID # HASH LINKS WHERE SIBLING PAGES EXIST: Do NOT use href="#rooms", href="#dining", href="#amenities", href="#contact", or href="#about" in headers, mobile drawers, or primary CTA buttons. Point directly to the actual page (e.g. href="rooms.html").
 - CURRENT PAGE INDICATOR: On this page ({filename}), mark its own navigation item with class="active" (or nav-link active) and aria-current="page". All other page links must NOT have the active class.
+- PAGE COMPLETENESS CHECK: Every sitemap filename must be generated as a real, complete page. Each header, footer, card, and primary CTA link must resolve to the intended sibling page; no placeholder href="#" for navigation. Keep the same shared site shell and visual design on every route.
+- MOBILE MENU FUNCTIONALITY: The hamburger must be a real button wired to the mobile drawer, with aria-controls and aria-expanded updated when opened/closed. It must work with touch and keyboard, close on Escape, and close after a page link is selected. Ensure every page includes the same working menu.
+- RESPONSIVE QA: At 320px wide, content and navigation must fit without horizontal scrolling; all menu links must remain visible, readable, and tappable.
 - CONSISTENT BRAND LOGO: Use the exact same brand logo markup and text `<a href="index.html" class="brand-logo">...</a>` across all pages.
 - PRIMARY CTAS: Connect all major CTA buttons (e.g., "Book Your Stay", "Explore Rooms", "Reserve a Table", "Get in Touch") to their corresponding .html page, NEVER an unlinked # anchor."""
 
@@ -2064,6 +2291,8 @@ Render this authentic domain-specific copy directly into your sections. NEVER us
                 page_prompt = f"""You are the Frontend Dev Agent. Implement exactly one complete, production-quality, responsive HTML page. This is a separate page-by-page build; do not emit other pages or explanations.
 Category: {category_name} | Genre: {genre} | Page: {page_name} ({filename})
 Original user brief: <brief>{prompt[:2000]}</brief>
+{identity_fidelity_note}
+User-approved build prompt: <approved_prompt>{build_brief[:12000]}</approved_prompt>
 {profile_guidance}
 {learned_constraints}
 {architect_page_mandate}
@@ -2076,6 +2305,7 @@ UI Designer system: {design[:2000]}
 {user_image_guidance}
 {page_image_guidance}
 CRITICAL CONTENT ACCURACY & ANTI-LAZINESS DIRECTIVE:
+- FINAL IDENTITY OVERRIDE: Treat the authoritative identity note at the end of this prompt as higher priority than any conflicting generated title, page copy, plan title, or sample content. Display only the supplied name and supplied role, exactly; remove any invented surname or extra job title.
 - NON-LAZY ALL-DATA MANDATE: You must NEVER be lazy, skip content, or output minimal placeholder cards. You must faithfully use ALL data, skills, equipment, answers, and images provided by the user.
 - 1:1 GALLERY & SHOWCASE ITEM CREATION:
   * If the asset inventory lists N unique gallery/work/project photos, you MUST generate at least N distinct card/article elements in the gallery or showcase section.
@@ -2083,6 +2313,7 @@ CRITICAL CONTENT ACCURACY & ANTI-LAZINESS DIRECTIVE:
   * BALANCED CATEGORY FILTERING: Distribute the unique images across all filter tabs/categories evenly so every category contains rich, distinct items and no category shows duplicate images.
 - PROFILE PHOTO MANDATE:
   * If a profile/portrait image is provided (e.g. assets/profile-photo.png), you MUST place it in the About / Biography / Photographer Profile section. NEVER use camera gear or a random gallery image as the person's portrait when a profile photo is provided.
+- Use only the owner's explicitly supplied name and exact professional role from the original brief and answers. Preserve a single first name exactly; never add a surname from an account profile, username, or other source. Do not turn a single role such as "AI Engineer" into "AI Engineer & Full-Stack Developer". Do not add skills, employers, credentials, or biography details that were not supplied.
 - You MUST faithfully use the user's EXACT provided skills, tools, and background from 'Owner answers' and 'User-approved build prompt'.
 - If the user provided specific skills (e.g. Python, SQL, React, DevOps, or Telephoto lenses, BIF tracking), you MUST display those exact skills. NEVER replace them with generic industry tropes or invent unverified metrics.
 - If the user provided only ONE work experience or role, feature that single role thoroughly with deep impact and real technical skills. NEVER invent fake past companies or extra timeline jobs to fill space.
@@ -2109,7 +2340,8 @@ CRITICAL CONTENT ACCURACY & ANTI-LAZINESS DIRECTIVE:
   * All multi-column grids and card collections must collapse to 1 column on screens under 768px.
   * All touch targets (buttons, links, form inputs) must have a minimum tap height of 44px.
 {STUDIO_CLINERULES}
-Output a full standalone HTML document for {filename}, with semantic markup, page-specific content, responsive inline CSS, and working browser-side interactions. Include complete head, body, style, and script blocks as needed; never return browser-default unstyled HTML. Use the UI Designer system as a concrete specification, and keep the same header, navigation, footer, typography, and design tokens used by the other generated pages. Build a clear visual hierarchy with deliberate whitespace, strong editorial composition, and restrained detail; use varied layouts instead of repeated card grids. Keep the page polished but concise enough to finish as valid HTML. Include SEO title/description, social metadata, clear relative navigation links using the supplied page filenames, descriptive image alt text, visible focus, keyboard access, and prefers-reduced-motion. Add purposeful animation that honors reduced motion. Make visible controls work in the browser or label them as demo-only; never invent testimonials, stats, credentials, prices, or success states. Forms must say when they are demo-only. Use supplied direct image URLs in relevant visual sections; preserve stock photo credits. Never use a Google search/results URL as an image source. Do not load frameworks, CDNs, tracking, or server APIs. Return HTML only, including the closing </body> and </html> tags."""
+{identity_fidelity_note}
+Output a full standalone HTML document for {filename}, with semantic markup, page-specific content, responsive inline CSS, and working browser-side interactions. Include complete head, body, style, and script blocks as needed; never return browser-default unstyled HTML. Use the UI Designer system as a concrete specification, and keep the same header, navigation, footer, typography, and design tokens used by the other generated pages. Build a clear visual hierarchy with deliberate whitespace, strong editorial composition, and restrained detail; use varied layouts instead of repeated card grids. Keep the page polished but concise enough to finish as valid HTML. Include SEO title/description, social metadata, clear relative navigation links using the supplied page filenames, descriptive image alt text, visible focus, keyboard access, and prefers-reduced-motion. Implement a cohesive visible motion system: staggered hero text/media entrance, scroll-triggered section reveals, image reveals, and refined hover/focus/active navigation transitions. Prefer CSS keyframes/transitions and a small IntersectionObserver; avoid heavy animation libraries, excessive parallax, or effects that delay reading. All motion must honor prefers-reduced-motion. Make visible controls work in the browser or label them as demo-only; never invent testimonials, stats, credentials, prices, or success states. Forms must say when they are demo-only. Use supplied direct image URLs in relevant visual sections; preserve stock photo credits. Never use a Google search/results URL as an image source. Do not load frameworks, CDNs, tracking, or server APIs. Return HTML only, including the closing </body> and </html> tags."""
                 recovery_prompt = f"""The previous page response was incomplete. Regenerate a complete, concise standalone HTML document for {filename}; do not explain or continue with fragments.
 Category: {category_name} | Genre: {genre} | Page: {page_name} ({filename})
 {learned_constraints}
@@ -2302,6 +2534,8 @@ Files: {json.dumps({k: (v if len(v) <= 6000 else f"{v[:3800]}\n<!-- ... [interio
 
             # Self-healing deterministic layout, tag, and navigation normalization
             pages, norm_repairs = normalize_multi_page_navigation(pages)
+            if plan.get("architecture_type") == "single_page":
+                pages = _enforce_single_page_navigation(pages)
             if norm_repairs:
                 logger.info(f"Self-healed {len(norm_repairs)} multi-page navigation/layout issues across package.")
 
@@ -2451,6 +2685,8 @@ Audit: {json.dumps(audit, ensure_ascii=False)[:2000]}"""
                     framework=(
                         TemplateFramework.NEXTJS if stack_info.get("frontend") == "nextjs"
                         else TemplateFramework.REACT if stack_info.get("frontend") == "react"
+                        else TemplateFramework.VUE if stack_info.get("frontend") == "vue"
+                        else TemplateFramework.ANGULAR if stack_info.get("frontend") == "angular"
                         else TemplateFramework.HTML
                     ),
                     pages_count=len(pages),

@@ -363,12 +363,7 @@ async def auth_callback(provider: str, request: Request, db: AsyncSession = Depe
             token = await client.authorize_access_token(request)
 
     except OAuthError as error:
-
-        import traceback
-        print("OAuthError occurred during token exchange:")
-        print(f"Error: {error.error}")
-        print(f"Description: {getattr(error, 'description', 'No description')}")
-        traceback.print_exc()
+        logger.warning("OAuth token exchange failed for provider %s (%s)", provider, type(error).__name__)
         raise HTTPException(status_code=400, detail=f"OAuth error: {error.error}")
         
     if provider == "google":
@@ -440,18 +435,19 @@ async def auth_callback(provider: str, request: Request, db: AsyncSession = Depe
         # Enforce that existing account cannot be accessed or switched to conflicting role or hijack password accounts
         existing_oauth_user = await repo.get_by_email(email)
         if existing_oauth_user:
+            frontend_base = str(request.session.get('auth_frontend_url') or settings.FRONTEND_URL).rstrip('/')
             existing_role_str = existing_oauth_user.role.value if hasattr(existing_oauth_user.role, "value") else str(existing_oauth_user.role)
             if existing_role_str.lower() != role_str.lower():
                 target_role = "Seller" if existing_role_str.lower() == "seller" else "Buyer"
                 from urllib.parse import quote_plus
                 err_msg = quote_plus(f"This email is registered as a {target_role} account. The same email cannot be used for both Seller and Buyer accounts. Please switch to {target_role} login.")
-                return RedirectResponse(url=f"{FRONTEND_URL}/sign-in?error={err_msg}&role={existing_role_str.lower()}")
+                return RedirectResponse(url=f"{frontend_base}/sign-in?error={err_msg}&role={existing_role_str.lower()}")
 
             # Block OAuth takeover if the account was registered with email & password
             if provider == "google" and existing_oauth_user.hashed_password and not existing_oauth_user.google_id:
                 from urllib.parse import quote_plus
                 err_msg = quote_plus("This account was registered with email and password. To prevent unauthorized account takeover, signing in with Google is blocked for this email. Please sign in using your password.")
-                return RedirectResponse(url=f"{FRONTEND_URL}/sign-in?error={err_msg}&role={existing_role_str.lower()}")
+                return RedirectResponse(url=f"{frontend_base}/sign-in?error={err_msg}&role={existing_role_str.lower()}")
 
         user = await repo.upsert_oauth_user(
             provider=provider,

@@ -7,16 +7,17 @@
 export const dynamic = "force-dynamic";
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
-import { navigate } from "@/components/Link";
+import Link, { navigate } from "@/components/Link";
 const useRouter = () => ({
   push: (to) => navigate(to),
   replace: (to) => navigate(to),
 });
 const useSearchParams = () => new URLSearchParams(window.location.search);
-import { useAppAuth } from "@/lib/auth";
+import { useAppAuth, useAppUser } from "@/lib/auth";
 import {
   Search, X, Sparkles, SlidersHorizontal, Filter,
   TrendingUp, ArrowRight, CornerDownLeft, Eye, Zap, Layers,
+  UploadCloud, MessageCircle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import Navbar from "@/components/layout/Navbar";
@@ -170,20 +171,54 @@ function Marketplace() {
   });
 
   // Auth token for mutations — initialized synchronously from store
+  const { user, isSignedIn } = useAppUser();
+  const roleStr = String(user?.role || "").toLowerCase().trim();
+  const isSeller = isSignedIn && (roleStr === "seller" || roleStr === "creator" || roleStr === "vendor");
+
   const [token, setToken] = useState(() => useAuthStore.getState().token);
   useEffect(() => {
     getToken().then(setToken);
   }, [getToken]);
 
-  const { data, isLoading } = useTemplates(filters, token);
+  const effectiveFilters = useMemo(() => {
+    if (isSeller && user?.id) {
+      return { ...filters, seller_id: user.id };
+    }
+    return filters;
+  }, [filters, isSeller, user?.id]);
+
+  const { data, isLoading } = useTemplates(effectiveFilters, token);
   const favoriteMutation = useToggleFavorite(token ?? "");
   const wishlistMutation = useToggleWishlist(token ?? "");
 
   // Pre-fetch/cache full catalog in background to enable instantaneous client search (< 1ms)
-  const { data: fullCatalogData } = useTemplates({ page_size: 100 }, token);
+  const fullCatalogFilters = useMemo(() => {
+    const base = { page_size: 100 };
+    if (isSeller && user?.id) {
+      base.seller_id = user.id;
+    }
+    return base;
+  }, [isSeller, user?.id]);
+  const { data: fullCatalogData } = useTemplates(fullCatalogFilters, token);
+
+  const isUserOwner = useCallback((item) => {
+    if (!isSeller || !user) return true;
+    const matchId = item.seller_id && String(item.seller_id) === String(user.id);
+    const matchDev = (user.display_name && item.developer_name === user.display_name) ||
+                     (user.full_name && item.developer_name === user.full_name) ||
+                     (user.fullName && item.developer_name === user.fullName) ||
+                     (user.username && item.developer_name === user.username) ||
+                     (user.email && item.developer_name === user.email);
+    return Boolean(matchId || matchDev);
+  }, [isSeller, user]);
+
   const masterCatalog = useMemo(() => {
-    return fullCatalogData?.items?.length ? fullCatalogData.items : (data?.items ?? []);
-  }, [fullCatalogData?.items, data?.items]);
+    const list = fullCatalogData?.items?.length ? fullCatalogData.items : (data?.items ?? []);
+    if (isSeller && user?.id) {
+      return list.filter(isUserOwner);
+    }
+    return list;
+  }, [fullCatalogData?.items, data?.items, isSeller, user?.id, isUserOwner]);
 
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
@@ -228,32 +263,39 @@ function Marketplace() {
 
   // Instant Displayed Templates: filters instantaneously on every keystroke without waiting
   const displayedTemplates = useMemo(() => {
+    let list = [];
     if (filters.semantic) {
-      return data?.items ?? [];
+      list = data?.items ?? [];
+    } else {
+      const raw = (searchInput || "").trim().toLowerCase();
+      if (raw && raw !== (filters.q || "").trim().toLowerCase()) {
+        const terms = raw.split(/\s+/).filter(Boolean);
+        list = masterCatalog.filter((item) => {
+          const title = (item.title || "").toLowerCase();
+          const desc = (item.short_description || "").toLowerCase();
+          const tags = (item.tags || []).map((t) => String(t).toLowerCase());
+          const dev = (item.developer_name || "").toLowerCase();
+          const fw = (item.framework || "").toLowerCase();
+          const ind = (item.industry || "").toLowerCase();
+          return terms.every(
+            (term) =>
+              title.includes(term) ||
+              desc.includes(term) ||
+              tags.some((tag) => tag.includes(term)) ||
+              dev.includes(term) ||
+              fw.includes(term) ||
+              ind.includes(term)
+          );
+        });
+      } else {
+        list = data?.items ?? [];
+      }
     }
-    const raw = (searchInput || "").trim().toLowerCase();
-    if (raw && raw !== (filters.q || "").trim().toLowerCase()) {
-      const terms = raw.split(/\s+/).filter(Boolean);
-      return masterCatalog.filter((item) => {
-        const title = (item.title || "").toLowerCase();
-        const desc = (item.short_description || "").toLowerCase();
-        const tags = (item.tags || []).map((t) => String(t).toLowerCase());
-        const dev = (item.developer_name || "").toLowerCase();
-        const fw = (item.framework || "").toLowerCase();
-        const ind = (item.industry || "").toLowerCase();
-        return terms.every(
-          (term) =>
-            title.includes(term) ||
-            desc.includes(term) ||
-            tags.some((tag) => tag.includes(term)) ||
-            dev.includes(term) ||
-            fw.includes(term) ||
-            ind.includes(term)
-        );
-      });
+    if (isSeller && user?.id) {
+      return list.filter(isUserOwner);
     }
-    return data?.items ?? [];
-  }, [data?.items, masterCatalog, searchInput, filters.q, filters.semantic]);
+    return list;
+  }, [data?.items, masterCatalog, searchInput, filters.q, filters.semantic, isSeller, user?.id, isUserOwner]);
 
   // Fast 150ms memoized debounce to sync filters store and URL without stutter
   const debouncedSearch = useMemo(
@@ -330,7 +372,7 @@ function Marketplace() {
   };
 
   const isLocallyFiltering = !filters.semantic && searchInput.trim() && searchInput.trim() !== (filters.q || "").trim();
-  const total = isLocallyFiltering ? displayedTemplates.length : (data?.total ?? 0);
+  const total = (isLocallyFiltering || isSeller) ? displayedTemplates.length : (data?.total ?? 0);
   const totalPages = data?.total_pages ?? 1;
 
   return (
@@ -341,28 +383,49 @@ function Marketplace() {
           <header className="marketplace-hero-header">
             <div className="marketplace-hero-badge">
               <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-              <span>Curated Template Marketplace</span>
+              <span>{isSeller ? "Seller Portal Catalog" : "Curated Template Marketplace"}</span>
               <span className="marketplace-badge-dot" />
-              <span className="text-emerald-400 font-semibold">100% Production Ready</span>
+              <span className="text-emerald-400 font-semibold">{isSeller ? "Your Creator Workspace" : "100% Production Ready"}</span>
             </div>
             <div className="marketplace-hero-row">
               <div className="marketplace-hero-text">
                 <h1 className="marketplace-hero-title">
-                  Production-Ready <span className="marketplace-title-gradient">Website Templates</span>
+                  {isSeller ? (
+                    <>Seller Catalog <span className="marketplace-title-gradient">Your Templates</span></>
+                  ) : (
+                    <>Production-Ready <span className="marketplace-title-gradient">Website Templates</span></>
+                  )}
                 </h1>
                 <p className="marketplace-hero-sub">
-                  Modern, multi-page templates with instant live previews, responsive reflow, and AI Fill personalization.
+                  {isSeller
+                    ? "Manage, view, and inspect your own published marketplace templates in live store view."
+                    : "Modern, multi-page templates with instant live previews, responsive reflow, and AI Fill personalization."}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => navigate("/studio")}
-                className="marketplace-studio-cta"
-              >
-                <Sparkles className="w-4 h-4 text-purple-300" />
-                <span>Launch Studio Creator</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
+              {isSeller ? (
+                <button
+                  type="button"
+                  onClick={() => navigate("/dashboard?tab=seller-upload")}
+                  className="marketplace-studio-cta"
+                  title="Upload a new template to your seller catalog"
+                >
+                  <UploadCloud className="w-4 h-4 text-purple-300" />
+                  <span>Upload Template</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              ) : (
+                <Link
+                  href="/studio"
+                  className="marketplace-create-callout"
+                  aria-label="Want to create your own website? Click to open Studio Creator"
+                >
+                  <span className="marketplace-create-icon"><MessageCircle className="w-5 h-5" /></span>
+                  <span className="marketplace-create-copy">
+                    <strong>Want to create your own?</strong>
+                    <span>Click here to open Studio Creator <ArrowRight className="w-3.5 h-3.5" /></span>
+                  </span>
+                </Link>
+              )}
             </div>
           </header>
           <div className="marketplace-layout">

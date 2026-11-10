@@ -10,6 +10,8 @@ import asyncio
 import platform
 import logging
 import uuid
+import subprocess
+from collections import deque
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Dict, Any, Tuple, Optional
 import httpx
@@ -23,6 +25,27 @@ logger = logging.getLogger(__name__)
 _STATIC_ROOT = Path(__file__).resolve().parents[3] / "static"
 _DEPLOYMENTS_ROOT = _STATIC_ROOT / "deployments"
 os.makedirs(_DEPLOYMENTS_ROOT, exist_ok=True)
+
+
+def _run_process(command: list[str], cwd: str, env: Dict[str, str]) -> Tuple[int, list[str]]:
+    """Run a build command in a worker thread and retain only its final log lines."""
+    output_lines = deque(maxlen=600)
+    with subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+    ) as process:
+        if process.stdout is not None:
+            for line in process.stdout:
+                output_lines.append(line.rstrip())
+        return_code = process.wait()
+    return return_code, list(output_lines)
 
 
 class LocalDeploymentProvider(DeploymentProvider):
@@ -78,11 +101,9 @@ class LocalDeploymentProvider(DeploymentProvider):
         env_vars: Optional[Dict[str, str]] = None,
         deployment_id: str = "temp",
     ) -> Tuple[bool, str, str]:
-        """
-        Executes isolated build pipeline in a sanitized subprocess.
-        Guarantees ZERO platform environment variables/secrets leakage.
-        """
-        npm_cmd = "npm.cmd" if platform.system() == "Windows" else "npm"
+        """Build a static project using npm with a reduced environment."""
+        is_windows = platform.system() == "Windows"
+        npm_cmd = "npm.cmd" if is_windows else "npm"
         logs = []
         output_path = PurePosixPath(output_dir)
         if output_path.is_absolute() or PureWindowsPath(output_dir).is_absolute() or ".." in output_path.parts or ".." in PureWindowsPath(output_dir).parts:
@@ -97,6 +118,31 @@ class LocalDeploymentProvider(DeploymentProvider):
             "TMP": os.environ.get("TMP", ""),
             "DEPLOYMENT_ID": str(deployment_id),
         }
+        if is_windows:
+            # npm.cmd is a Windows batch wrapper and cannot be launched directly
+            # with CreateProcess. Preserve only the non-secret Windows profile
+            # variables npm needs, then invoke the wrapper through cmd.exe.
+            for key in ("USERPROFILE", "APPDATA", "LOCALAPPDATA", "HOMEDRIVE", "HOMEPATH", "PATHEXT", "WINDIR"):
+                value = os.environ.get(key)
+                if value:
+                    tenant_clean_env[key] = value
+            cmd_exe = os.path.join(tenant_clean_env["SYSTEMROOT"], "System32", "cmd.exe")
+            tenant_clean_env["COMSPEC"] = os.environ.get("COMSPEC", cmd_exe)
+
+        # Share npm's content-addressed package cache across framework previews.
+        # npm still links each project's exact dependency versions in its own
+        # node_modules, while downloads are reused from this common cache box.
+        npm_cache_dir = Path(settings.NPM_CACHE_DIR).resolve()
+        npm_cache_dir.mkdir(parents=True, exist_ok=True)
+        tenant_clean_env["npm_config_cache"] = str(npm_cache_dir)
+        tenant_clean_env["npm_config_prefer_offline"] = "true"
+        tenant_clean_env["npm_config_include"] = "dev"
+
+        def npm_process_args(*args: str) -> list[str]:
+            if is_windows:
+                command = " ".join(subprocess.list2cmdline([arg]) for arg in args)
+                return [cmd_exe, "/d", "/c", command]
+            return list(args)
         # Inject tenant-specified public environment variables
         if env_vars:
             for k, v in env_vars.items():
@@ -118,7 +164,17 @@ class LocalDeploymentProvider(DeploymentProvider):
             logs.append("ℹ️ Static HTML template detected — skipping compilation step.")
             return True, "\n".join(logs), project_root
 
-        # Check if project already has a pre-compiled production build (e.g. from canvas preview)
+        # Pre-build healing (auto-add missing npm dependencies & configure relative base: './')
+        try:
+            from app.services.deployment_readiness_auditor import deployment_readiness_auditor
+            pre_healed, pre_findings = deployment_readiness_auditor.heal_pre_build(project_root)
+            if pre_healed:
+                for f in pre_findings:
+                    logs.append(f"🔧 Pre-build: {f}")
+        except Exception as e_pre:
+            logger.warning("Pre-build healing error in %s: %s", project_root, e_pre)
+
+        # Check if project already has a verified fresh pre-compiled production build (e.g. from canvas preview)
         candidate_build_dirs = [output_dir, "dist", "build", "out"]
         for d in candidate_build_dirs:
             candidate_path = os.path.join(project_root, d)
@@ -126,29 +182,42 @@ class LocalDeploymentProvider(DeploymentProvider):
                 logs.append(f"✓ Detected verified pre-compiled production build at '{d}/'.")
                 return True, "\n".join(logs), candidate_path
 
-        # 3. Clean dependency installation (npm install)
-        logs.append(f"📦 Installing tenant project dependencies in isolated sandbox...")
+        # 3. Install from the shared npm cache. Run subprocess work in a thread:
+        # asyncio subprocess transports are not implemented by every Windows loop.
+        # Include dev dependencies because build tools such as Vite, react-scripts,
+        # Next, Angular CLI, and tsc are normally declared there.
+        logs.append("📦 Installing project dependencies from the shared npm cache...")
         try:
-            proc_install = await asyncio.create_subprocess_exec(
-                npm_cmd, "install", "--no-audit", "--no-fund",
-                cwd=project_root,
-                env=tenant_clean_env,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT
+            install_code, install_output = await asyncio.to_thread(
+                _run_process,
+                npm_process_args(npm_cmd, "install", "--include=dev", "--no-audit", "--no-fund"),
+                project_root,
+                tenant_clean_env,
             )
-            while True:
-                line = await proc_install.stdout.readline()
-                if not line:
-                    break
-                logs.append("  " + line.decode("utf-8", errors="ignore").strip())
-            await proc_install.wait()
+            logs.extend("  " + line for line in install_output)
 
-            if proc_install.returncode != 0:
-                logs.append(f"❌ npm install failed with exit code {proc_install.returncode}")
+            if install_code != 0:
+                # Attempt self-healing missing packages
+                try:
+                    from app.services.deployment_readiness_auditor import deployment_readiness_auditor
+                    healed, _ = deployment_readiness_auditor.diagnose_and_heal_build_failure("\n".join(install_output), project_root)
+                    if healed:
+                        install_code, install_output = await asyncio.to_thread(
+                            _run_process,
+                            npm_process_args(npm_cmd, "install", "--include=dev", "--no-audit", "--no-fund"),
+                            project_root,
+                            tenant_clean_env,
+                        )
+                except Exception:
+                    pass
+
+            if install_code != 0:
+                logs.append(f"❌ npm install failed with exit code {install_code}")
                 return False, "\n".join(logs), ""
             logs.append("✓ Dependencies installed successfully.")
         except Exception as e:
-            logs.append(f"❌ Dependency install error: {str(e)}")
+            logger.exception("Preview dependency installation could not start in %s", project_root)
+            logs.append(f"❌ Dependency install error: {e!r}")
             return False, "\n".join(logs), ""
 
         # 4. Run build script
@@ -156,35 +225,35 @@ class LocalDeploymentProvider(DeploymentProvider):
         try:
             cmd_parts = build_command.split(" ")
             if cmd_parts[0] == "npm" and len(cmd_parts) > 2 and cmd_parts[1] == "run":
-                proc_build = await asyncio.create_subprocess_exec(
-                    npm_cmd, "run", cmd_parts[2],
-                    cwd=project_root,
-                    env=tenant_clean_env,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.STDOUT
-                )
+                build_args = npm_process_args(npm_cmd, "run", cmd_parts[2])
             else:
-                cmd_exec = cmd_parts[0] + (".cmd" if platform.system() == "Windows" and not cmd_parts[0].endswith(".cmd") else "")
-                proc_build = await asyncio.create_subprocess_exec(
-                    cmd_exec, *cmd_parts[1:],
-                    cwd=project_root,
-                    env=tenant_clean_env,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.STDOUT
-                )
-            while True:
-                line = await proc_build.stdout.readline()
-                if not line:
-                    break
-                logs.append("  " + line.decode("utf-8", errors="ignore").strip())
-            await proc_build.wait()
+                build_args = npm_process_args(*cmd_parts)
+            build_code, build_output = await asyncio.to_thread(
+                _run_process, build_args, project_root, tenant_clean_env
+            )
+            logs.extend("  " + line for line in build_output)
 
-            if proc_build.returncode != 0:
-                logs.append(f"❌ Build failed with exit code {proc_build.returncode}")
+            if build_code != 0:
+                # Attempt autonomous build diagnosis and repair
+                try:
+                    from app.services.deployment_readiness_auditor import deployment_readiness_auditor
+                    healed, _ = deployment_readiness_auditor.diagnose_and_heal_build_failure("\n".join(build_output), project_root)
+                    if healed:
+                        logs.append("🔄 Re-attempting build after automated healing...")
+                        build_code, build_output = await asyncio.to_thread(
+                            _run_process, build_args, project_root, tenant_clean_env
+                        )
+                        logs.extend("  " + line for line in build_output)
+                except Exception:
+                    pass
+
+            if build_code != 0:
+                logs.append(f"❌ Build failed with exit code {build_code}")
                 return False, "\n".join(logs), ""
             logs.append("✓ Build completed successfully.")
         except Exception as e:
-            logs.append(f"❌ Build execution error: {str(e)}")
+            logger.exception("Preview build command could not start in %s", project_root)
+            logs.append(f"❌ Build execution error: {e!r}")
             return False, "\n".join(logs), ""
 
         # 5. Locate compiled artifact directory containing index.html

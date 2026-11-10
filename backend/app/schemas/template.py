@@ -118,6 +118,7 @@ class TemplateUpdate(BaseModel):
     video_url: Optional[str] = None
     gallery_images: Optional[List[str]] = None
     category_id: Optional[uuid.UUID] = None
+    category: Optional[str] = None
     tags: Optional[List[str]] = None
     industry: Optional[str] = None
     color_scheme: Optional[str] = None
@@ -241,6 +242,7 @@ class TemplateCardResponse(BaseModel):
     rating_avg: float
     rating_count: int
     developer_name: Optional[str] = None
+    seller_id: Optional[uuid.UUID] = None
     is_favorited: Optional[bool] = None
     is_wishlisted: Optional[bool] = None
 
@@ -284,5 +286,6 @@ class TemplateFilterParams(BaseModel):
     q: Optional[str] = None  # text search query
     semantic: Optional[bool] = False
     developer: Optional[str] = None
+    seller_id: Optional[uuid.UUID] = None
 
 

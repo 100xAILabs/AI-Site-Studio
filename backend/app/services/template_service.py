@@ -73,6 +73,7 @@ class TemplateService:
                     "rating_avg": t.rating_avg,
                     "rating_count": t.rating_count,
                     "developer_name": t.developer_name,
+                    "seller_id": t.seller_id,
                     "is_favorited": t.id in favorited_ids if current_user else None,
                     "is_wishlisted": t.id in wishlisted_ids if current_user else None,
                 }

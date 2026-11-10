@@ -41,6 +41,18 @@ SUPPORTED_STACKS = {
         "backend": "fastapi",
         "db": "postgresql",
     },
+    "vue-fastapi-postgresql": {
+        "label": "Vue + FastAPI + PostgreSQL",
+        "frontend": "vue",
+        "backend": "fastapi",
+        "db": "postgresql",
+    },
+    "angular-fastapi-postgresql": {
+        "label": "Angular + FastAPI + PostgreSQL",
+        "frontend": "angular",
+        "backend": "fastapi",
+        "db": "postgresql",
+    },
     # Legacy aliases normalized to React + FastAPI + PostgreSQL
     "react-fastapi-mongodb": {"label": "React + FastAPI + PostgreSQL", "frontend": "react", "backend": "fastapi", "db": "postgresql"},
     "nextjs-fastapi-postgresql": {"label": "React + FastAPI + PostgreSQL", "frontend": "react", "backend": "fastapi", "db": "postgresql"},
@@ -88,7 +100,7 @@ CRITICAL SQLALCHEMY 2.0 & FASTAPI RULES:
 5. In app/main.py response serialization:
    - NEVER use UJSONResponse or default_response_class=UJSONResponse (ujson is an unnecessary C-extension that crashes when missing). Always use FastAPI default standard JSON serialization.
 7. Database Engine:
-   - STRICTLY configure PostgreSQL using asyncpg driver: `postgresql+asyncpg://neondb_owner:npg_17RiWabLMqdQ@ep-fancy-voice-b4vhh03l-pooler.c-6.us-east-2.aws.neon.tech/neondb?ssl=require` (or from `os.getenv("DATABASE_URL")`).
+   - Configure PostgreSQL using asyncpg through the required `DATABASE_URL` environment variable. Never embed database credentials or commit them.
    - NEVER use SQLite or aiosqlite.
 6. In requirements.txt:
    - Provide complete, detailed, pinned requirements with category comments: fastapi>=0.110.0,<1.0.0, uvicorn[standard]>=0.29.0, pydantic>=2.7.0, sqlalchemy>=2.0.30, asyncpg>=0.29.0, alembic>=1.13.0, python-dotenv>=1.0.1, httpx>=0.27.0. STRICTLY use PostgreSQL with asyncpg; NEVER add ujson or aiosqlite.
@@ -425,8 +437,8 @@ OUTPUT INSTRUCTIONS (CRITICAL — follow exactly):
         image_context: str,
     ) -> list[tuple[str, str]]:
         """
-        Frontend Dev Agent: generate a React or Next.js frontend that calls the
-        generated backend API. Returns [(relative_path, content), ...].
+        Frontend Dev Agent: generate the selected React, Vue, Angular, or Next.js
+        frontend that calls the generated backend API. Returns [(relative_path, content), ...].
         """
         stack_info = SUPPORTED_STACKS.get(stack_key, {})
         frontend_type = stack_info.get("frontend", "react")
@@ -436,8 +448,29 @@ OUTPUT INSTRUCTIONS (CRITICAL — follow exactly):
         components = architecture.get("frontend_components", [])
         api_routes = architecture.get("api_routes", [])
         stripe_needed = architecture.get("stripe_needed", False)
+        owner_identity = str(answers.get("identity") or answers.get("name") or "Not separately provided")[:1200]
 
-        if frontend_type == "nextjs":
+        if frontend_type == "vue":
+            framework_instructions = """Framework: Vue 3 + TypeScript + Vite + Vue Router
+Use Vue single-file components and Composition API. Build a complete app with these files:
+  frontend/package.json (vue, vue-router, vite, typescript, @vitejs/plugin-vue, lucide-vue-next)
+  frontend/tsconfig.json, frontend/vite.config.ts, frontend/index.html
+  frontend/src/main.ts, frontend/src/App.vue, frontend/src/style.css
+  frontend/src/router/index.ts, frontend/src/views/<Page>.vue (one per route)
+  frontend/src/components/Navbar.vue, Footer.vue, frontend/src/api/client.ts
+  frontend/.env.example (VITE_API_URL=http://localhost:8000), frontend/README.md
+Use Vue Router history routes and provide SPA fallback-compatible routes. Pages to generate (one src/views/<Page>.vue per page):"""
+        elif frontend_type == "angular":
+            framework_instructions = """Framework: Angular 18+ + TypeScript + standalone components + Angular Router
+Build a complete runnable Angular application with these files:
+  frontend/package.json (@angular/core, @angular/common, @angular/router, @angular/platform-browser, rxjs, typescript, @angular/cli)
+  frontend/angular.json, frontend/tsconfig.json, frontend/tsconfig.app.json, frontend/index.html
+  frontend/src/main.ts, frontend/src/styles.css, frontend/src/app/app.config.ts, frontend/src/app/app.component.ts
+  frontend/src/app/app.routes.ts, frontend/src/app/pages/<page>/<page>.component.ts (one per route)
+  frontend/src/app/components/navbar.component.ts, footer.component.ts, frontend/src/app/api/client.ts
+  frontend/.env.example (API_URL=http://localhost:8000), frontend/README.md
+Use standalone components, RouterLink/RouterOutlet, and Angular Router routes. Pages to generate (one page component per route):"""
+        elif frontend_type == "nextjs":
             framework_instructions = """Framework: Next.js 14 App Router (TypeScript)
 Stack: Next.js 14 + TypeScript + Tailwind CSS + shadcn/ui components
 File structure:
@@ -500,7 +533,7 @@ STRIPE FRONTEND:
         request = f"""{framework_instructions}
 {pages_list}
 
-API endpoints to consume (backend is at VITE_API_URL or NEXT_PUBLIC_API_URL):
+API endpoints to consume (read the backend base URL from the selected framework's environment config):
 {api_summary}
 
 Design system:
@@ -514,6 +547,10 @@ Image assets:
 
 User brief:
 {prompt[:3000]}
+
+Authoritative identity answer (use name and role exactly as supplied):
+{owner_identity}
+Never infer or append a surname from an account profile, username, or email. Do not expand a single role into extra titles (for example, do not add "Full-Stack Developer" when only "AI Engineer" was supplied). Never invent biography, experience, employers, credentials, or skills.
 
 Frontend component plan:
 {json.dumps(components, ensure_ascii=False)[:3000]}
@@ -535,9 +572,10 @@ OUTPUT INSTRUCTIONS (CRITICAL — follow exactly):
 - ALL-DEVICE & MOBILE RESPONSIVENESS (MANDATORY):
   * Every page and component MUST be 100% responsive across all screen sizes: mobile phones (320px–480px), tablets (768px–1024px), laptops, and large desktop screens.
   * Use responsive layout classes (e.g. `grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3`, `flex flex-col md:flex-row`, `px-4 sm:px-6 lg:px-8`).
-  * Include a working mobile navigation hamburger menu state (`isOpen`, `setIsOpen`) that toggles a mobile drawer on screens below `md:`.
+  * Implement a working accessible mobile menu: a real button with aria-label, aria-controls pointing to a uniquely identified drawer, and aria-expanded updated on every toggle. Click/tap and Enter/Space must open and close it; Escape and selecting an internal link must close it. Do not render decorative/nonfunctional hamburger icons.
   * Ensure touch targets for buttons, links, and inputs have at least 44px tap height (`min-h-[44px]`).
   * Ensure zero horizontal overflow (`overflow-x-hidden`).
+- MULTI-PAGE COMPLETENESS (MANDATORY): Generate every planned page and register a real route for each. Header, footer, cards, and calls to action must link to the correct route; never use placeholder `#` links for planned pages. Keep the same navigation, visual system, and responsive behavior across routes. Verify route paths and menu behavior in the generated source.
 - 1:1 ALL-IMAGE MANDATE: Render all uploaded images from 'Image assets' across the UI (profile in About/Bio, all showcase images in the gallery/works grid). Never reuse the same image path across multiple cards when unused assets exist. Every single uploaded asset must be featured.
 - MANDATORY HIGH-FIDELITY CSS & MODERN UI STYLING:
   * NEVER generate bare, unstyled, or plain HTML. Every TSX page and component MUST have rich, polished, modern visual CSS styling using Tailwind CSS.
@@ -545,6 +583,7 @@ OUTPUT INSTRUCTIONS (CRITICAL — follow exactly):
   * Radiant Gradient Accents: Use radiant gradient buttons, badges, and icon backgrounds (e.g. `bg-gradient-to-r from-primary-600 via-teal-500 to-emerald-500 hover:shadow-lg hover:shadow-primary-500/25`).
   * Typography & Hierarchy: Use crisp font scales with tight tracking (`text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900`), balanced muted subtext (`text-gray-500 text-sm sm:text-base leading-relaxed`), and prominent metric values.
   * Form Inputs & Interactive Controls: Form fields must have icons, clean border transitions, and prominent glow focus rings (`rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm shadow-sm transition-all focus:border-primary-500 focus:ring-4 focus:ring-primary-500/15`). Buttons must feature subtle hover translation (`hover:-translate-y-0.5 active:translate-y-0 transition-transform`).
+  * Motion: Add a visible, cohesive motion system with staggered hero entrance, section reveals, image transitions, and refined hover/focus feedback. Use CSS transitions/keyframes or framework-native lightweight observers; respect `prefers-reduced-motion`, and avoid excessive parallax or animation that delays interaction.
   * Tables & Lists: Polished table rows with hover states (`hover:bg-gray-50/80 transition-colors`), status pills with tinted rings (`bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20 rounded-full px-2.5 py-1 text-xs font-semibold`), and illustrated or icon-backed empty states.
   * Micro-Badges & Icon Wrappers: Wrap Lucide icons in rounded square or circular gradient pill containers (`p-3 rounded-xl bg-primary-50 text-primary-600`).
 - Start immediately with the first ===FILE: ...=== line.
@@ -566,7 +605,7 @@ OUTPUT INSTRUCTIONS (CRITICAL — follow exactly):
         has_dockerfile = False
         for path, content in parsed_blocks:
             ext = os.path.splitext(path)[1].lower()
-            cleaned = _debugger.sanitize_code_heuristics(content, ext=ext, framework="react")
+            cleaned = _debugger.sanitize_code_heuristics(content, ext=ext, framework=frontend_type)
             sanitized.append((path, cleaned))
             if "dockerfile" in path.lower():
                 has_dockerfile = True
@@ -695,7 +734,7 @@ Rules:
     image: mongo:7.0
     restart: always
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     volumes:
       - mongodata:/data/db"""
             db_volume = "mongodata:"
@@ -707,13 +746,13 @@ Rules:
     environment:
       POSTGRES_DB: app_db
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the project .env file}"
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data"""
             db_volume = "pgdata:"
-            db_env = "      - DATABASE_URL=postgresql+asyncpg://postgres:postgrespassword@db:5432/app_db"
+            db_env = "      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the project .env file}@db:5432/app_db"
 
         return f"""version: '3.8'
 

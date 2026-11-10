@@ -320,14 +320,21 @@ function NavbarComponent() {
                   {user?.avatar_url || user?.picture ? (
                     <img
                       src={user?.avatar_url || user?.picture}
-                      alt={user?.name || "User"}
+                      alt=""
                       className="navbar-avatar-img"
+                      onError={(e) => {
+                        e.currentTarget.style.setProperty('display', 'none', 'important');
+                        const fb = e.currentTarget.parentElement?.querySelector('.navbar-avatar-fallback');
+                        if (fb) fb.style.setProperty('display', 'flex', 'important');
+                      }}
                     />
-                  ) : (
-                    <span className="navbar-avatar-fallback">
-                      {(user?.name || user?.full_name || user?.email || "N")[0].toUpperCase()}
-                    </span>
-                  )}
+                  ) : null}
+                  <span
+                    className="navbar-avatar-fallback"
+                    style={{ display: (user?.avatar_url || user?.picture) ? "none" : "flex" }}
+                  >
+                    {(user?.name || user?.full_name || user?.email || "N")[0].toUpperCase()}
+                  </span>
                 </div>
                 <div className="navbar-user-info-text">
                   <span className="navbar-user-display-name">

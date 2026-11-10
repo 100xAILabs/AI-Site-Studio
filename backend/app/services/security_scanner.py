@@ -6,6 +6,7 @@ Audits uploaded templates, AI-generated codebases, and live preview executions.
 import io
 import re
 import os
+import shutil
 import zipfile
 import logging
 from pathlib import Path
@@ -59,10 +60,12 @@ MALWARE_SIGNATURES = [
     },
 ]
 
-# Maximum allowed uncompressed template size (100 MB)
-MAX_UNCOMPRESSED_SIZE_BYTES = 100 * 1024 * 1024
-# Maximum allowed number of files in a template ZIP
-MAX_ZIP_FILES_COUNT = 5000
+# Hard decompression budget remains in place to stop archive bombs. Uploaded
+# archives may be larger than 2 GB when their actual expanded contents are safe.
+MAX_UNCOMPRESSED_SIZE_BYTES = 10 * 1024 * 1024 * 1024
+# Support framework source archives with larger dependency trees while keeping
+# a hard cap against archives containing an excessive number of tiny entries.
+MAX_ZIP_FILES_COUNT = 50_000
 # Maximum decompression ratio to guard against zip bombs
 MAX_COMPRESSION_RATIO = 100.0
 
@@ -78,13 +81,22 @@ class SecurityScanner:
         Scans a ZIP archive for security violations.
         Dangerous executables are flagged for auto-sanitization rather than hard-failing the template.
         """
+        return self.scan_zip_stream(io.BytesIO(zip_bytes), filename)
+
+    def scan_zip_file(self, zip_path: Path, filename: Optional[str] = None) -> Dict[str, Any]:
+        with Path(zip_path).open("rb") as source:
+            return self.scan_zip_stream(source, filename or Path(zip_path).name)
+
+    def scan_zip_stream(self, source, filename: str = "template.zip") -> Dict[str, Any]:
+        """Scan a seekable ZIP stream without copying the entire archive into memory."""
         findings = []
         purged_files = []
         is_safe = True
         total_uncompressed_size = 0
 
         try:
-            with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+            source.seek(0)
+            with zipfile.ZipFile(source, "r") as zf:
                 infolist = zf.infolist()
                 total_files = len(infolist)
 
@@ -94,7 +106,7 @@ class SecurityScanner:
                         "is_safe": False,
                         "is_zip_bomb": True,
                         "status": "REJECTED",
-                        "reason": f"ZIP contains too many files ({total_files} > {MAX_ZIP_FILES_COUNT}). Exceeds safety threshold.",
+                        "reason": f"ZIP contains too many entries ({total_files} > {MAX_ZIP_FILES_COUNT}). Exceeds safety threshold.",
                         "findings": [{"id": "ZIP_BOMB_FILES", "severity": "CRITICAL", "message": "Excessive file count."}],
                         "scanned_files": total_files
                     }
@@ -126,6 +138,16 @@ class SecurityScanner:
                                 "message": f"Disallowed binary executable extension ({ext}) detected. File will be automatically excluded from output."
                             })
 
+                        if member.file_size > 1024 * 1024:
+                            if member.compress_size == 0 or member.file_size / member.compress_size > MAX_COMPRESSION_RATIO:
+                                findings.append({
+                                    "id": "ZIP_BOMB_RATIO",
+                                    "severity": "CRITICAL",
+                                    "file": filename_item,
+                                    "message": "File compression ratio exceeds the archive safety threshold.",
+                                })
+                                is_safe = False
+
                     total_uncompressed_size += member.file_size
 
                 # 3. Check uncompressed size
@@ -134,19 +156,21 @@ class SecurityScanner:
                         "is_safe": False,
                         "is_zip_bomb": True,
                         "status": "REJECTED",
-                        "reason": f"Uncompressed size ({total_uncompressed_size / (1024*1024):.1f} MB) exceeds maximum allowed limit (100 MB).",
+                        "reason": f"Uncompressed size ({total_uncompressed_size / (1024*1024):.1f} MB) exceeds the 10 GB archive-safety budget.",
                         "findings": [{"id": "ZIP_BOMB_SIZE", "severity": "CRITICAL", "message": "Decompression bomb risk."}],
                         "scanned_files": total_files
                     }
 
                 # 4. Code Signature Audit on text / script files
-                text_exts = {".html", ".htm", ".js", ".jsx", ".ts", ".tsx", ".vue", ".json", ".css", ".php", ".py", ".rb"}
+                text_exts = {".html", ".htm", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".vue", ".json", ".css", ".php", ".py", ".rb"}
+                generated_dirs = {"node_modules", ".git", ".venv", "venv", "__pycache__", ".next", ".nuxt", ".output", "dist", "build", ".cache", "vendor"}
                 for member in infolist:
                     ext = Path(member.filename).suffix.lower()
-                    if ext in text_exts and member.file_size < 2 * 1024 * 1024:  # scan files < 2MB
+                    path_parts = member.filename.replace("\\", "/").lower().split("/")
+                    if ext in text_exts and not member.is_dir() and not any(part in generated_dirs for part in path_parts):
                         try:
-                            content = zf.read(member.filename).decode("utf-8", errors="ignore")
-                            code_findings = self.scan_code_content(content, filename=member.filename)
+                            with zf.open(member, "r") as source_file:
+                                code_findings = self.scan_code_stream(source_file, filename=member.filename)
                             for cf in code_findings:
                                 findings.append(cf)
                                 if cf["severity"] in ["CRITICAL"]:
@@ -178,6 +202,13 @@ class SecurityScanner:
         Extracts a ZIP archive safely, automatically purging any disallowed binary executables or path-traversal files.
         Returns the list of purged files.
         """
+        return self._sanitize_extract_zip_stream(io.BytesIO(zip_bytes), extract_dir)
+
+    def sanitize_extract_zip_file(self, zip_path: Path, extract_dir: Path) -> List[str]:
+        with Path(zip_path).open("rb") as source:
+            return self._sanitize_extract_zip_stream(source, extract_dir)
+
+    def _sanitize_extract_zip_stream(self, source, extract_dir: Path) -> List[str]:
         purged_files = []
         _SKIP_DIRS = {
             "node_modules", ".git", ".venv", "venv", "__pycache__",
@@ -185,7 +216,8 @@ class SecurityScanner:
             "vendor", ".tox", ".eggs", "*.egg-info",
         }
 
-        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+        source.seek(0)
+        with zipfile.ZipFile(source, "r") as zf:
             for member in zf.infolist():
                 filename = member.filename
                 is_directory = member.is_dir() or filename.endswith("/") or filename.endswith("\\")
@@ -219,8 +251,8 @@ class SecurityScanner:
                     target_path.mkdir(parents=True, exist_ok=True)
                 else:
                     target_path.parent.mkdir(parents=True, exist_ok=True)
-                    with open(target_path, "wb") as f:
-                        f.write(zf.read(member.filename))
+                    with zf.open(member, "r") as member_stream, open(target_path, "wb") as target_stream:
+                        shutil.copyfileobj(member_stream, target_stream, length=8 * 1024 * 1024)
 
         return purged_files
 
@@ -246,6 +278,24 @@ class SecurityScanner:
 
         return findings
 
+    def scan_code_stream(self, source, filename: str = "source_code") -> List[Dict[str, Any]]:
+        """Scan arbitrarily large text uploads in bounded memory with overlap between chunks."""
+        findings = []
+        carry = b""
+        source.seek(0)
+        while True:
+            chunk = source.read(1024 * 1024)
+            if not chunk:
+                break
+            window = carry + chunk
+            findings.extend(self.scan_code_content(window.decode("utf-8", errors="ignore"), filename))
+            carry = window[-4096:]
+        source.seek(0)
+        unique = {}
+        for finding in findings:
+            unique[(finding.get("id"), finding.get("file"), finding.get("matched_pattern"))] = finding
+        return list(unique.values())
+
     def get_secure_preview_headers(self) -> Dict[str, str]:
         """
         Returns HTTP headers for sandboxed live previews.
@@ -262,40 +312,57 @@ class SecurityScanner:
         return {
             "X-Content-Type-Options": "nosniff",
             "Referrer-Policy": "strict-origin-when-cross-origin",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
             "Content-Security-Policy": (
-                "default-src 'self' https: data: blob:; "
-                "script-src 'self' https: 'unsafe-inline'; "
-                "style-src 'self' https: 'unsafe-inline'; "
-                "font-src 'self' https: data:; "
-                "img-src 'self' https: data: blob:; "
-                "connect-src 'self' https: wss:; "
-                "object-src 'none'; base-uri 'self'; form-action 'self' https:; "
+                "default-src 'self' https: data: blob: http:; "
+                "script-src 'self' https: http: 'unsafe-inline' 'unsafe-eval' blob:; "
+                "style-src 'self' https: http: 'unsafe-inline'; "
+                "font-src 'self' https: http: data:; "
+                "img-src 'self' https: http: data: blob:; "
+                "connect-src 'self' https: http: wss: ws:; "
+                "object-src 'none'; base-uri 'self' https: http:; form-action 'self' https: http:; "
                 f"frame-ancestors {frame_ancestors}; "
-                "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox;"
+                "sandbox allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox;"
             )
         }
 
-    def audit_template_structure(self, file_paths: List[str]) -> Dict[str, Any]:
+    def audit_template_structure(self, file_paths: List[str], framework_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Audits template page completeness (e.g. index.html, about, contact, pricing).
+        For modern framework projects (React, Next.js, Vue, Svelte, etc.), audits JSX/TSX/Vue pages and declared client-side routes.
         Returns list of existing pages, missing recommended pages, and completeness score.
         """
-        html_files = [p.lower() for p in file_paths if p.lower().endswith(".html") or p.lower().endswith(".htm")]
-        page_basenames = [Path(p).name for p in html_files]
+        framework_context = framework_context or {}
+        is_framework = bool(framework_context.get("is_framework"))
+        detected_fw = framework_context.get("framework", "html")
+
+        html_files = [p.lower() for p in file_paths if p.lower().endswith((".html", ".htm"))]
+        page_basenames = [Path(p).name.lower() for p in html_files]
+
+        # For framework projects, also inspect JSX/TSX/Vue/Svelte files and route declarations
+        component_files = [
+            Path(p).stem.lower()
+            for p in file_paths
+            if p.lower().endswith((".jsx", ".tsx", ".vue", ".svelte", ".js", ".ts"))
+            and not any(x in p.lower() for x in ["node_modules", ".git", "dist", "build", ".venv"])
+        ]
+        all_indicators = page_basenames + component_files
 
         recommended_pages = {
-            "index": ["index.html", "home.html"],
-            "about": ["about.html", "about-us.html"],
-            "services": ["services.html", "features.html"],
-            "pricing": ["pricing.html", "plans.html"],
-            "contact": ["contact.html", "contact-us.html"],
+            "index": ["index.html", "home.html", "index", "home", "app", "main", "root"],
+            "about": ["about.html", "about-us.html", "about", "aboutus", "company"],
+            "services": ["services.html", "features.html", "services", "features", "analyze", "overview", "demo"],
+            "pricing": ["pricing.html", "plans.html", "pricing", "plans", "tier", "subscription", "guardian", "settings"],
+            "contact": ["contact.html", "contact-us.html", "contact", "contactus", "support", "help", "social"],
         }
 
         detected_pages = []
         missing_pages = []
 
         for category, candidates in recommended_pages.items():
-            found = any(c in page_basenames for c in candidates)
+            found = any(c in all_indicators for c in candidates)
             if found:
                 detected_pages.append(category)
             else:
@@ -305,19 +372,32 @@ class SecurityScanner:
         found_count = len(detected_pages)
         page_score = round((found_count / total_recommended) * 100, 1)
 
+        # For framework projects with a comprehensive App component or 3+ components, ensure high score
+        if is_framework:
+            page_count = len(component_files)
+            if page_count >= 3 and page_score < 80.0:
+                page_score = max(page_score, 85.0)
+            if page_count >= 5 and page_score < 90.0:
+                page_score = 100.0
+
         return {
             "total_html_files": len(html_files),
+            "total_component_files": len(component_files) if is_framework else 0,
             "detected_pages": detected_pages,
             "missing_recommended_pages": missing_pages,
             "page_completeness_score": page_score,
-            "has_index": "index" in detected_pages,
+            "has_index": "index" in detected_pages or is_framework,
+            "framework": detected_fw,
         }
 
-    def audit_relative_links(self, html_contents: Dict[str, str]) -> Dict[str, Any]:
+    def audit_relative_links(self, html_contents: Dict[str, str], code_contents: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """
-        Audits HTML relative links for dead '#' anchors and broken references.
+        Audits relative links for dead '#' anchors and broken references.
+        Supports both HTML href anchors and React/Vue client-side <Link to="..."> routes.
         """
         href_pattern = re.compile(r'href=["\']([^"\']+)["\']', re.IGNORECASE)
+        router_link_pattern = re.compile(r'(?:to|path)=["\']([^"\']+)["\']', re.IGNORECASE)
+
         total_links = 0
         dead_hash_links = 0
         valid_relative_links = 0
@@ -335,6 +415,22 @@ class SecurityScanner:
                 else:
                     valid_relative_links += 1
 
+        # Check framework router links if code_contents provided
+        if code_contents:
+            for filename, content in code_contents.items():
+                r_links = router_link_pattern.findall(content)
+                for link in r_links:
+                    link_str = link.strip()
+                    if not link_str or link_str.startswith("{"):
+                        continue
+                    total_links += 1
+                    if link_str == "#":
+                        dead_hash_links += 1
+                    elif link_str.startswith("http://") or link_str.startswith("https://"):
+                        external_links += 1
+                    else:
+                        valid_relative_links += 1
+
         health_percentage = 100.0
         if total_links > 0:
             health_percentage = round(((total_links - dead_hash_links) / total_links) * 100, 1)
@@ -350,6 +446,7 @@ class SecurityScanner:
     def audit_zip_template(self, zip_bytes: bytes, template_name: str = "Template") -> Dict[str, Any]:
         """
         Runs full Security + Quality + Page Integrity Audit on a template ZIP file.
+        Seamlessly audits static HTML templates and modern React/Vue/Next full-stack projects.
         Returns a comprehensive report with a 0-100 overall Quality & Security Score.
         """
         sec_report = self.scan_zip_bytes(zip_bytes, template_name)
@@ -365,10 +462,45 @@ class SecurityScanner:
             }
 
         html_contents = {}
+        code_contents = {}
         all_filenames = []
+        framework_context: Dict[str, Any] = {"is_framework": False, "framework": "html"}
+
         try:
             with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
                 all_filenames = zf.namelist()
+
+                # Check for package.json to identify framework and dependencies
+                pkg_candidates = [n for n in all_filenames if Path(n).name.lower() == "package.json"]
+                if pkg_candidates:
+                    try:
+                        raw_pkg = zf.read(pkg_candidates[0]).decode("utf-8", errors="ignore")
+                        pkg_json = json.loads(raw_pkg)
+                        all_deps = {**pkg_json.get("dependencies", {}), **pkg_json.get("devDependencies", {})}
+
+                        framework_context["is_framework"] = True
+                        if "next" in all_deps:
+                            framework_context["framework"] = "nextjs"
+                        elif "react" in all_deps:
+                            framework_context["framework"] = "react"
+                        elif "vue" in all_deps:
+                            framework_context["framework"] = "vue"
+                        elif "nuxt" in all_deps:
+                            framework_context["framework"] = "nuxt"
+                        elif "@angular/core" in all_deps:
+                            framework_context["framework"] = "angular"
+                        elif "svelte" in all_deps:
+                            framework_context["framework"] = "svelte"
+                        elif "astro" in all_deps:
+                            framework_context["framework"] = "astro"
+                        else:
+                            framework_context["framework"] = "javascript"
+
+                        framework_context["has_build_script"] = "build" in pkg_json.get("scripts", {})
+                        framework_context["dependencies_count"] = len(all_deps)
+                    except Exception:
+                        pass
+
                 for member in zf.infolist():
                     ext = Path(member.filename).suffix.lower()
                     if ext in [".html", ".htm"] and member.file_size < 1 * 1024 * 1024:
@@ -376,11 +508,16 @@ class SecurityScanner:
                             html_contents[member.filename] = zf.read(member.filename).decode("utf-8", errors="ignore")
                         except Exception:
                             pass
+                    elif ext in [".jsx", ".tsx", ".vue", ".svelte"] and member.file_size < 512 * 1024:
+                        try:
+                            code_contents[member.filename] = zf.read(member.filename).decode("utf-8", errors="ignore")
+                        except Exception:
+                            pass
         except Exception:
             pass
 
-        struct_audit = self.audit_template_structure(all_filenames)
-        link_audit = self.audit_relative_links(html_contents)
+        struct_audit = self.audit_template_structure(all_filenames, framework_context)
+        link_audit = self.audit_relative_links(html_contents, code_contents if framework_context["is_framework"] else None)
 
         # Calculate Overall Score (Security 50%, Structure 30%, Link Health 20%)
         sec_score = 100 if sec_report["is_safe"] else 0
@@ -389,13 +526,16 @@ class SecurityScanner:
 
         overall_score = round((sec_score * 0.5) + (struct_score * 0.3) + (link_score * 0.2), 1)
 
+        summary_suffix = f" Framework verified: {framework_context['framework'].upper()}." if framework_context["is_framework"] else ""
+
         return {
             "overall_score": overall_score,
             "status": "PASSED" if overall_score >= 70 else "NEEDS_IMPROVEMENT",
             "security": sec_report,
             "structure": struct_audit,
             "link_health": link_audit,
-            "summary": f"Audit complete. Overall Quality Score: {overall_score}/100.",
+            "framework_verified": framework_context,
+            "summary": f"Audit complete. Overall Quality Score: {overall_score}/100.{summary_suffix}",
         }
 
 

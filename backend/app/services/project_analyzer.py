@@ -10,11 +10,117 @@ import asyncio
 import io
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+from urllib.parse import urlparse
 import httpx
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+_PAGE_SCAN_SKIP_DIRS = {
+    "node_modules", ".git", ".next", ".nuxt", ".output", "dist", "build",
+    ".venv", "venv", "vendor", "coverage", ".cache",
+}
+_PAGE_SOURCE_EXTS = {".js", ".jsx", ".ts", ".tsx", ".vue", ".svelte", ".astro"}
+
+
+def _page_name_from_route(route: str) -> Optional[str]:
+    """Turn a URL or file-based route into a readable page name."""
+    clean = str(route or "").split("?", 1)[0].split("#", 1)[0].strip().strip("/")
+    if not clean or clean.lower() in {"index", "*"}:
+        return "Home"
+    parts = []
+    for segment in clean.split("/"):
+        if not segment or (segment.startswith("(") and segment.endswith(")")):
+            continue
+        if segment.startswith(":") or (segment.startswith("[") and segment.endswith("]")) or segment in {"*", "[...slug]", "[[...slug]]"}:
+            parts.append("Detail")
+        else:
+            parts.append(re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", segment.replace("-", " ").replace("_", " ")).strip().title())
+    return " ".join(part for part in parts if part) or "Home"
+
+
+def _discover_framework_pages(root_path: Path, framework: str) -> List[str]:
+    """Discover file-based pages and declared client-side routes for supported frameworks."""
+    framework = (framework or "html").lower()
+    discovered: List[str] = []
+    route_files: List[tuple[Path, tuple[str, ...]]] = []
+
+    for dirpath, dirnames, filenames in os.walk(root_path):
+        dirnames[:] = [name for name in dirnames if name not in _PAGE_SCAN_SKIP_DIRS]
+        directory = Path(dirpath)
+        try:
+            relative_parts = directory.relative_to(root_path).parts
+        except ValueError:
+            continue
+        lower_parts = tuple(part.lower() for part in relative_parts)
+
+        for filename in filenames:
+            path = Path(filename)
+            suffix = path.suffix.lower()
+            stem = path.stem.lower()
+            if suffix not in _PAGE_SOURCE_EXTS:
+                continue
+
+            if framework in {"nextjs", "react", "vue", "nuxt", "astro"} and "pages" in lower_parts:
+                if stem not in {"_app", "_document", "_error", "404", "500", "middleware", "layout"}:
+                    route_parts = list(lower_parts[lower_parts.index("pages") + 1:]) + [path.stem]
+                    if route_parts and route_parts[-1].lower() == "index":
+                        route_parts.pop()
+                    discovered.append(_page_name_from_route("/".join(route_parts)))
+            elif framework == "nextjs" and stem == "page" and "app" in lower_parts:
+                route_parts = list(lower_parts[len(lower_parts) - 1 - lower_parts[::-1].index("app") + 1:])
+                discovered.append(_page_name_from_route("/".join(route_parts)))
+            elif framework == "svelte" and filename.lower() == "+page.svelte":
+                route_parts = list(lower_parts[lower_parts.index("routes") + 1:]) if "routes" in lower_parts else list(lower_parts)
+                discovered.append(_page_name_from_route("/".join(route_parts)))
+            elif framework == "astro" and "src" in lower_parts and "pages" in lower_parts:
+                route_parts = list(lower_parts[lower_parts.index("pages") + 1:]) + [path.stem]
+                discovered.append(_page_name_from_route("/".join(route_parts)))
+
+            if suffix in {".js", ".jsx", ".ts", ".tsx", ".vue"}:
+                route_files.append((directory / filename, lower_parts + (filename.lower(),)))
+
+    path_pattern = re.compile(r"\bpath\s*[:=]\s*['\"]([^'\"]+)['\"]")
+    jsx_route_pattern = re.compile(r"<Route\b[^>]*\bpath\s*=\s*['\"]([^'\"]+)['\"]", re.IGNORECASE)
+    for route_file, path_parts in route_files:
+        filename = path_parts[-1]
+        in_route_config = any("route" in part or "router" in part or "routing" in part for part in path_parts)
+        is_router_source = filename in {"app.jsx", "app.tsx", "app.js", "app.ts", "main.jsx", "main.tsx"}
+        try:
+            if route_file.stat().st_size > 1024 * 1024:
+                continue
+            source = route_file.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+
+        routes = []
+        if framework in {"react", "nextjs"}:
+            routes.extend(jsx_route_pattern.findall(source))
+            if in_route_config or (is_router_source and any(marker in source for marker in ("createBrowserRouter", "<Routes", "createRoutesFromElements"))):
+                routes.extend(path_pattern.findall(source))
+        elif framework in {"vue", "nuxt"} and (in_route_config or "createRouter" in source or "RouterView" in source):
+            routes.extend(path_pattern.findall(source))
+        elif framework == "angular" and (in_route_config or "Routes" in source):
+            routes.extend(path_pattern.findall(source))
+        elif framework == "svelte" and in_route_config:
+            routes.extend(path_pattern.findall(source))
+
+        for route in routes:
+            page_name = _page_name_from_route(route)
+            if page_name:
+                discovered.append(page_name)
+
+    unique: List[str] = []
+    seen = set()
+    for name in discovered:
+        if not name:
+            continue
+        key = name.casefold()
+        if key not in seen:
+            seen.add(key)
+            unique.append(name)
+    return unique
 
 class ProjectAnalyzer:
     """
@@ -39,6 +145,56 @@ class ProjectAnalyzer:
             except Exception as e:
                 logger.warning(f"Failed to delete directory {path}: {e}")
 
+    def analyze_zip_stream_quick(self, source, filename: str = "template.zip") -> Dict[str, Any]:
+        """Inspect a large archive in place without buffering or extracting it."""
+        from app.services.security_scanner import security_scanner
+        source.seek(0)
+        if not zipfile.is_zipfile(source):
+            if Path(filename).suffix.lower() in {".html", ".htm", ".js", ".css"}:
+                findings = security_scanner.scan_code_stream(source, filename)
+                if any(item.get("severity") in {"CRITICAL", "HIGH"} for item in findings):
+                    return {"success": False, "is_security_violation": True, "error": "Uploaded code failed security inspection", "security_findings": findings}
+            return {"success": True, "framework_detected": "HTML", "pages": ["Home"], "color_palette": [], "dark_mode": False, "responsive_analysis": {"desktop": True, "tablet": True, "mobile": True}, "quick_scan": True}
+        report = security_scanner.scan_zip_stream(source, filename)
+        if not report.get("is_safe") or report.get("purged_files"):
+            return {"success": False, "is_security_violation": True, "error": report.get("reason") or "Archive contains blocked executable files", "security_findings": report.get("findings", [])}
+
+        pages: list[str] = []
+        dependencies: dict[str, Any] = {}
+        has_typescript_source = False
+        source.seek(0)
+        with zipfile.ZipFile(source, "r") as archive:
+            for item in archive.infolist():
+                path = item.filename.replace("\\", "/")
+                lower = path.lower()
+                if item.is_dir() or any(part in {"node_modules", ".git", "dist", "build", ".next", ".nuxt"} for part in lower.split("/")):
+                    continue
+                if lower.endswith((".html", ".htm")):
+                    pages.append(Path(path).stem.replace("-", " ").replace("_", " ").title())
+                if lower.endswith((".ts", ".tsx")):
+                    has_typescript_source = True
+                if Path(lower).name == "package.json" and item.file_size <= 2 * 1024 * 1024:
+                    try:
+                        package = json.loads(archive.read(item).decode("utf-8", errors="replace"))
+                        dependencies.update(package.get("dependencies") or {})
+                        dependencies.update(package.get("devDependencies") or {})
+                    except Exception:
+                        continue
+
+        frameworks = [("next", "Next.js"), ("@angular/core", "Angular"), ("nuxt", "Nuxt"), ("vue", "Vue"), ("astro", "Astro"), ("svelte", "Svelte"), ("react", "React")]
+        framework = next((label for package, label in frameworks if package in dependencies), "HTML")
+        package_name = {"Next.js": "next", "Angular": "@angular/core", "Nuxt": "nuxt", "Vue": "vue", "Astro": "astro", "Svelte": "svelte", "React": "react"}.get(framework, "")
+        language = "TypeScript" if "typescript" in dependencies or has_typescript_source else "JavaScript"
+        return {
+            "success": True, "framework_detected": framework,
+            "language": language,
+            "version": str(dependencies.get(package_name, "1.0.0")).lstrip("^~") or "1.0.0",
+            "pages": list(dict.fromkeys(pages)) or ["Home"],
+            "components": ["Navbar", "Main Content", "Footer"], "categories": {}, "industry": [],
+            "color_palette": [], "typography": [], "responsive_analysis": {"desktop": True, "tablet": True, "mobile": True},
+            "dark_mode": False, "seo_analysis": {}, "assets_count": {}, "quick_scan": True,
+        }
+
     async def analyze_zip_bytes(self, zip_bytes: bytes, filename: str = "template.zip") -> Dict[str, Any]:
         """Alias for analyze_zip accepting raw zip file bytes."""
         return await self.analyze_zip(zip_bytes, filename)
@@ -61,7 +217,7 @@ class ProjectAnalyzer:
         # 0. Run Instant Live Security & Malware Scan
         from app.services.security_scanner import security_scanner
         sec_result = security_scanner.scan_zip_bytes(file_content, original_filename)
-        if not sec_result["is_safe"]:
+        if not sec_result["is_safe"] or sec_result.get("purged_files"):
             logger.warning(f"🚨 Security check failed for {original_filename}: {sec_result.get('findings')}")
             return {
                 "success": False,
@@ -192,7 +348,7 @@ class ProjectAnalyzer:
             # Clean up temporary directory
             self._safe_cleanup(temp_dir)
 
-    async def analyze_git_repo(self, git_url: str) -> Dict[str, Any]:
+    async def analyze_git_repo(self, git_url: str, token: Optional[str] = None) -> Dict[str, Any]:
         """
         Clones a Git repository, packages it into a clean ZIP file
         (automatically filtering out .git, node_modules, .venv, etc.),
@@ -205,45 +361,51 @@ class ProjectAnalyzer:
         clone_dir = temp_dir / "repo"
 
         try:
-            # 1. Run git clone depth 1
+            # 1. Run a shallow Git clone without putting credentials in the URL
             import subprocess
-            cmd = ["git", "clone", "--depth", "1", git_url, str(clone_dir)]
+            import base64
+            cmd = ["git", "clone", "--depth", "1", "--single-branch", "--no-tags", git_url, str(clone_dir)]
+            clone_env = {
+                "PATH": os.environ.get("PATH", ""),
+                "SYSTEMROOT": os.environ.get("SYSTEMROOT", "C:\\Windows"),
+                "WINDIR": os.environ.get("WINDIR", os.environ.get("SYSTEMROOT", "C:\\Windows")),
+                "TEMP": os.environ.get("TEMP", tempfile.gettempdir()),
+                "TMP": os.environ.get("TMP", tempfile.gettempdir()),
+                "HOME": str(temp_dir),
+                "USERPROFILE": str(temp_dir),
+                "GIT_TERMINAL_PROMPT": "0",
+                "GIT_CONFIG_NOSYSTEM": "1",
+            }
+            if token and urlparse(git_url).hostname == "github.com":
+                auth_header = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode("ascii")
+                clone_env.update({
+                    "GIT_CONFIG_COUNT": "1",
+                    "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+                    "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {auth_header}",
+                })
             
             def run_clone():
                 return subprocess.run(
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    timeout=45,
-                    env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1"},
+                    timeout=settings.GIT_CLONE_TIMEOUT_SECONDS,
+                    env=clone_env,
                 )
             
-            res = await asyncio.to_thread(run_clone)
+            try:
+                res = await asyncio.to_thread(run_clone)
+            except subprocess.TimeoutExpired as exc:
+                raise TimeoutError(
+                    f"Git clone exceeded the {settings.GIT_CLONE_TIMEOUT_SECONDS}-second limit. "
+                    "Retry, or use a smaller repository."
+                ) from exc
             if res.returncode != 0:
-                raise Exception(f"Git clone failed: {res.stderr.decode(errors='ignore')}")
+                raise RuntimeError("Git clone failed. Check the repository URL and access permissions.")
 
-            # 2. Locate root folder (find package.json or index.html recursively inside clone_dir)
+            # Scan the full repository root. Framework packages can be under
+            # frontend/, client/, apps/web/, or a workspace beside the root manifest.
             root_path = clone_dir
-            package_json_found = None
-            for r, d, f in os.walk(clone_dir):
-                if any(x in Path(r).parts for x in [".git", "node_modules", ".venv", ".next", "dist", "build"]):
-                    continue
-                if "package.json" in f:
-                    package_json_found = Path(r)
-                    break
-            
-            if package_json_found:
-                root_path = package_json_found
-            else:
-                index_html_found = None
-                for r, d, f in os.walk(clone_dir):
-                    if any(x in Path(r).parts for x in [".git", "node_modules", ".venv", ".next", "dist", "build"]):
-                        continue
-                    if "index.html" in f:
-                        index_html_found = Path(r)
-                        break
-                if index_html_found:
-                    root_path = index_html_found
 
             # 3. Create a clean ZIP archive of the cloned repository in memory
             # Excluding .git, node_modules, .venv, .next, dist, build, etc.
@@ -391,106 +553,104 @@ class ProjectAnalyzer:
         has_svelte_import = False
         has_astro_import = False
 
-        # 1. Inspect package.json
-        package_json_path = root_path / "package.json"
-        if package_json_path.exists():
+        # 1. Inspect all app manifests, including frontend/client/workspace packages.
+        manifest_skip_dirs = {"node_modules", ".git", ".next", ".nuxt", "dist", "build", ".venv", "vendor"}
+        package_json_paths = []
+        root_manifest = root_path / "package.json"
+        if root_manifest.is_file():
+            package_json_paths.append(root_manifest)
+        for manifest_dir, dirnames, filenames in os.walk(root_path):
+            dirnames[:] = [name for name in dirnames if name not in manifest_skip_dirs]
+            if "package.json" in filenames:
+                manifest_path = Path(manifest_dir) / "package.json"
+                if manifest_path not in package_json_paths:
+                    package_json_paths.append(manifest_path)
+
+        all_deps = {}
+        root_package_data = None
+        for manifest_path in package_json_paths:
             try:
-                with open(package_json_path, "r", encoding="utf-8") as f:
-                    pkg_data = json.load(f)
-                    deps = pkg_data.get("dependencies") or {}
-                    dev_deps = pkg_data.get("devDependencies") or {}
-                    if not isinstance(deps, dict):
-                        deps = {}
-                    if not isinstance(dev_deps, dict):
-                        dev_deps = {}
-                    all_deps = {**deps, **dev_deps}
-                    dependencies = deps
-
-                    # Extract project's own package version if present
-                    if pkg_data.get("version"):
-                        code_version = clean_ver(pkg_data.get("version")) or "1.0.0"
-                        version = code_version
-
-                    # Framework detection with exact dependency version
-                    if "next" in all_deps:
-                        framework = "nextjs"
-                        framework_version = clean_ver(all_deps.get("next", "15.0.0"))
-                        version = code_version if (code_version and code_version != "1.0.0") else (framework_version or "15.0.0")
-                        language = "TypeScript" if "typescript" in all_deps else "JavaScript"
-                    elif "react" in all_deps:
-                        framework = "react"
-                        framework_version = clean_ver(all_deps.get("react", "19.0.0"))
-                        version = code_version if (code_version and code_version != "1.0.0") else (framework_version or "19.0.0")
-                        language = "TypeScript" if "typescript" in all_deps else "JavaScript"
-                    elif "nuxt" in all_deps:
-                        framework = "nuxt"
-                        framework_version = clean_ver(all_deps.get("nuxt", "3.0.0"))
-                        version = code_version if (code_version and code_version != "1.0.0") else (framework_version or "3.0.0")
-                        language = "TypeScript" if "typescript" in all_deps else "JavaScript"
-                    elif "vue" in all_deps:
-                        framework = "vue"
-                        framework_version = clean_ver(all_deps.get("vue", "3.0.0"))
-                        version = code_version if (code_version and code_version != "1.0.0") else (framework_version or "3.0.0")
-                        language = "TypeScript" if "typescript" in all_deps else "JavaScript"
-                    elif "astro" in all_deps:
-                        framework = "astro"
-                        framework_version = clean_ver(all_deps.get("astro", "4.0.0"))
-                        version = code_version if (code_version and code_version != "1.0.0") else (framework_version or "4.0.0")
-                        language = "TypeScript" if "typescript" in all_deps else "JavaScript"
-                    elif "@angular/core" in all_deps:
-                        framework = "angular"
-                        framework_version = clean_ver(all_deps.get("@angular/core", "18.0.0"))
-                        version = code_version if (code_version and code_version != "1.0.0") else (framework_version or "18.0.0")
-                        language = "TypeScript"
-                    elif "svelte" in all_deps:
-                        framework = "svelte"
-                        framework_version = clean_ver(all_deps.get("svelte", "5.0.0"))
-                        version = code_version if (code_version and code_version != "1.0.0") else (framework_version or "5.0.0")
-                        language = "TypeScript" if "typescript" in all_deps else "JavaScript"
-                    elif "tailwindcss" in all_deps:
-                        framework = "tailwind"
-                        framework_version = clean_ver(all_deps.get("tailwindcss", "3.4.0"))
-                        version = code_version if (code_version and code_version != "1.0.0") else (framework_version or "3.4.0")
-                    else:
-                        framework = "html"
-                        framework_version = "HTML5"
-                        version = code_version or "1.0.0"
-
-                    # Language
-                    if "typescript" in all_deps or any(Path(root_path).glob("**/*.ts")) or any(Path(root_path).glob("**/*.tsx")):
-                        language = "TypeScript"
-
-                    # CSS System
-                    if "tailwindcss" in all_deps:
-                        tw_v = clean_ver(all_deps.get("tailwindcss", "3.0"))
-                        css_system = f"Tailwind CSS v{tw_v}" if tw_v else "Tailwind CSS"
-                    elif "styled-components" in all_deps:
-                        css_system = "Styled Components"
-                    elif "sass" in all_deps or "node-sass" in all_deps:
-                        css_system = "SASS / SCSS"
-
-                    # UI Library
-                    if "@radix-ui/react-dialog" in all_deps or "lucide-react" in all_deps:
-                        ui_library = "Shadcn UI"
-                    elif "@mui/material" in all_deps:
-                        ui_library = "Material UI"
-                    elif "bootstrap" in all_deps:
-                        ui_library = "Bootstrap"
-
-                    # Animations
-                    if "framer-motion" in all_deps:
-                        animation_library = "Framer Motion"
-                    elif "gsap" in all_deps:
-                        animation_library = "GSAP"
+                with manifest_path.open("r", encoding="utf-8") as package_file:
+                    pkg_data = json.load(package_file)
+                if not isinstance(pkg_data, dict):
+                    continue
+                if manifest_path == root_manifest:
+                    root_package_data = pkg_data
+                deps = pkg_data.get("dependencies") or {}
+                dev_deps = pkg_data.get("devDependencies") or {}
+                if not isinstance(deps, dict):
+                    deps = {}
+                if not isinstance(dev_deps, dict):
+                    dev_deps = {}
+                dependencies.update(deps)
+                all_deps.update(deps)
+                all_deps.update(dev_deps)
+                if root_package_data is None:
+                    root_package_data = pkg_data
             except Exception as e:
-                logger.warning(f"Error parsing package.json: {e}")
+                logger.warning("Error parsing package manifest %s: %s", manifest_path, e)
+
+        if all_deps:
+            pkg_version = (root_package_data or {}).get("version")
+            if pkg_version:
+                code_version = clean_ver(pkg_version) or "1.0.0"
+                version = code_version
+
+            # Framework detection uses dependencies from every app/workspace manifest.
+            if "next" in all_deps:
+                framework, framework_version = "nextjs", clean_ver(all_deps.get("next", "15.0.0"))
+            elif "react" in all_deps:
+                framework, framework_version = "react", clean_ver(all_deps.get("react", "19.0.0"))
+            elif "nuxt" in all_deps:
+                framework, framework_version = "nuxt", clean_ver(all_deps.get("nuxt", "3.0.0"))
+            elif "vue" in all_deps:
+                framework, framework_version = "vue", clean_ver(all_deps.get("vue", "3.0.0"))
+            elif "astro" in all_deps:
+                framework, framework_version = "astro", clean_ver(all_deps.get("astro", "4.0.0"))
+            elif "@angular/core" in all_deps:
+                framework, framework_version = "angular", clean_ver(all_deps.get("@angular/core", "18.0.0"))
+            elif "svelte" in all_deps:
+                framework, framework_version = "svelte", clean_ver(all_deps.get("svelte", "5.0.0"))
+            elif "tailwindcss" in all_deps:
+                framework, framework_version = "tailwind", clean_ver(all_deps.get("tailwindcss", "3.4.0"))
+            else:
+                framework, framework_version = "html", "HTML5"
+            if framework != "html":
+                version = code_version if code_version != "1.0.0" else framework_version or "1.0.0"
+            if framework == "angular":
+                language = "TypeScript"
+            elif "typescript" in all_deps:
+                language = "TypeScript"
+            elif framework != "html":
+                language = "JavaScript"
+            # CSS system
+            if "tailwindcss" in all_deps:
+                tw_v = clean_ver(all_deps.get("tailwindcss", "3.0"))
+                css_system = f"Tailwind CSS v{tw_v}" if tw_v else "Tailwind CSS"
+            elif "styled-components" in all_deps:
+                css_system = "Styled Components"
+            elif "sass" in all_deps or "node-sass" in all_deps:
+                css_system = "SASS / SCSS"
+
+            # UI library and animation tools
+            if "@radix-ui/react-dialog" in all_deps or "lucide-react" in all_deps:
+                ui_library = "Shadcn UI"
+            elif "@mui/material" in all_deps:
+                ui_library = "Material UI"
+            elif "bootstrap" in all_deps:
+                ui_library = "Bootstrap"
+            if "framer-motion" in all_deps:
+                animation_library = "Framer Motion"
+            elif "gsap" in all_deps:
+                animation_library = "GSAP"
 
         # 2. File traversal scanning
         for dirpath, dirnames, filenames in os.walk(root_path):
+            dirnames[:] = [
+                name for name in dirnames
+                if name not in {"node_modules", ".git", ".next", ".nuxt", "dist", "build", ".venv", "vendor"}
+            ]
             dp = Path(dirpath)
-            # Skip node_modules and .git
-            if "node_modules" in dp.parts or ".git" in dp.parts or ".next" in dp.parts or "dist" in dp.parts or "build" in dp.parts:
-                continue
 
             for filename in filenames:
                 file_ext = Path(filename).suffix.lower()
@@ -593,27 +753,7 @@ class ProjectAnalyzer:
                     except Exception as e:
                         logger.warning(f"Error scanning code file {filename}: {e}")
 
-                # App router page structure scanning
-                if framework == "nextjs":
-                    # Look for page.jsx / page.tsx / page.js
-                    if filename in ["page.jsx", "page.tsx", "page.js"]:
-                        # Extract directory relative to root/app or root/src/app
-                        try:
-                            rel_to_root = dp.relative_to(root_path)
-                            parts = list(rel_to_root.parts)
-                            if "app" in parts:
-                                app_idx = parts.index("app")
-                                page_route = parts[app_idx + 1 :]
-                                page_name = "/".join(page_route) if page_route else ""
-                                if not page_name:
-                                    pages.append("Home")
-                                else:
-                                    # Format: "about" -> "About"
-                                    # Format: "blog/[slug]" -> "Blog Detail"
-                                    pages.append(page_name.replace("[", "").replace("]", "").replace("-", " ").title())
-                        except Exception:
-                            pass
-                elif file_ext == ".html":
+                if file_ext == ".html":
                     # Add standard HTML page name
                     page_name = Path(filename).stem
                     if page_name == "index":
@@ -665,6 +805,17 @@ class ProjectAnalyzer:
             if extension_counts.get(".ts", 0) > 0 or extension_counts.get(".tsx", 0) > 0:
                 language = "TypeScript"
 
+        for page_name in _discover_framework_pages(root_path, framework):
+            pages.append(page_name)
+        deduped_pages = []
+        seen_pages = set()
+        for page_name in pages:
+            normalized_page = _page_name_from_route(page_name)
+            key = normalized_page.casefold()
+            if key not in seen_pages:
+                seen_pages.add(key)
+                deduped_pages.append(normalized_page)
+
         # 3. Process colors (select top 5 hex codes, skipping pure white/black if others exist)
         sorted_colors = sorted(color_freq.items(), key=lambda x: x[1], reverse=True)
         filtered_colors = []
@@ -696,7 +847,7 @@ class ProjectAnalyzer:
             "css_system": css_system,
             "ui_library": ui_library,
             "animation_library": animation_library,
-            "pages": pages[:15] or ["Home"],
+            "pages": deduped_pages[:50] or ["Home"],
             "components": components[:15] or (["Navbar", "Hero", "Footer"] if framework.lower() != "html" else ["Header", "Content", "Footer"]),
             "color_palette": color_palette,
             "typography": typography,

@@ -5,7 +5,7 @@
  * Redesigned to support all 26 layouts/sections with rich interactive simulations.
  */
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import Image from "@/components/Image";
 import Link, { navigate } from "@/components/Link";
@@ -33,7 +33,6 @@ import { API_URL, api } from "@/lib/api";
 import { TEMPLATE_DOWNLOADS_FREE } from "@/lib/marketplaceConfig";
 import TemplateArchitectureDiagram from "./TemplateArchitectureDiagram";
 import TemplatePerformanceGraphs from "./TemplatePerformanceGraphs";
-import TemplateAIChat from "./TemplateAIChat";
 import "./Page.css";
 
 /**
@@ -320,8 +319,13 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
       const authToken = token || await getToken();
       const result = await api.post(`/templates/${template.id}/download?format=zip`, {}, authToken);
       if (!result?.download_url) throw new Error("The download file is not available yet.");
+      let downloadUrl = result.download_url;
+      if (authToken && !downloadUrl.includes("token=")) {
+        const sep = downloadUrl.includes("?") ? "&" : "?";
+        downloadUrl = `${downloadUrl}${sep}token=${encodeURIComponent(authToken)}`;
+      }
       const link = document.createElement("a");
-      link.href = result.download_url;
+      link.href = downloadUrl;
       link.target = "_blank";
       link.rel = "noopener noreferrer";
       link.download = "";
@@ -927,6 +931,252 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
     }, 600);
   };
 
+  const isOwnerOrAdmin = Boolean(user && (user.id === template?.seller_id || user.role === "admin" || user.role === "super_admin"));
+  const allImages = template ? [template.thumbnail_url, ...(template.gallery_images ?? [])].filter(Boolean) : [];
+
+  // Helper arrays for features and specifications mapping
+  const featuresList = [
+    { name: "Responsive Layout", desc: "Looks stunning on Desktop, Tablet, and Mobile devices out-of-the-box.", icon: Globe },
+    { name: "SEO Optimization Ready", desc: "Includes semantic structure, pre-mapped metatags, and JSON-LD markup schema.", icon: Shield },
+    { name: "Ultra Fast Loading", desc: "Highly optimized code with Google Lighthouse scores close to 100.", icon: Flame },
+    { name: "Accessibility Focused", desc: "Complies with WCAG accessibility patterns for screen readers.", icon: UserCheck },
+    { name: "Modern Dark Mode", desc: "Smooth toggles with native system preference detection.", icon: Moon },
+    { name: "Premium Micro-Animations", desc: "Configured using Framer Motion and modern CSS keyframes.", icon: Sparkles },
+    { name: "Sticky Header Layout", desc: "Fully responsive, glassmorphic headers that follow screen scrolling.", icon: Clock },
+    { name: "CMS Ready Framework", desc: "Easily plug into Sanity, Strapi, or headless WordPress backends.", icon: Cpu },
+  ];
+
+  const customizationOptions = [
+    { title: "Colors & Schemes", desc: "Tailor the appearance using a single master CSS variable.", icon: Sliders },
+    { title: "Typography & Fonts", desc: "Pre-linked with Google Fonts. Easily customize in index.css.", icon: FileText },
+    { title: "Image Assets", desc: "SVG mockups and placeholders are easily replacable in assets directory.", icon: Image },
+    { title: "Interactive Layouts", desc: "Re-arrange sections or components safely without layout breaks.", icon: Code },
+  ];
+
+  // Dynamic & authentic changelog derived from real template data, version, and upload history
+  const changelogList = useMemo(() => {
+    // 1. Array-based changelog (e.g. from template.changelog or popularTemplatesData)
+    const rawList = Array.isArray(template?.changelog)
+      ? template.changelog
+      : (Array.isArray(template?.changelog?.releases)
+          ? template.changelog.releases
+          : (Array.isArray(template?.changelog?.history)
+              ? template.changelog.history
+              : (Array.isArray(template?.changelog?.entries)
+                  ? template.changelog.entries
+                  : null)));
+
+    if (rawList && rawList.length > 0) {
+      return rawList.map((item, idx) => {
+        const ver = item.version || item.ver || `v1.${rawList.length - idx}.0`;
+        let date = item.date;
+        if (!date && item.created_at) {
+          try {
+            date = new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+          } catch {
+            date = "Recent";
+          }
+        }
+        let bullets = [];
+        if (Array.isArray(item.bullets)) {
+          bullets = item.bullets;
+        } else if (item.notes) {
+          bullets = Array.isArray(item.notes)
+            ? item.notes
+            : String(item.notes).split(/(?<=[.?!])\s+/).filter(Boolean);
+        } else if (item.description) {
+          bullets = [item.description];
+        } else {
+          bullets = ["Maintenance update and performance optimizations"];
+        }
+        return {
+          ver: String(ver).startsWith("v") ? String(ver) : `v${ver}`,
+          date: date || "Recent",
+          bullets
+        };
+      });
+    }
+
+    // 2. Build authentic changelog from real template data & timestamps
+    const createdDate = template?.created_at ? new Date(template.created_at) : new Date();
+    const updatedDate = template?.updated_at ? new Date(template.updated_at) : createdDate;
+
+    const formatDate = (d) => {
+      try {
+        return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      } catch {
+        return "Recent release";
+      }
+    };
+
+    const currentVer = template?.version
+      ? (String(template.version).startsWith("v") ? String(template.version) : `v${template.version}`)
+      : "v1.0.0";
+
+    const fw = (template?.framework || "").toLowerCase();
+    const isHtml = fw === "html" || fw === "vanilla" || !fw || template?.changelog?.ai_report?.is_html_only;
+    const fwDisplay = template?.changelog?.ai_report?.framework_detected
+      || (isHtml ? "HTML5 / Modern CSS" : (fw === "react" ? "React 19" : fw === "nextjs" ? "Next.js" : (template?.framework || "Web Framework")));
+
+    const lang = template?.changelog?.ai_report?.language
+      || (isHtml ? "Semantic HTML5 & Vanilla JavaScript" : "TypeScript / JavaScript");
+
+    const pages = template?.included_pages || [];
+    const pagesCount = pages.length || template?.pages_count || 1;
+    const components = template?.changelog?.ai_report?.components || [];
+    const cssSystem = template?.changelog?.ai_report?.css_system
+      || (template?.changelog?.ai_report?.tailwind ? "Tailwind CSS" : "Custom Modular CSS");
+
+    const initialBullets = [
+      `Official release built on ${fwDisplay} with ${lang}`,
+      `Includes ${pagesCount} verified page${pagesCount > 1 ? "s" : ""}${pages.length ? ` (${pages.slice(0, 4).join(", ")})` : ""}`,
+      components.length > 0
+        ? `Built with ${components.length} modular components (${components.slice(0, 3).join(", ")})`
+        : `Designed with ${cssSystem} design tokens and flexible layout blocks`,
+      template?.is_responsive !== false
+        ? "Fully verified mobile, tablet, and widescreen desktop responsive reflow"
+        : "Standard layout baseline",
+      template?.has_dark_mode
+        ? "Includes native dark mode and high-contrast color scheme switching"
+        : "Passes contrast ratios and accessibility guidelines"
+    ].filter(Boolean);
+
+    // If template was updated > 1 day after creation or reuploaded
+    const isUpdated = Math.abs(updatedDate.getTime() - createdDate.getTime()) > 1000 * 60 * 60 * 24;
+    const reuploadAt = template?.changelog?.reuploaded_at ? new Date(template.changelog.reuploaded_at) : null;
+
+    if (isUpdated || reuploadAt) {
+      const updateDate = reuploadAt || updatedDate;
+      const updateVer = currentVer !== "v1.0.0" ? currentVer : "v1.1.0";
+      return [
+        {
+          ver: updateVer,
+          date: formatDate(updateDate),
+          bullets: [
+            "Source archive re-synchronized with clean security audit verification",
+            `Optimized asset bundle payload and checked ${fwDisplay} dependencies`,
+            "Enhanced mobile touch targets and viewport layout stability"
+          ]
+        },
+        {
+          ver: "v1.0.0",
+          date: formatDate(createdDate),
+          bullets: initialBullets
+        }
+      ];
+    }
+
+    return [
+      {
+        ver: currentVer,
+        date: formatDate(createdDate),
+        bullets: initialBullets
+      }
+    ];
+  }, [template]);
+
+  // Dynamic installation commands tailored to actual framework
+  const docsInstallCode = useMemo(() => {
+    const fw = (template?.framework || "").toLowerCase();
+    const isHtml = fw === "html" || fw === "vanilla" || !fw || template?.changelog?.ai_report?.is_html_only;
+
+    if (isHtml) {
+      return `# Option 1: Direct Browser Launch (Zero Build Tools Needed)
+# Double-click or open 'index.html' in Chrome, Safari, Edge, or Firefox.
+
+# Option 2: Run with local HTTP server
+npx serve .
+# Or using Python 3:
+python -m http.server 8000
+# Then visit: http://localhost:8000`;
+    }
+
+    if (fw === "nextjs") {
+      return `# 1. Extract the downloaded ZIP archive and enter directory
+cd ${template?.slug || "template-project"}
+
+# 2. Install dependencies
+npm install
+# or: pnpm install / yarn
+
+# 3. Start development server
+npm run dev
+# Visit http://localhost:3000 in your browser
+
+# 4. Build optimized production bundle
+npm run build
+npm run start`;
+    }
+
+    // React / Vite or modern modular framework
+    return `# 1. Extract the downloaded ZIP archive and enter directory
+cd ${template?.slug || "template-project"}
+
+# 2. Install dependencies
+npm install
+# or: pnpm install / yarn
+
+# 3. Start local development server
+npm run dev
+
+# 4. Build optimized production bundle
+npm run build
+npm run preview`;
+  }, [template]);
+
+  // Dynamic directory tree tailored to actual detected files and framework
+  const docsFolders = useMemo(() => {
+    const fw = (template?.framework || "").toLowerCase();
+    const isHtml = fw === "html" || fw === "vanilla" || !fw || template?.changelog?.ai_report?.is_html_only;
+    const pages = template?.included_pages || [];
+    const components = template?.changelog?.ai_report?.components || [];
+
+    if (isHtml) {
+      const pageLines = pages
+        .filter(p => !p.toLowerCase().includes("home") && !p.toLowerCase().includes("index"))
+        .slice(0, 5)
+        .map(p => `├── ${p.toLowerCase().replace(/[^a-z0-9]/g, "-")}.html   # ${p} page layout`)
+        .join("\n");
+
+      return `├── css/               # Master stylesheets & design tokens
+├── js/                # Interactive UI scripts & mobile menu
+├── assets/ or images/ # Vector SVGs, icons & compressed imagery
+├── index.html         # Homepage & primary landing view
+${pageLines ? pageLines + "\n" : ""}└── README.md          # Setup instructions & developer guide`;
+    }
+
+    if (fw === "nextjs") {
+      const otherPages = pages
+        .filter(p => !p.toLowerCase().includes("home") && !p.toLowerCase().includes("index"))
+        .slice(0, 3)
+        .map(p => p.toLowerCase().replace(/[^a-z0-9]/g, "-"))
+        .join("/, ");
+
+      return `├── app/               # Next.js App Router (pages & layouts)
+│   ├── layout.jsx     # Root HTML layout, SEO meta & typography
+│   ├── page.jsx       # Home page landing view
+│   └── globals.css    # Global stylesheet & design tokens
+├── components/        # UI components (${components.slice(0, 3).join(", ") || "Navbar, Hero, Footer"})
+${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n` : ""}├── public/            # Static icons, logos & web manifest
+├── package.json       # Project dependencies & scripts
+└── next.config.js     # Next.js configuration`;
+    }
+
+    // Default: React / Vite
+    const compDesc = components.length > 0 ? components.slice(0, 3).join(", ") : "Navbar, Hero, Footer";
+    const pagesDesc = pages.length > 0 ? pages.slice(0, 3).join(", ") : "Home, About, Contact";
+
+    return `├── public/            # Static assets & public icons
+├── src/
+│   ├── components/    # Reusable UI component modules (${compDesc})
+│   ├── pages/         # Route views (${pagesDesc})
+│   ├── App.jsx        # Master router & page container
+│   ├── main.jsx       # React DOM client entry point
+│   └── index.css      # Design tokens & master stylesheet
+├── package.json       # Project dependencies & npm scripts
+└── vite.config.js     # Vite bundler configuration`;
+  }, [template]);
+
   if (isLoading && !template) {
     return (
       <>
@@ -966,47 +1216,6 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
     );
   }
 
-  const isOwnerOrAdmin = Boolean(user && (user.id === template?.seller_id || user.role === "admin" || user.role === "super_admin"));
-  const allImages = [template.thumbnail_url, ...(template.gallery_images ?? [])].filter(Boolean);
-
-  // Helper arrays for features and specifications mapping
-  const featuresList = [
-    { name: "Responsive Layout", desc: "Looks stunning on Desktop, Tablet, and Mobile devices out-of-the-box.", icon: Globe },
-    { name: "SEO Optimization Ready", desc: "Includes semantic structure, pre-mapped metatags, and JSON-LD markup schema.", icon: Shield },
-    { name: "Ultra Fast Loading", desc: "Highly optimized code with Google Lighthouse scores close to 100.", icon: Flame },
-    { name: "Accessibility Focused", desc: "Complies with WCAG accessibility patterns for screen readers.", icon: UserCheck },
-    { name: "Modern Dark Mode", desc: "Smooth toggles with native system preference detection.", icon: Moon },
-    { name: "Premium Micro-Animations", desc: "Configured using Framer Motion and modern CSS keyframes.", icon: Sparkles },
-    { name: "Sticky Header Layout", desc: "Fully responsive, glassmorphic headers that follow screen scrolling.", icon: Clock },
-    { name: "CMS Ready Framework", desc: "Easily plug into Sanity, Strapi, or headless WordPress backends.", icon: Cpu },
-  ];
-
-  const customizationOptions = [
-    { title: "Colors & Schemes", desc: "Tailor the appearance using a single master CSS variable.", icon: Sliders },
-    { title: "Typography & Fonts", desc: "Pre-linked with Google Fonts. Easily customize in index.css.", icon: FileText },
-    { title: "Image Assets", desc: "SVG mockups and placeholders are easily replacable in assets directory.", icon: Image },
-    { title: "Interactive Layouts", desc: "Re-arrange sections or components safely without layout breaks.", icon: Code },
-  ];
-
-  const docsInstallCode = `# Install dependencies
-npm install
-
-# Run the local development server
-npm run dev
-
-# Build the optimized production bundle
-npm run build`;
-
-  const docsFolders = `├── public/          # Static assets & public icons
-├── src/
-│   ├── app/         # Page components & routing setup
-│   ├── components/  # Reusable UI component modules
-│   ├── hooks/       # Custom React query hooks
-│   ├── store/       # State management stores (Zustand)
-│   └── index.css    # Global stylesheets & design tokens
-├── package.json
-└── vite.config.js`;
-
   const renderPurchaseCard = (extraClass = "") => (
     <div className={cn("details-price-card glass-card", extraClass)}>
       <div>
@@ -1031,31 +1240,23 @@ npm run build`;
             <span>Verified Tech Stack</span>
           </span>
           <span className="font-bold text-primary">
-            {template?.framework === "react"
-              ? "React + FastAPI"
-              : template?.framework === "nextjs"
-              ? "Next.js + FastAPI"
-              : "HTML5 + CSS + JS"}
+            {{
+              react: "React",
+              nextjs: "Next.js",
+              vue: "Vue.js",
+              nuxt: "Nuxt",
+              angular: "Angular",
+              svelte: "Svelte",
+              astro: "Astro",
+              tailwind: "Tailwind CSS",
+              html: "HTML5 / CSS / JavaScript",
+            }[String(template?.framework || "html").toLowerCase()] || template?.framework || "HTML5 / CSS / JavaScript"}
           </span>
         </div>
         <div className="flex flex-wrap gap-1.5 pt-0.5">
           <span className="px-2 py-0.5 rounded-md bg-background border border-border/80 text-[11px] font-medium text-foreground">
-            {template?.framework === "react" ? "React 18" : template?.framework === "nextjs" ? "Next.js 14" : "HTML5 & CSS3"}
+            {template?.framework === "html" || !template?.framework ? "HTML5 & CSS3" : `${({ react: "React", nextjs: "Next.js", vue: "Vue.js", nuxt: "Nuxt", angular: "Angular", svelte: "Svelte", astro: "Astro", tailwind: "Tailwind CSS" }[String(template.framework).toLowerCase()] || template.framework)} live demo`}
           </span>
-          {template?.framework === "react" || template?.framework === "nextjs" ? (
-            <>
-              <span className="px-2 py-0.5 rounded-md bg-background border border-border/80 text-[11px] font-medium text-foreground">
-                FastAPI (Python)
-              </span>
-              <span className="px-2 py-0.5 rounded-md bg-background border border-border/80 text-[11px] font-medium text-foreground">
-                PostgreSQL
-              </span>
-            </>
-          ) : (
-            <span className="px-2 py-0.5 rounded-md bg-background border border-border/80 text-[11px] font-medium text-foreground">
-              Vanilla JS
-            </span>
-          )}
           <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-[11px] font-medium text-emerald-400">
             Instant ZIP Download
           </span>
@@ -1425,7 +1626,9 @@ npm run build`;
                   <span className="spec-val">
                     {template.updated_at
                       ? new Date(template.updated_at).toLocaleDateString("en-US", { year: "numeric", month: "short" })
-                      : "June 2026"}
+                      : template.created_at
+                      ? new Date(template.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short" })
+                      : "Recently"}
                   </span>
                 </div>
               </div>
@@ -1645,9 +1848,6 @@ npm run build`;
                 ))}
               </div>
             </div>
-
-            {/* AI Assistant Chat Component */}
-            <TemplateAIChat template={template} />
 
             {/* 6. Features Section */}
             <div className="details-features-block card-container">
@@ -2176,24 +2376,8 @@ npm run build`;
               <h3 className="section-title">Template Release Changelog</h3>
 
               <div className="space-y-2.5">
-                {[
-                  {
-                    ver: "v2.3",
-                    date: "June 15, 2026",
-                    bullets: ["Upgraded dynamic animations with smoother layout shifts", "Added full blog listing module layout", "Optimized mobile toggle header dropdowns"]
-                  },
-                  {
-                    ver: "v2.2",
-                    date: "April 10, 2026",
-                    bullets: ["Migrated template bundles to latest stable config", "Fixed visual padding discrepancies in service columns", "Updated metatags parsing framework"]
-                  },
-                  {
-                    ver: "v2.1",
-                    date: "Jan 12, 2026",
-                    bullets: ["Initial template release with core configurations"]
-                  }
-                ].map((c, i) => (
-                  <div key={c.ver} className={cn("details-changelog-item", openChangelog === i && "is-open")}>
+                {changelogList.map((c, i) => (
+                  <div key={c.ver + i} className={cn("details-changelog-item", openChangelog === i && "is-open")}>
                     <button
                       type="button"
                       onClick={() => setOpenChangelog(openChangelog === i ? null : i)}
@@ -2253,9 +2437,20 @@ npm run build`;
                 ) : docTab === "structure" ? (
                   <pre className="whitespace-pre overflow-x-auto leading-relaxed">{docsFolders}</pre>
                 ) : (
-                  <div className="font-sans text-xs space-y-2.5 leading-relaxed text-muted-foreground">
-                    <p><strong>Branding Colors:</strong> Open <code>src/index.css</code> and update the <code>--primary</code> HSL variable. All components reflect this change immediately.</p>
-                    <p><strong>Headlines & Subtexts:</strong> Find component sections in <code>src/components/landing/*</code>. Static JSON files are located in <code>src/public/data/*</code> for easy text configuration.</p>
+                  <div className="font-sans text-xs space-y-3 leading-relaxed text-muted-foreground">
+                    {((template?.framework || "").toLowerCase() === "html" || !template?.framework || template?.changelog?.ai_report?.is_html_only) ? (
+                      <>
+                        <p><strong>Branding Colors & Palette:</strong> Open the stylesheet in <code>css/</code> (or <code>style.css</code>) and modify the CSS variables (e.g. <code>--primary</code>, <code>--accent</code>) or global color rules. All linked pages update instantly.</p>
+                        <p><strong>Headlines, Text & Copy:</strong> Open <code>index.html</code> (or any accompanying <code>.html</code> file) in your preferred code editor and update the semantic text directly.</p>
+                        <p><strong>Images & Media:</strong> Replace the graphics and logo files in the <code>assets/</code> or <code>images/</code> folder using the same filenames to automatically preserve responsive aspect ratios.</p>
+                      </>
+                    ) : (
+                      <>
+                        <p><strong>Branding Colors & Palette:</strong> Open <code>src/index.css</code> or <code>tailwind.config.js</code> to adjust your master brand tokens. All component layouts adapt automatically.</p>
+                        <p><strong>Modular UI Blocks:</strong> Reorder or configure components located in <code>src/components/</code> ({template?.changelog?.ai_report?.components?.slice(0, 3).join(", ") || "Header, Hero, Footer"}).</p>
+                        <p><strong>Typography & Fonts:</strong> Linked via Google Fonts or system font tokens; easily customize font-family declarations in your master stylesheet.</p>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

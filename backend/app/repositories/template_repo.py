@@ -297,6 +297,10 @@ class TemplateRepository:
         if filters.developer:
             query = query.where(Template.developer_name == filters.developer)
 
+        # ── Seller ────────────────────────────────────────────────────────────
+        if filters.seller_id:
+            query = query.where(Template.seller_id == filters.seller_id)
+
         # ── Tag list ──────────────────────────────────────────────────────────
         if filters.tags:
             query = query.where(array_overlap(Template.tags, filters.tags))

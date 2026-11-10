@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -56,8 +57,8 @@ class FrameworkAuditor:
                 orig = code
                 # Enforce PostgreSQL instead of SQLite
                 if "sqlite" in code.lower() or "aiosqlite" in code.lower():
-                    code = re.sub(r'["\']sqlite\+aiosqlite:///[^"\']+["\']', 'os.getenv("DATABASE_URL", "postgresql+asyncpg://neondb_owner:npg_17RiWabLMqdQ@ep-fancy-voice-b4vhh03l-pooler.c-6.us-east-2.aws.neon.tech/neondb?ssl=require")', code)
-                    code = re.sub(r'["\']sqlite:///[^"\']+["\']', 'os.getenv("DATABASE_URL", "postgresql+asyncpg://neondb_owner:npg_17RiWabLMqdQ@ep-fancy-voice-b4vhh03l-pooler.c-6.us-east-2.aws.neon.tech/neondb?ssl=require")', code)
+                    code = re.sub(r'["\']sqlite\+aiosqlite:///[^"\']+["\']', 'os.environ["DATABASE_URL"]', code)
+                    code = re.sub(r'["\']sqlite:///[^"\']+["\']', 'os.environ["DATABASE_URL"]', code)
                     if "import os" not in code:
                         code = "import os\n" + code
                     findings.append({"file": fpath, "fix": "Converted SQLite database connection to PostgreSQL (asyncpg)"})
@@ -74,8 +75,8 @@ class FrameworkAuditor:
         for fpath, code in list(healed.items()):
             if fpath.endswith("models.py"):
                 if "sqlite" in code.lower() or "aiosqlite" in code.lower():
-                    code = re.sub(r'["\']sqlite\+aiosqlite:///[^"\']+["\']', 'os.getenv("DATABASE_URL", "postgresql+asyncpg://neondb_owner:npg_17RiWabLMqdQ@ep-fancy-voice-b4vhh03l-pooler.c-6.us-east-2.aws.neon.tech/neondb?ssl=require")', code)
-                    code = re.sub(r'["\']sqlite:///[^"\']+["\']', 'os.getenv("DATABASE_URL", "postgresql+asyncpg://neondb_owner:npg_17RiWabLMqdQ@ep-fancy-voice-b4vhh03l-pooler.c-6.us-east-2.aws.neon.tech/neondb?ssl=require")', code)
+                    code = re.sub(r'["\']sqlite\+aiosqlite:///[^"\']+["\']', 'os.environ["DATABASE_URL"]', code)
+                    code = re.sub(r'["\']sqlite:///[^"\']+["\']', 'os.environ["DATABASE_URL"]', code)
                     if "import os" not in code:
                         code = "import os\n" + code
                     healed[fpath] = code
@@ -442,7 +443,8 @@ async def health_check():
     async def verify_frontend_build(
         self,
         react_files: Dict[str, str],
-        max_attempts: int = 2
+        max_attempts: int = 2,
+        framework: str = "react",
     ) -> Tuple[bool, str, Dict[str, str]]:
         """
         Staging frontend in temp directory and running `npm run build` or `vite build`.
@@ -452,13 +454,39 @@ async def health_check():
         current_files = dict(react_files)
         
         try:
+            is_windows = platform.system() == "Windows"
+            npm_cmd = "npm.cmd" if is_windows else "npm"
+            node_cmd = "node.exe" if is_windows else "node"
+
+            # Prepare tenant clean execution environment
+            tenant_clean_env = {
+                "PATH": os.environ.get("PATH", ""),
+                "NODE_ENV": "production",
+                "SYSTEMROOT": os.environ.get("SYSTEMROOT", "C:\\Windows"),
+                "TEMP": os.environ.get("TEMP", tempfile.gettempdir()),
+                "TMP": os.environ.get("TMP", tempfile.gettempdir()),
+            }
+            if is_windows:
+                for key in ("USERPROFILE", "APPDATA", "LOCALAPPDATA", "HOMEDRIVE", "HOMEPATH", "PATHEXT", "WINDIR"):
+                    val = os.environ.get(key)
+                    if val:
+                        tenant_clean_env[key] = val
+                cmd_exe = os.path.join(tenant_clean_env["SYSTEMROOT"], "System32", "cmd.exe")
+                tenant_clean_env["COMSPEC"] = os.environ.get("COMSPEC", cmd_exe)
+                def npm_process_args(*args):
+                    command = " ".join(subprocess.list2cmdline([arg]) for arg in args)
+                    return [cmd_exe, "/d", "/c", command]
+            else:
+                def npm_process_args(*args):
+                    return list(args)
+
             # Check node and npm availability
             try:
-                subprocess.run(["node", "-v"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-                subprocess.run(["npm", "-v"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+                subprocess.run([node_cmd, "-v"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+                subprocess.run(npm_process_args(npm_cmd, "-v"), env=tenant_clean_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
             except Exception as e:
-                logger.warning("Node/npm not available for live build check, proceeding with AST/syntax validation: %s", e)
-                return True, "Node runtime not available; static code verification passed.", current_files
+                logger.warning("Node/npm check failed: %s", e)
+                return False, f"Node/npm build tools not reachable in environment: {e}", current_files
 
             # Stage frontend files into temp_dir
             for rel_path, content in current_files.items():
@@ -472,32 +500,50 @@ async def health_check():
             # Check if package.json exists
             pkg_json = Path(temp_dir) / "package.json"
             if not pkg_json.exists():
-                return True, "No frontend package.json found, skipping npm build.", current_files
+                return False, "Project does not contain a frontend 'package.json' entry point.", current_files
 
-            logger.info("📦 [Framework Auditor] Installing minimal frontend dependencies for build check in %s...", temp_dir)
+            # Auto-heal pre-build (add missing build scripts, config base: './')
+            try:
+                from app.services.deployment_readiness_auditor import deployment_readiness_auditor
+                deployment_readiness_auditor.heal_pre_build(temp_dir)
+            except Exception as e_pre_heal:
+                logger.warning(f"Frontend pre-heal warning: {e_pre_heal}")
+
+            logger.info("📦 [Framework Auditor] Installing project dependencies for build check in %s...", temp_dir)
             loop = asyncio.get_running_loop()
 
             def run_npm_install():
                 return subprocess.run(
-                    ["npm", "install", "--prefer-offline", "--no-audit", "--progress=false"],
+                    npm_process_args(npm_cmd, "install", "--include=dev", "--prefer-offline", "--no-audit", "--no-fund", "--progress=false"),
                     cwd=temp_dir,
+                    env=tenant_clean_env,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    timeout=90
+                    timeout=120
                 )
 
             install_res = await loop.run_in_executor(None, run_npm_install)
             if install_res.returncode != 0:
-                logger.warning("npm install had warnings/errors in temp build: %s", (install_res.stderr or b"").decode("utf-8", errors="ignore")[:300])
+                install_err = (install_res.stderr or install_res.stdout or b"").decode("utf-8", errors="ignore")
+                logger.warning("npm install had errors in temp build: %s", install_err[:400])
+                # Try healing package.json if known missing packages caused the failure
+                try:
+                    from app.services.deployment_readiness_auditor import deployment_readiness_auditor
+                    healed, _ = deployment_readiness_auditor.diagnose_and_heal_build_failure(install_err, temp_dir)
+                    if healed:
+                        install_res = await loop.run_in_executor(None, run_npm_install)
+                except Exception:
+                    pass
 
             # Run build check
             def run_npm_build():
                 return subprocess.run(
-                    ["npm", "run", "build"],
+                    npm_process_args(npm_cmd, "run", "build"),
                     cwd=temp_dir,
+                    env=tenant_clean_env,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    timeout=60
+                    timeout=90
                 )
 
             build_res = await loop.run_in_executor(None, run_npm_build)
@@ -509,12 +555,13 @@ async def health_check():
             logger.warning("⚠️ [Framework Auditor] Frontend `npm run build` failed: %s. Launching AI Debugger loop...", error_log[:300])
 
             # Launch AI Debugger loop
+            build_exec_cmd = npm_process_args(npm_cmd, "run", "build")
             success, final_log, repaired = await ai_debugger.debug_project_build(
                 project_root=temp_dir,
-                build_cmd=["npm", "run", "build"],
+                build_cmd=build_exec_cmd,
                 initial_error_log=error_log,
                 max_attempts=max_attempts,
-                framework="react"
+                framework=framework
             )
 
             # Map repaired files back to react_files dict
@@ -529,7 +576,7 @@ async def health_check():
 
         except Exception as exc:
             logger.error("Frontend build verification error: %s", exc)
-            return True, f"Frontend build verification skipped due to: {exc}", current_files
+            return False, f"Frontend build verification failed: {exc}", current_files
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -596,14 +643,18 @@ async def health_check():
 
         # Step 2: Frontend Healing & Build Check
         if react_files:
+            frontend_framework = "vue" if stack_key.startswith("vue-") else "angular" if stack_key.startswith("angular-") else "react"
             if status_callback:
                 await status_callback("Validating frontend components, TypeScript typings, and verifying `npm run build`.")
             
-            react_files, fe_fixes = self.heal_react_frontend(react_files)
+            if frontend_framework == "react":
+                react_files, fe_fixes = self.heal_react_frontend(react_files)
+            else:
+                fe_fixes = []
             audit_report["frontend_healed_fixes"] = fe_fixes
 
             # Run build verification
-            success, build_log, react_files = await self.verify_frontend_build(react_files, max_attempts=2)
+            success, build_log, react_files = await self.verify_frontend_build(react_files, max_attempts=2, framework=frontend_framework)
             audit_report["build_verified"] = success
             audit_report["build_log"] = build_log[:1000]
 

@@ -157,6 +157,7 @@ class FastCatalogManager:
                         "rating_avg": float(t.rating_avg or 0.0),
                         "rating_count": t.rating_count or 0,
                         "developer_name": t.developer_name,
+                        "seller_id": t.seller_id,
                         # Additional fields for filtering & ranking
                         "category_name": cat_name,
                         "category_slug": cat_slug,
@@ -387,6 +388,10 @@ class FastCatalogManager:
             dev_q = filters.developer.lower()
             results = [item for item in results if dev_q in item["_dev_lower"]]
 
+        if filters.seller_id:
+            s_id_str = str(filters.seller_id)
+            results = [item for item in results if str(item.get("seller_id") or "") == s_id_str]
+
         # ── 8. ThemeForest Specific Filters ──────────────────────────────────
         if filters.sales:
             if filters.sales == "no-sales":
@@ -518,6 +523,7 @@ class FastCatalogManager:
                 rating_avg=item["rating_avg"],
                 rating_count=item["rating_count"],
                 developer_name=item["developer_name"],
+                seller_id=item.get("seller_id"),
                 is_favorited=(item_id in favorited_ids) if favorited_ids is not None else None,
                 is_wishlisted=(item_id in wishlisted_ids) if wishlisted_ids is not None else None,
             )

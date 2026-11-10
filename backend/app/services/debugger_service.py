@@ -115,6 +115,12 @@ class AIDebuggerService:
 - Balance every HTML/Vue tag in <template>.
 - Ensure all reactive state and composables (ref, reactive, computed, onMounted) are imported from 'vue'.
 - Fix any unclosed brackets or syntax errors in <script>."""
+        elif framework == "angular":
+            spec_inst = """ANGULAR STANDALONE COMPONENT INSTRUCTIONS:
+- Preserve Angular standalone component structure and decorator metadata.
+- Keep imports, RouterOutlet/RouterLink, and dependency injection valid for Angular.
+- Do not introduce React JSX, Vue SFC tags, or default exports into Angular components.
+- Balance template tags and fix TypeScript syntax while preserving the component's behavior."""
         elif ext == ".svelte" or framework == "svelte":
             spec_inst = """SVELTE COMPONENT INSTRUCTIONS:
 - Preserve Svelte component structure (<script>, HTML template, and <style>).
@@ -253,6 +259,8 @@ DEBUGGING & REPAIR INSTRUCTIONS:
                 cands = ["src/App.vue", "src/main.js", "src/main.ts", "App.vue", "vite.config.js", "index.html"]
             elif fw_lower == "svelte":
                 cands = ["src/App.svelte", "src/main.js", "src/main.ts", "App.svelte", "vite.config.js", "index.html"]
+            elif fw_lower == "angular":
+                cands = ["src/main.ts", "src/app/app.component.ts", "src/app/app.routes.ts", "angular.json", "index.html"]
             elif fw_lower == "astro":
                 cands = ["src/pages/index.astro", "astro.config.mjs"]
             elif fw_lower in ["react", "nextjs"]:
@@ -324,8 +332,14 @@ DEBUGGING & REPAIR INSTRUCTIONS:
             logger.info(f"🔍 [AI Debugger] Identified {len(failing_files)} potentially failing file(s): {failing_files}")
 
             def run_build_check():
+                is_win = platform.system() == "Windows"
+                cmd = build_cmd
+                if is_win and cmd:
+                    first = str(cmd[0]).lower()
+                    if not first.endswith(".exe") and not first.endswith(".cmd") and first not in ("cmd.exe", "cmd"):
+                        cmd = ["cmd.exe", "/d", "/c"] + cmd
                 return subprocess.run(
-                    build_cmd,
+                    cmd,
                     cwd=project_root,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
@@ -385,8 +399,14 @@ DEBUGGING & REPAIR INSTRUCTIONS:
 
             # 2. Re-test the build
             def run_build_check():
+                is_win = platform.system() == "Windows"
+                cmd = build_cmd
+                if is_win and cmd:
+                    first = str(cmd[0]).lower()
+                    if not first.endswith(".exe") and not first.endswith(".cmd") and first not in ("cmd.exe", "cmd"):
+                        cmd = ["cmd.exe", "/d", "/c"] + cmd
                 return subprocess.run(
-                    build_cmd,
+                    cmd,
                     cwd=project_root,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,

@@ -26,17 +26,19 @@ class OrderCreate(BaseModel):
 
 class OrderItemResponse(BaseModel):
     id: uuid.UUID
-    template_id: uuid.UUID
-    quantity: int
+    template_id: Optional[uuid.UUID] = None
+    quantity: int = 1
     price: Decimal
     price_currency: Optional[str] = "USD"
-    title: Optional[str] = None
+    title: Optional[str] = "Template Package"
+    license_type: Optional[str] = "regular"
     thumbnail_url: Optional[str] = None
     slug: Optional[str] = None
     preview_url: Optional[str] = None
     is_marketplace: Optional[bool] = True
     template_status: Optional[str] = None
     framework: Optional[str] = "HTML"
+    developer_name: Optional[str] = "Site Studio Creator"
 
     model_config = {"from_attributes": True}
 
@@ -52,13 +54,17 @@ class OrderUserResponse(BaseModel):
 
 class OrderResponse(BaseModel):
     id: uuid.UUID
+    user_id: Optional[uuid.UUID] = None
     order_number: str
+    invoice_number: Optional[str] = None
     status: OrderStatus
     subtotal: Decimal
     discount: Decimal
     tax: Decimal
     total: Decimal
     coupon_code: Optional[str] = None
+    notes: Optional[str] = None
+    gateway: Optional[str] = None
     extra_metadata: Optional[dict] = None
     items: List[OrderItemResponse] = []
     user: Optional[OrderUserResponse] = None

@@ -348,6 +348,8 @@ def create_application() -> FastAPI:
 
         same_site="lax",
 
+        https_only=settings.ENVIRONMENT.lower() in ("production", "prod"),
+
     )
 
 
@@ -368,7 +370,7 @@ def create_application() -> FastAPI:
 
 
 
-    if settings.ENVIRONMENT == "production":
+    if settings.ENVIRONMENT.lower() in ("production", "prod"):
 
         app.add_middleware(
 
@@ -654,6 +656,38 @@ def create_application() -> FastAPI:
     os.makedirs("static", exist_ok=True)
 
     app.mount("/static", StaticFiles(directory="static"), name="static")
+
+    @app.get("/assets/{filepath:path}", include_in_schema=False)
+    async def serve_preview_root_assets(filepath: str, request: Request):
+        """
+        Safety net for SPA preview assets requested at root /assets/... due to absolute paths.
+        Inspects Referer to route to the correct live preview directory.
+        """
+        import tempfile
+        import mimetypes
+        from fastapi.responses import FileResponse
+
+        referer = request.headers.get("referer", "")
+        match = re.search(r"/preview/live/([^/?#]+)", referer)
+        if match:
+            target_id = match.group(1)
+            live_root = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews")
+            base_dir = os.path.join(live_root, target_id)
+            dirs_to_check = [base_dir]
+            if os.path.isdir(live_root):
+                for d in os.listdir(live_root):
+                    c = os.path.join(live_root, d)
+                    if os.path.isdir(c) and c != base_dir:
+                        dirs_to_check.append(c)
+
+            for d in dirs_to_check:
+                for sub in ["dist/assets", "frontend/dist/assets", "build/assets", "assets"]:
+                    p = os.path.join(d, sub, filepath)
+                    if os.path.isfile(p):
+                        mime, _ = mimetypes.guess_type(p)
+                        return FileResponse(p, media_type=mime or "application/octet-stream")
+
+        return Response(status_code=404, content=b"Asset not found")
 
 
 
