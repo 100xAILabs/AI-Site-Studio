@@ -25,6 +25,7 @@ from app.models.withdrawal_request import WithdrawalRequest, WithdrawalStatus
 from app.models.template_view import TemplateAccountView
 from app.models.studio_build import StudioBuild, StudioBuildMessage, StudioBuildEvent
 from app.models.demo_session import DemoSession
+from app.models.tamper_alert import TamperAlert
 
 __all__ = [
     "User", "UserRole",
@@ -54,5 +55,6 @@ __all__ = [
     "TemplateAccountView",
     "StudioBuild", "StudioBuildMessage", "StudioBuildEvent",
     "DemoSession",
+    "TamperAlert",
 ]
 

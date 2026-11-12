@@ -101,7 +101,7 @@ export default function ReceiptPage() {
   if (loading) {
     return (
       <div className="receipt-page-wrapper">
-        <Loader2 className="w-8 h-8 animate-spin text-primary mb-3" style={{ width: "2rem", height: "2rem", color: "#6366f1" }} />
+        <Loader2 className="w-8 h-8 animate-spin text-primary mb-3" style={{ width: "2rem", height: "2rem", color: "#c89666" }} />
         <p style={{ color: "#94a3b8", fontSize: "0.875rem", margin: 0, fontWeight: 500 }}>Loading official invoice...</p>
       </div>
     );
@@ -139,7 +139,7 @@ export default function ReceiptPage() {
           className="receipt-btn-back"
           title="Return to Dashboard"
         >
-          <ArrowLeft style={{ width: "0.875rem", height: "0.875rem", color: "#818cf8" }} />
+          <ArrowLeft style={{ width: "0.875rem", height: "0.875rem", color: "#dfb180" }} />
           <span>Back to Dashboard</span>
         </button>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>

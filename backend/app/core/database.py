@@ -188,6 +188,7 @@ async def init_db() -> None:
             ("city", "VARCHAR(100)"),
             ("currency", "VARCHAR(10) DEFAULT 'USD'"),
             ("detected_ip", "VARCHAR(45)"),
+            ("subscription_tier", "VARCHAR(50) DEFAULT 'free'"),
         ]
         for col_name, col_type in user_columns_to_add:
             try:

@@ -54,9 +54,9 @@ const STUDIO_CARD_FEATURES = [
     icon: ShoppingBag,
     badge: "Creator Payouts",
     accent: "#c084fc",
-    glow: "rgba(192, 132, 252, 0.35)",
-    bgGradient: "rgba(192, 132, 252, 0.12)",
-    borderGradient: "rgba(192, 132, 252, 0.45)",
+    glow: "rgba(223, 177, 128, 0.35)",
+    bgGradient: "rgba(223, 177, 128, 0.12)",
+    borderGradient: "rgba(223, 177, 128, 0.45)",
   },
   {
     id: "create",
@@ -98,9 +98,9 @@ const STUDIO_CARD_FEATURES = [
     icon: LayoutGrid,
     badge: "Curated Store",
     accent: "#38bdf8",
-    glow: "rgba(56, 189, 248, 0.35)",
-    bgGradient: "rgba(56, 189, 248, 0.12)",
-    borderGradient: "rgba(56, 189, 248, 0.45)",
+    glow: "rgba(223, 177, 128, 0.35)",
+    bgGradient: "rgba(223, 177, 128, 0.12)",
+    borderGradient: "rgba(223, 177, 128, 0.45)",
   },
   {
     id: "deploy",
@@ -291,7 +291,7 @@ export default function HeroSection() {
                 className="hero-btn-seller"
                 title="Go to Seller Login & Portal"
               >
-                <ShoppingBag className="w-4 h-4 text-purple-400" />
+                <ShoppingBag className="w-4 h-4 text-[#dfb180]" />
                 <span>Sell Your Template</span>
                 <ArrowRight className="w-3.5 h-3.5 hero-btn-seller-arrow" />
               </button>

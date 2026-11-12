@@ -210,7 +210,7 @@
   border-radius: 9999px;
   filter: blur(150px);
   pointer-events: none;
-  background: rgba(37, 99, 235, 0.03);
+  background: rgba(200, 150, 102, 0.03);
 }
 
 .get-started-glow-bottom {

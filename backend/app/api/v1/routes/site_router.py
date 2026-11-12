@@ -190,7 +190,22 @@ async def serve_tenant_workload(
             if matching_site and matching_site.exists():
                 site_dir = matching_site
             else:
-                raise HTTPException(status_code=404, detail=f"Tenant website deployment '{site_identifier}' not found or inactive.")
+                from app.services.deployment_deep_analyzer import _resolve_site_current_dir
+                deep_dir = _resolve_site_current_dir(deployment, target_id)
+                if deep_dir and deep_dir.exists():
+                    site_dir = deep_dir
+                elif _DEPLOYMENTS_ROOT.exists():
+                    for item in _DEPLOYMENTS_ROOT.iterdir():
+                        if item.is_dir():
+                            for cand in [item / "current", item / "v1.0" / "dist", item]:
+                                if cand.exists() and (cand / "index.html").exists():
+                                    site_dir = cand
+                                    break
+                            if site_dir and site_dir.exists():
+                                break
+
+        if not site_dir or not site_dir.exists():
+            raise HTTPException(status_code=404, detail=f"Tenant website deployment '{site_identifier}' not found or inactive.")
 
         _SITE_RESOLUTION_CACHE[clean_identifier] = (target_id, str(site_dir), now)
         _SITE_RESOLUTION_CACHE[clean_site_id] = (target_id, str(site_dir), now)

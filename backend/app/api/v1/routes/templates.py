@@ -13,7 +13,7 @@ from typing import Optional, List, Dict, Any
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, Query, HTTPException, status, File, UploadFile, Response, Request
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pydantic import BaseModel
@@ -30,6 +30,7 @@ from app.schemas.template import (
 )
 from app.models.template import Template, TemplateFramework, TemplateLicense, TemplateStatus
 from app.models.order import Order, OrderItem, OrderStatus
+from app.models.download import Download
 from app.core.config import settings
 from app.core.security import generate_file_signature
 from app.core.redis import CacheKeys, cache_get, cache_set, cache_delete, cache_delete_pattern
@@ -195,11 +196,6 @@ async def get_featured_templates(
     cache_key = CacheKeys.featured(limit)
     cached = await cache_get(cache_key)
     if cached is not None:
-        if settings.TEMPLATE_DOWNLOADS_FREE:
-            cached = [
-                {**item, "price": 0, "original_price": None, "is_free": True, "is_on_sale": False}
-                for item in cached
-            ]
         if response:
             response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=600"
         return [TemplateCardResponse.model_validate(c) for c in cached]
@@ -316,8 +312,6 @@ async def get_template(
         cached = None
     if cached is not None:
         try:
-            if settings.TEMPLATE_DOWNLOADS_FREE:
-                cached = {**cached, "price": 0, "original_price": None, "is_free": True, "is_on_sale": False}
             if current_user:
                 template_id = uuid.UUID(str(cached["id"]))
                 service = TemplateService(db)
@@ -326,9 +320,11 @@ async def get_template(
                 # Fetch user-specific favorite and wishlist flags
                 is_fav = await service.favorites.is_favorited(current_user.id, template_id)
                 is_wish = await service.wishlist.is_wishlisted(current_user.id, template_id)
+                is_purch = await service.is_purchased_by_user(current_user.id, template_id)
                 resp_dict = dict(cached)
                 resp_dict["is_favorited"] = is_fav
                 resp_dict["is_wishlisted"] = is_wish
+                resp_dict["is_purchased"] = is_purch
                 return TemplateResponse.model_validate(resp_dict)
             return TemplateResponse.model_validate(cached)
         except Exception as e_cache:
@@ -416,8 +412,17 @@ async def update_template(
                 update_dict["category_id"] = found_cat_id
 
     if "price" in update_dict and update_dict["price"] is not None:
-        update_dict["price"] = Decimal(str(update_dict["price"]))
-        update_dict["is_free"] = update_dict["price"] == 0
+        p_val = Decimal(str(update_dict["price"]))
+        curr = str(update_dict.get("price_currency") or template.price_currency or "USD").upper()
+        if curr != "USD" and p_val > 0:
+            from app.api.v1.routes.payment import get_all_exchange_rates
+            rates = await get_all_exchange_rates()
+            rate = Decimal(str(rates.get(curr, 1.0)))
+            if rate > 0:
+                p_val = round(p_val / rate, 2)
+        update_dict["price"] = p_val
+        update_dict["price_currency"] = "USD"
+        update_dict["is_free"] = p_val == 0
 
     updated = await repo.update(template, update_dict)
     await db.commit()
@@ -548,6 +553,20 @@ async def create_template(
     data.status = TemplateStatus.PUBLISHED
     data.is_marketplace = True
     data.template_origin = "marketplace"
+
+    # Normalize seller pricing into exact USD
+    curr = str(data.price_currency or "USD").upper()
+    if curr != "USD" and data.price and Decimal(str(data.price)) > 0:
+        from app.api.v1.routes.payment import get_all_exchange_rates
+        rates = await get_all_exchange_rates()
+        rate = Decimal(str(rates.get(curr, 1.0)))
+        if rate > 0:
+            data.price = round(Decimal(str(data.price)) / rate, 2)
+            if data.original_price:
+                data.original_price = round(Decimal(str(data.original_price)) / rate, 2)
+    data.price_currency = "USD"
+    data.is_free = Decimal(str(data.price or 0)) == 0
+
     service = TemplateService(db)
     res = await service.create_template(data, seller_id=current_user.id)
     fast_catalog.invalidate()
@@ -652,12 +671,24 @@ async def reupload_template_zip(
                 "reuploaded_at": datetime.now(timezone.utc).isoformat()
             }
 
-    # 2. Save to StoredFile table in PostgreSQL
+    # 2. Save to StoredFile table in PostgreSQL with standard multi-page & full-stack watermarks
+    from app.services.watermark_service import process_zip_package
     if use_streaming:
         from app.core.storage import storage
         file.file.seek(0)
+        raw_stream_bytes = file.file.read()
+        watermarked_bytes = process_zip_package(
+            zip_bytes=raw_stream_bytes,
+            is_clean=False,
+            title=template.title or "Website Template",
+            buyer_name=current_user.full_name or current_user.username or "Seller",
+            buyer_email=current_user.email or "seller@aisitestudio.com",
+            template_id=template.slug or str(template.id),
+            license_key=f"STD-{str(template.slug or template.id)[:8].upper()}",
+        )
+        watermarked_stream = io.BytesIO(watermarked_bytes)
         stored_url = await storage.upload_file_from_file(
-            db=db, file_obj=file.file, size=file_size, folder=f"templates/{t_uuid}",
+            db=db, file_obj=watermarked_stream, size=len(watermarked_bytes), folder=f"templates/{t_uuid}",
             original_filename=file.filename or "template.zip",
             content_type="application/zip" if (file.filename or "").lower().endswith(".zip") else "text/html",
         )
@@ -667,12 +698,21 @@ async def reupload_template_zip(
         if not sf:
             raise HTTPException(status_code=500, detail="Uploaded template metadata could not be saved")
     else:
+        watermarked_bytes = process_zip_package(
+            zip_bytes=zip_bytes,
+            is_clean=False,
+            title=template.title or "Website Template",
+            buyer_name=current_user.full_name or current_user.username or "Seller",
+            buyer_email=current_user.email or "seller@aisitestudio.com",
+            template_id=template.slug or str(template.id),
+            license_key=f"STD-{str(template.slug or template.id)[:8].upper()}",
+        )
         sf = StoredFile(
             filename=f"templates/{t_uuid}_{file.filename}",
             original_filename=file.filename,
             content_type="application/zip" if file.filename.lower().endswith(".zip") else "text/html",
-            size=len(zip_bytes),
-            data=zip_bytes,
+            size=len(watermarked_bytes),
+            data=watermarked_bytes,
             created_by_id=current_user.id,
         )
         db.add(sf)
@@ -813,14 +853,16 @@ async def delete_template(
 async def download_template(
     template_id: str | uuid.UUID,
     format: Optional[str] = "zip",
+    license: Optional[str] = Query("regular"),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    Generate secure download URL for a purchased template.
+    Generate secure download URL for a template (supports Standard and Full Access editions).
     """
     from app.repositories.template_repo import TemplateRepository
+    from urllib.parse import quote_plus
     template_repo = TemplateRepository(db)
     template = await template_repo.get_by_id(template_id)
     if not template:
@@ -831,24 +873,52 @@ async def download_template(
     is_admin = current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
     if template_status != TemplateStatus.PUBLISHED.value and not (is_authorized_creator or is_admin):
         raise HTTPException(status_code=404, detail="Template not found")
-    if (template_status == TemplateStatus.PUBLISHED.value and not template.is_free
-            and not settings.TEMPLATE_DOWNLOADS_FREE and not is_authorized_creator):
-        purchase = await db.execute(
-            select(OrderItem.id)
-            .join(Order, OrderItem.order_id == Order.id)
-            .where(
-                Order.user_id == current_user.id,
-                Order.status == OrderStatus.COMPLETED,
-                OrderItem.template_id == template_id,
-            )
-            .limit(1)
+    user_tier = str(getattr(current_user, "subscription_tier", "free") or "free").lower()
+    is_extreme = user_tier in ("extreme", "agency", "enterprise")
+
+    # Check if user has an active completed purchase for this template
+    purchase_stmt = (
+        select(Order, OrderItem)
+        .join(OrderItem, OrderItem.order_id == Order.id)
+        .where(
+            Order.user_id == current_user.id,
+            Order.status == OrderStatus.COMPLETED,
+            OrderItem.template_id == template_id,
         )
-        if purchase.scalar_one_or_none() is None:
-            raise HTTPException(status_code=403, detail="Purchase required to download this template")
+        .order_by(Order.created_at.desc())
+        .limit(1)
+    )
+    purchase_res = await db.execute(purchase_stmt)
+    purchase_row = purchase_res.first()
+    has_purchased = purchase_row is not None
+    order_item_obj = purchase_row[1] if has_purchased else None
+
+    selected_lic = str(license or "regular").lower()
+    from app.services.watermark_service import user_qualifies_for_clean_template
+
+    CLEAN_LICENSES = ("extended", "commercial", "agency", "unlimited", "pro", "full_access", "full-access", "full", "white_label", "whitelabel")
+    is_authorized = is_admin or is_authorized_creator or bool(template.is_free) or has_purchased
+
+    if not is_authorized:
+        # All users can download with watermark for evaluation.
+        # But to get clean code without watermark, they MUST pay the template fee (even Extreme users).
+        if selected_lic in CLEAN_LICENSES:
+            raise HTTPException(
+                status_code=403,
+                detail="Purchase required to download clean source code without watermark. All users can download with watermark for free evaluation, or purchase the template to unlock the clean version."
+            )
+        is_clean = False
+    else:
+        # User purchased the template or has admin/creator access:
+        is_clean = user_qualifies_for_clean_template(
+            user=current_user,
+            template=template,
+            order_item=order_item_obj,
+            license_type=selected_lic
+        )
 
     await template_repo.increment_downloads(template_id)
 
-    from app.models.download import Download
     download_log = Download(
         user_id=current_user.id,
         template_id=template_id,
@@ -868,19 +938,26 @@ async def download_template(
     if not zip_url and not file_uuid:
         raise HTTPException(status_code=400, detail="Source zip file not configured for this template")
 
+    lic_param = f"&license={quote_plus(selected_lic)}"
+
     if file_uuid:
         file_id_str = str(file_uuid)
-        expires = int(datetime.now(timezone.utc).timestamp()) + 86400  # 24-hour validity
+        expires = int(datetime.now(timezone.utc).timestamp()) + 86400 * 3650  # Lifetime download validity (10 years)
         signature = generate_file_signature(file_id_str, expires)
 
         # Build clean download URL using current request host or configured storage URL
         if request and request.base_url:
             base_url = str(request.base_url).rstrip("/")
-            download_url = f"{base_url}/api/v1/files/{file_id_str}?expires={expires}&signature={signature}"
+            download_url = f"{base_url}/api/v1/files/{file_id_str}?expires={expires}&signature={signature}{lic_param}"
         else:
             clean_base = storage.build_url(file_uuid).split("?")[0]
-            download_url = f"{clean_base}?expires={expires}&signature={signature}"
-        return {"download_url": download_url}
+            download_url = f"{clean_base}?expires={expires}&signature={signature}{lic_param}"
+        return {
+            "download_url": download_url,
+            "is_clean": is_clean,
+            "watermark_status": "clean" if is_clean else "watermarked",
+            "license_type": selected_lic,
+        }
 
     # Fallback for external or pre-configured URLs: strip dirty query and re-sign if internal
     clean_url = str(zip_url).split("?")[0]
@@ -888,18 +965,28 @@ async def download_template(
     try:
         f_uuid = uuid.UUID(raw_id)
         file_id_str = str(f_uuid)
-        expires = int(datetime.now(timezone.utc).timestamp()) + 86400
+        expires = int(datetime.now(timezone.utc).timestamp()) + 86400 * 3650  # Lifetime download validity (10 years)
         signature = generate_file_signature(file_id_str, expires)
         if request and request.base_url:
             base_url = str(request.base_url).rstrip("/")
-            download_url = f"{base_url}/api/v1/files/{file_id_str}?expires={expires}&signature={signature}"
+            download_url = f"{base_url}/api/v1/files/{file_id_str}?expires={expires}&signature={signature}{lic_param}"
         else:
-            download_url = f"{clean_url}?expires={expires}&signature={signature}"
-        return {"download_url": download_url}
+            download_url = f"{clean_url}?expires={expires}&signature={signature}{lic_param}"
+        return {
+            "download_url": download_url,
+            "is_clean": is_clean,
+            "watermark_status": "clean" if is_clean else "watermarked",
+            "license_type": selected_lic,
+        }
     except Exception:
         pass
 
-    return {"download_url": zip_url}
+    return {
+        "download_url": zip_url,
+        "is_clean": is_clean,
+        "watermark_status": "clean" if is_clean else "watermarked",
+        "license_type": selected_lic,
+    }
 
 
 @router.get("/{template_id}/preview/render/{filename:path}")

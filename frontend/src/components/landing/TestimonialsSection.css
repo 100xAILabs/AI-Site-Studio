@@ -93,7 +93,7 @@
   border: 1px solid hsl(var(--border));
   border-radius: 20px;
   background: hsl(var(--card));
-  box-shadow: 0 4px 20px -2px rgba(99, 102, 241, 0.05);
+  box-shadow: 0 4px 20px -2px rgba(200, 150, 102, 0.05);
   transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease, box-shadow 0.3s ease;
   cursor: default;
 }
@@ -113,7 +113,7 @@
 
 .how-step-card:hover {
   border-color: hsl(var(--primary) / 0.35);
-  box-shadow: 0 16px 36px -4px rgba(99, 102, 241, 0.12);
+  box-shadow: 0 16px 36px -4px rgba(200, 150, 102, 0.12);
 }
 
 .how-step-card:hover::before {

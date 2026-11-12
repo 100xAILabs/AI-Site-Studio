@@ -490,24 +490,18 @@ class FastCatalogManager:
         items, total = self.filter_and_rank(catalog, filters)
 
         cards: List[TemplateCardResponse] = []
-        is_free_mode = settings.TEMPLATE_DOWNLOADS_FREE
 
         for item in items:
             item_id = item["id"]
-            price_val = Decimal("0") if is_free_mode else item["price"]
-            orig_price_val = None if is_free_mode else item["original_price"]
-            is_free_val = True if is_free_mode else item["is_free"]
-            is_on_sale_val = False if is_free_mode else item["is_on_sale"]
-
             card = TemplateCardResponse(
                 id=item_id,
                 title=item["title"],
                 slug=item["slug"],
                 short_description=item["short_description"],
-                price=price_val,
-                original_price=orig_price_val,
-                is_free=is_free_val,
-                is_on_sale=is_on_sale_val,
+                price=item["price"],
+                original_price=item["original_price"],
+                is_free=item["is_free"],
+                is_on_sale=item["is_on_sale"],
                 thumbnail_url=item["thumbnail_url"],
                 video_url=item["video_url"],
                 category_id=item["category_id"],

@@ -28,6 +28,7 @@ import StudioDeployPage from './app/studio/deploy/page.jsx'
 import PreviewPage from './app/preview/page.jsx'
 import StorybookPage from './app/storybook/page.jsx'
 import PricingPage from './app/pricing/page.jsx'
+import SubscribePage from './app/subscribe/page.jsx'
 import AboutPage from './app/about/page.jsx'
 import ContactPage from './app/contact/page.jsx'
 import VerifyOTPPage from './app/verify-otp/page.jsx'
@@ -35,6 +36,7 @@ import ForgotPasswordPage from './app/forgot-password/page.jsx'
 import ReceiptPage from './app/dashboard/receipt/page.jsx'
 import PayoutReceiptPage from './app/dashboard/payout-receipt/page.jsx'
 import DeployedWebsiteDetailsPage from './app/deployments/[id]/page.jsx'
+import DomainPurchasePage from './app/domains/buy/page.jsx'
 import PrivacyPolicyPage from './app/privacy/page.jsx'
 import TermsPage from './app/terms/page.jsx'
 
@@ -97,6 +99,8 @@ function AppRouteContent() {
           <Route path="/marketplace/generate" element={<Navigate to="/studio" replace />} />
           <Route path="/marketplace/:slug" element={<TemplateDetailsPage />} />
           <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/subscribe" element={<SubscribePage />} />
+          <Route path="/subscription" element={<Navigate to="/subscribe" replace />} />
           <Route path="/about" element={<AboutPage />} />
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/get-started" element={<GetStarted />} />
@@ -114,6 +118,7 @@ function AppRouteContent() {
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/deployments/:id" element={<ProtectedRoute><DeployedWebsiteDetailsPage /></ProtectedRoute>} />
           <Route path="/dashboard/deployments/:id" element={<ProtectedRoute><DeployedWebsiteDetailsPage /></ProtectedRoute>} />
+          <Route path="/domains/buy" element={<ProtectedRoute><DomainPurchasePage /></ProtectedRoute>} />
           <Route path="/dashboard/receipt/:orderId" element={<ReceiptPage />} />
           <Route path="/dashboard/payout-receipt/:withdrawalId" element={<PayoutReceiptPage />} />
           <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPanel /></ProtectedRoute>} />

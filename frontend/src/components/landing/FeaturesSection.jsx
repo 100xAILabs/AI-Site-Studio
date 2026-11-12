@@ -11,13 +11,13 @@ const FEATURES = [
     icon: Brain,
     title: "Instant Content Generator",
     description: "Describe your business and let our studio engine craft all your website copy — headlines, about us, services, and more.",
-    gradient: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
+    gradient: "linear-gradient(135deg, #dfb180 0%, #c89666 100%)",
   },
   {
     icon: Search,
     title: "Semantic Search",
     description: 'Search naturally: "I need a website for a coffee shop" returns the most relevant templates automatically.',
-    gradient: "linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%)",
+    gradient: "linear-gradient(135deg, #c89666 0%, #b5804f 100%)",
   },
   {
     icon: Palette,

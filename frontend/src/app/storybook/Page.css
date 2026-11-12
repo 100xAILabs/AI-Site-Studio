@@ -122,7 +122,7 @@
 }
 
 .sb-nav-item.active {
-  background: linear-gradient(135deg, rgba(255, 71, 133, 0.15), rgba(99, 102, 241, 0.15));
+  background: linear-gradient(135deg, rgba(255, 71, 133, 0.15), rgba(200, 150, 102, 0.15));
   color: #ff4785;
   font-weight: 700;
   border-left: 3px solid #ff4785;
@@ -223,7 +223,7 @@
   gap: 0.5rem;
   padding: 0.5rem 1rem;
   border-radius: 0.625rem;
-  background: linear-gradient(135deg, #FF4785, #8b5cf6);
+  background: linear-gradient(135deg, #FF4785, #d4a373);
   color: #ffffff;
   font-size: 0.75rem;
   font-weight: 700;
@@ -457,9 +457,9 @@
 }
 
 .sb-mode-pill-btn.active-ai {
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  background: linear-gradient(135deg, #c89666, #d4a373);
   color: #ffffff;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 4px 12px rgba(200, 150, 102, 0.3);
 }
 
 /* AI Assistant Panel in Right Sidebar */
@@ -488,8 +488,8 @@
 }
 
 .sb-ai-chip:hover {
-  border-color: #8b5cf6;
-  background-color: rgba(139, 92, 246, 0.1);
+  border-color: #d4a373;
+  background-color: rgba(212, 163, 115, 0.1);
   color: #a78bfa;
 }
 
@@ -499,6 +499,6 @@
   font-size: 0.6875rem;
   font-family: monospace;
   background-color: hsl(var(--muted) / 0.4);
-  border-left: 2px solid #8b5cf6;
+  border-left: 2px solid #d4a373;
   color: hsl(var(--muted-foreground));
 }

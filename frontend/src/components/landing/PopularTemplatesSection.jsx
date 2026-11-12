@@ -183,7 +183,7 @@ export default function PopularTemplatesSection() {
                     {/* Bottom Info Bar with Title, Price and Favorite */}
                     <div className="popular-card-bottom-bar">
                       <div className="popular-card-category-tag">
-                        <Icon className="w-3.5 h-3.5 text-purple-400" />
+                        <Icon className="w-3.5 h-3.5 text-[#dfb180]" />
                         <span>{displayTitle}</span>
                       </div>
 

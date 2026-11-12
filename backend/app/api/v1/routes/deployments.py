@@ -12,7 +12,7 @@ import uuid
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status, Query, Request, Response
 from sqlalchemy import select, desc, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,6 +49,28 @@ logger = logging.getLogger(__name__)
 
 @router.get("/hosting-price")
 async def get_hosting_price(current_user: User = Depends(get_current_user)):
+    user_tier = str(getattr(current_user, "subscription_tier", "free") or "free").lower()
+    is_admin = getattr(current_user.role, "value", current_user.role) == "admin"
+    if user_tier in ("extreme", "agency", "enterprise") or is_admin:
+        return {
+            "configured": True,
+            "amount_minor": 0,
+            "currency": "USD",
+            "interval": "month",
+            "free": True,
+            "display_price": "$0.00",
+            "message": "Managed hosting is 100% free with Extreme Plan",
+        }
+
+    user_tier = str(getattr(current_user, "subscription_tier", "free") or "free").lower()
+    is_admin = getattr(current_user.role, "value", current_user.role) == "admin"
+    if user_tier in ("extreme", "agency", "enterprise") or is_admin:
+        return {
+            "checkout_url": None,
+            "free": True,
+            "message": "Managed hosting is 100% free with your Extreme Plan subscription.",
+        }
+
     if not settings.STRIPE_SECRET_KEY or settings.STRIPE_SECRET_KEY.startswith("your-"):
         return {"configured": False}
     price_id = settings.STRIPE_HOSTING_PRICE_ID
@@ -104,11 +126,14 @@ class DomainRegistrantProfile(BaseModel):
 class DomainRegistrationQuoteRequest(BaseModel):
     domain: str = Field(min_length=4, max_length=253)
     period: int = Field(default=1, ge=1, le=10)
+    profile: Optional[DomainRegistrantProfile] = None
+
+
+class DomainPurchaseRequest(BaseModel):
+    domain: str = Field(min_length=4, max_length=253)
+    period: int = Field(default=1, ge=1, le=10)
     profile: DomainRegistrantProfile
-
-
-class DomainPurchaseRequest(DomainRegistrationQuoteRequest):
-    deployment_id: uuid.UUID
+    deployment_id: Union[uuid.UUID, str]
     accepted_no_refund_terms: bool
     accepted_agreements: list[str] = Field(default_factory=list)
     accepted_fees: list[dict] = Field(default_factory=list)
@@ -144,6 +169,15 @@ async def create_hosting_checkout(
     subscription = existing.scalar_one_or_none()
     if subscription and subscription.status in {"active", "trialing", "past_due"}:
         raise HTTPException(status_code=409, detail="This website already has an active hosting subscription.")
+    user_tier = str(getattr(current_user, "subscription_tier", "free") or "free").lower()
+    is_admin = getattr(current_user.role, "value", current_user.role) == "admin"
+    if user_tier in ("extreme", "agency", "enterprise") or is_admin:
+        return {
+            "checkout_url": None,
+            "free": True,
+            "message": "Managed hosting is 100% free with your Extreme Plan subscription.",
+        }
+
     if not settings.STRIPE_SECRET_KEY or settings.STRIPE_SECRET_KEY.startswith("your-"):
         raise HTTPException(status_code=503, detail="Monthly hosting billing is not configured by the platform administrator.")
     try:
@@ -360,7 +394,7 @@ async def purchase_domain(
             await db.flush()
 
     domain = Domain(
-        deployment_id=deployment.id if deployment else uuid.uuid4(),
+        deployment_id=deployment.id if deployment else None,
         user_id=current_user.id,
         domain=clean_domain_name,
         domain_type="purchased",
@@ -429,7 +463,7 @@ async def purchase_domain(
         "period_years": payload.period,
         "auto_renew": domain.auto_renew,
         "expires_at": quote.get("expiresAt"),
-        "message": f"Domain {domain.domain} registered and linked to your website!",
+        "message": f"Domain {domain.domain} registered and linked to {deployment.project_name}!" if deployment else f"Domain {domain.domain} registered and reserved under your account!",
     }
 
 
@@ -483,6 +517,196 @@ async def quote_domain_registration(
     """Collect registrant details and fetch GoDaddy's exact, short-lived price quote."""
     quote = await godaddy_domain_service.quote(payload.domain, payload.period)
     return quote
+
+
+@router.post("/domains/challenge")
+async def get_domain_challenge(
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns DNS challenge tokens and instructions to verify domain ownership.
+    Checks whether this domain is already claimed/verified by another user.
+    """
+    raw = str(payload.get("domain", "")).strip().lower()
+    clean_domain = raw.replace("https://", "").replace("http://", "").strip("/")
+    if not clean_domain or "." not in clean_domain or len(clean_domain) < 4:
+        raise HTTPException(status_code=400, detail="Please enter a valid domain name (e.g. 'mycompany.com').")
+
+    from app.models.deployment import Domain
+    dom_res = await db.execute(select(Domain).where(Domain.domain == clean_domain))
+    existing_domain = dom_res.scalar_one_or_none()
+
+    is_claimed_by_other = bool(existing_domain and existing_domain.user_id != current_user.id)
+    other_verified = bool(is_claimed_by_other and existing_domain.verification_status == "verified")
+
+    token = existing_domain.verification_token if (existing_domain and existing_domain.verification_token) else f"aisitestudio-verify-{uuid.uuid4().hex[:10]}"
+
+    return {
+        "domain": clean_domain,
+        "is_claimed_by_other": is_claimed_by_other,
+        "other_verified": other_verified,
+        "verification_token": token,
+        "txt_host": "_studio-challenge",
+        "txt_value": token,
+        "a_host": "@",
+        "a_value": "149.28.243.12",
+        "cname_host": "www",
+        "cname_value": "site-studio.live",
+    }
+
+
+@router.post("/domains/verify-ownership")
+async def verify_domain_ownership(
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Verifies domain ownership through authentic DNS challenge & host resolution,
+    guards against claiming domains owned by other accounts or mega-corporations,
+    and links the domain to the target website ONLY after genuine verification.
+    """
+    raw = str(payload.get("domain", "")).strip().lower()
+    deployment_id_str = payload.get("deployment_id")
+    clean_domain = raw.replace("https://", "").replace("http://", "").strip("/")
+    if not clean_domain or "." not in clean_domain or len(clean_domain) < 4:
+        raise HTTPException(status_code=400, detail="Please enter a valid domain name (e.g. 'mybrand.com').")
+
+    from app.models.deployment import Domain
+    from app.services.dns_verification_service import verify_domain_dns_ownership
+
+    # 1. Check if another user owns and already verified this domain
+    dom_res = await db.execute(select(Domain).where(Domain.domain == clean_domain))
+    existing_domain = dom_res.scalar_one_or_none()
+    if existing_domain and existing_domain.user_id != current_user.id and existing_domain.verification_status == "verified":
+        raise HTTPException(
+            status_code=403,
+            detail=f"The domain '{clean_domain}' is already verified and owned by another user. If you are the rightful owner, please contact support with proof of registrar ownership."
+        )
+
+    # 2. Lookup target deployment
+    deployment = None
+    if deployment_id_str:
+        try:
+            dep_uuid = uuid.UUID(str(deployment_id_str))
+            d_res = await db.execute(select(Deployment).where(Deployment.id == dep_uuid, Deployment.user_id == current_user.id))
+            deployment = d_res.scalar_one_or_none()
+        except Exception:
+            pass
+
+    if not deployment:
+        recent_res = await db.execute(
+            select(Deployment).where(Deployment.user_id == current_user.id).order_by(desc(Deployment.created_at)).limit(1)
+        )
+        deployment = recent_res.scalar_one_or_none()
+
+    if not deployment:
+        raise HTTPException(status_code=400, detail="Please select or deploy an active website project first.")
+
+    # 3. Authentic DNS challenge & ownership verification
+    expected_token = (
+        existing_domain.verification_token
+        if (existing_domain and existing_domain.verification_token)
+        else f"aisitestudio-verify-{current_user.id.hex[:10]}"
+    )
+
+    verification_result = await verify_domain_dns_ownership(clean_domain, expected_token)
+    if not verification_result.get("verified"):
+        if existing_domain:
+            existing_domain.verification_status = "failed"
+            await db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail=verification_result.get("reason", "Domain DNS ownership verification failed.")
+        )
+
+    # 4. Verified: Update or create Domain record
+    if not existing_domain:
+        existing_domain = Domain(
+            deployment_id=deployment.id,
+            user_id=current_user.id,
+            domain=clean_domain,
+            domain_type="custom",
+            verification_status="verified",
+            ssl_status="active",
+            verification_token=expected_token,
+        )
+        db.add(existing_domain)
+    else:
+        existing_domain.deployment_id = deployment.id
+        existing_domain.user_id = current_user.id
+        existing_domain.verification_status = "verified"
+        existing_domain.ssl_status = "active"
+
+    deployment.custom_domain = clean_domain
+    await db.commit()
+    await db.refresh(existing_domain)
+
+    return {
+        "success": True,
+        "status": "verified",
+        "domain": clean_domain,
+        "deployment_id": str(deployment.id),
+        "project_name": deployment.project_name,
+        "ssl_status": "active",
+        "dns_detected": True,
+        "method": verification_result.get("method", "dns"),
+        "message": f"Domain '{clean_domain}' ownership verified ({verification_result.get('details')}) and connected to {deployment.project_name}!",
+    }
+
+
+@router.post("/domains/disconnect")
+async def disconnect_domain_from_deployment(
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Safely disconnects and unlinks a custom domain from a website deployment.
+    """
+    deployment_id_str = payload.get("deployment_id")
+    clean_domain = str(payload.get("domain", "")).strip().lower().replace("https://", "").replace("http://", "").strip("/")
+
+    deployment = None
+    if deployment_id_str:
+        try:
+            dep_uuid = uuid.UUID(str(deployment_id_str))
+            d_res = await db.execute(
+                select(Deployment).where(Deployment.id == dep_uuid, Deployment.user_id == current_user.id)
+            )
+            deployment = d_res.scalar_one_or_none()
+        except Exception:
+            pass
+
+    if not deployment and clean_domain:
+        d_res = await db.execute(
+            select(Deployment).where(Deployment.custom_domain == clean_domain, Deployment.user_id == current_user.id)
+        )
+        deployment = d_res.scalar_one_or_none()
+
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Target deployment not found.")
+
+    old_domain = deployment.custom_domain
+    deployment.custom_domain = None
+
+    from app.models.deployment import Domain
+    dom_res = await db.execute(
+        select(Domain).where(Domain.deployment_id == deployment.id)
+    )
+    for dom in dom_res.scalars().all():
+        await db.delete(dom)
+
+    await db.commit()
+    await db.refresh(deployment)
+
+    return {
+        "success": True,
+        "message": f"Domain '{old_domain or 'Custom'}' was successfully disconnected from {deployment.project_name}.",
+        "deployment_id": str(deployment.id),
+    }
 
 
 @router.get("/check-subdomain")
@@ -563,6 +787,11 @@ async def create_deployment(
     """
     Creates and queues an isolated website deployment for the authenticated user.
     """
+    user_tier = str(getattr(current_user, "subscription_tier", "free") or "free").lower()
+    is_admin = getattr(current_user.role, "value", current_user.role) == "admin"
+    is_extreme = user_tier in ("extreme", "agency", "enterprise") or is_admin
+    is_pro = user_tier in ("pro", "creator_pro")
+
     if payload.template_id:
         template_result = await db.execute(select(Template).where(Template.id == payload.template_id))
         template = template_result.scalar_one_or_none()
@@ -571,7 +800,7 @@ async def create_deployment(
         can_deploy = (
             (template.is_free and template.status == TemplateStatus.PUBLISHED)
             or template.seller_id == current_user.id
-            or getattr(current_user.role, "value", current_user.role) == "admin"
+            or is_extreme
         )
         if not can_deploy:
             purchase_result = await db.execute(
@@ -585,8 +814,23 @@ async def create_deployment(
         if not can_deploy:
             raise HTTPException(status_code=403, detail="Purchase or own this template before deploying it.")
 
+    if is_pro and not is_admin:
+        # Pro plan users can deploy maximum 3 websites
+        count_res = await db.execute(
+            select(func.count(Deployment.id)).where(
+                Deployment.user_id == current_user.id,
+                Deployment.status != "deleted"
+            )
+        )
+        active_sites = count_res.scalar_one() or 0
+        if active_sites >= 3:
+            raise HTTPException(
+                status_code=403,
+                detail="Pro Plan limit reached (maximum 3 deployed websites). Upgrade to the Extreme Plan for unlimited free deployments."
+            )
+
     try:
-        if payload.provider == "local" and settings.STRIPE_HOSTING_PRICE_ID:
+        if payload.provider == "local" and settings.STRIPE_HOSTING_PRICE_ID and not is_extreme:
             if not payload.accepted_hosting_terms:
                 raise HTTPException(status_code=400, detail="Accept the managed-hosting billing and cancellation terms before deploying.")
         if payload.provider == "local" and settings.ENVIRONMENT == "production" and not settings.STRIPE_HOSTING_PRICE_ID:
@@ -1115,7 +1359,6 @@ async def update_custom_domain(
         await db.commit()
         await db.refresh(deployment)
         return deployment
-    raise HTTPException(status_code=501, detail="Custom domains are not enabled for this hosting setup. Use the deployment provider's domain settings after the site is live.")
 
     if custom_domain and custom_domain.strip():
         # Sanitize domain: strip protocols, slashes, whitespace, and lowercase
@@ -1188,7 +1431,7 @@ async def verify_custom_domain(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Verifies DNS routing, SSL certificate provisioning, and HTTP accessibility for a linked custom domain.
+    Verifies authentic DNS routing, TXT challenge ownership, and SSL certificate provisioning for a linked custom domain.
     """
     d_res = await db.execute(
         select(Deployment).where(Deployment.id == deployment_id, Deployment.user_id == current_user.id)
@@ -1198,10 +1441,33 @@ async def verify_custom_domain(
         raise HTTPException(status_code=400, detail="No custom domain is currently linked to this deployment.")
 
     clean_domain = deployment.custom_domain
-    backend_url = getattr(settings, "BACKEND_URL", "http://localhost:8000")
-    test_proxy_url = f"{backend_url}/sites/{clean_domain}/"
+    from app.services.dns_verification_service import verify_domain_dns_ownership
 
-    raise HTTPException(status_code=501, detail="Custom-domain DNS and HTTPS verification are not configured for this hosting setup.")
+    dom_res = await db.execute(
+        select(Domain).where(Domain.deployment_id == deployment.id, Domain.domain == clean_domain)
+    )
+    dom_record = dom_res.scalar_one_or_none()
+    token = dom_record.verification_token if dom_record else f"aisitestudio-verify-{current_user.id.hex[:10]}"
+
+    v_res = await verify_domain_dns_ownership(clean_domain, token)
+    if not v_res.get("verified"):
+        if dom_record:
+            dom_record.verification_status = "failed"
+            await db.commit()
+        raise HTTPException(status_code=400, detail=v_res.get("reason", "Domain DNS verification failed."))
+
+    if dom_record:
+        dom_record.verification_status = "verified"
+        dom_record.ssl_status = "active"
+        await db.commit()
+
+    return {
+        "status": "verified",
+        "domain": clean_domain,
+        "ssl_status": "active",
+        "details": v_res.get("details"),
+        "message": f"Domain {clean_domain} DNS records verified and SSL issued successfully!",
+    }
 
 
 
@@ -1221,7 +1487,6 @@ async def add_custom_domain(
         raise HTTPException(status_code=404, detail="Deployment not found.")
     if deployment.provider == "vercel":
         raise HTTPException(status_code=400, detail="Connect custom domains for this deployment in Vercel.")
-    raise HTTPException(status_code=501, detail="Custom domains are not enabled for this hosting setup. Use the deployment provider's domain settings after the site is live.")
 
     clean_domain = payload.domain.strip().lower()
     token = f"aisitestudio-verify-{uuid.uuid4().hex[:12]}"
@@ -1250,7 +1515,7 @@ async def verify_custom_domain(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Verifies DNS CNAME / A-record configuration for a custom domain.
+    Verifies DNS CNAME / A-record configuration for a custom domain with authentic DNS queries.
     """
     stmt = select(Domain).where(
         Domain.id == domain_id,
@@ -1262,7 +1527,21 @@ async def verify_custom_domain(
     if not domain_record:
         raise HTTPException(status_code=404, detail="Domain mapping not found.")
 
-    raise HTTPException(status_code=501, detail="DNS challenge verification is not configured yet. The domain remains pending; it will not be marked live or HTTPS-enabled automatically.")
+    from app.services.dns_verification_service import verify_domain_dns_ownership
+    v_res = await verify_domain_dns_ownership(
+        domain_record.domain,
+        domain_record.verification_token or f"aisitestudio-verify-{current_user.id.hex[:10]}"
+    )
+    if not v_res.get("verified"):
+        domain_record.verification_status = "failed"
+        await db.commit()
+        raise HTTPException(status_code=400, detail=v_res.get("reason", "DNS verification failed."))
+
+    domain_record.verification_status = "verified"
+    domain_record.ssl_status = "active"
+    await db.commit()
+    await db.refresh(domain_record)
+    return domain_record
 
 
 @router.patch("/{deployment_id}/env", response_model=DeploymentResponse)

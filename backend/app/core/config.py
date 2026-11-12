@@ -254,6 +254,7 @@ class Settings(BaseSettings):
     # -- Razorpay --------------------------------------------------------------
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
+    RAZORPAY_WEBHOOK_SECRET: str = ""
 
     # -- Stripe ----------------------------------------------------------------
     STRIPE_SECRET_KEY: str = ""

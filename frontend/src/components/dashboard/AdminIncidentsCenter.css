@@ -327,9 +327,9 @@
   margin-top: 0.35rem;
   font-size: 0.7rem;
   font-weight: 700;
-  background-color: rgba(99, 102, 241, 0.1);
-  color: #6366f1;
-  border: 1px solid rgba(99, 102, 241, 0.25);
+  background-color: rgba(200, 150, 102, 0.1);
+  color: #c89666;
+  border: 1px solid rgba(200, 150, 102, 0.25);
   padding: 0.15rem 0.45rem;
   border-radius: 0.375rem;
 }
@@ -351,9 +351,9 @@
 }
 
 .aic-status-badge.auto-healed {
-  background-color: rgba(99, 102, 241, 0.12);
-  color: #6366f1;
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  background-color: rgba(200, 150, 102, 0.12);
+  color: #c89666;
+  border: 1px solid rgba(200, 150, 102, 0.3);
 }
 
 .aic-status-badge.resolved {
@@ -380,19 +380,19 @@
   gap: 0.35rem;
   padding: 0.45rem 0.75rem;
   border-radius: 0.5rem;
-  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  background: linear-gradient(135deg, #b5804f, #b5804f);
   color: white;
   border: none;
   font-size: 0.75rem;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
+  box-shadow: 0 2px 8px rgba(200, 150, 102, 0.25);
   transition: all 0.15s ease;
 }
 
 .aic-btn-ai-heal:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 4px 12px rgba(200, 150, 102, 0.4);
 }
 
 .aic-btn-ai-heal:disabled {

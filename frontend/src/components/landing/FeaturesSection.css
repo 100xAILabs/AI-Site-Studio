@@ -141,7 +141,7 @@
   border-radius: 24px;
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
-  box-shadow: 0 2px 12px rgba(99, 102, 241, 0.04);
+  box-shadow: 0 2px 12px rgba(200, 150, 102, 0.04);
   transition:
     transform .35s ease,
     border-color .35s ease,

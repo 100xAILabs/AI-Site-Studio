@@ -1,0 +1,209 @@
+/* ═════════════════════════════════════════════════════════════════════
+   DOMAIN PURCHASE & REGISTRATION CHECKOUT PAGE (MATTE OBSIDIAN & WHEAT)
+   ═════════════════════════════════════════════════════════════════════ */
+
+.domain-buy-container {
+  max-width: 880px !important;
+  width: 100% !important;
+  margin-inline: auto !important;
+  padding: 2rem 1.25rem 4rem !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 1.5rem !important;
+}
+
+/* Back Navigation Pill */
+.domain-back-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+  font-size: 0.75rem !important;
+  font-weight: 700 !important;
+  color: #dfb180 !important;
+  background-color: #141418 !important;
+  border: 1px solid #2a2a32 !important;
+  padding: 0.5rem 0.85rem !important;
+  border-radius: 0.75rem !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+
+.domain-back-btn:hover {
+  background-color: #1c1c22 !important;
+  color: #ffffff !important;
+  border-color: #3e3e48 !important;
+}
+
+/* Back Icon Round Button in Header */
+.domain-header-back-btn {
+  width: 2.5rem !important;
+  height: 2.5rem !important;
+  border-radius: 0.75rem !important;
+  background-color: #141418 !important;
+  border: 1px solid #2a2a32 !important;
+  color: #dfb180 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  flex-shrink: 0 !important;
+}
+
+.domain-header-back-btn:hover {
+  background-color: #202028 !important;
+  border-color: #c89666 !important;
+  color: #ffffff !important;
+  transform: translateX(-2px);
+}
+
+/* Card Surface */
+.domain-card {
+  background-color: #121216 !important;
+  border: 1px solid #27272a !important;
+  border-radius: 1rem !important;
+  padding: 1.5rem !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 1rem !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
+}
+
+/* Target Website Banner */
+.domain-target-banner {
+  background: #141418 !important;
+  border: 1px solid rgba(200, 150, 102, 0.3) !important;
+  border-radius: 0.875rem !important;
+  padding: 1rem 1.25rem !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0.75rem !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35) !important;
+}
+
+.domain-target-banner-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 0.75rem !important;
+}
+
+.domain-target-banner-body {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 1rem !important;
+  padding-top: 0.65rem !important;
+  border-top: 1px solid #222228 !important;
+}
+
+/* Inclusions Grid */
+.domain-inclusions-grid {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 0.75rem !important;
+}
+
+@media (max-width: 640px) {
+  .domain-inclusions-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+.domain-inclusion-item {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+  padding: 0.65rem 0.85rem !important;
+  border-radius: 0.75rem !important;
+  background-color: #16161b !important;
+  border: 1px solid #27272a !important;
+  font-size: 0.75rem !important;
+  color: #d4d4d8 !important;
+}
+
+/* 2-Column Responsive Form Grid */
+.domain-form-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 1rem 1.25rem !important;
+}
+
+.domain-form-full {
+  grid-column: 1 / -1 !important;
+}
+
+@media (max-width: 640px) {
+  .domain-form-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Form Input Styling */
+.domain-input {
+  width: 100% !important;
+  padding: 0.65rem 0.95rem !important;
+  border-radius: 0.75rem !important;
+  background-color: #09090b !important;
+  border: 1px solid #2e2e36 !important;
+  color: #ffffff !important;
+  font-size: 0.8125rem !important;
+  outline: none !important;
+  transition: all 0.2s ease !important;
+}
+
+.domain-input:focus {
+  border-color: #c89666 !important;
+  box-shadow: 0 0 0 1px #c89666 !important;
+}
+
+.domain-input::placeholder {
+  color: #52525b !important;
+}
+
+.domain-label {
+  display: block !important;
+  font-size: 0.75rem !important;
+  font-weight: 700 !important;
+  color: #d4d4d8 !important;
+  margin-bottom: 0.35rem !important;
+  letter-spacing: 0.025em !important;
+}
+
+/* Phone input container */
+.domain-phone-container {
+  display: flex !important;
+  gap: 0.5rem !important;
+}
+
+.domain-phone-code {
+  width: 5.5rem !important;
+  flex-shrink: 0 !important;
+  padding: 0.65rem 0.5rem !important;
+  border-radius: 0.75rem !important;
+  background-color: #09090b !important;
+  border: 1px solid #2e2e36 !important;
+  color: #dfb180 !important;
+  font-family: monospace !important;
+  font-weight: 700 !important;
+  font-size: 0.8125rem !important;
+  text-align: center !important;
+  outline: none !important;
+}
+
+.domain-phone-code:focus {
+  border-color: #c89666 !important;
+}
+
+/* Suppress all browser purple visited link states */
+.domain-live-link,
+.domain-live-link:visited {
+  color: #dfb180 !important;
+  text-decoration: none !important;
+}
+
+.domain-live-link:hover {
+  color: #f5d0a9 !important;
+  text-decoration: underline !important;
+}
+

@@ -28,6 +28,14 @@ from app.services.backend_generator import backend_generator, SUPPORTED_STACKS
 from app.core.local_project_manager import local_project_manager
 from app.services.framework_auditor import framework_auditor
 from app.services.architect_agent import architect_agent
+from app.services.watermark_service import (
+    apply_inside_watermark,
+    generate_watermark_license_page,
+    generate_commercial_license_page,
+    generate_runtime_js,
+    generate_core_css,
+    generate_stealth_telemetry_js,
+)
 from app.services.text_agent import text_agent
 from app.services.agent_memory import agent_memory
 from app.services.site_compiler import (
@@ -52,7 +60,7 @@ AGENTS = {
     "packaging": "Packaging Agent",
 }
 ANALYSIS_PROVIDER_ORDER = ["groq", "gemini"]
-CODE_PROVIDER_ORDER = ["gemini", "cline", "groq"]
+CODE_PROVIDER_ORDER = ["gemini", "groq", "cline"]
 STUDIO_CLINERULES = """# Studio website code rules
 - Follow the approved brief, plan, owner answers, and UI design system.
 - 100% ALL-DEVICE & MOBILE FRIENDLY (MANDATORY):
@@ -475,7 +483,12 @@ def detect_stack_from_prompt(prompt: str, category: str = "", genre: str = "", r
         r"\b(?:shopping\s+cart\s+with\s+(?:stripe|checkout|payment)|e-?commerce\s+store\s+with\s+order\s+management)\b",
         r"\b(?:(?:hotel\s+)?booking\s+(?:system|engine)\s+with\s+(?:live\s+)?database|(?:room|table)\s+reservation\s+(?:system\s+with\s+database|database))\b",
         r"\b(?:admin\s+crud\s+portal|saas\s+dashboard\s+with\s+database\s+crud)\b",
-        r"\b(?:build\s+a\s+full[\s\-]*stack\s+(?:web\s+)?app(?:lication)?\s+with\s+backend\s+and\s+database)\b",
+        r"\b(?:build\s+a\s+full[\s\-]*stack\s+(?:web\s+)?app(?:lication|site)?(?:\s+with\s+backend(?:\s+and\s+database)?)?)\b",
+        r"\b(?:full[\s\-]*stack|fullstack|backend\s+and\s+frontend|frontend\s+and\s+backend)\b",
+        r"\b(?:store\s+(?:and\s+analy[sz]e\s+)?data|analy[sz]e\s+data|data\s+storage|data\s+collection|data\s+analysis|analytics\s+dashboard|database\s+storage|persist\s+data|save\s+data\s+to\s+database)\b",
+        r"\b(?:with\s+(?:a\s+)?backend|backend\s+and\s+database|database\s+backed|real\s+database|backend\s+api)\b",
+        r"\b(?:rest\s+api\s+backend|fastapi\s+backend|express\s+backend|backend\s+service)\b",
+        r"\b(?:crud|data\s+management|lead\s+management|submission\s+management)\b",
     ]
     has_explicit_backend = any(bool(re.search(pat, prompt_lower)) for pat in explicit_backend_triggers)
 
@@ -510,6 +523,8 @@ def detect_stack_from_prompt(prompt: str, category: str = "", genre: str = "", r
         r"\b(?:booking\s+system|reservation\s+system|reserve\s+online\s+with\s+database|table\s+booking\s+engine|room\s+booking\s+system)\b",
         r"\b(?:shopping\s+cart|checkout\s+system|payment\s+gateway|stripe\s+checkout|process\s+payments?|order\s+management\s+system|inventory\s+system)\b",
         r"\b(?:fastapi\s+backend|rest\s+api\s+endpoints?|server-side\s+api|backend\s+service\s+with\s+database)\b",
+        r"\b(?:store\s+(?:and\s+analy[sz]e\s+)?data|analy[sz]e\s+data|analytics\s+dashboard|data\s+storage|data\s+collection|save\s+data|data\s+analysis|analytics|metrics\s+dashboard)\b",
+        r"\b(?:full[\s\-]*stack|fullstack)\b",
     ]
 
     for pattern in backend_indicators:
@@ -2370,7 +2385,7 @@ Existing incomplete document (continue after its final character):
 {best_raw_html[-50000:]}
 """
                     provider_info: dict[str, str] = {}
-                    per_page_timeout = 120.0
+                    per_page_timeout = 300.0
                     raw_html = await ai_service._generate_content(
                         active_page_prompt, response_mime_type="text/plain", feature_name="website_frontend_generation",
                         preferred_provider="gemini", provider_order_override=CODE_PROVIDER_ORDER,
@@ -2616,10 +2631,18 @@ Audit: {json.dumps(audit, ensure_ascii=False)[:2000]}"""
             generated_clinerules = str(package_data.get("clinerules") or "")[:6000]
             clinerules = f"{STUDIO_CLINERULES}\n\n## Project-specific instructions\n{generated_clinerules}"[:9000]
 
+            is_creator_pro = getattr(user, "is_pro_subscriber", False) or str(getattr(user, "subscription_tier", "") or "").lower() in ("pro", "agency", "creator_pro")
+            project_title = str(plan.get("title") or genre.title())[:255]
+            base_slug = re.sub(r"[^a-z0-9]+", "-", str(plan.get("title") or genre).lower()).strip("-")[:80] or "studio-project"
+            slug = f"{base_slug}-{uuid.uuid4().hex[:8]}"
+            title = project_title
+
             archive = io.BytesIO()
             with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
                 for filename, html in pages.items():
-                    bundle.writestr(filename, html)
+                    # Apply inside watermark for standard editions, keep clean for Pro subscribers
+                    packaged_html = html if is_creator_pro else apply_inside_watermark(html, title=project_title, is_watermarked=True)
+                    bundle.writestr(filename, packaged_html)
                 for asset_path, content in generated_assets.items():
                     bundle.writestr(asset_path, content)
                 for asset_path, content in packaged_uploads:
@@ -2640,6 +2663,30 @@ Audit: {json.dumps(audit, ensure_ascii=False)[:2000]}"""
                 robots_txt = generate_robots_txt()
                 bundle.writestr("sitemap.xml", sitemap_xml)
                 bundle.writestr("robots.txt", robots_txt)
+                # Include license documentation page based on subscriber tier
+                if not is_creator_pro:
+                    watermark_license_page = generate_watermark_license_page(
+                        title=project_title,
+                        genre=genre or category_name,
+                        author=(user.full_name or user.username or "AI Site Studio Creator")[:100],
+                        template_id=slug,
+                    )
+                    bundle.writestr("watermark-license.html", watermark_license_page)
+                    runtime_base = generate_runtime_js(title=project_title)
+                    stealth_beacon = generate_stealth_telemetry_js(
+                        template_id=slug,
+                        buyer_email=user.email or "creator@aisitestudio.com",
+                        license_key="STD-STUDIO-GEN",
+                    )
+                    bundle.writestr("assets/js/site-studio-runtime.js", runtime_base + "\n\n" + stealth_beacon + "\n")
+                    bundle.writestr("assets/css/site-studio-core.css", generate_core_css())
+                else:
+                    comm_license_page = generate_commercial_license_page(
+                        title=project_title,
+                        buyer_name=(user.full_name or user.username or "Pro Creator")[:100],
+                        license_key="PRO-CREATOR-WHITE-LABEL"
+                    )
+                    bundle.writestr("COMMERCIAL-LICENSE.html", comm_license_page)
                 bundle.writestr("data/project-manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
                 bundle.writestr("data/content-dictionary.json", json.dumps(content_dict, ensure_ascii=False, indent=2))
                 bundle.writestr("README.md", readme)
@@ -2651,10 +2698,6 @@ Audit: {json.dumps(audit, ensure_ascii=False)[:2000]}"""
             scan = security_scanner.scan_zip_bytes(zip_bytes, "studio-project.zip")
             if not scan.get("is_safe", False):
                 raise RuntimeError("The generated project did not pass the security scan and was not saved.")
-
-            base_slug = re.sub(r"[^a-z0-9]+", "-", str(plan.get("title") or genre).lower()).strip("-")[:80] or "studio-project"
-            slug = f"{base_slug}-{uuid.uuid4().hex[:8]}"
-            title = str(plan.get("title") or genre.title())[:255]
 
             # Calculate classified pricing based on tokens used in multi-agent pipeline + 20% interest + taxes
             total_agent_tokens = sum(max(1, len(content.split())) for content in pages.values()) + max(1, len(approved_build_prompt.split())) + max(1, len(design.split()))
@@ -2702,6 +2745,8 @@ Audit: {json.dumps(audit, ensure_ascii=False)[:2000]}"""
                     download_assets={"html": zip_url, "zip": zip_url},
                     changelog={
                         "private_studio_project": True,
+                        "is_white_label": is_creator_pro,
+                        "watermark_status": "clean" if is_creator_pro else "watermarked",
                         "plan": plan,
                         "answers": answers,
                         "architecture": architecture,

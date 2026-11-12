@@ -87,7 +87,7 @@ function highlightSearchMatch(text, query) {
   const parts = text.split(regex);
   return parts.map((part, i) =>
     part.toLowerCase() === query.trim().toLowerCase() ? (
-      <strong key={i} className="text-purple-400 font-bold underline decoration-purple-500/50">
+      <strong key={i} className="text-[#dfb180] font-bold underline decoration-[#dfb180]/50">
         {part}
       </strong>
     ) : (
@@ -382,7 +382,7 @@ function Marketplace() {
         <div className="marketplace-container">
           <header className="marketplace-hero-header">
             <div className="marketplace-hero-badge">
-              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+              <Sparkles className="w-3.5 h-3.5 text-[#dfb180]" />
               <span>{isSeller ? "Seller Portal Catalog" : "Curated Template Marketplace"}</span>
               <span className="marketplace-badge-dot" />
               <span className="text-emerald-400 font-semibold">{isSeller ? "Your Creator Workspace" : "100% Production Ready"}</span>
@@ -409,7 +409,7 @@ function Marketplace() {
                   className="marketplace-studio-cta"
                   title="Upload a new template to your seller catalog"
                 >
-                  <UploadCloud className="w-4 h-4 text-purple-300" />
+                  <UploadCloud className="w-4 h-4 text-[#c89666]" />
                   <span>Upload Template</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
@@ -500,7 +500,7 @@ function Marketplace() {
                           <>
                             <div className="amazon-dropdown-section">
                               <div className="amazon-dropdown-section-title">
-                                <TrendingUp className="w-3.5 h-3.5 text-purple-400" />
+                                <TrendingUp className="w-3.5 h-3.5 text-[#dfb180]" />
                                 <span>Trending Searches</span>
                               </div>
                               <div className="amazon-trending-pills">

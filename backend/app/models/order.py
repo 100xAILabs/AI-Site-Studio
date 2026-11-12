@@ -60,9 +60,15 @@ class Order(UUIDMixin, TimestampMixin, Base):
 
     @property
     def gateway(self) -> Optional[str]:
-        if self.payment and hasattr(self.payment, "gateway"):
-            gw = self.payment.gateway
-            return gw.value if hasattr(gw, "value") else str(gw)
+        try:
+            from sqlalchemy.inspection import inspect
+            state = inspect(self)
+            if "payment" not in state.unloaded:
+                if self.payment and hasattr(self.payment, "gateway"):
+                    gw = self.payment.gateway
+                    return gw.value if hasattr(gw, "value") else str(gw)
+        except Exception:
+            pass
         if self.extra_metadata and self.extra_metadata.get("upi_utr"):
             return "UPI"
         return "Stripe"

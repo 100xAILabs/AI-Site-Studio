@@ -40,6 +40,7 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     avatar_url: Optional[str] = None
     bio: Optional[str] = None
+    subscription_tier: Optional[str] = None
     country: Optional[str] = None
     country_code: Optional[str] = None
     city: Optional[str] = None
@@ -76,6 +77,8 @@ class UserResponse(UserBase):
     payout_ifsc_code: Optional[str] = None
     payout_account_holder_name: Optional[str] = None
     is_payout_setup_completed: bool = False
+    subscription_tier: Optional[str] = "free"
+    is_pro_subscriber: bool = False
     country: Optional[str] = None
     country_code: Optional[str] = None
     city: Optional[str] = None

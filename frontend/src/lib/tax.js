@@ -143,22 +143,21 @@ export const COUNTRY_TAX_RATES = {
 
 /**
  * Calculate tax amount and total for a subtotal and country code.
+ * Pricing is strictly all-inclusive (zero extra tax charged).
  */
 export function calculateTax(subtotal, countryCode = "US") {
   const code = (countryCode || "US").toUpperCase();
   const taxInfo = COUNTRY_TAX_RATES[code] || COUNTRY_TAX_RATES.OTHER;
   const numSubtotal = Math.max(0, Number(subtotal) || 0);
-  const taxAmount = Math.round(numSubtotal * taxInfo.rate * 100) / 100;
-  const totalAmount = Math.round((numSubtotal + taxAmount) * 100) / 100;
 
   return {
     subtotal: numSubtotal,
-    rate: taxInfo.rate,
-    ratePercent: Math.round(taxInfo.rate * 100),
-    taxAmount,
-    totalAmount,
-    label: taxInfo.label,
-    taxName: taxInfo.taxName,
+    rate: 0,
+    ratePercent: 0,
+    taxAmount: 0,
+    totalAmount: numSubtotal,
+    label: "Tax Included",
+    taxName: "All-Inclusive Pricing",
     countryName: taxInfo.name,
     flag: taxInfo.flag,
     code: taxInfo.code,

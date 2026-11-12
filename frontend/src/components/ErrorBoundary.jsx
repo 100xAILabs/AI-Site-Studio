@@ -172,7 +172,7 @@ class ErrorBoundary extends Component {
             maxWidth: '560px',
             width: '100%',
             background: 'rgba(20, 18, 38, 0.85)',
-            border: isNetworkError ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid rgba(167, 139, 250, 0.25)',
+            border: isNetworkError ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid rgba(223, 177, 128, 0.25)',
             backdropFilter: 'blur(16px)',
             WebkitBackdropFilter: 'blur(16px)',
             borderRadius: '20px',
@@ -284,7 +284,7 @@ class ErrorBoundary extends Component {
               id="error-boundary-try-again-btn"
               onClick={this.handleReset}
               style={{
-                background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+                background: 'linear-gradient(135deg, #c89666, #b5804f)',
                 color: '#ffffff',
                 border: 'none',
                 borderRadius: '10px',
@@ -292,7 +292,7 @@ class ErrorBoundary extends Component {
                 fontSize: '0.9rem',
                 fontWeight: 600,
                 cursor: 'pointer',
-                boxShadow: '0 4px 16px rgba(124, 58, 237, 0.35)',
+                boxShadow: '0 4px 16px rgba(200, 150, 102, 0.35)',
                 transition: 'transform 0.15s, opacity 0.15s',
               }}
               onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.9')}
@@ -329,7 +329,7 @@ class ErrorBoundary extends Component {
               style={{
                 background: 'transparent',
                 color: '#a78bfa',
-                border: '1px solid rgba(167, 139, 250, 0.35)',
+                border: '1px solid rgba(223, 177, 128, 0.35)',
                 borderRadius: '10px',
                 padding: '0.7rem 1.3rem',
                 fontSize: '0.9rem',
@@ -338,7 +338,7 @@ class ErrorBoundary extends Component {
                 transition: 'border-color 0.2s',
               }}
               onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#c4b5fd')}
-              onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'rgba(167, 139, 250, 0.35)')}
+              onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'rgba(223, 177, 128, 0.35)')}
             >
               Return Home
             </button>

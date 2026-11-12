@@ -37,7 +37,7 @@
   width: 30%;
   height: 30%;
   border-radius: 9999px;
-  background-color: hsl(var(--secondary) / 0.06); /* teal accent, very subtle */
+  background-color: hsl(var(--primary) / 0.04);
   filter: blur(120px);
   pointer-events: none;
 }

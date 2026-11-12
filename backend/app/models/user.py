@@ -77,10 +77,16 @@ class User(UUIDMixin, TimestampMixin, Base):
     # AI Credits
     ai_credits: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
 
-    # Billing & Stripe Connect
+    # Billing, Subscriptions & Stripe Connect
+    subscription_tier: Mapped[Optional[str]] = mapped_column(String(50), default="free", server_default="free", nullable=True)
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(255))
     stripe_connect_account_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     razorpay_customer_id: Mapped[Optional[str]] = mapped_column(String(255))
+
+    @property
+    def is_pro_subscriber(self) -> bool:
+        tier = (self.subscription_tier or "").lower()
+        return tier in ("pro", "agency", "creator_pro", "enterprise", "extreme")
 
     # Payout details for Sellers
     payout_bank_name: Mapped[Optional[str]] = mapped_column(String(255))

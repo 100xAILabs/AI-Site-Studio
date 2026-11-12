@@ -5,7 +5,7 @@ import mimetypes
 from typing import Optional
 from PIL import Image
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Response, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Response, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,8 @@ async def get_stored_file(
     expires: Optional[int] = Query(None),
     signature: Optional[str] = Query(None),
     token: Optional[str] = Query(None),
+    license: Optional[str] = Query(None),
+    request: Request = None,
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ) -> Response:
@@ -59,6 +61,10 @@ async def get_stored_file(
         raise HTTPException(status_code=404, detail="File not found")
     content_type = stored_file.content_type
     original_filename = stored_file.original_filename
+    is_zip = (
+        content_type in ("application/zip", "application/x-zip-compressed", "application/x-zip", "application/octet-stream")
+        or str(original_filename or "").lower().endswith(".zip")
+    )
 
     # 1. Authorize: check for valid URL signature first
     authorized = False
@@ -75,10 +81,6 @@ async def get_stored_file(
 
     # 2. Fall back to current_user depending on file type sensitivity
     if not authorized:
-        is_zip = (
-            content_type in ("application/zip", "application/x-zip-compressed", "application/x-zip", "application/octet-stream")
-            or str(original_filename or "").lower().endswith(".zip")
-        )
         if is_zip:
             # ZIP files require a valid signature URL, Admin, Owner seller, Buyer purchase, or Free template
             if current_user is not None:
@@ -121,7 +123,6 @@ async def get_stored_file(
                                 .where(
                                     (Template.source_file_id == file_uuid) | (Template.id == file_uuid),
                                     or_(
-                                        settings.TEMPLATE_DOWNLOADS_FREE,
                                         Template.is_free == True,
                                         (Order.user_id == current_user.id) & (Order.status.in_([OrderStatus.COMPLETED, OrderStatus.PROCESSING])),
                                     )
@@ -176,6 +177,105 @@ async def get_stored_file(
         safe_filename = f"template-{file_uuid}.zip" if content_type == "application/zip" else f"file-{file_uuid}"
         headers["Content-Disposition"] = f'{disposition}; filename="{safe_filename}"'
 
+    if is_zip:
+        # Load raw bytes from database or local disk
+        raw_zip_bytes = None
+        if stored_file.data:
+            raw_zip_bytes = stored_file.data
+        elif not storage.is_cloud_storage:
+            local_path = storage.local_file_path(stored_file.storage_key)
+            if local_path.is_file():
+                raw_zip_bytes = local_path.read_bytes()
+
+        if raw_zip_bytes:
+            from app.services.watermark_service import user_qualifies_for_clean_template, process_zip_package
+            from app.models.template import Template
+            from app.models.order import Order, OrderItem, OrderStatus
+            from sqlalchemy import select
+
+            matched_template = None
+            matched_order_item = None
+
+            try:
+                # Find template linked to this file
+                t_stmt = select(Template).where(
+                    (Template.source_file_id == file_uuid) | (Template.id == file_uuid)
+                ).limit(1)
+                t_res = await db.execute(t_stmt)
+                matched_template = t_res.scalar_one_or_none()
+
+                if not matched_template:
+                    all_tmpls = await db.execute(select(Template))
+                    for t in all_tmpls.scalars().all():
+                        d_assets = t.download_assets or {}
+                        if str(file_uuid) in str(list(d_assets.values())):
+                            matched_template = t
+                            break
+
+                if not raw_zip_bytes and matched_template:
+                    from app.core.local_project_manager import local_project_manager
+                    raw_zip_bytes = local_project_manager.export_project_zip(matched_template.slug or str(matched_template.id))
+
+                # If current_user is present, check their completed order item and purchase timestamp
+                matched_order = None
+                if matched_template and current_user:
+                    oi_stmt = (
+                        select(Order, OrderItem)
+                        .join(OrderItem, OrderItem.order_id == Order.id)
+                        .where(
+                            Order.user_id == current_user.id,
+                            OrderItem.template_id == matched_template.id,
+                            Order.status.in_([OrderStatus.COMPLETED, OrderStatus.PROCESSING])
+                        )
+                        .order_by(Order.created_at.desc())
+                        .limit(1)
+                    )
+                    oi_res = await db.execute(oi_stmt)
+                    row = oi_res.first()
+                    if row:
+                        matched_order, matched_order_item = row
+            except Exception as find_err:
+                pass
+
+            req_lic = license or (request.query_params.get("license") if request else None)
+            is_clean = (
+                (req_lic and str(req_lic).lower() in ("extended", "commercial", "agency", "unlimited", "pro", "full_access", "full-access", "full", "white_label", "whitelabel"))
+                or user_qualifies_for_clean_template(
+                    user=current_user,
+                    template=matched_template,
+                    order_item=matched_order_item,
+                    license_type=req_lic
+                )
+            )
+
+            # Lifetime download access: no time-based expiration for purchased or acquired templates
+
+            buyer_name = (
+                (current_user.full_name or current_user.username or "Customer")
+                if current_user else "Valued Customer"
+            )
+            buyer_email = (
+                current_user.email
+                if current_user and getattr(current_user, "email", None)
+                else "customer@example.com"
+            )
+            template_title = matched_template.title if matched_template else (original_filename or "Website Template")
+            target_template_id = str(matched_template.id if matched_template else file_uuid)
+            req_base = str(request.base_url).rstrip("/") if (request and request.base_url) else None
+
+            processed_zip = process_zip_package(
+                zip_bytes=raw_zip_bytes,
+                is_clean=is_clean,
+                title=template_title,
+                buyer_name=buyer_name,
+                buyer_email=buyer_email,
+                template_id=target_template_id,
+                license_key=f"LIC-{'CLEAN' if is_clean else 'STANDARD'}-{file_uuid.hex[:8].upper()}",
+                api_base_url=req_base,
+            )
+            headers["Content-Length"] = str(len(processed_zip))
+            return Response(content=processed_zip, media_type="application/zip", headers=headers)
+
     if stored_file.data:
         return Response(content=stored_file.data, media_type=content_type, headers=headers)
     if storage.is_cloud_storage:
@@ -228,6 +328,7 @@ async def upload_file(
         pass
     elif filename_lower.endswith(".zip") and ("seller" in str(getattr(current_user, "role", "")).lower() or "admin" in str(getattr(current_user, "role", "")).lower()):
         from app.services.security_scanner import security_scanner
+        from app.services.watermark_service import process_zip_package
         zip_report = security_scanner.scan_zip_stream(file_obj, file.filename or "upload.zip")
         file_obj.seek(0)
         if not zip_report.get("is_safe") or zip_report.get("purged_files"):
@@ -235,6 +336,30 @@ async def upload_file(
             if blocked:
                 raise HTTPException(status_code=400, detail=f"Archive contains blocked executable files: {blocked}")
             raise HTTPException(status_code=400, detail=zip_report.get("reason") or "Archive failed security inspection")
+        
+        # Apply standard multi-page and full-stack watermark protection to the uploaded template
+        try:
+            raw_upload_bytes = file_obj.read()
+            file_obj.seek(0)
+            clean_title = (os.path.splitext(file.filename or "Website Template")[0]).replace("-", " ").replace("_", " ").title()
+            seller_name = getattr(current_user, "full_name", None) or getattr(current_user, "username", "Seller")
+            seller_email = getattr(current_user, "email", "seller@aisitestudio.com")
+            upload_tid = f"upload-{uuid.uuid4().hex[:8]}"
+
+            watermarked_zip_bytes = process_zip_package(
+                zip_bytes=raw_upload_bytes,
+                is_clean=False,
+                title=clean_title,
+                buyer_name=seller_name,
+                buyer_email=seller_email,
+                template_id=upload_tid,
+                license_key=f"STD-{upload_tid[:8].upper()}",
+            )
+            file_obj = io.BytesIO(watermarked_zip_bytes)
+            file_size = len(watermarked_zip_bytes)
+        except Exception as wm_err:
+            file_obj.seek(0)
+
         detected_mime = "application/zip"
     else:
         # Validate image bytes using Pillow
@@ -289,8 +414,8 @@ async def upload_file(
     if detected_mime != "application/zip":
         return {"url": url}
 
-    # ZIP template packages use signed URLs valid for 7 days
-    expires = int(datetime.now(timezone.utc).timestamp()) + 86400 * 7
+    # ZIP template packages use signed URLs valid for lifetime access
+    expires = int(datetime.now(timezone.utc).timestamp()) + 86400 * 3650
     signature = generate_file_signature(file_id, expires)
     signed_url = f"{url}?expires={expires}&signature={signature}"
 

@@ -80,21 +80,60 @@ async def report_broken_website(
 
     auto_heal_result = None
     if payload.auto_heal_with_ai:
-        healing_service = DeploymentHealingService(db)
-        try:
-            auto_heal_result = await healing_service.auto_heal_deployment(
-                deployment=deployment,
-                incident=incident,
-                issue_type=payload.issue_type,
-                issue_description=payload.description,
-                error_logs=payload.error_logs,
-                page_url=payload.page_url,
-            )
-        except Exception as e:
+        # Check subscription tier restrictions:
+        # Free: Auto-heal disabled
+        # Pro: Max 1 website (locked once registered)
+        # Extreme: Unlimited multi-site auto-healing
+        owner_stmt = select(User).where(User.id == deployment.user_id)
+        owner_res = await db.execute(owner_stmt)
+        site_owner = owner_res.scalar_one_or_none()
+        effective_user = current_user or site_owner
+        tier = (effective_user.subscription_tier or "free").lower() if effective_user else "free"
+        is_admin = effective_user and (getattr(effective_user, "role", "") in ("admin", "super_admin") or getattr(effective_user, "is_admin", False))
+
+        can_heal = True
+        heal_block_reason = None
+        if not is_admin:
+            if tier == "free":
+                can_heal = False
+                heal_block_reason = "Autonomous AI Site Doctor is disabled on the Free tier. Upgrade to the Pro Plan (1 website) or Extreme Plan (unlimited websites) to enable auto-healing."
+            elif tier == "pro":
+                past_stmt = (
+                    select(Deployment.site_id)
+                    .join(SiteIncident, SiteIncident.deployment_id == Deployment.id)
+                    .where(
+                        Deployment.user_id == (effective_user.id if effective_user else deployment.user_id),
+                        SiteIncident.resolved_by == "ai_site_doctor"
+                    )
+                    .distinct()
+                )
+                past_res = await db.execute(past_stmt)
+                healed_site_ids = [s for s in past_res.scalars().all() if s]
+                if healed_site_ids and (deployment.site_id not in healed_site_ids):
+                    can_heal = False
+                    heal_block_reason = f"Your Pro Plan includes AI auto-healing for 1 website only (locked to {healed_site_ids[0]}). Once registered, this cannot be changed. Upgrade to the Extreme Plan for unlimited multi-website auto-healing."
+
+        if not can_heal:
             auto_heal_result = {
                 "success": False,
-                "error_message": f"AI Site Doctor encountered an issue: {str(e)}",
+                "error_message": heal_block_reason,
             }
+        else:
+            healing_service = DeploymentHealingService(db)
+            try:
+                auto_heal_result = await healing_service.auto_heal_deployment(
+                    deployment=deployment,
+                    incident=incident,
+                    issue_type=payload.issue_type,
+                    issue_description=payload.description,
+                    error_logs=payload.error_logs,
+                    page_url=payload.page_url,
+                )
+            except Exception as e:
+                auto_heal_result = {
+                    "success": False,
+                    "error_message": f"AI Site Doctor encountered an issue: {str(e)}",
+                }
 
     return {
         "message": "Incident reported successfully.",
@@ -189,6 +228,41 @@ async def auto_fix_deployment(
     deployment = res.scalar_one_or_none()
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found.")
+
+    # Subscription Tier Enforcement:
+    # 1. Free: Auto-heal is disabled.
+    # 2. Pro: Auto-heal 1 website only. Once registered, it cannot be changed.
+    # 3. Extreme: Unlimited multi-website auto-healing.
+    owner_stmt = select(User).where(User.id == deployment.user_id)
+    owner_res = await db.execute(owner_stmt)
+    site_owner = owner_res.scalar_one_or_none()
+    effective_user = current_user or site_owner
+    tier = (effective_user.subscription_tier or "free").lower() if effective_user else "free"
+    is_admin = effective_user and (getattr(effective_user, "role", "") in ("admin", "super_admin") or getattr(effective_user, "is_admin", False))
+
+    if not is_admin:
+        if tier == "free":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Autonomous AI Site Doctor is disabled on the Free tier. Upgrade to the Pro Plan (1 website) or Extreme Plan (unlimited websites) to enable autonomous healing."
+            )
+        elif tier == "pro":
+            past_stmt = (
+                select(Deployment.site_id)
+                .join(SiteIncident, SiteIncident.deployment_id == Deployment.id)
+                .where(
+                    Deployment.user_id == (effective_user.id if effective_user else deployment.user_id),
+                    SiteIncident.resolved_by == "ai_site_doctor"
+                )
+                .distinct()
+            )
+            past_res = await db.execute(past_stmt)
+            healed_site_ids = [s for s in past_res.scalars().all() if s]
+            if healed_site_ids and (deployment.site_id not in healed_site_ids):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Your Pro Plan includes AI auto-healing for 1 website only (registered site: {healed_site_ids[0]}). Once registered, this cannot be changed. Upgrade to the Extreme Plan for unlimited multi-website auto-healing."
+                )
 
     incident = None
     if payload and payload.incident_id:

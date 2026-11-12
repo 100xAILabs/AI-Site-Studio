@@ -3553,8 +3553,6 @@ async def serve_live_preview(
   })();
 </script>
 """.replace("__PURCHASE_URL__", purchase_url)
-    if settings.TEMPLATE_DOWNLOADS_FREE:
-        watermark_payload = ""
     async def serve_fallback(err_msg: str = "Preview compilation"):
         if filepath and not (filepath.endswith(".html") or filepath.endswith(".htm")):
             if filepath.endswith(".css"):
@@ -5267,7 +5265,6 @@ async def serve_live_preview(
 
                 # Check if this template is a personal project, figma import, customized draft, or live mode
                 is_personal_or_clean = (
-                    settings.TEMPLATE_DOWNLOADS_FREE or
                     getattr(template, "is_free", False) or
                     getattr(template, "price", 0) <= 0 or
                     template.status == TemplateStatus.DRAFT or

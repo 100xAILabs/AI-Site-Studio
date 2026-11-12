@@ -15,11 +15,11 @@ class PaymentInitRequest(BaseModel):
 
 class PaymentInitResponse(BaseModel):
     """Returned to client after creating a payment order."""
-    gateway: PaymentGateway
+    gateway: PaymentGateway = PaymentGateway.RAZORPAY
     gateway_order_id: str
     amount: int          # in smallest currency unit (paise / cents)
-    currency: str
-    key_id: str          # Razorpay key_id or Stripe publishable key
+    currency: str = "INR"
+    key_id: str          # Razorpay key_id
     order_id: str        # Our internal order ID
     checkout_url: Optional[str] = None
     upi_uri: Optional[str] = None
@@ -28,13 +28,13 @@ class PaymentInitResponse(BaseModel):
 
 
 class PaymentVerifyRequest(BaseModel):
-    """Sent by client after payment completion to verify signature or provide UPI UTR."""
-    gateway: PaymentGateway
+    """Sent by client after payment completion to verify signature."""
+    gateway: PaymentGateway = PaymentGateway.RAZORPAY
     gateway_payment_id: str
     gateway_order_id: str
     gateway_signature: Optional[str] = None   # Razorpay HMAC signature or verification token
     order_id: str
-    upi_utr: Optional[str] = None             # 12-digit UPI Reference (UTR) from buyer's bank receipt
+    upi_utr: Optional[str] = None
 
 
 class PaymentVerifyResponse(BaseModel):
@@ -45,10 +45,10 @@ class PaymentVerifyResponse(BaseModel):
 
 class PurchaseTokensRequest(BaseModel):
     pack_id: str
-    gateway: PaymentGateway = PaymentGateway.STRIPE
+    gateway: PaymentGateway = PaymentGateway.RAZORPAY
 
 
 class PurchasePlanRequest(BaseModel):
     plan_id: str
     billing_cycle: str = "monthly"
-    gateway: PaymentGateway = PaymentGateway.STRIPE
+    gateway: PaymentGateway = PaymentGateway.RAZORPAY

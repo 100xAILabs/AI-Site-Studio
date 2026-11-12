@@ -362,6 +362,315 @@ async def list_all_orders(
     } for o in orders]
 
 
+@router.get("/payments")
+async def list_all_payments(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """
+    [Admin] Comprehensive payment monitoring.
+    Lists every payment record with Razorpay gateway IDs, order info, user, and status.
+    """
+    from app.models.payment import Payment, PaymentGateway, PaymentStatus
+    from app.models.order import Order as OrderModel, OrderItem
+    from sqlalchemy.orm import selectinload
+
+    result = await db.execute(
+        select(Payment)
+        .options(
+            selectinload(Payment.order)
+            .selectinload(OrderModel.user),
+            selectinload(Payment.order)
+            .selectinload(OrderModel.items)
+            .selectinload(OrderItem.template)
+        )
+        .order_by(Payment.created_at.desc())
+    )
+    payments = result.scalars().all()
+
+    total_revenue_usd = 0.0
+    total_revenue_inr = 0.0
+    captured_count = 0
+    pending_count = 0
+    failed_count = 0
+    subscription_count = 0
+    marketplace_count = 0
+
+    payment_list = []
+    for p in payments:
+        order = p.order
+        buyer = order.user if order else None
+        buyer_email = buyer.email if buyer else "Unknown Buyer"
+        buyer_name = (buyer.full_name or buyer.username) if buyer else "Customer"
+
+        # Determine payment type
+        meta = (order.extra_metadata or {}) if order else {}
+        order_type_tag = meta.get("type", "marketplace_template")
+        if order_type_tag == "subscription_plan":
+            payment_type = f"Subscription ({str(meta.get('plan_id', 'Pro')).upper()})"
+            subscription_count += 1
+        elif order_type_tag == "ai_credits":
+            payment_type = f"AI Tokens (+{meta.get('credits_to_add', 0)})"
+        else:
+            payment_type = "Marketplace Template"
+            marketplace_count += 1
+
+        is_captured = p.status == PaymentStatus.CAPTURED
+        if is_captured:
+            captured_count += 1
+            if order:
+                total_revenue_usd += float(order.total or 0)
+            total_revenue_inr += float(p.amount or 0)
+        elif p.status == PaymentStatus.PENDING:
+            pending_count += 1
+        elif p.status == PaymentStatus.FAILED:
+            failed_count += 1
+
+        items_summary = []
+        if order and order.items:
+            for it in order.items:
+                if it.template:
+                    items_summary.append(it.template.title)
+        if not items_summary and order and order.notes:
+            items_summary.append(order.notes)
+
+        payment_list.append({
+            "id": str(p.id),
+            "order_id": str(p.order_id),
+            "order_number": order.order_number if order else "N/A",
+            "buyer_email": buyer_email,
+            "buyer_name": buyer_name,
+            "gateway": p.gateway.value if hasattr(p.gateway, "value") else str(p.gateway),
+            "gateway_order_id": p.gateway_order_id,
+            "gateway_payment_id": p.gateway_payment_id,
+            "amount_usd": float(order.total) if order else 0.0,
+            "amount_inr": float(p.amount) if p.amount else 0.0,
+            "currency": p.currency or "INR",
+            "status": p.status.value if hasattr(p.status, "value") else str(p.status),
+            "payment_type": payment_type,
+            "items_summary": ", ".join(items_summary) if items_summary else "Template Package",
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+            "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+            "receipt_url": f"/dashboard/receipt/{p.order_id}" if p.order_id else None,
+        })
+
+    return {
+        "summary": {
+            "total_revenue_usd": round(total_revenue_usd, 2),
+            "total_revenue_inr": round(total_revenue_inr, 2),
+            "total_transactions": len(payments),
+            "captured_count": captured_count,
+            "pending_count": pending_count,
+            "failed_count": failed_count,
+            "subscription_count": subscription_count,
+            "marketplace_count": marketplace_count,
+        },
+        "payments": payment_list,
+    }
+
+
+@router.get("/users/usage")
+async def list_users_usage(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """
+    [Admin] Monitor every user's platform usage:
+    - Subscription tier & status
+    - AI Gemini credits balance
+    - Order counts and total spend
+    - Download counts (watermarked vs clean)
+    - Deployed sites count
+    - Security / Tamper events
+    """
+    from app.models.user import User as UserModel
+    from app.models.order import Order as OrderModel, OrderItem, OrderStatus
+    from app.models.download import Download as DownloadModel
+    from app.models.deployment import Deployment as DeploymentModel
+    from app.models.tamper_alert import TamperAlert
+
+    # Get all users
+    users_res = await db.execute(select(UserModel).order_by(UserModel.created_at.desc()))
+    users = users_res.scalars().all()
+
+    usage_list = []
+    for u in users:
+        # Orders & Spend
+        orders_res = await db.execute(
+            select(
+                func.count(OrderModel.id),
+                func.coalesce(func.sum(OrderModel.total), 0)
+            )
+            .where(OrderModel.user_id == u.id, OrderModel.status == OrderStatus.COMPLETED)
+        )
+        orders_count, total_spent = orders_res.first() or (0, 0)
+
+        # Purchased templates for clean download verification
+        purchased_res = await db.execute(
+            select(OrderItem.template_id)
+            .join(OrderModel, OrderItem.order_id == OrderModel.id)
+            .where(OrderModel.user_id == u.id, OrderModel.status == OrderStatus.COMPLETED)
+        )
+        purchased_template_ids = set(purchased_res.scalars().all())
+
+        # Downloads count
+        downloads_res = await db.execute(
+            select(DownloadModel.template_id).where(DownloadModel.user_id == u.id)
+        )
+        download_template_ids = downloads_res.scalars().all()
+        total_downloads = len(download_template_ids)
+        clean_downloads = sum(1 for tid in download_template_ids if tid in purchased_template_ids)
+        watermarked_downloads = total_downloads - clean_downloads
+
+        # Deployments count
+        dep_res = await db.execute(
+            select(func.count(DeploymentModel.id)).where(DeploymentModel.user_id == u.id)
+        )
+        deployments_count = dep_res.scalar_one() or 0
+
+        # Tamper alerts count
+        try:
+            tamper_res = await db.execute(
+                select(func.count(TamperAlert.id)).where(TamperAlert.user_id == u.id)
+            )
+            tamper_count = tamper_res.scalar_one() or 0
+        except Exception:
+            tamper_count = 0
+
+        usage_list.append({
+            "id": str(u.id),
+            "email": u.email,
+            "name": u.full_name or u.username or (u.email.split("@")[0] if u.email else "User"),
+            "role": u.role.value if hasattr(u.role, "value") else str(u.role),
+            "subscription_tier": str(getattr(u, "subscription_tier", "free") or "free").lower(),
+            "is_pro_subscriber": bool(getattr(u, "is_pro_subscriber", False)),
+            "ai_credits": u.ai_credits if u.ai_credits is not None else 10,
+            "total_orders": orders_count or 0,
+            "total_spent_usd": float(total_spent or 0),
+            "total_downloads": total_downloads or 0,
+            "clean_downloads": clean_downloads or 0,
+            "watermarked_downloads": watermarked_downloads,
+            "deployments_count": deployments_count,
+            "tamper_alerts_count": tamper_count,
+            "created_at": u.created_at.isoformat() if u.created_at else None,
+        })
+
+    return usage_list
+
+
+@router.get("/users/{user_id}/usage-details")
+async def get_user_usage_details(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """
+    [Admin] Deep usage drilldown for a single user.
+    """
+    from app.models.user import User as UserModel
+    from app.models.order import Order as OrderModel, OrderItem
+    from app.models.download import Download as DownloadModel
+    from app.models.deployment import Deployment as DeploymentModel
+    from app.models.tamper_alert import TamperAlert
+    from sqlalchemy.orm import selectinload
+
+    user_res = await db.execute(select(UserModel).where(UserModel.id == user_id))
+    user = user_res.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # User orders
+    orders_res = await db.execute(
+        select(OrderModel)
+        .options(selectinload(OrderModel.items).selectinload(OrderItem.template))
+        .where(OrderModel.user_id == user.id)
+        .order_by(OrderModel.created_at.desc())
+    )
+    orders = orders_res.scalars().all()
+
+    purchased_template_ids = set()
+    for o in orders:
+        if o.status == OrderStatus.COMPLETED and o.items:
+            for it in o.items:
+                if it.template_id:
+                    purchased_template_ids.add(it.template_id)
+
+    # User downloads
+    downloads_res = await db.execute(
+        select(DownloadModel)
+        .options(selectinload(DownloadModel.template))
+        .where(DownloadModel.user_id == user.id)
+        .order_by(DownloadModel.created_at.desc())
+    )
+    downloads = downloads_res.scalars().all()
+
+    # User deployments
+    deployments_res = await db.execute(
+        select(DeploymentModel)
+        .where(DeploymentModel.user_id == user.id)
+        .order_by(DeploymentModel.created_at.desc())
+    )
+    deployments = deployments_res.scalars().all()
+
+    # Tamper alerts
+    tamper_alerts = []
+    try:
+        t_res = await db.execute(
+            select(TamperAlert)
+            .where(TamperAlert.user_id == user.id)
+            .order_by(TamperAlert.created_at.desc())
+        )
+        tamper_alerts = [{
+            "id": str(t.id),
+            "template_slug": t.template_slug,
+            "event_type": t.event_type,
+            "details": t.details,
+            "ip_address": t.ip_address,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+        } for t in t_res.scalars().all()]
+    except Exception:
+        pass
+
+    return {
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "name": user.full_name or user.username or user.email,
+            "role": user.role.value if hasattr(user.role, "value") else str(user.role),
+            "subscription_tier": str(getattr(user, "subscription_tier", "free") or "free"),
+            "ai_credits": user.ai_credits if user.ai_credits is not None else 10,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+        },
+        "orders": [{
+            "id": str(o.id),
+            "order_number": o.order_number,
+            "total": float(o.total),
+            "status": o.status.value if hasattr(o.status, "value") else str(o.status),
+            "notes": o.notes,
+            "items": [it.template.title for it in o.items if it.template] if o.items else [],
+            "created_at": o.created_at.isoformat() if o.created_at else None,
+        } for o in orders],
+        "downloads": [{
+            "id": str(d.id),
+            "template_title": d.template.title if d.template else "Template",
+            "template_id": str(d.template_id),
+            "is_clean": d.template_id in purchased_template_ids,
+            "format": d.format,
+            "created_at": d.created_at.isoformat() if d.created_at else None,
+        } for d in downloads],
+        "deployments": [{
+            "id": str(dep.id),
+            "project_name": dep.project_name,
+            "site_id": dep.site_id,
+            "status": dep.status,
+            "subdomain": dep.subdomain,
+            "live_url": dep.live_url,
+            "created_at": dep.created_at.isoformat() if dep.created_at else None,
+        } for dep in deployments],
+        "tamper_alerts": tamper_alerts,
+    }
+
+
 @router.get("/deployments")
 async def list_all_deployments(
     db: AsyncSession = Depends(get_db),

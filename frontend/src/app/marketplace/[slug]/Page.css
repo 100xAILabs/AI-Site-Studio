@@ -162,7 +162,7 @@
   min-height: 480px;
   border-radius: 1.25rem;
   overflow: hidden;
-  background: radial-gradient(circle at 50% 20%, #151728 0%, #090a12 100%);
+  background: #09090b;
   border: 1px solid hsl(var(--border) / 0.6);
   display: flex;
   align-items: center;
@@ -209,7 +209,7 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background: radial-gradient(circle at 50% 20%, #16182c 0%, #0b0c16 100%);
+  background: #09090b;
 }
 
 /* ── Desktop Browser Window (Edge-to-Edge 1280px scaled) ── */
@@ -218,13 +218,13 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: #090a12;
+  background: #09090b;
   overflow: hidden;
 }
 
 .device-browser-header {
   height: 36px;
-  background: #121320;
+  background: #121216;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   align-items: center;
@@ -306,9 +306,9 @@
 .device-tablet-frame {
   width: 788px;
   height: 1016px;
-  background: #111422;
+  background: #121216;
   border-radius: 36px;
-  border: 12px solid #1a1e30;
+  border: 12px solid #27272a;
   box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1);
   display: flex;
   flex-direction: column;
@@ -318,7 +318,7 @@
 
 .tablet-header-notch {
   height: 30px;
-  background: #111422;
+  background: #121216;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -330,7 +330,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #252b42;
+  background: #27272a;
   box-shadow: inset 0 0 2px rgba(255, 255, 255, 0.3);
 }
 
@@ -350,7 +350,7 @@
 
 .tablet-home-bar {
   height: 18px;
-  background: #111422;
+  background: #121216;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -378,7 +378,7 @@
   height: 874px !important;
   background: #000 !important;
   border-radius: 46px !important;
-  border: 10px solid #1a1c29 !important;
+  border: 10px solid #27272a !important;
   box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.85), inset 0 0 2px rgba(255, 255, 255, 0.2) !important;
   display: flex !important;
   flex-direction: column !important;
@@ -2565,7 +2565,7 @@
   left: 0;
   height: 100%;
   width: 100%;
-  background: #3b82f6;
+  background: #c89666;
   transform: scaleX(0);
   transform-origin: left;
   animation: hudProgress 20s linear infinite;
@@ -2625,7 +2625,7 @@
 .edit-modal-header-title {
   font-size: 1.125rem !important;
   font-weight: 800 !important;
-  color: #0f172a !important;
+  color: #ffffff !important;
   margin: 0 !important;
   display: flex !important;
   align-items: center !important;
@@ -2665,13 +2665,13 @@
 }
 
 .edit-modal-tab-btn:hover {
-  color: #0f172a !important;
+  color: #ffffff !important;
   background-color: #e2e8f0 !important;
 }
 
 .edit-modal-tab-btn.active {
   background-color: #ffffff !important;
-  color: #4f46e5 !important;
+  color: #b5804f !important;
   font-weight: 800 !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
   border: 1px solid #cbd5e1 !important;
@@ -2696,7 +2696,7 @@
 .edit-modal-label {
   font-size: 0.75rem !important;
   font-weight: 700 !important;
-  color: #0f172a !important;
+  color: #ffffff !important;
   display: flex !important;
   align-items: center !important;
   justify-content: space-between !important;
@@ -2716,15 +2716,15 @@
   border-radius: 0.75rem !important;
   background-color: #ffffff !important;
   border: 1px solid #cbd5e1 !important;
-  color: #0f172a !important;
+  color: #ffffff !important;
   outline: none !important;
   transition: all 0.2s ease !important;
 }
 
 .edit-modal-input:focus,
 .edit-modal-select:focus {
-  border-color: #4f46e5 !important;
-  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15) !important;
+  border-color: #b5804f !important;
+  box-shadow: 0 0 0 2px rgba(181, 128, 79, 0.15) !important;
 }
 
 .edit-modal-textarea {
@@ -2734,7 +2734,7 @@
   border-radius: 0.75rem !important;
   background-color: #ffffff !important;
   border: 1px solid #cbd5e1 !important;
-  color: #0f172a !important;
+  color: #ffffff !important;
   outline: none !important;
   transition: all 0.2s ease !important;
   resize: vertical !important;
@@ -2743,8 +2743,8 @@
 }
 
 .edit-modal-textarea:focus {
-  border-color: #4f46e5 !important;
-  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15) !important;
+  border-color: #b5804f !important;
+  box-shadow: 0 0 0 2px rgba(181, 128, 79, 0.15) !important;
 }
 
 /* Price input wrapper */
@@ -2773,13 +2773,13 @@
   border-radius: 0.75rem !important;
   background-color: #ffffff !important;
   border: 1px solid #cbd5e1 !important;
-  color: #0f172a !important;
+  color: #ffffff !important;
   outline: none !important;
 }
 
 .edit-modal-price-input:focus {
-  border-color: #4f46e5 !important;
-  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15) !important;
+  border-color: #b5804f !important;
+  box-shadow: 0 0 0 2px rgba(181, 128, 79, 0.15) !important;
 }
 
 /* License Selection Cards */
@@ -2815,15 +2815,15 @@
 }
 
 .edit-modal-license-card.selected {
-  border-color: #4f46e5 !important;
+  border-color: #b5804f !important;
   background-color: #eef2ff !important;
-  box-shadow: 0 0 0 1px #4f46e5, 0 2px 6px rgba(79, 70, 229, 0.12) !important;
+  box-shadow: 0 0 0 1px #b5804f, 0 2px 6px rgba(181, 128, 79, 0.12) !important;
 }
 
 .edit-modal-license-title {
   font-size: 0.8125rem !important;
   font-weight: 800 !important;
-  color: #0f172a !important;
+  color: #ffffff !important;
   display: flex !important;
   align-items: center !important;
   justify-content: space-between !important;
@@ -2843,7 +2843,7 @@
   padding: 0.25rem 0.625rem !important;
   border-radius: 0.5rem !important;
   background-color: #eef2ff !important;
-  color: #4338ca !important;
+  color: #936338 !important;
   border: 1px solid #c7d2fe !important;
   font-size: 0.75rem !important;
   font-weight: 700 !important;
@@ -2854,7 +2854,7 @@
   border-radius: 0.5rem !important;
   background-color: #f1f5f9 !important;
   border: 1px solid #cbd5e1 !important;
-  color: #1e293b !important;
+  color: #f4f4f5 !important;
   font-size: 0.75rem !important;
   font-weight: 600 !important;
   cursor: pointer !important;
@@ -2863,15 +2863,15 @@
 
 .edit-modal-sugg-btn:hover {
   background-color: #e0e7ff !important;
-  color: #3730a3 !important;
-  border-color: #a5b4fc !important;
+  color: #6f4726 !important;
+  border-color: #e8d7be !important;
 }
 
 /* ZIP Re-upload Section */
 .edit-modal-zip-box {
   padding: 1.75rem 1.5rem !important;
   border-radius: 1rem !important;
-  border: 2px dashed #818cf8 !important;
+  border: 2px dashed #dfb180 !important;
   background-color: #f8faff !important;
   display: flex !important;
   flex-direction: column !important;
@@ -2884,7 +2884,7 @@
 .edit-modal-zip-title {
   font-size: 0.875rem !important;
   font-weight: 800 !important;
-  color: #0f172a !important;
+  color: #ffffff !important;
 }
 
 .edit-modal-zip-sub {
@@ -2930,7 +2930,7 @@
 .edit-modal-btn-cancel:hover {
   background-color: #f1f5f9 !important;
   border-color: #94a3b8 !important;
-  color: #0f172a !important;
+  color: #ffffff !important;
 }
 
 .edit-modal-btn-save {
@@ -2938,10 +2938,10 @@
   border-radius: 0.75rem !important;
   font-size: 0.8125rem !important;
   font-weight: 700 !important;
-  background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%) !important;
+  background: linear-gradient(135deg, #b5804f 0%, #c89666 100%) !important;
   border: none !important;
   color: #ffffff !important;
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25) !important;
+  box-shadow: 0 4px 12px rgba(181, 128, 79, 0.25) !important;
   cursor: pointer !important;
   display: inline-flex !important;
   align-items: center !important;
@@ -2952,7 +2952,7 @@
 .edit-modal-btn-save:hover {
   opacity: 0.95 !important;
   transform: translateY(-1px) !important;
-  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.35) !important;
+  box-shadow: 0 6px 16px rgba(181, 128, 79, 0.35) !important;
 }
 
 /* Screenshots Gallery Card Hover & Transitions */
@@ -3649,16 +3649,16 @@
 
 /* ==========================================================================
    ADVANCED OBSIDIAN DARK GLASS REDESIGN — ALL TEXT VISIBLE & HIGH CONTRAST
-   Strict Zero Fake Data — Premium Obsidian #070913 Aesthetics
+   Strict Zero Fake Data — Matte Finish Black #09090b Aesthetics
    ========================================================================== */
 
 .details-page-redesign {
   min-height: 100vh !important;
-  background: radial-gradient(circle at 50% -10%, rgba(139, 92, 246, 0.16) 0%, transparent 60%),
-              radial-gradient(circle at 95% 30%, rgba(6, 182, 212, 0.10) 0%, transparent 45%),
-              radial-gradient(circle at 5% 70%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
-              linear-gradient(180deg, #070913 0%, #0a0e1c 50%, #070913 100%) !important;
-  color: #f1f5f9 !important;
+  background: radial-gradient(circle at 50% -10%, rgba(212, 163, 115, 0.12) 0%, transparent 60%),
+              radial-gradient(circle at 95% 30%, rgba(200, 150, 102, 0.05) 0%, transparent 45%),
+              radial-gradient(circle at 5% 70%, rgba(200, 150, 102, 0.05) 0%, transparent 50%),
+              #09090b !important;
+  color: #fafafa !important;
   position: relative !important;
   overflow-x: hidden !important;
   padding-top: 5.5rem !important;
@@ -3691,7 +3691,7 @@
 .details-page-redesign .details-price-card,
 .details-page-redesign .details-description-block,
 .details-page-redesign .details-pages-grid-block {
-  background: rgba(13, 17, 34, 0.85) !important;
+  background: rgba(18, 18, 22, 0.85) !important;
   backdrop-filter: blur(24px) !important;
   -webkit-backdrop-filter: blur(24px) !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
@@ -3704,7 +3704,7 @@
 .details-page-redesign .glass-card:hover,
 .details-page-redesign .details-specs-card:hover,
 .details-page-redesign .details-developer-card:hover {
-  border-color: rgba(168, 85, 247, 0.35) !important;
+  border-color: rgba(200, 150, 102, 0.35) !important;
 }
 
 /* ── Typography & 100% Crisp Visible Text ── */
@@ -3775,20 +3775,20 @@
 
 .details-page-redesign .hero-tab-btn:hover {
   color: #ffffff !important;
-  background: rgba(168, 85, 247, 0.15) !important;
-  border-color: rgba(168, 85, 247, 0.35) !important;
+  background: rgba(200, 150, 102, 0.15) !important;
+  border-color: rgba(200, 150, 102, 0.35) !important;
 }
 
 .details-page-redesign .hero-tab-btn.active {
   color: #ffffff !important;
-  background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%) !important;
+  background: linear-gradient(135deg, #b5804f 0%, #b5804f 100%) !important;
   border-color: transparent !important;
-  box-shadow: 0 0 16px rgba(124, 58, 237, 0.5) !important;
+  box-shadow: 0 0 16px rgba(200, 150, 102, 0.5) !important;
 }
 
 .details-page-redesign .hero-action-btn.live {
-  background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%) !important;
-  color: #ffffff !important;
+  background: linear-gradient(135deg, #dfb180 0%, #c89666 100%) !important;
+  color: #09090b !important;
   font-weight: 700 !important;
   font-size: 0.8125rem !important;
   padding: 0.5rem 1.15rem !important;
@@ -3797,7 +3797,7 @@
   align-items: center !important;
   gap: 0.45rem !important;
   border: none !important;
-  box-shadow: 0 0 18px rgba(6, 182, 212, 0.45) !important;
+  box-shadow: 0 0 18px rgba(200, 150, 102, 0.4) !important;
   text-decoration: none !important;
   transition: transform 0.15s ease, opacity 0.15s ease !important;
 }
@@ -3835,7 +3835,7 @@
 
 /* ── Simulated Browser Device Windows ── */
 .details-page-redesign .device-browser-window {
-  background: #090d1a !important;
+  background: #121216 !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
   border-radius: 1rem !important;
   overflow: hidden !important;
@@ -3843,7 +3843,7 @@
 }
 
 .details-page-redesign .device-browser-header {
-  background: #11162a !important;
+  background: #18181d !important;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
   height: 38px !important;
   display: flex !important;
@@ -3880,7 +3880,7 @@
 .details-page-redesign .device-browser-body,
 .details-page-redesign .tablet-screen,
 .details-page-redesign .iphone-screen {
-  background: #080c18 !important;
+  background: #09090b !important;
 }
 
 /* ── Specs Grid Chips & Info Cards ── */
@@ -3914,9 +3914,9 @@
 }
 
 .details-page-redesign .details-category-chip {
-  background: rgba(124, 58, 237, 0.15) !important;
-  color: #c084fc !important;
-  border: 1px solid rgba(124, 58, 237, 0.3) !important;
+  background: rgba(200, 150, 102, 0.15) !important;
+  color: #dfb180 !important;
+  border: 1px solid rgba(200, 150, 102, 0.3) !important;
   padding: 0.2rem 0.6rem !important;
   border-radius: 0.5rem !important;
   font-size: 0.75rem !important;
@@ -3943,19 +3943,19 @@
 }
 
 .details-page-redesign .details-purchase-btn {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
+  background: linear-gradient(135deg, #c89666 0%, #d4a373 100%) !important;
   color: #ffffff !important;
   font-weight: 700 !important;
   border-radius: 0.875rem !important;
   border: none !important;
-  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.35) !important;
+  box-shadow: 0 4px 20px rgba(200, 150, 102, 0.35) !important;
   transition: all 0.2s ease !important;
 }
 
 .details-page-redesign .details-purchase-btn:hover {
   opacity: 0.95 !important;
   transform: translateY(-1px) !important;
-  box-shadow: 0 6px 25px rgba(99, 102, 241, 0.5) !important;
+  box-shadow: 0 6px 25px rgba(200, 150, 102, 0.5) !important;
 }
 
 .details-page-redesign .details-preview-link {
@@ -3987,7 +3987,7 @@
 }
 
 .details-page-redesign .seller-avatar {
-  border: 2px solid rgba(168, 85, 247, 0.4) !important;
+  border: 2px solid rgba(200, 150, 102, 0.4) !important;
   border-radius: 50% !important;
   overflow: hidden !important;
 }
@@ -4002,9 +4002,9 @@
 }
 
 .details-page-redesign .seller-verified-label {
-  background: rgba(6, 182, 212, 0.12) !important;
-  color: #38bdf8 !important;
-  border: 1px solid rgba(6, 182, 212, 0.3) !important;
+  background: rgba(200, 150, 102, 0.12) !important;
+  color: #dfb180 !important;
+  border: 1px solid rgba(200, 150, 102, 0.3) !important;
   padding: 0.15rem 0.5rem !important;
   border-radius: 9999px !important;
   font-size: 0.6875rem !important;
@@ -4018,7 +4018,7 @@
 }
 
 .details-page-redesign .seller-follow-btn {
-  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%) !important;
+  background: linear-gradient(135deg, #b5804f 0%, #b5804f 100%) !important;
   color: #ffffff !important;
   border-radius: 0.75rem !important;
   border: none !important;
@@ -4083,18 +4083,18 @@
 
 .details-page-redesign .doc-tab-btn:hover {
   color: #ffffff !important;
-  background: rgba(168, 85, 247, 0.15) !important;
+  background: rgba(200, 150, 102, 0.15) !important;
 }
 
 .details-page-redesign .doc-tab-btn.active {
   color: #ffffff !important;
-  background: rgba(124, 58, 237, 0.25) !important;
-  border-color: rgba(124, 58, 237, 0.6) !important;
-  box-shadow: 0 0 12px rgba(124, 58, 237, 0.3) !important;
+  background: rgba(200, 150, 102, 0.25) !important;
+  border-color: rgba(200, 150, 102, 0.6) !important;
+  box-shadow: 0 0 12px rgba(200, 150, 102, 0.3) !important;
 }
 
 .details-page-redesign .doc-code-block {
-  background: #080c18 !important;
+  background: #09090b !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   border-radius: 0.875rem !important;
   color: #e2e8f0 !important;
@@ -4106,7 +4106,7 @@
 
 /* ── Mobile Floating Sticky Bottom Bar ── */
 .details-page-redesign .details-mobile-bottom-bar {
-  background: rgba(7, 9, 19, 0.95) !important;
+  background: rgba(9, 9, 11, 0.98) !important;
   backdrop-filter: blur(20px) !important;
   -webkit-backdrop-filter: blur(20px) !important;
   border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
@@ -4166,7 +4166,7 @@
 
 .architecture-node-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(168, 85, 247, 0.4);
+  border-color: rgba(200, 150, 102, 0.4);
 }
 
 .architecture-node-card.active {
@@ -4217,7 +4217,7 @@
 .architecture-detail-box {
   padding: 1.25rem;
   border-radius: 1rem;
-  border: 1px solid rgba(168, 85, 247, 0.3);
+  border: 1px solid rgba(200, 150, 102, 0.3);
   margin-top: 0.5rem;
 }
 
@@ -4237,16 +4237,16 @@
 }
 
 .lighthouse-score-card:hover {
-  border-color: rgba(168, 85, 247, 0.3);
+  border-color: rgba(200, 150, 102, 0.3);
 }
 
 /* ── AI Template Chat ── */
 .template-ai-chat-card {
   padding: 1.5rem;
   border-radius: 1.25rem;
-  background: rgba(13, 17, 34, 0.85);
+  background: rgba(18, 18, 22, 0.85);
   backdrop-filter: blur(20px);
-  border: 1px solid rgba(168, 85, 247, 0.25);
+  border: 1px solid rgba(200, 150, 102, 0.25);
   display: flex;
   flex-direction: column;
 }
@@ -4273,8 +4273,8 @@
 }
 
 .template-ai-chat-input-bar:focus-within {
-  border-color: rgba(168, 85, 247, 0.6);
-  box-shadow: 0 0 15px rgba(168, 85, 247, 0.2);
+  border-color: rgba(200, 150, 102, 0.6);
+  box-shadow: 0 0 15px rgba(200, 150, 102, 0.2);
 }
 
 .template-ai-chat-input {
@@ -4294,7 +4294,7 @@
   width: 2rem;
   height: 2rem;
   border-radius: 0.5rem;
-  background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+  background: linear-gradient(135deg, #b5804f 0%, #c89666 100%);
   color: #ffffff;
   display: flex;
   align-items: center;

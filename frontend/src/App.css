@@ -46,8 +46,8 @@
   width: 100%;
   position: relative;
   min-height: 100vh;
-  background-color: hsl(var(--background));
-  color: hsl(var(--foreground));
+  background-color: #09090b !important;
+  color: #fafafa !important;
 }
 
 .app-route-transition {
@@ -92,7 +92,7 @@ html { scroll-behavior: smooth; }
   left: -10%;
   width: 50%;
   height: 50%;
-  background-color: rgba(37, 99, 235, 0.03);
+  background-color: rgba(200, 150, 102, 0.03);
 }
 
 .app-bg-glow-bottom-right {

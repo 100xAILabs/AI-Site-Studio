@@ -80,12 +80,19 @@ export default function StudioPage() {
   const isGenerating = buildStore.isBuilding || generating;
   const currentActiveAgent = buildStore.activeAgent || activeAgent;
   const currentEvents = buildStore.events?.length ? buildStore.events : events;
+  const [studioQuota, setStudioQuota] = useState(null);
 
   useEffect(() => {
     let alive = true;
-    getToken().then((token) => api.get("/categories", token)).then((data) => {
-      if (alive) setCategories(Array.isArray(data) ? data : []);
-    }).catch(() => { });
+    getToken().then((token) => {
+      if (!token) return;
+      api.get("/categories", token).then((data) => {
+        if (alive) setCategories(Array.isArray(data) ? data : []);
+      }).catch(() => { });
+      api.get("/studio/quota", token).then((q) => {
+        if (alive) setStudioQuota(q);
+      }).catch(() => { });
+    });
     return () => { alive = false; };
   }, []); // Auth is loaded before the protected Studio route mounts.
 
@@ -567,16 +574,16 @@ export default function StudioPage() {
 
         {loadingPlan ? (
           /* ── Planning Agent Loading Screen ── */
-          <div className="studio-planning-loader flex flex-col items-center justify-center rounded-3xl border border-violet-500/20 bg-gradient-to-b from-violet-950/30 via-[#0c111b] to-[#070b12] p-8 sm:p-14 text-center shadow-2xl relative overflow-hidden my-6">
-            <div className="absolute top-0 right-0 -mr-20 -mt-20 h-64 w-64 rounded-full bg-violet-600/15 blur-3xl pointer-events-none" />
+          <div className="studio-planning-loader flex flex-col items-center justify-center rounded-3xl border border-[#c89666]/30 bg-gradient-to-b from-[#c89666] to-[#b5804f]/30 via-[#0c111b] to-[#070b12] p-8 sm:p-14 text-center shadow-2xl relative overflow-hidden my-6">
+            <div className="absolute top-0 right-0 -mr-20 -mt-20 h-64 w-64 rounded-full bg-[#c89666]/15 blur-3xl pointer-events-none" />
             <div className="relative mb-6">
-              <div className="flex h-20 w-20 items-center justify-center rounded-2xl border border-violet-400/30 bg-violet-500/10 shadow-lg shadow-violet-500/20">
-                <Brain className="h-9 w-9 text-violet-300 animate-pulse" />
+              <div className="flex h-20 w-20 items-center justify-center rounded-2xl border border-[#c89666]/30 bg-[#c89666]/15 shadow-lg shadow-violet-500/20">
+                <Brain className="h-9 w-9 text-[#dfb180] animate-pulse" />
               </div>
-              <div className="absolute -inset-2 rounded-3xl bg-violet-500/10 blur-xl animate-pulse -z-10" />
+              <div className="absolute -inset-2 rounded-3xl bg-[#c89666]/15 blur-xl animate-pulse -z-10" />
             </div>
 
-            <div className="inline-flex items-center gap-2 rounded-full border border-violet-500/30 bg-violet-500/10 px-3.5 py-1 text-xs font-bold text-violet-300 mb-3">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#c89666]/30 bg-[#c89666]/15 px-3.5 py-1 text-xs font-bold text-[#dfb180] mb-3">
               <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
               <span>Planning Agent Active</span>
             </div>
@@ -585,7 +592,7 @@ export default function StudioPage() {
               Architecting Your Project Plan...
             </h2>
             <p className="mt-2 text-sm text-slate-400 max-w-lg leading-relaxed">
-              Analyzing requirements for <span className="text-violet-300 font-semibold">{genre || selectedCategory?.name || "your website"}</span> to design the page structure, section components, and creative direction.
+              Analyzing requirements for <span className="text-[#dfb180] font-semibold">{genre || selectedCategory?.name || "your website"}</span> to design the page structure, section components, and creative direction.
             </p>
 
             <div className="mt-8 grid gap-2.5 w-full max-w-md text-left">
@@ -593,8 +600,8 @@ export default function StudioPage() {
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">✓</span>
                 <span>Semantic requirement &amp; domain analysis</span>
               </div>
-              <div className="flex items-center gap-3 rounded-xl border border-violet-500/20 bg-violet-500/10 p-3 text-xs text-violet-200">
-                <LoaderCircle className="h-4 w-4 shrink-0 animate-spin text-violet-400" />
+              <div className="flex items-center gap-3 rounded-xl border border-[#c89666]/30 bg-[#c89666]/15 p-3 text-xs text-[#dfb180]">
+                <LoaderCircle className="h-4 w-4 shrink-0 animate-spin text-[#dfb180]" />
                 <span className="font-medium">Evaluating full-stack vs static architecture</span>
               </div>
               <div className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-3 text-xs text-slate-400">
@@ -610,6 +617,28 @@ export default function StudioPage() {
         ) : !plan ? (
           /* ── Step 1: Initial Prompt & Details Form ── */
           <form onSubmit={buildPlan} className="studio-brief-form grid gap-5 rounded-3xl border border-white/10 bg-white/[0.035] p-5 shadow-2xl shadow-black/20 sm:p-8">
+            {studioQuota && (
+              studioQuota.is_free_generation_available ? (
+                <div className="flex items-center gap-2.5 p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs">
+                  <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span><strong>Free Tier Perk:</strong> You can generate your first complete website for <strong>100% free</strong>! No credits needed.</span>
+                </div>
+              ) : studioQuota.free_generation_used && !studioQuota.can_generate ? (
+                <div className="flex items-center justify-between gap-3 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>You have used your 1 free website generation. To create more websites, please purchase AI credits or upgrade your plan.</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate("/pricing")}
+                    className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shrink-0 transition-colors cursor-pointer"
+                  >
+                    Buy Credits
+                  </button>
+                </div>
+              ) : null
+            )}
             <div>
               <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
                 <div>
@@ -626,7 +655,7 @@ export default function StudioPage() {
                 onChange={(e) => setPrompt(e.target.value)}
                 rows={5}
                 placeholder={"I need a website for [business or project].\nIt is for [the people you want to reach].\nPlease include [important pages, content, or features].\nThe main thing visitors should do is [action].\nI want it to feel [style, mood, or colors]."}
-                className="w-full resize-y rounded-2xl border border-white/10 bg-[#0c111b] px-4 py-3.5 text-sm leading-6 text-white outline-none transition placeholder:text-slate-500 focus:border-violet-400/60"
+                className="w-full resize-y rounded-2xl border border-white/10 bg-[#0c111b] px-4 py-3.5 text-sm leading-6 text-white outline-none transition placeholder:text-slate-500 focus:border-[#c89666]/30"
               />
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
                 <p className="text-slate-400">Helpful details: audience, what you offer, key content, and visual style.</p>
@@ -642,7 +671,7 @@ export default function StudioPage() {
                   { value: "single_page", title: "Single page", description: "One scrolling page with all content and sections." },
                   { value: "multi_page", title: "Multiple pages", description: "Separate pages for the main parts of your website." },
                 ].map((option) => (
-                  <label key={option.value} className={`cursor-pointer rounded-2xl border p-4 transition focus-within:ring-2 focus-within:ring-violet-400 focus-within:ring-offset-2 focus-within:ring-offset-[#080b12] ${effectivePageStructure === option.value ? "border-violet-400 bg-violet-400/10" : "border-white/10 bg-[#0c111b] hover:border-white/20"}`}>
+                  <label key={option.value} className={`cursor-pointer rounded-2xl border p-4 transition focus-within:ring-2 focus-within:ring-violet-400 focus-within:ring-offset-2 focus-within:ring-offset-[#080b12] ${effectivePageStructure === option.value ? "border-[#c89666]/30 bg-[#c89666]/15" : "border-white/10 bg-[#0c111b] hover:border-white/20"}`}>
                     <input className="sr-only" type="radio" name="page-structure" value={option.value} checked={effectivePageStructure === option.value} onChange={() => setPageStructure(option.value)} required />
                     <span className="block text-sm font-semibold text-white">{option.title}</span>
                     <span className="mt-1 block text-xs leading-5 text-slate-400">{option.description}</span>
@@ -653,7 +682,7 @@ export default function StudioPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-200">
-                  Marketplace Category <span className="text-violet-400 font-normal">({displayCategories.length} categories)</span>
+                  Marketplace Category <span className="text-[#dfb180] font-normal">({displayCategories.length} categories)</span>
                 </label>
                 <select
                   value={categoryId}
@@ -665,7 +694,7 @@ export default function StudioPage() {
                       setGenre(cat.subCategories[0]);
                     }
                   }}
-                  className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white outline-none focus:border-violet-400/60"
+                  className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white outline-none focus:border-[#c89666]/30"
                 >
                   <option value="">Choose a category ({displayCategories.length} available)</option>
                   {displayCategories.map((item) => (
@@ -682,16 +711,16 @@ export default function StudioPage() {
                   onChange={(e) => setGenre(e.target.value)}
                   maxLength={100}
                   placeholder="e.g. Resort Hotel, Coffee Shop, SaaS Dashboard…"
-                  className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-violet-400/60"
+                  className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-[#c89666]/30"
                 />
               </div>
             </div>
 
             {/* Quick Sub-Category Suggestion Chips */}
             {availableSubCategories.length > 0 && (
-              <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-3">
-                <span className="text-xs font-semibold text-violet-300 mb-2 flex items-center gap-1.5">
-                  <Tag className="w-3.5 h-3.5 text-violet-400" />
+              <div className="rounded-xl border border-[#c89666]/30 bg-[#c89666]/15 p-3">
+                <span className="text-xs font-semibold text-[#dfb180] mb-2 flex items-center gap-1.5">
+                  <Tag className="w-3.5 h-3.5 text-[#dfb180]" />
                   Popular {selectedCategory?.name} Specialties (click to auto-fill):
                 </span>
                 <div className="flex flex-wrap gap-1.5">
@@ -701,7 +730,7 @@ export default function StudioPage() {
                       type="button"
                       onClick={() => setGenre(sub)}
                       className={`text-xs px-2.5 py-1 rounded-lg border transition ${genre.toLowerCase() === sub.toLowerCase()
-                        ? "bg-violet-500/30 border-violet-400 text-violet-200 font-bold shadow-sm shadow-violet-500/20"
+                        ? "bg-[#c89666]/15 border-[#c89666]/30 text-[#dfb180] font-bold shadow-sm shadow-violet-500/20"
                         : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white"
                         }`}
                     >
@@ -721,7 +750,7 @@ export default function StudioPage() {
                     : "Your brief is ready. You can still refine the content in the next step."}
             </p>
             {error && <p role="alert" className="rounded-xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">{error}</p>}
-            <button disabled={loadingPlan || !categoryId || !effectivePageStructure || prompt.trim().length < 10} className="inline-flex w-fit items-center justify-center gap-2 rounded-xl bg-violet-500 px-5 py-3 text-sm font-bold text-white transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50">
+            <button disabled={loadingPlan || !categoryId || !effectivePageStructure || prompt.trim().length < 10} className="inline-flex w-fit items-center justify-center gap-2 rounded-xl bg-[#c89666]/15 px-5 py-3 text-sm font-bold text-white transition hover:bg-[#c89666]/15 disabled:cursor-not-allowed disabled:opacity-50">
               <WandSparkles size={17} />
               <span>Plan my website</span>
               <ArrowRight size={16} />
@@ -729,18 +758,18 @@ export default function StudioPage() {
           </form>
         ) : isGenerating ? (
           /* ── Step 5: Multi-Agent Live Generation Screen ── */
-          <div className="rounded-3xl border border-violet-500/20 bg-gradient-to-b from-violet-950/20 via-[#0c111b] to-[#070b12] p-6 sm:p-10 shadow-2xl">
+          <div className="rounded-3xl border border-[#c89666]/30 bg-gradient-to-b from-[#c89666] to-[#b5804f]/20 via-[#0c111b] to-[#070b12] p-6 sm:p-10 shadow-2xl">
             <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-6">
               <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-500/20 border border-violet-400/30 text-violet-300">
-                  <LoaderCircle size={24} className="animate-spin text-violet-300" />
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#c89666]/15 border border-[#c89666]/30 text-[#dfb180]">
+                  <LoaderCircle size={24} className="animate-spin text-[#dfb180]" />
                 </div>
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-widest text-violet-300">Building In Progress</p>
+                  <p className="text-xs font-bold uppercase tracking-widest text-[#dfb180]">Building In Progress</p>
                   <h2 className="text-xl font-extrabold text-white">{currentActiveAgent || "Nine Focused Agents Working"}</h2>
                 </div>
               </div>
-              <span className="rounded-full bg-violet-500/10 border border-violet-500/30 px-3 py-1 text-xs font-bold text-violet-300">
+              <span className="rounded-full bg-[#c89666]/15 border border-[#c89666]/30 px-3 py-1 text-xs font-bold text-[#dfb180]">
                 Multi-Agent Pipeline
               </span>
             </div>
@@ -758,14 +787,14 @@ export default function StudioPage() {
                     const done = !failed && (isDoneExplicit || (currentIndex > myIndex && currentIndex !== -1));
                     const active = currentActiveAgent === name;
                     return (
-                      <div key={name} className={`flex items-center justify-between rounded-xl p-2.5 text-xs transition ${done ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-300" : failed ? "bg-amber-500/10 border border-amber-500/20 text-amber-300" : active ? "bg-violet-500/20 border border-violet-500/40 text-white font-bold" : "text-slate-500 border border-transparent"}`}>
+                      <div key={name} className={`flex items-center justify-between rounded-xl p-2.5 text-xs transition ${done ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-300" : failed ? "bg-amber-500/10 border border-amber-500/20 text-amber-300" : active ? "bg-[#c89666]/15 border border-[#c89666]/30 text-white font-bold" : "text-slate-500 border border-transparent"}`}>
                         <div className="flex items-center gap-2.5">
                           {done ? (
                             <CheckCircle2 size={15} className="text-emerald-400" />
                           ) : failed ? (
                             <AlertCircle size={15} className="text-amber-300" />
                           ) : active ? (
-                            <LoaderCircle size={15} className="animate-spin text-violet-300" />
+                            <LoaderCircle size={15} className="animate-spin text-[#dfb180]" />
                           ) : (
                             <span className="h-3.5 w-3.5 rounded-full border border-slate-700" />
                           )}
@@ -795,7 +824,7 @@ export default function StudioPage() {
                       const detailText = event.detail || (event.type === "page" && event.name ? `Building ${event.name} page (${event.filename || "HTML"})…` : event.name || event.message || event.type);
                       return (
                         <div key={event.key} className="rounded-lg bg-black/30 p-2 border border-white/5">
-                          <span className="text-violet-300 font-semibold">{agentLabel}:</span>{" "}
+                          <span className="text-[#dfb180] font-semibold">{agentLabel}:</span>{" "}
                           <span className="text-slate-300">{detailText}</span>
                         </div>
                       );
@@ -826,7 +855,7 @@ export default function StudioPage() {
                   <ArrowLeft size={14} /> Back
                 </button>
                 <div>
-                  <span className="text-xs uppercase tracking-wider text-violet-400 font-bold">Project Plan</span>
+                  <span className="text-xs uppercase tracking-wider text-[#dfb180] font-bold">Project Plan</span>
                   <h2 className="text-lg font-bold text-white truncate max-w-sm sm:max-w-md">{plan.title}</h2>
                 </div>
               </div>
@@ -842,7 +871,7 @@ export default function StudioPage() {
                     type="button"
                     onClick={() => setCurrentStep(s.step)}
                     className={`rounded-xl px-3.5 py-1.5 text-xs font-bold transition ${currentStep === s.step
-                      ? "bg-violet-600 text-white shadow-md shadow-violet-600/30"
+                      ? "bg-[#c89666]/15 text-white shadow-md shadow-violet-600/30"
                       : "text-slate-400 hover:text-white"
                       }`}
                   >
@@ -858,7 +887,7 @@ export default function StudioPage() {
                 <div className="studio-proposal-card rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
                   <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">Planning Agent · Proposal</p>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#dfb180]">Planning Agent · Proposal</p>
                       <h2 className="mt-2 text-2xl font-bold">{plan.title}</h2>
                       <p className="mt-2 text-sm leading-6 text-slate-400 max-w-3xl">{plan.summary}</p>
                     </div>
@@ -872,14 +901,14 @@ export default function StudioPage() {
                       <h3 className="text-sm font-bold">Included Pages &amp; Sections</h3>
                       <p className="mt-1 text-xs text-slate-500">Home is required. Toggle other pages or select individual sections per page.</p>
                     </div>
-                    <span className="shrink-0 rounded-full bg-violet-400/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-violet-200">
+                    <span className="shrink-0 rounded-full bg-[#c89666]/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#dfb180]">
                       {selectedPageCount} selected
                     </span>
                   </div>
 
                   <div className={`studio-proposal-pages grid gap-3 ${plan.pages.length > 1 ? "sm:grid-cols-2" : "grid-cols-1"}`}>
                     {plan.pages.map((page, index) => (
-                      <article key={page.filename} className={`rounded-2xl border bg-[#0c111b] p-4 transition ${page.included === false ? "border-white/5 opacity-60" : "border-white/10 hover:border-violet-500/30"}`}>
+                      <article key={page.filename} className={`rounded-2xl border bg-[#0c111b] p-4 transition ${page.included === false ? "border-white/5 opacity-60" : "border-white/10 hover:border-[#c89666]/30"}`}>
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <label className="flex cursor-pointer items-center gap-3">
                             <input type="checkbox" checked={page.included !== false || page.required} disabled={!!page.required} onChange={() => togglePlanPage(page.filename)} className="h-4 w-4 accent-violet-400 disabled:cursor-not-allowed" />
@@ -897,7 +926,7 @@ export default function StudioPage() {
                               {page.sections.map((section) => {
                                 const selected = (page.selected_sections || page.sections).includes(section);
                                 return (
-                                  <button key={section} type="button" disabled={page.included === false} aria-pressed={selected} onClick={() => togglePageSection(page.filename, section)} className={`rounded-lg border px-2 py-1 text-[11px] transition ${selected ? "border-violet-400/40 bg-violet-400/10 text-violet-100" : "border-white/10 bg-transparent text-slate-500 hover:text-slate-300"} disabled:cursor-not-allowed disabled:opacity-40`}>
+                                  <button key={section} type="button" disabled={page.included === false} aria-pressed={selected} onClick={() => togglePageSection(page.filename, section)} className={`rounded-lg border px-2 py-1 text-[11px] transition ${selected ? "border-[#c89666]/30 bg-[#c89666]/15 text-[#dfb180]" : "border-white/10 bg-transparent text-slate-500 hover:text-slate-300"} disabled:cursor-not-allowed disabled:opacity-40`}>
                                     {selected ? "✓ " : "+ "}{section}
                                   </button>
                                 );
@@ -910,8 +939,8 @@ export default function StudioPage() {
                   </div>
 
                   {plan.design_direction && (
-                    <div className="mt-5 rounded-2xl border border-violet-400/15 bg-violet-400/[0.06] p-4">
-                      <h3 className="text-sm font-semibold text-violet-200">Creative Direction</h3>
+                    <div className="mt-5 rounded-2xl border border-[#c89666]/30 bg-[#c89666]/15/[0.06] p-4">
+                      <h3 className="text-sm font-semibold text-[#dfb180]">Creative Direction</h3>
                       <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-300">{plan.design_direction}</p>
                     </div>
                   )}
@@ -920,7 +949,7 @@ export default function StudioPage() {
                 {/* Visual Concept */}
                 <div className="studio-visual-concept rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
                   <div className="mb-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">UI Designer Agent · Visual Concept</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#dfb180]">UI Designer Agent · Visual Concept</p>
                     <h2 className="mt-2 text-xl font-bold">Planned Visual Direction &amp; Color Scheme</h2>
                   </div>
                   <div className="overflow-hidden rounded-2xl border border-black/10 shadow-xl" style={{ backgroundColor: safeColor(palette.background, "#f3f4f6"), color: safeColor(palette.text, "#172033") }}>
@@ -956,7 +985,7 @@ export default function StudioPage() {
                   <button
                     type="button"
                     onClick={() => changeStep(clarificationQuestions.length > 0 ? 3 : 4)}
-                    className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-6 py-3 text-xs font-bold text-white shadow-lg shadow-violet-600/25 hover:bg-violet-500 transition"
+                    className="inline-flex items-center gap-2 rounded-xl bg-[#c89666]/15 px-6 py-3 text-xs font-bold text-white shadow-lg shadow-violet-600/25 hover:bg-[#c89666]/15 transition"
                   >
                     <span>{clarificationQuestions.length > 0 ? "Continue to Clarifications" : "Continue to Assets & Build"}</span>
                     <ArrowRight size={15} />
@@ -971,11 +1000,11 @@ export default function StudioPage() {
                 <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-8">
                   <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">Step 2 · Clarifications</p>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#dfb180]">Step 2 · Clarifications</p>
                       <h2 className="mt-1 text-2xl font-bold">Answer key project questions</h2>
                       <p className="mt-1 text-sm text-slate-400">Answer these targeted questions to help the agents tailor your copy and sections.</p>
                     </div>
-                    <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-3.5 py-1 text-xs font-bold text-violet-300">
+                    <span className="rounded-full border border-[#c89666]/30 bg-[#c89666]/15 px-3.5 py-1 text-xs font-bold text-[#dfb180]">
                       {completedQuestions.length + skippedQuestions.length} of {clarificationQuestions.length} answered
                     </span>
                   </div>
@@ -989,7 +1018,7 @@ export default function StudioPage() {
                       return (
                         <div key={id} className="space-y-2">
                           <div className="max-w-[90%] rounded-2xl rounded-bl-sm border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-slate-300">{question.question}</div>
-                          <div className="ml-auto max-w-[90%] rounded-2xl rounded-br-sm bg-violet-500/15 px-4 py-3 text-sm text-violet-100">{wasSkipped ? "Skip for now" : answers[id]}</div>
+                          <div className="ml-auto max-w-[90%] rounded-2xl rounded-br-sm bg-[#c89666]/15 px-4 py-3 text-sm text-[#dfb180]">{wasSkipped ? "Skip for now" : answers[id]}</div>
                         </div>
                       );
                     })}
@@ -999,23 +1028,23 @@ export default function StudioPage() {
                       const id = question.id || `q-${activeClarificationIndex}`;
                       const value = answers[id] || "";
                       return (
-                        <div className="rounded-2xl border border-violet-400/20 bg-violet-400/[0.07] p-5 space-y-4" key={id}>
-                          <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-violet-300">
+                        <div className="rounded-2xl border border-[#c89666]/30 bg-[#c89666]/15/[0.07] p-5 space-y-4" key={id}>
+                          <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-[#dfb180]">
                             <span>Studio Question #{completedQuestions.length + skippedQuestions.length + 1}</span>
                             <span>{completedQuestions.length + skippedQuestions.length + 1} / {clarificationQuestions.length}</span>
                           </div>
                           <label htmlFor={`active-${id}`} className="block text-sm font-semibold text-white leading-relaxed">
-                            {question.question}{question.required && <span className="ml-1 text-violet-300">*</span>}
+                            {question.question}{question.required && <span className="ml-1 text-[#dfb180]">*</span>}
                           </label>
                           {question.input_type === "select" ? (
-                            <select id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white outline-none focus:border-violet-400">
+                            <select id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white outline-none focus:border-[#c89666]/30">
                               <option value="">Choose an answer</option>
                               {(question.options || []).map((option) => <option key={option} value={option}>{option}</option>)}
                             </select>
                           ) : question.input_type === "textarea" ? (
-                            <textarea id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} placeholder={question.placeholder || "Type your answer…"} rows={4} className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-violet-400" />
+                            <textarea id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} placeholder={question.placeholder || "Type your answer…"} rows={4} className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-[#c89666]/30" />
                           ) : (
-                            <input id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} placeholder={question.placeholder || "Type your answer…"} className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-violet-400" />
+                            <input id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} placeholder={question.placeholder || "Type your answer…"} className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-[#c89666]/30" />
                           )}
                           <div className="flex justify-end gap-2.5 pt-2">
                             {!question.required && (
@@ -1023,7 +1052,7 @@ export default function StudioPage() {
                                 Skip
                               </button>
                             )}
-                            <button type="button" onClick={() => submitClarification(question, activeClarificationIndex)} disabled={!value.trim()} className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-violet-600/30 hover:bg-violet-500 disabled:opacity-40 transition">
+                            <button type="button" onClick={() => submitClarification(question, activeClarificationIndex)} disabled={!value.trim()} className="inline-flex items-center gap-2 rounded-xl bg-[#c89666]/15 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-violet-600/30 hover:bg-[#c89666]/15 disabled:opacity-40 transition">
                               <span>Next Answer</span>
                               <ArrowRight size={14} />
                             </button>
@@ -1052,7 +1081,7 @@ export default function StudioPage() {
                   <button
                     type="button"
                     onClick={() => changeStep(4)}
-                    className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-6 py-3 text-xs font-bold text-white shadow-lg shadow-violet-600/25 hover:bg-violet-500 transition"
+                    className="inline-flex items-center gap-2 rounded-xl bg-[#c89666]/15 px-6 py-3 text-xs font-bold text-white shadow-lg shadow-violet-600/25 hover:bg-[#c89666]/15 transition"
                   >
                     <span>Continue to Assets &amp; Build (Step 3)</span>
                     <ArrowRight size={15} />
@@ -1175,6 +1204,24 @@ export default function StudioPage() {
                           </button>
                         </div>
                       </>
+                    )}
+
+                    {error && (
+                      <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-200 space-y-2 mb-3">
+                        <p className="font-semibold">{error}</p>
+                        {(error.toLowerCase().includes("credit") || error.toLowerCase().includes("upgrade") || error.toLowerCase().includes("free website")) && (
+                          <div className="pt-1">
+                            <button
+                              type="button"
+                              onClick={() => navigate("/pricing")}
+                              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#c89666]/15 hover:bg-[#c89666]/15 text-white font-bold text-xs transition-colors cursor-pointer"
+                            >
+                              <Sparkles size={14} />
+                              <span>Purchase AI Credits or Upgrade</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     )}
 
                     <div className="studio-build-action">

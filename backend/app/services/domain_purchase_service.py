@@ -72,6 +72,7 @@ async def fulfill_domain_checkout(session: dict, db: AsyncSession) -> None:
             agreed_at=details["agreed_at"],
             fees=latest_fees,
             idempotency_key=str(domain.id),
+            profile=details.get("profile"),
         )
 
     except Exception as exc:

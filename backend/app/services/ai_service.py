@@ -393,6 +393,7 @@ class AIService:
         model_name: str,
         response_mime_type: str,
         on_model_success: Optional[Callable[[str], None]] = None,
+        request_timeout_seconds: Optional[float] = None,
     ) -> Optional[str]:
         """Rotate across configured Gemini keys AND fallback models on 503/429 quota/availability errors."""
         import asyncio as _asyncio
@@ -403,13 +404,14 @@ class AIService:
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
-                "maxOutputTokens": 16384 if response_mime_type != "application/json" else 8192
+                "maxOutputTokens": 65536 if response_mime_type != "application/json" else 16384
             }
         }
         if response_mime_type == "application/json":
             payload["generationConfig"]["responseMimeType"] = "application/json"
 
-        timeout = max(10.0, float(getattr(settings, "AI_GEMINI_TIMEOUT_SECONDS", 60.0)))
+        timeout_val = max(180.0, float(request_timeout_seconds or getattr(settings, "AI_GEMINI_TIMEOUT_SECONDS", 600.0) or 600.0))
+        httpx_timeout = httpx.Timeout(timeout_val, connect=30.0, read=timeout_val, write=60.0, pool=60.0)
 
         # Skip models whose quota/availability cooldown is still active. Gemini
         # daily quotas are model-specific, so another configured model may work.
@@ -428,7 +430,7 @@ class AIService:
         start = next(_gemini_key_cycle) % len(keys)
         ordered_keys = keys[start:] + keys[:start]
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=httpx_timeout) as client:
             for model_idx, try_model in enumerate(model_sequence):
                 model_payload = {**payload}  # fresh copy so model-specific changes don't bleed
                 if response_mime_type == "application/json":
@@ -487,9 +489,8 @@ class AIService:
                         continue
                     except (httpx.TimeoutException, httpx.NetworkError) as exc:
                         logger.warning("Gemini key %d/%d request failed (%s) for model %s", key_index + 1, len(keys), type(exc).__name__, try_model)
-                        # Hand slow generation to the next provider instead of
-                        # waiting through every Gemini model's full timeout.
-                        return None
+                        safe_print(f"   ⚠️ [AI Service] Gemini model '{try_model}' timed out ({type(exc).__name__}); trying next Gemini model...")
+                        break
         return None
 
 
@@ -552,7 +553,7 @@ class AIService:
             except (TypeError, ValueError):
                 payload["max_tokens"] = 8192
         elif max_tokens is not None:
-            payload["max_tokens"] = max(256, min(16384, int(max_tokens)))
+            payload["max_tokens"] = max(256, min(32768, int(max_tokens)))
         if response_mime_type == "application/json":
             payload["response_format"] = {"type": "json_object"}
 
@@ -589,7 +590,12 @@ class AIService:
                         except Exception:
                             err_msg = response.text
                         logger.warning(f"{provider_label} API ({model_name}) returned status {response.status_code}: {err_msg}")
-                        if response.status_code == 429 and "groq" in provider_label.lower() and attempt == 0:
+                        if (response.status_code in (413, 429)) and "groq" in provider_label.lower() and attempt == 0:
+                            if response.status_code == 413 or "tpm" in str(err_msg).lower():
+                                alt_groq = "llama-3.1-8b-instant" if "70b" in str(payload.get("model", "")) else "llama-3.3-70b-versatile"
+                                safe_print(f"   ⚠️ [AI Service] Groq {payload.get('model')} hit token/TPM limit; falling back to high-capacity Groq model ({alt_groq})...")
+                                payload["model"] = alt_groq
+                                continue
                             retry_match = re.search(r"try again in\s+([0-9]+(?:\.[0-9]+)?)\s*s", str(err_msg), re.IGNORECASE)
                             retry_after = response.headers.get("retry-after")
                             try:
@@ -801,12 +807,11 @@ class AIService:
                             response_mime_type=response_mime_type,
                             provider_label="Groq",
                             max_tokens=(
-                                8192 if feature_name == "website_backend_generation"
-                                else 6000 if feature_name == "website_frontend_generation"
-                                else 3500 if feature_name == "planning_agent" and response_mime_type != "application/json"
-                                else 2000 if response_mime_type == "application/json"
-                                else 1400 if feature_name == "designer_agent"
-                                else 4096
+                                16384 if feature_name in ("website_backend_generation", "website_frontend_generation")
+                                else 6000 if feature_name == "planning_agent" and response_mime_type != "application/json"
+                                else 4000 if response_mime_type == "application/json"
+                                else 2500 if feature_name == "designer_agent"
+                                else 8192
                             ),
                         )
                         if res:
@@ -972,6 +977,7 @@ class AIService:
                             successful_model.update(name=actual_model),
                             report_provider_success("gemini", actual_model),
                         ),
+                        request_timeout_seconds=request_timeout_seconds,
                     )
                     if res:
                         safe_print(f"   └─ ✅ Gemini ({successful_model['name']}) generated output successfully.")

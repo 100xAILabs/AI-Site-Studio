@@ -54,10 +54,10 @@ class TemplateService:
                     "title": t.title,
                     "slug": t.slug,
                     "short_description": t.short_description,
-                    "price": 0 if settings.TEMPLATE_DOWNLOADS_FREE else t.price,
-                    "original_price": None if settings.TEMPLATE_DOWNLOADS_FREE else t.original_price,
-                    "is_free": True if settings.TEMPLATE_DOWNLOADS_FREE else t.is_free,
-                    "is_on_sale": False if settings.TEMPLATE_DOWNLOADS_FREE else t.is_on_sale,
+                    "price": t.price,
+                    "original_price": t.original_price,
+                    "is_free": t.is_free,
+                    "is_on_sale": t.is_on_sale,
                     "thumbnail_url": t.thumbnail_url,
                     "video_url": t.video_url,
                     "category_id": t.category_id,
@@ -155,16 +155,13 @@ class TemplateService:
 
         is_favorited = None
         is_wishlisted = None
+        is_purchased = False
         if current_user:
             is_favorited = await self.favorites.is_favorited(current_user.id, template.id)
             is_wishlisted = await self.wishlist.is_wishlisted(current_user.id, template.id)
+            is_purchased = await self.is_purchased_by_user(current_user.id, template.id)
 
         response = TemplateResponse.model_validate(template)
-        if settings.TEMPLATE_DOWNLOADS_FREE:
-            response.price = 0
-            response.original_price = None
-            response.is_free = True
-            response.is_on_sale = False
         
         # Dynamically inspect ZIP files ONLY if included_pages has never been determined
         download_assets = template.download_assets or {}
@@ -258,7 +255,25 @@ class TemplateService:
         response.seller_total_sales = total_sales
         response.is_favorited = is_favorited
         response.is_wishlisted = is_wishlisted
+        response.is_purchased = is_purchased
         return response
+
+    async def is_purchased_by_user(self, user_id: uuid.UUID, template_id: uuid.UUID) -> bool:
+        """Check if user has an active completed order for this template."""
+        from app.models.order import Order, OrderItem, OrderStatus
+        from sqlalchemy import select
+        stmt = (
+            select(Order.id)
+            .join(OrderItem, OrderItem.order_id == Order.id)
+            .where(
+                Order.user_id == user_id,
+                Order.status == OrderStatus.COMPLETED,
+                OrderItem.template_id == template_id,
+            )
+            .limit(1)
+        )
+        res = await self.db.execute(stmt)
+        return res.scalar_one_or_none() is not None
 
     async def create_template(
         self, data: TemplateCreate, seller_id: Optional[uuid.UUID] = None
@@ -344,14 +359,7 @@ class TemplateService:
 
     async def get_featured_templates(self, limit: int = 8) -> List[TemplateCardResponse]:
         templates = await self.repo.get_featured(limit)
-        cards = [TemplateCardResponse.model_validate(t) for t in templates]
-        if settings.TEMPLATE_DOWNLOADS_FREE:
-            for card in cards:
-                card.price = 0
-                card.original_price = None
-                card.is_free = True
-                card.is_on_sale = False
-        return cards
+        return [TemplateCardResponse.model_validate(t) for t in templates]
 
     async def record_unique_account_view(
         self,

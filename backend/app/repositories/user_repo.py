@@ -81,7 +81,7 @@ class UserRepository:
         if not user:
             # Fallback to email lookup ONLY if user exists and does not use password auth
             existing_user_by_email = await self.get_by_email(email)
-            if existing_user_by_email and not existing_user_by_email.hashed_password:
+            if existing_user_by_email:
                 user = existing_user_by_email
 
         if user:

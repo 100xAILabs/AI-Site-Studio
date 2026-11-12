@@ -184,8 +184,8 @@ async def initiate_payment(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Create a payment order with Razorpay or Stripe.
-    Returns gateway-specific data needed by the frontend to open the payment modal.
+    Create a payment order with Razorpay.
+    Returns Razorpay credentials needed by the frontend to open the payment modal.
     """
     order_uuid = uuid.UUID(data.order_id)
     result = await db.execute(
@@ -198,181 +198,78 @@ async def initiate_payment(
         raise HTTPException(status_code=404, detail="Order not found")
     if order.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
+    if order.status == OrderStatus.COMPLETED or order.total == Decimal("0"):
+        if order.status != OrderStatus.COMPLETED:
+            order.status = OrderStatus.COMPLETED
+            await db.commit()
+        return PaymentInitResponse(
+            gateway=PaymentGateway.RAZORPAY,
+            gateway_order_id="free_completed",
+            amount=0,
+            currency="INR",
+            key_id="free",
+            order_id=str(order.id),
+        )
     if order.status != OrderStatus.PENDING:
         raise HTTPException(status_code=400, detail="Order is not in PENDING state")
-    if settings.TEMPLATE_DOWNLOADS_FREE and any(item.template_id for item in (order.items or [])):
-        raise HTTPException(
-            status_code=410,
-            detail="Marketplace templates are free to download right now. No payment is due.",
-        )
 
-    if data.gateway == PaymentGateway.UPI:
-        merchant_vpa = settings.UPI_MERCHANT_VPA.strip()
-        if not merchant_vpa or "yourname" in merchant_vpa.lower():
-            raise HTTPException(status_code=503, detail="UPI payments are not configured. Please choose another payment method.")
+    usd_to_inr_rate = await get_usd_to_inr_rate()
+    inr_amount = calculate_order_inr_amount(order, usd_to_inr_rate)
+    amount_in_paise = int(inr_amount * 100)
 
-    # Fetch live USD-to-INR rate if using Razorpay or UPI
-    usd_to_inr_rate = 83.50
-    if data.gateway in (PaymentGateway.RAZORPAY, PaymentGateway.UPI):
-        usd_to_inr_rate = await get_usd_to_inr_rate()
-
-    # An order has a one-to-one payment record. Reuse its gateway session on a
-    # retry instead of inserting a second row and violating the unique key.
+    # Re-use existing Razorpay payment record if already initiated
     existing_result = await db.execute(select(Payment).where(Payment.order_id == order.id))
     existing_payment = existing_result.scalar_one_or_none()
-    if existing_payment:
-        if existing_payment.gateway != data.gateway:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Payment has already been initiated with {existing_payment.gateway.value}.",
-            )
-        if data.gateway == PaymentGateway.UPI:
-            inr_amount = calculate_order_inr_amount(order, usd_to_inr_rate)
-            amount_in_paise = int(inr_amount * 100)
-            existing_payment.amount = inr_amount
-            await db.commit()
-            upi_order_id = existing_payment.gateway_order_id or f"upi_qr_{uuid.uuid4().hex[:12]}"
-            merchant_vpa = settings.UPI_MERCHANT_VPA.strip()
-            merchant_name = getattr(settings, "UPI_MERCHANT_NAME", "AI Site Studio")
-            upi_uri = f"upi://pay?pa={merchant_vpa}&pn={merchant_name}&am={inr_amount}&cu=INR&tn=Order%20{str(order.id)[:8]}&tr={upi_order_id}"
-            return PaymentInitResponse(
-                gateway=PaymentGateway.UPI,
-                gateway_order_id=upi_order_id,
-                amount=amount_in_paise,
-                currency="INR",
-                key_id="upi_qr_key",
-                order_id=str(order.id),
-                upi_uri=upi_uri,
-                vpa=merchant_vpa,
-                merchant_name=merchant_name,
-            )
-        if data.gateway == PaymentGateway.RAZORPAY:
-            inr_amount = calculate_order_inr_amount(order, usd_to_inr_rate)
-            amount_in_paise = int(inr_amount * 100)
-            existing_payment.amount = inr_amount
-            await db.commit()
-            
-            return PaymentInitResponse(
-                gateway=PaymentGateway.RAZORPAY,
-                gateway_order_id=existing_payment.gateway_order_id,
-                amount=amount_in_paise,
-                currency="INR",
-                key_id=(
-                    "rzp_test_mockkey"
-                    if existing_payment.gateway_order_id and existing_payment.gateway_order_id.startswith("rzp_mock_")
-                    else settings.RAZORPAY_KEY_ID
-                ),
-                order_id=str(order.id),
-            )
-        if existing_payment.gateway_order_id:
-            checkout_url = None
-            if existing_payment.gateway_order_id.startswith("cs_"):
-                import stripe
-                stripe.api_key = settings.STRIPE_SECRET_KEY
-                try:
-                    sess = stripe.checkout.Session.retrieve(existing_payment.gateway_order_id)
-                    checkout_url = sess.url
-                except Exception:
-                    pass
-            return PaymentInitResponse(
-                gateway=PaymentGateway.STRIPE,
-                gateway_order_id=existing_payment.gateway_order_id,
-                checkout_url=checkout_url,
-                amount=int(order.total * 100),
-                currency="USD",
-                key_id=(
-                    "pk_test_mockkey"
-                    if existing_payment.gateway_payment_id and existing_payment.gateway_payment_id.startswith("pi_mock_")
-                    else settings.STRIPE_PUBLISHABLE_KEY
-                ),
-                order_id=str(order.id),
-            )
-
-        # Records created before client secrets were persisted can still be retried.
-        import stripe
-        stripe.api_key = settings.STRIPE_SECRET_KEY
-        intent = stripe.PaymentIntent.retrieve(existing_payment.gateway_payment_id)
-        existing_payment.gateway_order_id = intent.client_secret
+    if existing_payment and existing_payment.gateway_order_id:
+        existing_payment.gateway = PaymentGateway.RAZORPAY
+        existing_payment.amount = inr_amount
+        existing_payment.currency = "INR"
         await db.commit()
         return PaymentInitResponse(
-            gateway=PaymentGateway.STRIPE,
-            gateway_order_id=intent.client_secret,
-            amount=int(order.total * 100),
-            currency="USD",
-            key_id=settings.STRIPE_PUBLISHABLE_KEY,
+            gateway=PaymentGateway.RAZORPAY,
+            gateway_order_id=existing_payment.gateway_order_id,
+            amount=amount_in_paise,
+            currency="INR",
+            key_id=(
+                "rzp_test_mockkey"
+                if existing_payment.gateway_order_id.startswith("rzp_mock_")
+                else (settings.RAZORPAY_KEY_ID or "rzp_test_mockkey")
+            ),
             order_id=str(order.id),
         )
 
-    if data.gateway == PaymentGateway.UPI:
-        inr_amount = calculate_order_inr_amount(order, usd_to_inr_rate)
-        amount_in_paise = int(inr_amount * 100)
-        upi_order_id = f"upi_qr_{uuid.uuid4().hex[:12]}"
-        merchant_vpa = settings.UPI_MERCHANT_VPA.strip()
-        merchant_name = getattr(settings, "UPI_MERCHANT_NAME", "AI Site Studio")
-        upi_uri = f"upi://pay?pa={merchant_vpa}&pn={merchant_name}&am={inr_amount}&cu=INR&tn=Order%20{str(order.id)[:8]}&tr={upi_order_id}"
+    # Mocking check for sandbox/local test execution
+    is_mock_allowed = settings.ENVIRONMENT in ("development", "local", "test")
+    is_mock_key = (
+        not settings.RAZORPAY_KEY_ID
+        or settings.RAZORPAY_KEY_ID.startswith(("rzp_test_...", "your-"))
+        or "change-me" in settings.RAZORPAY_KEY_ID
+        or "mock" in settings.RAZORPAY_KEY_ID.lower()
+    )
 
+    if is_mock_key and is_mock_allowed:
+        mock_order_id = f"rzp_mock_{uuid.uuid4().hex[:12]}"
         payment = Payment(
             order_id=order.id,
-            gateway=PaymentGateway.UPI,
-            gateway_order_id=upi_order_id,
+            gateway=PaymentGateway.RAZORPAY,
+            gateway_order_id=mock_order_id,
             amount=inr_amount,
             currency="INR",
         )
         db.add(payment)
         await db.flush()
         await db.commit()
-
         return PaymentInitResponse(
-            gateway=PaymentGateway.UPI,
-            gateway_order_id=upi_order_id,
+            gateway=PaymentGateway.RAZORPAY,
+            gateway_order_id=mock_order_id,
             amount=amount_in_paise,
             currency="INR",
-            key_id="upi_qr_key",
+            key_id="rzp_test_mockkey",
             order_id=str(order.id),
-            upi_uri=upi_uri,
-            vpa=merchant_vpa,
-            merchant_name=merchant_name,
         )
 
-    if data.gateway == PaymentGateway.RAZORPAY:
-        # Mocking check: only allow mock gateway requests in local / test / development environments
-        is_mock_allowed = settings.ENVIRONMENT in ("development", "local", "test")
-        is_mock_key = (
-            not settings.RAZORPAY_KEY_ID
-            or settings.RAZORPAY_KEY_ID.startswith(("rzp_test_...", "your-"))
-            or "change-me" in settings.RAZORPAY_KEY_ID
-            or "mock" in settings.RAZORPAY_KEY_ID.lower()
-        )
-        
-        inr_amount = calculate_order_inr_amount(order, usd_to_inr_rate)
-        amount_in_paise = int(inr_amount * 100)
-
-        if is_mock_key:
-            if not is_mock_allowed:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Mock payment gateways are not allowed in this environment."
-                )
-            mock_order_id = f"rzp_mock_{uuid.uuid4().hex[:12]}"
-            payment = Payment(
-                order_id=order.id,
-                gateway=PaymentGateway.RAZORPAY,
-                gateway_order_id=mock_order_id,
-                amount=inr_amount,
-                currency="INR",
-            )
-            db.add(payment)
-            await db.flush()
-            await db.commit()
-            return PaymentInitResponse(
-                gateway=PaymentGateway.RAZORPAY,
-                gateway_order_id=mock_order_id,
-                amount=amount_in_paise,
-                currency="INR",
-                key_id="rzp_test_mockkey",
-                order_id=str(order.id),
-            )
-        
+    rz_order_id = None
+    try:
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=UserWarning)
@@ -381,165 +278,39 @@ async def initiate_payment(
         rz_order = client.order.create({
             "amount": amount_in_paise,
             "currency": "INR",
-            "receipt": str(order.id),
+            "receipt": str(order.id)[:40],
+            "notes": {
+                "order_number": order.order_number,
+                "user_email": current_user.email,
+            }
         })
+        rz_order_id = rz_order["id"]
+    except Exception as rz_err:
+        logger.warning(f"Razorpay order create failed: {rz_err}")
+        if is_mock_allowed:
+            rz_order_id = f"rzp_mock_{uuid.uuid4().hex[:12]}"
+        else:
+            raise HTTPException(status_code=502, detail=f"Could not connect to Razorpay payment gateway: {rz_err}")
 
-        # Record payment initiation
-        payment = Payment(
-            order_id=order.id,
-            gateway=PaymentGateway.RAZORPAY,
-            gateway_order_id=rz_order["id"],
-            amount=inr_amount,
-            currency="INR",
-        )
-        db.add(payment)
-        await db.flush()
-        await db.commit()
+    payment = Payment(
+        order_id=order.id,
+        gateway=PaymentGateway.RAZORPAY,
+        gateway_order_id=rz_order_id,
+        amount=inr_amount,
+        currency="INR",
+    )
+    db.add(payment)
+    await db.flush()
+    await db.commit()
 
-        return PaymentInitResponse(
-            gateway=PaymentGateway.RAZORPAY,
-            gateway_order_id=rz_order["id"],
-            amount=amount_in_paise,
-            currency="INR",
-            key_id=settings.RAZORPAY_KEY_ID,
-            order_id=str(order.id),
-        )
-
-    elif data.gateway == PaymentGateway.STRIPE:
-        is_mock_allowed = settings.ENVIRONMENT in ("development", "local", "test")
-        is_mock_key = (
-            not settings.STRIPE_SECRET_KEY
-            or settings.STRIPE_SECRET_KEY.startswith(("sk_test_...", "your-"))
-            or "change-me" in settings.STRIPE_SECRET_KEY
-            or "mock" in settings.STRIPE_SECRET_KEY.lower()
-        )
-
-        if is_mock_key:
-            if not is_mock_allowed:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Mock payment gateways are not allowed in this environment."
-                )
-            mock_payment_id = f"pi_mock_{uuid.uuid4().hex[:12]}"
-            mock_client_secret = f"{mock_payment_id}_secret_{uuid.uuid4().hex[:12]}"
-            payment = Payment(
-                order_id=order.id,
-                gateway=PaymentGateway.STRIPE,
-                gateway_payment_id=mock_payment_id,
-                gateway_order_id=mock_client_secret,
-                amount=order.total,
-                currency="USD",
-            )
-            db.add(payment)
-            await db.flush()
-            await db.commit()
-            return PaymentInitResponse(
-                gateway=PaymentGateway.STRIPE,
-                gateway_order_id=mock_client_secret,
-                amount=int(order.total * 100),
-                currency="USD",
-                key_id="pk_test_mockkey",
-                order_id=str(order.id),
-            )
-
-        import stripe
-        stripe.api_key = settings.STRIPE_SECRET_KEY
-        frontend_url = settings.FRONTEND_URL.rstrip("/")
-        
-        line_items = []
-        for item in (order.items or []):
-            item_title = "Website Template"
-            if hasattr(item, "template") and item.template:
-                item_title = item.template.title
-            elif getattr(item, "template_id", None):
-                tpl = await db.get(Template, item.template_id)
-                if tpl:
-                    item_title = tpl.title
-            line_items.append({
-                "price_data": {
-                    "currency": "usd",
-                    "product_data": {
-                        "name": item_title,
-                        "description": "Full production source code package with commercial license",
-                    },
-                    "unit_amount": int(float(item.price) * 100),
-                },
-                "quantity": 1,
-            })
-
-        if not line_items:
-            line_items.append({
-                "price_data": {
-                    "currency": "usd",
-                    "product_data": {
-                        "name": f"Template Order {str(order.id)[:8]}",
-                        "description": "Marketplace digital template download",
-                    },
-                    "unit_amount": int(float(order.total) * 100),
-                },
-                "quantity": 1,
-            })
-
-        try:
-            session = stripe.checkout.Session.create(
-                payment_method_types=["card"],
-                line_items=line_items,
-                mode="payment",
-                metadata={"order_id": str(order.id), "purchase_type": "marketplace_order"},
-                success_url=f"{frontend_url}/checkout?payment=stripe_success&order_id={order.id}&session_id={{CHECKOUT_SESSION_ID}}",
-                cancel_url=f"{frontend_url}/checkout?payment=stripe_cancel&order_id={order.id}",
-            )
-
-            payment = Payment(
-                order_id=order.id,
-                gateway=PaymentGateway.STRIPE,
-                gateway_payment_id=session.payment_intent or session.id,
-                gateway_order_id=session.id,
-                amount=order.total,
-                currency="USD",
-            )
-            db.add(payment)
-            await db.flush()
-            await db.commit()
-
-            return PaymentInitResponse(
-                gateway=PaymentGateway.STRIPE,
-                gateway_order_id=session.id,
-                checkout_url=session.url,
-                amount=int(order.total * 100),
-                currency="USD",
-                key_id=settings.STRIPE_PUBLISHABLE_KEY,
-                order_id=str(order.id),
-            )
-        except Exception as e_session:
-            logger.warning(f"Could not create Stripe Checkout Session, falling back to PaymentIntent: {e_session}")
-            intent = stripe.PaymentIntent.create(
-                amount=int(order.total * 100),
-                currency="usd",
-                metadata={"order_id": str(order.id)},
-                payment_method_types=["card"],
-            )
-
-            payment = Payment(
-                order_id=order.id,
-                gateway=PaymentGateway.STRIPE,
-                gateway_payment_id=intent.id,
-                gateway_order_id=intent.client_secret,
-                amount=order.total,
-                currency="USD",
-            )
-            db.add(payment)
-            await db.flush()
-            await db.commit()
-
-            return PaymentInitResponse(
-                gateway=PaymentGateway.STRIPE,
-                gateway_order_id=intent.client_secret,
-                amount=int(order.total * 100),
-                currency="USD",
-                key_id=settings.STRIPE_PUBLISHABLE_KEY,
-                order_id=str(order.id),
-            )
+    return PaymentInitResponse(
+        gateway=PaymentGateway.RAZORPAY,
+        gateway_order_id=rz_order_id,
+        amount=amount_in_paise,
+        currency="INR",
+        key_id=settings.RAZORPAY_KEY_ID if not is_mock_key else "rzp_test_mockkey",
+        order_id=str(order.id),
+    )
 
 
 async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Optional[str] = None):
@@ -603,6 +374,23 @@ async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Op
                         logger.info("Credited %d AI tokens to user %s. New balance: %d", credits_to_add, target_user.email, target_user.ai_credits)
             except Exception as cred_err:
                 logger.warning("Could not credit AI tokens for order %s: %s", order.id, cred_err)
+
+        # Upgrade user subscription tier if this order is a Pro/Agency subscription
+        if order.extra_metadata and order.extra_metadata.get("type") == "subscription_plan":
+            try:
+                plan_id = str(order.extra_metadata.get("plan_id") or "pro").lower()
+                user_res = await db.execute(select(User).where(User.id == order.user_id))
+                target_user = user_res.scalar_one_or_none()
+                if target_user:
+                    target_user.subscription_tier = plan_id
+                    target_user.is_pro_subscriber = plan_id in ("pro", "extreme", "agency")
+                    sub_credits = int(order.extra_metadata.get("credits_to_add") or 0)
+                    if sub_credits > 0 and not order.extra_metadata.get("credits_credited"):
+                        target_user.ai_credits = (target_user.ai_credits or 0) + sub_credits
+                        order.extra_metadata["credits_credited"] = True
+                    logger.info("Upgraded user %s subscription tier to %s (Pro subscriber: %s, AI credits: %s)", target_user.email, plan_id, target_user.is_pro_subscriber, target_user.ai_credits)
+            except Exception as sub_err:
+                logger.warning("Could not update subscription tier for order %s: %s", order.id, sub_err)
     except Exception as lic_err:
         print(f"Notice: License fulfillment warning: {lic_err}")
 
@@ -629,174 +417,16 @@ async def verify_payment(
     )
     payment = result.scalar_one_or_none()
 
-    # 1. UPI Payment Verification with 12-Digit Bank Reference (UTR)
-    if data.gateway == PaymentGateway.UPI:
-        raw_utr = (data.upi_utr or "").strip()
-        if not raw_utr and data.gateway_payment_id:
-            raw_utr = data.gateway_payment_id.replace("UTR:", "").replace("utr_", "").strip()
-
-        # Reject bypass attempts, empty UTRs, or mock tokens
-        if not raw_utr or raw_utr in ("mock_signature_verified", "upi_utr_verified") or raw_utr.startswith("upi_pay_"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="A valid 12-digit UPI Reference (UTR) number is required from your payment receipt."
-            )
-
-        # Enforce exact 12 numeric digits
-        if not (raw_utr.isdigit() and len(raw_utr) == 12):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid UPI Reference (UTR) number '{raw_utr}'. UTR must be exactly 12 numeric digits from your GPay, PhonePe, or Paytm receipt."
-            )
-
-        # Reject obvious fake/dummy test sequences
-        bogus_utrs = {"000000000000", "111111111111", "123456789012", "999999999999", "123456123456"}
-        if raw_utr in bogus_utrs:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid test UTR entered. Please enter the genuine 12-digit transaction ID from your UPI payment receipt."
-            )
-
-        # Anti-fraud: Check if this UTR has already been claimed for another order
-        if payment and payment.gateway != PaymentGateway.UPI:
-            raise HTTPException(status_code=409, detail="This order already has a payment through a different gateway.")
-
-        dup_query = select(Payment).where(
-            or_(
-                Payment.gateway_payment_id == f"UTR:{raw_utr}",
-                Payment.gateway_payment_id == raw_utr
-            ),
-            Payment.order_id != order.id
-        ).limit(1)
-        dup_res = await db.execute(dup_query)
-        existing_claimed = dup_res.scalar_one_or_none()
-        if existing_claimed:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"This UPI Reference (UTR: {raw_utr}) has already been used for another order. Each transaction requires a unique payment receipt."
-            )
-
-        utr_formatted = f"UTR:{raw_utr}"
-        if payment and payment.status == PaymentStatus.CAPTURED:
-            return PaymentVerifyResponse(
-                success=True,
-                message="This UPI payment has already been confirmed.",
-                order_id=str(order.id),
-            )
-
-        if not payment:
-            payment = Payment(
-                order_id=order.id,
-                gateway=PaymentGateway.UPI,
-                status=PaymentStatus.PENDING,
-                gateway_payment_id=utr_formatted,
-                amount=order.total,
-                currency="INR",
-            )
-            db.add(payment)
-        else:
-            payment.status = PaymentStatus.PENDING
-            payment.gateway_payment_id = utr_formatted
-
-        from datetime import datetime, timezone
-        meta = dict(order.extra_metadata or {})
-        meta["upi_utr"] = raw_utr
-        meta["upi_utr_submitted_at"] = datetime.now(timezone.utc).isoformat()
-        order.extra_metadata = meta
-
-        await db.flush()
-        await db.commit()
-
-        return PaymentVerifyResponse(
-            success=True,
-            message="UPI reference submitted. Your order stays pending until the payment is confirmed.",
-            order_id=str(order.id),
-        )
-
-    # 1.5 Stripe Checkout Session direct verification
-    if data.gateway == PaymentGateway.STRIPE and (data.gateway_payment_id or data.gateway_order_id):
-        session_id = data.gateway_payment_id if (data.gateway_payment_id and data.gateway_payment_id.startswith("cs_")) else (data.gateway_order_id if (data.gateway_order_id and data.gateway_order_id.startswith("cs_")) else None)
-        if session_id:
-            import stripe
-            stripe.api_key = settings.STRIPE_SECRET_KEY
-            try:
-                stripe_sess = stripe.checkout.Session.retrieve(session_id)
-                if stripe_sess.payment_status in ("paid", "no_payment_required"):
-                    if not payment:
-                        payment = Payment(
-                            order_id=order.id,
-                            gateway=PaymentGateway.STRIPE,
-                            status=PaymentStatus.CAPTURED,
-                            gateway_order_id=session_id,
-                            gateway_payment_id=stripe_sess.payment_intent or session_id,
-                            amount=order.total,
-                            currency="USD",
-                        )
-                        db.add(payment)
-                    else:
-                        payment.status = PaymentStatus.CAPTURED
-                        payment.gateway_payment_id = stripe_sess.payment_intent or session_id
-                    
-                    order.status = OrderStatus.COMPLETED
-                    await _fulfill_order_licenses(db, order, user_email=current_user.email if current_user else None)
-                    await db.flush()
-                    await db.commit()
-                    return PaymentVerifyResponse(
-                        success=True,
-                        message="Payment verified successfully via Stripe Checkout.",
-                        order_id=str(order.id),
-                    )
-            except Exception as e_stripe:
-                logger.warning(f"Could not verify session with Stripe: {e_stripe}")
-
-    # 2. Simulated card flow (Stripe/Razorpay test mode only)
-    is_card_mock = (
-        data.gateway in (PaymentGateway.STRIPE, PaymentGateway.RAZORPAY)
-        and (
-            (data.gateway_order_id and data.gateway_order_id.startswith(("rzp_mock_", "pi_mock_")))
-            or (data.gateway_payment_id and data.gateway_payment_id.startswith(("pi_mock_", "pay_mock_")))
-            or (data.gateway_signature == "mock_signature_verified")
-        )
-    )
-
-    if is_card_mock:
-        if settings.ENVIRONMENT not in ("development", "local", "test"):
-            raise HTTPException(status_code=400, detail="Mock payments are not allowed in this environment.")
-        if not payment:
-            payment = Payment(
-                order_id=order.id,
-                gateway=data.gateway,
-                status=PaymentStatus.CAPTURED,
-                gateway_payment_id=data.gateway_payment_id or f"pay_mock_{uuid.uuid4().hex[:12]}",
-                amount=order.total,
-                currency="USD" if data.gateway == PaymentGateway.STRIPE else "INR"
-            )
-            db.add(payment)
-        else:
-            payment.status = PaymentStatus.CAPTURED
-            payment.gateway_payment_id = data.gateway_payment_id or payment.gateway_payment_id or f"pay_mock_{uuid.uuid4().hex[:12]}"
-            
-        order.status = OrderStatus.COMPLETED
-        await _fulfill_order_licenses(db, order, user_email=current_user.email if current_user else None)
-
-        await db.flush()
-        await db.commit()
-        return PaymentVerifyResponse(
-            success=True,
-            message="Payment verified successfully in test sandbox.",
-            order_id=str(order.id),
-        )
-
-    # 2. Direct client-side Razorpay signature verification
+    # 1. Direct client-side Razorpay signature verification
     if (
-        data.gateway == PaymentGateway.RAZORPAY
-        and data.gateway_order_id
+        data.gateway_order_id
         and data.gateway_payment_id
         and data.gateway_signature
         and settings.RAZORPAY_KEY_SECRET
+        and not data.gateway_order_id.startswith("rzp_mock_")
+        and not data.gateway_payment_id.startswith("pay_mock_")
+        and data.gateway_signature != "mock_signature_verified"
     ):
-        import hmac
-        import hashlib
         msg = f"{data.gateway_order_id}|{data.gateway_payment_id}".encode("utf-8")
         generated_signature = hmac.new(
             settings.RAZORPAY_KEY_SECRET.encode("utf-8"),
@@ -818,7 +448,9 @@ async def verify_payment(
                 db.add(payment)
             else:
                 payment.status = PaymentStatus.CAPTURED
+                payment.gateway = PaymentGateway.RAZORPAY
                 payment.gateway_payment_id = data.gateway_payment_id
+                payment.gateway_signature = data.gateway_signature
 
             order.status = OrderStatus.COMPLETED
             await _fulfill_order_licenses(db, order, user_email=current_user.email if current_user else None)
@@ -829,6 +461,46 @@ async def verify_payment(
                 message="Payment verified successfully via Razorpay signature.",
                 order_id=str(order.id),
             )
+        else:
+            raise HTTPException(status_code=400, detail="Razorpay signature verification failed. Invalid signature.")
+
+    # 2. Simulated card flow (Razorpay test mode in development / sandbox)
+    is_card_mock = (
+        (data.gateway_order_id and data.gateway_order_id.startswith("rzp_mock_"))
+        or (data.gateway_payment_id and data.gateway_payment_id.startswith("pay_mock_"))
+        or (data.gateway_signature in ("mock_signature_verified", "rzp_mock_sig"))
+    )
+
+    if is_card_mock:
+        if settings.ENVIRONMENT not in ("development", "local", "test"):
+            raise HTTPException(status_code=400, detail="Mock payments are not allowed in this environment.")
+        if not payment:
+            payment = Payment(
+                order_id=order.id,
+                gateway=PaymentGateway.RAZORPAY,
+                status=PaymentStatus.CAPTURED,
+                gateway_payment_id=data.gateway_payment_id or f"pay_mock_{uuid.uuid4().hex[:12]}",
+                gateway_order_id=data.gateway_order_id or f"rzp_mock_{uuid.uuid4().hex[:12]}",
+                amount=order.total,
+                currency="INR",
+            )
+            db.add(payment)
+        else:
+            payment.status = PaymentStatus.CAPTURED
+            payment.gateway = PaymentGateway.RAZORPAY
+            payment.gateway_payment_id = data.gateway_payment_id or payment.gateway_payment_id or f"pay_mock_{uuid.uuid4().hex[:12]}"
+            
+        order.status = OrderStatus.COMPLETED
+        await _fulfill_order_licenses(db, order, user_email=current_user.email if current_user else None)
+
+        await db.flush()
+        await db.commit()
+        return PaymentVerifyResponse(
+            success=True,
+            message="Payment verified successfully in test sandbox.",
+            order_id=str(order.id),
+        )
+
 
     # 3. In production/staging with webhooks, check if captured
     if not payment or payment.status != PaymentStatus.CAPTURED:
@@ -1150,66 +822,221 @@ async def stripe_webhook(
     return {"status": "success"}
 
 
+_PROCESSED_WEBHOOK_EVENTS: set[str] = set()
+
+
 @router.post("/webhook/razorpay")
 async def razorpay_webhook(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    """Handle Razorpay payment success webhooks."""
+    """
+    Production-grade Razorpay webhook receiver.
+    Subscribed events:
+    - payment.captured: Automatically confirms payments even if the user closed their tab before /verify.
+    - payment.failed: Logs failure details and flags payment as failed.
+    - order.paid: Confirms order completion and generates licenses / tier upgrades.
+    - subscription.charged: Grants or extends Pro / Extreme subscription tier & credits AI tokens.
+    - subscription.halted / subscription.cancelled / subscription.completed: Downgrades tier to free.
+    - subscription.authenticated: Confirms mandate setup.
+    """
+    event_id = request.headers.get("x-razorpay-event-id") or request.headers.get("X-Razorpay-Event-Id")
+    if event_id:
+        if event_id in _PROCESSED_WEBHOOK_EVENTS:
+            logger.info(f"Razorpay webhook: Duplicate event {event_id} ignored (in-memory)")
+            return {"status": "already_processed", "event_id": event_id}
+        try:
+            from app.core.redis import get_redis_client
+            redis = await get_redis_client()
+            if redis:
+                is_new = await redis.set(f"rzp_evt:{event_id}", "1", ex=86400, nx=True)
+                if not is_new:
+                    logger.info(f"Razorpay webhook: Duplicate event {event_id} ignored (redis)")
+                    return {"status": "already_processed", "event_id": event_id}
+        except Exception:
+            pass
+        _PROCESSED_WEBHOOK_EVENTS.add(event_id)
+        if len(_PROCESSED_WEBHOOK_EVENTS) > 10000:
+            _PROCESSED_WEBHOOK_EVENTS.clear()
+
     payload = await request.body()
-    signature = request.headers.get("x-razorpay-signature")
+    signature = request.headers.get("x-razorpay-signature") or request.headers.get("X-Razorpay-Signature")
     
     if not signature:
-        raise HTTPException(status_code=400, detail="Missing signature header")
+        raise HTTPException(status_code=400, detail="Missing X-Razorpay-Signature header")
 
-    # Verify signature
-    expected = hmac.new(
-        settings.RAZORPAY_KEY_SECRET.encode(),
-        payload,
-        hashlib.sha256
-    ).hexdigest()
+    webhook_secret = settings.RAZORPAY_WEBHOOK_SECRET or settings.RAZORPAY_KEY_SECRET
     
-    if not hmac.compare_digest(expected, signature):
-        raise HTTPException(status_code=400, detail="Invalid signature")
+    # Verify cryptographic HMAC SHA256 signature
+    is_mock = signature in ("mock_webhook_signature", "mock_signature_verified") and settings.ENVIRONMENT in ("development", "test", "local")
+    if not is_mock and webhook_secret:
+        expected = hmac.new(
+            webhook_secret.encode("utf-8"),
+            payload,
+            hashlib.sha256
+        ).hexdigest()
+        
+        if not hmac.compare_digest(expected, signature):
+            logger.warning("Razorpay webhook signature verification failed")
+            raise HTTPException(status_code=400, detail="Invalid webhook signature")
 
     import json
-    data = json.loads(payload.decode("utf-8"))
+    try:
+        data = json.loads(payload.decode("utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    event = data.get("event")
+    payload_data = data.get("payload", {})
     
-    if data.get("event") == "order.paid":
-        payload_data = data.get("payload", {})
-        rz_payment = payload_data.get("payment", {}).get("entity", {})
-        rz_order = payload_data.get("order", {}).get("entity", {})
-        
-        gateway_order_id = rz_order.get("id")
-        gateway_payment_id = rz_payment.get("id")
-        amount_paid = rz_payment.get("amount") / 100.0  # Paise to INR
-        
-        # Look up by gateway order ID
+    rz_payment = payload_data.get("payment", {}).get("entity", {})
+    rz_order = payload_data.get("order", {}).get("entity", {})
+    
+    gateway_order_id = rz_order.get("id") or rz_payment.get("order_id")
+    gateway_payment_id = rz_payment.get("id")
+    
+    notes = rz_payment.get("notes", {}) or rz_order.get("notes", {})
+    note_order_id = notes.get("order_id")
+
+    # Locate Payment record
+    payment = None
+    if gateway_order_id:
         pay_res = await db.execute(select(Payment).where(Payment.gateway_order_id == gateway_order_id))
         payment = pay_res.scalar_one_or_none()
-        
+    
+    if not payment and gateway_payment_id:
+        pay_res = await db.execute(select(Payment).where(Payment.gateway_payment_id == gateway_payment_id))
+        payment = pay_res.scalar_one_or_none()
+
+    if not payment and note_order_id:
+        try:
+            ord_uuid = uuid.UUID(note_order_id)
+            pay_res = await db.execute(select(Payment).where(Payment.order_id == ord_uuid))
+            payment = pay_res.scalar_one_or_none()
+        except Exception:
+            pass
+
+    if event in ("payment.captured", "order.paid"):
         if not payment:
-            raise HTTPException(status_code=404, detail="Payment record not found for gateway order ID")
+            # If payment not recorded yet, check if order exists from note_order_id
+            if note_order_id:
+                try:
+                    ord_uuid = uuid.UUID(note_order_id)
+                    order_res = await db.execute(select(Order).where(Order.id == ord_uuid))
+                    order = order_res.scalar_one_or_none()
+                    if order:
+                        payment = Payment(
+                            order_id=order.id,
+                            gateway=PaymentGateway.RAZORPAY,
+                            amount=Decimal(str(rz_payment.get("amount", 0) / 100.0)),
+                            currency="INR",
+                            status=PaymentStatus.CAPTURED,
+                            gateway_order_id=gateway_order_id,
+                            gateway_payment_id=gateway_payment_id,
+                            gateway_signature=signature,
+                            gateway_response=data,
+                        )
+                        db.add(payment)
+                except Exception:
+                    pass
 
-        order_res = await db.execute(select(Order).where(Order.id == payment.order_id))
-        order = order_res.scalar_one_or_none()
-        if not order:
-            raise HTTPException(status_code=404, detail="Order not found")
+        if not payment:
+            logger.warning(f"Razorpay webhook: No matching payment found for order={gateway_order_id}, payment={gateway_payment_id}")
+            return {"status": "ignored_no_order", "event": event}
 
-        if abs(float(payment.amount) - amount_paid) > 0.01:
-            raise HTTPException(status_code=400, detail="Amount mismatch detected")
+        # Idempotent check: if already captured, do not re-fulfill
+        if payment.status == PaymentStatus.CAPTURED:
+            return {"status": "already_captured", "order_id": str(payment.order_id), "payment_id": payment.gateway_payment_id}
 
         payment.status = PaymentStatus.CAPTURED
-        payment.gateway_payment_id = gateway_payment_id
+        if gateway_payment_id:
+            payment.gateway_payment_id = gateway_payment_id
         payment.gateway_signature = signature
         payment.gateway_response = data
-        
-        order.status = OrderStatus.COMPLETED
-        await _fulfill_order_licenses(db, order)
+
+        order_res = await db.execute(
+            select(Order)
+            .options(selectinload(Order.user), selectinload(Order.items).selectinload(OrderItem.template))
+            .where(Order.id == payment.order_id)
+        )
+        order = order_res.scalar_one_or_none()
+        if order:
+            order.status = OrderStatus.COMPLETED
+            await _fulfill_order_licenses(db, order, user_email=order.user.email if order.user else None)
+
         await db.flush()
         await db.commit()
+        logger.info(f"Razorpay webhook: Payment {gateway_payment_id} successfully captured for order {payment.order_id}")
+        return {"status": "captured_and_fulfilled", "order_id": str(payment.order_id), "payment_id": gateway_payment_id}
 
-    return {"status": "success"}
+    elif event == "payment.failed":
+        if payment:
+            payment.status = PaymentStatus.FAILED
+            if gateway_payment_id:
+                payment.gateway_payment_id = gateway_payment_id
+            payment.gateway_response = data
+            await db.commit()
+            logger.info(f"Razorpay webhook: Marked payment {gateway_payment_id} as FAILED")
+            return {"status": "failed_recorded", "payment_id": gateway_payment_id}
+        return {"status": "ignored_failed_no_record", "event": event}
+
+    elif event == "subscription.charged":
+        rz_sub = payload_data.get("subscription", {}).get("entity", {})
+        rz_sub_payment = payload_data.get("payment", {}).get("entity", {})
+        sub_notes = rz_sub.get("notes", {}) or rz_sub_payment.get("notes", {})
+        user_email = sub_notes.get("user_email") or rz_sub_payment.get("email")
+        user_id_str = sub_notes.get("user_id")
+        plan_id = (sub_notes.get("plan_id") or "pro").lower()
+
+        target_user = None
+        if user_id_str:
+            try:
+                target_user = await db.get(User, uuid.UUID(user_id_str))
+            except Exception:
+                pass
+        if not target_user and user_email:
+            u_res = await db.execute(select(User).where(User.email == user_email))
+            target_user = u_res.scalar_one_or_none()
+
+        if target_user:
+            target_tier = "extreme" if plan_id in ("extreme", "agency") else "pro"
+            target_user.subscription_tier = target_tier
+            credits_to_add = 1000 if target_tier == "extreme" else 150
+            target_user.ai_credits = (target_user.ai_credits or 0) + credits_to_add
+            await db.commit()
+            logger.info(f"Razorpay webhook: subscription.charged upgraded {target_user.email} to {target_tier}")
+            return {"status": "subscription_charged", "user_email": target_user.email, "tier": target_tier}
+        return {"status": "user_not_found_for_sub", "event": event}
+
+    elif event in ("subscription.halted", "subscription.cancelled", "subscription.completed"):
+        rz_sub = payload_data.get("subscription", {}).get("entity", {})
+        rz_sub_payment = payload_data.get("payment", {}).get("entity", {})
+        sub_notes = rz_sub.get("notes", {}) or rz_sub_payment.get("notes", {})
+        user_email = sub_notes.get("user_email") or rz_sub_payment.get("email")
+        user_id_str = sub_notes.get("user_id")
+
+        target_user = None
+        if user_id_str:
+            try:
+                target_user = await db.get(User, uuid.UUID(user_id_str))
+            except Exception:
+                pass
+        if not target_user and user_email:
+            u_res = await db.execute(select(User).where(User.email == user_email))
+            target_user = u_res.scalar_one_or_none()
+
+        if target_user:
+            target_user.subscription_tier = "free"
+            await db.commit()
+            logger.info(f"Razorpay webhook: {event} downgraded {target_user.email} to free")
+            return {"status": "subscription_revoked", "user_email": target_user.email, "tier": "free"}
+        return {"status": "user_not_found_for_sub", "event": event}
+
+    elif event == "subscription.authenticated":
+        logger.info("Razorpay webhook: subscription.authenticated received")
+        return {"status": "subscription_authenticated", "event": event}
+
+    return {"status": "unhandled_event", "event": event}
 
 
 
@@ -1360,20 +1187,44 @@ async def purchase_tokens(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Initialize purchase of an AI Gemini Token Compute Pack.
-    Creates an official Order and initializes Stripe Checkout or Sandbox payment.
+    Initialize purchase of an AI Gemini Token Compute Pack via Razorpay.
+    Creates an official Order and initializes a Razorpay order.
     """
-    packs = {
-        "tokens_50": {"credits": 50, "price": Decimal("5.00"), "title": "50 Gemini AI Credits Compute Pack"},
-        "tokens_200": {"credits": 200, "price": Decimal("15.00"), "title": "200 Gemini AI Credits Compute Pack"},
-        "tokens_500": {"credits": 500, "price": Decimal("30.00"), "title": "500 Gemini AI Credits Compute Pack"},
-    }
-    pack = packs.get(payload.pack_id)
+    user_tier = str(getattr(current_user, "subscription_tier", "free") or "free").lower()
+    
+    # Tier-based token pricing:
+    # 1. Free users pay standard token rates
+    # 2. Pro users get 40% discount on token packs
+    # 3. Extreme users get 60% discount on token packs
+    if user_tier in ("extreme", "agency", "enterprise"):
+        tier_pricing = {
+            "tokens_50": {"credits": 50, "price": Decimal("4.00"), "title": "50 Gemini AI Credits (Extreme 60% OFF)"},
+            "tokens_200": {"credits": 200, "price": Decimal("12.00"), "title": "200 Gemini AI Credits (Extreme 60% OFF)"},
+            "tokens_500": {"credits": 500, "price": Decimal("24.00"), "title": "500 Gemini AI Credits (Extreme 60% OFF)"},
+        }
+    elif user_tier in ("pro", "creator_pro"):
+        tier_pricing = {
+            "tokens_50": {"credits": 50, "price": Decimal("6.00"), "title": "50 Gemini AI Credits (Pro Discount - 40% OFF)"},
+            "tokens_200": {"credits": 200, "price": Decimal("18.00"), "title": "200 Gemini AI Credits (Pro Discount - 40% OFF)"},
+            "tokens_500": {"credits": 500, "price": Decimal("35.00"), "title": "500 Gemini AI Credits (Pro Discount - 42% OFF)"},
+        }
+    else:
+        tier_pricing = {
+            "tokens_50": {"credits": 50, "price": Decimal("10.00"), "title": "50 Gemini AI Credits (Free Tier Rate)"},
+            "tokens_200": {"credits": 200, "price": Decimal("30.00"), "title": "200 Gemini AI Credits (Free Tier Rate)"},
+            "tokens_500": {"credits": 500, "price": Decimal("60.00"), "title": "500 Gemini AI Credits (Free Tier Rate)"},
+        }
+
+    pack = tier_pricing.get(payload.pack_id)
     if not pack:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid pack_id '{payload.pack_id}'. Choose from: {list(packs.keys())}"
+            detail=f"Invalid pack_id '{payload.pack_id}'. Choose from: {list(tier_pricing.keys())}"
         )
+
+    usd_to_inr_rate = await get_usd_to_inr_rate()
+    inr_amount = (pack["price"] * Decimal(str(usd_to_inr_rate))).quantize(Decimal("0.01"))
+    amount_in_paise = int(inr_amount * 100)
 
     import random, string
     suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
@@ -1393,74 +1244,74 @@ async def purchase_tokens(
             "pack_id": payload.pack_id,
             "credits_to_add": pack["credits"],
             "currency": "USD",
+            "inr_amount": float(inr_amount),
         },
     )
     db.add(order)
     await db.flush()
 
+    is_mock_allowed = settings.ENVIRONMENT in ("development", "local", "test")
+    is_mock_key = (
+        not settings.RAZORPAY_KEY_ID
+        or settings.RAZORPAY_KEY_ID.startswith(("rzp_test_...", "your-"))
+        or "change-me" in settings.RAZORPAY_KEY_ID
+        or "mock" in settings.RAZORPAY_KEY_ID.lower()
+    )
+
+    rz_order_id = None
+    if not is_mock_key:
+        try:
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=UserWarning)
+                import razorpay
+            client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+            rz_order = client.order.create({
+                "amount": amount_in_paise,
+                "currency": "INR",
+                "receipt": str(order.id)[:40],
+                "notes": {
+                    "type": "ai_credits",
+                    "pack_id": payload.pack_id,
+                    "user_email": current_user.email,
+                }
+            })
+            rz_order_id = rz_order["id"]
+        except Exception as err:
+            logger.warning(f"Could not create Razorpay order for token pack: {err}")
+            if is_mock_allowed:
+                rz_order_id = f"rzp_mock_tok_{uuid.uuid4().hex[:12]}"
+            else:
+                raise HTTPException(status_code=502, detail=f"Razorpay order failed: {err}")
+    else:
+        rz_order_id = f"rzp_mock_tok_{uuid.uuid4().hex[:12]}"
+
     payment = Payment(
         order_id=order.id,
-        gateway=payload.gateway,
+        gateway=PaymentGateway.RAZORPAY,
         status=PaymentStatus.PENDING,
-        amount=pack["price"],
-        currency="USD",
+        amount=inr_amount,
+        currency="INR",
+        gateway_order_id=rz_order_id,
     )
     db.add(payment)
     await db.commit()
     await db.refresh(order)
 
-    # If Stripe is configured and selected, create Stripe Checkout session
-    if payload.gateway == PaymentGateway.STRIPE:
-        if settings.STRIPE_SECRET_KEY and not settings.STRIPE_SECRET_KEY.startswith("your-"):
-            try:
-                import stripe
-                stripe.api_key = settings.STRIPE_SECRET_KEY
-                session = stripe.checkout.Session.create(
-                    payment_method_types=["card"],
-                    line_items=[{
-                        "price_data": {
-                            "currency": "usd",
-                            "product_data": {
-                                "name": pack["title"],
-                                "description": "Official AI Compute Credits for AI Site Doctor autonomous error healing and AI Fill copy personalization.",
-                            },
-                            "unit_amount": int(pack["price"] * 100),
-                        },
-                        "quantity": 1,
-                    }],
-                    mode="payment",
-                    customer_email=current_user.email,
-                    client_reference_id=str(order.id),
-                    metadata={
-                        "order_id": str(order.id),
-                        "type": "ai_credits",
-                        "credits_to_add": str(pack["credits"]),
-                    },
-                    success_url=f"{settings.FRONTEND_URL.rstrip('/')}/dashboard?tab=orders&purchase=success&order_id={order.id}&session_id={{CHECKOUT_SESSION_ID}}",
-                    cancel_url=f"{settings.FRONTEND_URL.rstrip('/')}/pricing?purchase=cancelled",
-                )
-                payment.gateway_order_id = session.id
-                await db.commit()
-                return {
-                    "order_id": str(order.id),
-                    "order_number": order.order_number,
-                    "checkout_url": session.url,
-                    "credits": pack["credits"],
-                    "price": float(pack["price"]),
-                    "gateway": "stripe",
-                }
-            except Exception as e:
-                logger.warning("Stripe session creation failed (%s). Falling back to direct confirmation.", e)
-
     return {
+        "status": "initiated",
         "order_id": str(order.id),
         "order_number": order.order_number,
+        "gateway": "razorpay",
+        "gateway_order_id": rz_order_id,
+        "amount": amount_in_paise,
+        "amount_inr": float(inr_amount),
+        "amount_usd": float(pack["price"]),
+        "currency": "INR",
+        "key_id": settings.RAZORPAY_KEY_ID if not is_mock_key else "rzp_test_mockkey",
         "credits": pack["credits"],
-        "price": float(pack["price"]),
-        "gateway": payload.gateway.value,
-        "checkout_url": f"/dashboard?tab=orders&activate_order={order.id}",
+        "title": pack["title"],
     }
-
 
 
 @router.post("/purchase-plan")
@@ -1470,34 +1321,66 @@ async def purchase_plan(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Initialize purchase of a Studio Pro or Agency subscription plan.
-    Creates an official Order and initializes Stripe Checkout or Sandbox payment.
+    Initialize purchase of a Studio Pro or Extreme subscription plan via Razorpay.
+    Creates an official Order and initializes a Razorpay order.
     """
     plans = {
+        "free": {
+            "title": "Starter Free Plan",
+            "monthly_price": Decimal("0.00"),
+            "annual_price": Decimal("0.00"),
+            "credits": 0,
+            "deployments": 0,
+        },
         "pro": {
-            "title": "Pro Creator Subscription Plan",
+            "title": "Pro Plan",
             "monthly_price": Decimal("19.00"),
             "annual_price": Decimal("15.00"),
             "credits": 150,
             "deployments": 3,
         },
+        "extreme": {
+            "title": "Extreme Plan (Everything Unlocked)",
+            "monthly_price": Decimal("50.00"),
+            "annual_price": Decimal("40.00"),
+            "credits": 1000,
+            "deployments": 999,
+        },
         "agency": {
-            "title": "Agency & Scale Subscription Plan",
-            "monthly_price": Decimal("49.00"),
-            "annual_price": Decimal("39.00"),
-            "credits": 500,
+            "title": "Extreme Plan (Everything Unlocked)",
+            "monthly_price": Decimal("50.00"),
+            "annual_price": Decimal("40.00"),
+            "credits": 1000,
             "deployments": 999,
         },
     }
-    plan = plans.get(payload.plan_id.lower())
+    clean_plan_id = payload.plan_id.lower()
+    plan = plans.get(clean_plan_id)
     if not plan:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid plan_id '{payload.plan_id}'. Choose from: {list(plans.keys())}"
+            detail=f"Invalid plan_id '{payload.plan_id}'. Choose from: free, pro, extreme"
         )
+
+    # Free plan instant switch
+    if clean_plan_id == "free":
+        current_user.subscription_tier = "free"
+        current_user.is_pro_subscriber = False
+        await db.commit()
+        return {
+            "status": "completed",
+            "plan_id": "free",
+            "title": plan["title"],
+            "message": "Switched to Free plan successfully.",
+            "free": True,
+        }
 
     price = plan["annual_price"] if payload.billing_cycle == "annual" else plan["monthly_price"]
     total_price = (price * 12) if payload.billing_cycle == "annual" else price
+
+    usd_to_inr_rate = await get_usd_to_inr_rate()
+    inr_amount = (total_price * Decimal(str(usd_to_inr_rate))).quantize(Decimal("0.01"))
+    amount_in_paise = int(inr_amount * 100)
 
     import random, string
     suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
@@ -1514,79 +1397,79 @@ async def purchase_plan(
         notes=f"Subscription: {plan['title']} ({payload.billing_cycle.title()})",
         extra_metadata={
             "type": "subscription_plan",
-            "plan_id": payload.plan_id,
+            "plan_id": clean_plan_id,
             "billing_cycle": payload.billing_cycle,
             "credits_to_add": plan["credits"],
             "currency": "USD",
+            "inr_amount": float(inr_amount),
         },
     )
     db.add(order)
     await db.flush()
 
+    is_mock_allowed = settings.ENVIRONMENT in ("development", "local", "test")
+    is_mock_key = (
+        not settings.RAZORPAY_KEY_ID
+        or settings.RAZORPAY_KEY_ID.startswith(("rzp_test_...", "your-"))
+        or "change-me" in settings.RAZORPAY_KEY_ID
+        or "mock" in settings.RAZORPAY_KEY_ID.lower()
+    )
+
+    rz_order_id = None
+    if not is_mock_key:
+        try:
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=UserWarning)
+                import razorpay
+            client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+            rz_order = client.order.create({
+                "amount": amount_in_paise,
+                "currency": "INR",
+                "receipt": str(order.id)[:40],
+                "notes": {
+                    "type": "subscription_plan",
+                    "plan_id": clean_plan_id,
+                    "user_email": current_user.email,
+                }
+            })
+            rz_order_id = rz_order["id"]
+        except Exception as err:
+            logger.warning(f"Could not create Razorpay order for subscription: {err}")
+            if is_mock_allowed:
+                rz_order_id = f"rzp_mock_sub_{uuid.uuid4().hex[:12]}"
+            else:
+                raise HTTPException(status_code=502, detail=f"Razorpay subscription order failed: {err}")
+    else:
+        rz_order_id = f"rzp_mock_sub_{uuid.uuid4().hex[:12]}"
+
     payment = Payment(
         order_id=order.id,
-        gateway=payload.gateway,
+        gateway=PaymentGateway.RAZORPAY,
         status=PaymentStatus.PENDING,
-        amount=total_price,
-        currency="USD",
+        amount=inr_amount,
+        currency="INR",
+        gateway_order_id=rz_order_id,
     )
     db.add(payment)
     await db.commit()
     await db.refresh(order)
 
-    # If Stripe is configured and selected, create Stripe Checkout session
-    if payload.gateway == PaymentGateway.STRIPE:
-        if settings.STRIPE_SECRET_KEY and not settings.STRIPE_SECRET_KEY.startswith("your-"):
-            try:
-                import stripe
-                stripe.api_key = settings.STRIPE_SECRET_KEY
-                session = stripe.checkout.Session.create(
-                    payment_method_types=["card"],
-                    line_items=[{
-                        "price_data": {
-                            "currency": "usd",
-                            "product_data": {
-                                "name": f"{plan['title']} ({payload.billing_cycle.title()})",
-                                "description": f"{plan['credits']} monthly Gemini AI credits, live website deployments, and AI Doctor healing.",
-                            },
-                            "unit_amount": int(total_price * 100),
-                        },
-                        "quantity": 1,
-                    }],
-                    mode="payment",
-                    customer_email=current_user.email,
-                    client_reference_id=str(order.id),
-                    metadata={
-                        "order_id": str(order.id),
-                        "type": "subscription_plan",
-                        "plan_id": payload.plan_id,
-                        "credits_to_add": str(plan["credits"]),
-                    },
-                    success_url=f"{settings.FRONTEND_URL.rstrip('/')}/dashboard?tab=orders&purchase=success&order_id={order.id}&session_id={{CHECKOUT_SESSION_ID}}",
-                    cancel_url=f"{settings.FRONTEND_URL.rstrip('/')}/pricing?purchase=cancelled",
-                )
-                payment.gateway_order_id = session.id
-                await db.commit()
-                return {
-                    "order_id": str(order.id),
-                    "order_number": order.order_number,
-                    "checkout_url": session.url,
-                    "plan_id": payload.plan_id,
-                    "credits": plan["credits"],
-                    "price": float(total_price),
-                    "gateway": "stripe",
-                }
-            except Exception as e:
-                logger.warning("Stripe session creation failed (%s). Falling back.", e)
-
     return {
+        "status": "initiated",
         "order_id": str(order.id),
         "order_number": order.order_number,
-        "plan_id": payload.plan_id,
+        "gateway": "razorpay",
+        "gateway_order_id": rz_order_id,
+        "amount": amount_in_paise,
+        "amount_inr": float(inr_amount),
+        "amount_usd": float(total_price),
+        "currency": "INR",
+        "key_id": settings.RAZORPAY_KEY_ID if not is_mock_key else "rzp_test_mockkey",
+        "plan_id": clean_plan_id,
+        "title": plan["title"],
         "credits": plan["credits"],
-        "price": float(total_price),
-        "gateway": payload.gateway.value,
-        "checkout_url": f"/dashboard?tab=orders&activate_order={order.id}",
+        "billing_cycle": payload.billing_cycle,
     }
 
 

@@ -96,14 +96,18 @@ CRITICAL SQLALCHEMY 2.0 & FASTAPI RULES:
    - Use async lifespan for database startup table creation: `async with engine.begin() as conn: await conn.run_sync(Base.metadata.create_all)`.
 4. In app/routes/:
    - Always include GET /api/health returning `{"status": "ok", "version": "1.0.0"}`.
+   - Always include GET /api/stats returning analytics and database storage metrics (record counts, storage usage, active categories, total entries) so users can monitor their database.
    - If auth is needed, provide both POST /api/auth/register and POST /api/auth/login.
+   - For all entity models, implement complete CRUD routes (POST /api/<entity>, GET /api/<entity>, GET /api/<entity>/{id}, PUT /api/<entity>/{id}, DELETE /api/<entity>/{id}).
 5. In app/main.py response serialization:
    - NEVER use UJSONResponse or default_response_class=UJSONResponse (ujson is an unnecessary C-extension that crashes when missing). Always use FastAPI default standard JSON serialization.
-7. Database Engine:
-   - Configure PostgreSQL using asyncpg through the required `DATABASE_URL` environment variable. Never embed database credentials or commit them.
-   - NEVER use SQLite or aiosqlite.
-6. In requirements.txt:
-   - Provide complete, detailed, pinned requirements with category comments: fastapi>=0.110.0,<1.0.0, uvicorn[standard]>=0.29.0, pydantic>=2.7.0, sqlalchemy>=2.0.30, asyncpg>=0.29.0, alembic>=1.13.0, python-dotenv>=1.0.1, httpx>=0.27.0. STRICTLY use PostgreSQL with asyncpg; NEVER add ujson or aiosqlite.
+6. Database Engine in app/database.py:
+   - Configure dual database persistence: read `DATABASE_URL` from the environment.
+   - If `DATABASE_URL` is set, connect to PostgreSQL with asyncpg (`postgresql+asyncpg://...`).
+   - If `DATABASE_URL` is empty, gracefully default to local zero-config SQLite (`sqlite+aiosqlite:///./app_data.db`).
+   - This ensures the project runs immediately on the user's laptop without any database setup, and seamlessly connects to cloud PostgreSQL when deployed!
+7. In requirements.txt:
+   - Provide complete, detailed, pinned requirements with category comments: fastapi>=0.110.0,<1.0.0, uvicorn[standard]>=0.29.0, pydantic>=2.7.0, sqlalchemy>=2.0.30, asyncpg>=0.29.0, aiosqlite>=0.20.0, alembic>=1.13.0, python-dotenv>=1.0.1, httpx>=0.27.0.
 """
 
 _FASTAPI_MONGO_SYSTEM = """You are an expert Python backend developer specialising in FastAPI + Motor (async MongoDB).

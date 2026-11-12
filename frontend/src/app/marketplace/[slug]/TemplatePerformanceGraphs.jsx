@@ -46,7 +46,7 @@ export default function TemplatePerformanceGraphs({ template }) {
       name: "Best Practices",
       short: "Practices",
       score: getDeterministicScore(seed, 3, 94, 100),
-      color: "#818cf8",
+      color: "#dfb180",
       note: "HTTPS, HSTS, modern ES6+ JS",
     },
     {
@@ -67,7 +67,7 @@ export default function TemplatePerformanceGraphs({ template }) {
 
   const ASSET_PAYLOADS = [
     { label: "HTML5 Semantic Markup", pct: htmlPercent, color: "#38bdf8" },
-    { label: "CSS3 Styles & Design Tokens", pct: cssPercent, color: "#a855f7" },
+    { label: "CSS3 Styles & Design Tokens", pct: cssPercent, color: "#c89666" },
     { label: "JavaScript Interactivity", pct: jsPercent, color: "#ec4899" },
     { label: "Vector SVG & Media Assets", pct: mediaPercent, color: "#10b981" },
   ];
@@ -137,7 +137,7 @@ export default function TemplatePerformanceGraphs({ template }) {
       <div className="asset-payload-box p-4 rounded-xl bg-black/40 border border-white/10 mb-6">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2 text-xs font-bold text-white">
-            <PieChart className="w-3.5 h-3.5 text-purple-400" />
+            <PieChart className="w-3.5 h-3.5 text-[#dfb180]" />
             <span>Asset Weight & Code Payload Split</span>
           </div>
           <span className="text-[11px] font-mono text-muted-foreground">
@@ -188,7 +188,7 @@ export default function TemplatePerformanceGraphs({ template }) {
         </div>
 
         <div className="p-3 rounded-xl bg-black/30 border border-white/5 flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400">
+          <div className="p-2 rounded-lg bg-[#c89666]/15 text-[#dfb180]">
             <Tablet className="w-4 h-4" />
           </div>
           <div>
@@ -201,7 +201,7 @@ export default function TemplatePerformanceGraphs({ template }) {
         </div>
 
         <div className="p-3 rounded-xl bg-black/30 border border-white/5 flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400">
+          <div className="p-2 rounded-lg bg-[#c89666]/15 text-[#dfb180]">
             <Smartphone className="w-4 h-4" />
           </div>
           <div>

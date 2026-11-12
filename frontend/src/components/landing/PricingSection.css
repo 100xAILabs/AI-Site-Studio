@@ -109,7 +109,7 @@
   border: 1px solid hsl(var(--border));
   background: hsl(var(--card));
   transition: all 0.2s ease;
-  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.05);
+  box-shadow: 0 2px 10px rgba(200, 150, 102, 0.05);
 }
 
 .pricing-card:hover {

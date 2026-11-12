@@ -3,7 +3,7 @@
  * Drop-in replacement for the previous mock/Clerk auth.jsx.
  */
 
-import React, { createContext, useContext, useEffect } from "react";
+import React, { createContext, useContext, useEffect, useCallback } from "react";
 import { useAuthStore, resolveMediaUrl } from "@/store/authStore";
 
 const AuthContext = createContext(null);
@@ -28,9 +28,10 @@ export function useAppUser() {
 
 export function useAppAuth() {
   const { token, user, isSignedIn, isLoaded } = useAuthStore();
+  const getToken = useCallback(async () => token, [token]);
   return {
     userId: user?.id ?? null,
-    getToken: async () => token,
+    getToken,
     isLoaded: isLoaded !== false,
     isSignedIn,
   };
@@ -79,11 +80,11 @@ export function AppUserButton() {
       <img
         src={resolveMediaUrl(user.imageUrl)}
         alt={user.fullName}
-        className="w-8 h-8 rounded-full object-cover border-2 border-indigo-500/50"
+        className="w-8 h-8 rounded-full object-cover border-2 border-[#c89666]/50"
       />
       <button
         onClick={signOut}
-        className="hidden md:inline text-xs font-medium px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-red-900/30 hover:text-red-400 border border-slate-700 transition-all"
+        className="hidden md:inline text-xs font-medium px-2.5 py-1.5 rounded-lg bg-[#18181d] hover:bg-red-900/30 hover:text-red-400 border border-[#27272a] transition-all"
       >
         Sign Out
       </button>

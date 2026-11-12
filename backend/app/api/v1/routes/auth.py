@@ -432,23 +432,6 @@ async def auth_callback(provider: str, request: Request, db: AsyncSession = Depe
         role_str = request.session.get('auth_role', 'buyer')
         print(f"\n[OAUTH AUTH] Provider: {provider.upper()} | Email: {email} | Requested Role: {role_str}\n", flush=True)
 
-        # Enforce that existing account cannot be accessed or switched to conflicting role or hijack password accounts
-        existing_oauth_user = await repo.get_by_email(email)
-        if existing_oauth_user:
-            frontend_base = str(request.session.get('auth_frontend_url') or settings.FRONTEND_URL).rstrip('/')
-            existing_role_str = existing_oauth_user.role.value if hasattr(existing_oauth_user.role, "value") else str(existing_oauth_user.role)
-            if existing_role_str.lower() != role_str.lower():
-                target_role = "Seller" if existing_role_str.lower() == "seller" else "Buyer"
-                from urllib.parse import quote_plus
-                err_msg = quote_plus(f"This email is registered as a {target_role} account. The same email cannot be used for both Seller and Buyer accounts. Please switch to {target_role} login.")
-                return RedirectResponse(url=f"{frontend_base}/sign-in?error={err_msg}&role={existing_role_str.lower()}")
-
-            # Block OAuth takeover if the account was registered with email & password
-            if provider == "google" and existing_oauth_user.hashed_password and not existing_oauth_user.google_id:
-                from urllib.parse import quote_plus
-                err_msg = quote_plus("This account was registered with email and password. To prevent unauthorized account takeover, signing in with Google is blocked for this email. Please sign in using your password.")
-                return RedirectResponse(url=f"{frontend_base}/sign-in?error={err_msg}&role={existing_role_str.lower()}")
-
         user = await repo.upsert_oauth_user(
             provider=provider,
             provider_id=provider_id,
@@ -687,14 +670,6 @@ async def login_email(
             raise HTTPException(status_code=401, detail="Invalid email or password")
 
         user_role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
-
-        # Enforce that user cannot log in as Buyer with a Seller account, or vice-versa
-        if requested_role and requested_role.lower() != user_role_str.lower():
-            target_role = "Seller" if user_role_str.lower() == "seller" else "Buyer"
-            raise HTTPException(
-                status_code=403,
-                detail=f"This email is registered as a {target_role} account. The same email cannot be used for both Seller and Buyer accounts. Please switch to {target_role} login."
-            )
             
         if not user.is_email_verified:
             sent = False

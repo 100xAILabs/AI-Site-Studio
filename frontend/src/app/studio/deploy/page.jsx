@@ -31,7 +31,7 @@ import {
   Folder,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
-import { useAppAuth } from "@/lib/auth";
+import { useAppAuth, useAppUser } from "@/lib/auth";
 import { api, API_URL } from "@/lib/api";
 import { useStudioBuildStore } from "@/store/studioBuildStore";
 import { toast } from "sonner";
@@ -42,6 +42,7 @@ export default function StudioDeployPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { getToken } = useAppAuth();
+  const { user } = useAppUser();
   const buildStore = useStudioBuildStore();
 
   const queryName = searchParams.get("name") || "";
@@ -81,6 +82,31 @@ export default function StudioDeployPage() {
   const [domainQuoteLoading, setDomainQuoteLoading] = useState(false);
   const [domainBuyError, setDomainBuyError] = useState("");
   const [customSearchDomain, setCustomSearchDomain] = useState("");
+  const [acceptedDomainTerms, setAcceptedDomainTerms] = useState(false);
+  const [acceptedRegistrarAgreements, setAcceptedRegistrarAgreements] = useState([]);
+  const [agreementAcceptedAt, setAgreementAcceptedAt] = useState(null);
+  const [registrantProfile, setRegistrantProfile] = useState({
+    nameFirst: "",
+    nameLast: "",
+    email: "",
+    phone: { countryCode: "+1", nationalNumber: "" },
+    address: { address1: "", address2: "", city: "", state: "", postalCode: "", country: "US" },
+  });
+
+  // Pre-fill registrant contact profile from current logged-in user
+  useEffect(() => {
+    if (user) {
+      const names = (user.name || user.full_name || "").trim().split(" ");
+      const fName = names[0] || "";
+      const lName = names.slice(1).join(" ") || "";
+      setRegistrantProfile((prev) => ({
+        ...prev,
+        nameFirst: prev.nameFirst || fName || "",
+        nameLast: prev.nameLast || lName || "",
+        email: prev.email || user.email || "",
+      }));
+    }
+  }, [user]);
 
   // Fetch all user's deployable templates (Purchased, Studio Generated, Customized)
   useEffect(() => {
@@ -326,7 +352,7 @@ export default function StudioDeployPage() {
     return [
       { name: `${clean}.com`, tld: ".com", price: "$10.99/yr", tag: "Most Popular", desc: "Global Standard", badge: "bg-emerald-50 text-emerald-700 border border-emerald-200" },
       { name: `${clean}.in`, tld: ".in", price: "$8.49/yr", tag: "Regional Fast", desc: "High Speed Local", badge: "bg-blue-50 text-blue-700 border border-blue-200" },
-      { name: `${clean}.co`, tld: ".co", price: "$11.99/yr", tag: "Modern Company", desc: "Startup & Brand", badge: "bg-purple-50 text-purple-700 border border-purple-200" },
+      { name: `${clean}.co`, tld: ".co", price: "$11.99/yr", tag: "Modern Company", desc: "Startup & Brand", badge: "bg-[#c89666]/15 text-[#dfb180] border border-[#c89666]/30" },
       { name: `${clean}.online`, tld: ".online", price: "$4.99/yr", tag: "Tailored", desc: "Industry Match", badge: "bg-amber-50 text-amber-700 border border-amber-200" },
     ];
   };
@@ -337,22 +363,21 @@ export default function StudioDeployPage() {
     setSelectedDomainToBuy(cleanDomain);
     setDomainBuyError("");
     setDomainQuote(null);
+    setAcceptedDomainTerms(false);
+    setAcceptedRegistrarAgreements([]);
     setIsDomainBuyModalOpen(true);
     setDomainQuoteLoading(true);
 
     try {
       const token = await getToken();
-      const quote = await api.post("/deployments/domains/quote", {
-        domain: cleanDomain,
-        period: 1,
-        profile: {
-          nameFirst: "Customer",
-          nameLast: "Account",
-          email: "billing@aisitestudio.com",
-          phone: { countryCode: "+1", nationalNumber: "5551234567" },
-          address: { address1: "100 Innovation Way", city: "San Francisco", state: "CA", postalCode: "94105", country: "US" }
-        }
-      }, token);
+      const quote = await api.post(
+        "/deployments/domains/quote",
+        {
+          domain: cleanDomain,
+          period: 1,
+        },
+        token
+      );
       if (quote?.quoteToken) {
         setDomainQuote(quote);
       } else {
@@ -369,7 +394,10 @@ export default function StudioDeployPage() {
         price: { currencyCode: "USD", value: priceMinor },
         renewalPrice: { currencyCode: "USD", value: Math.round(priceMinor * 1.2) },
         fees: [{ fee: { currencyCode: "USD", value: 18 }, type: "ICANN_FEE" }],
-        requiredAgreements: [{ agreementType: "DNRA" }, { agreementType: "UTOS" }]
+        requiredAgreements: [
+          { agreementType: "DNRA", title: "Domain Name Registration Agreement", url: "https://www.godaddy.com/legal/agreements/domain-name-registration-agreement" },
+          { agreementType: "UTOS", title: "Universal Terms of Service", url: "https://www.godaddy.com/legal/agreements/universal-terms-of-service-agreement" }
+        ],
       });
       setDomainBuyError("");
     } finally {
@@ -379,28 +407,58 @@ export default function StudioDeployPage() {
 
   const handleConfirmDomainCheckout = async () => {
     if (!domainQuote) return;
+    setDomainBuyError("");
+
+    // Validate GoDaddy registry contact fields
+    if (!registrantProfile.nameFirst?.trim() || !registrantProfile.nameLast?.trim()) {
+      setDomainBuyError("First and Last name are required for GoDaddy registry.");
+      return;
+    }
+    if (!registrantProfile.email?.trim() || !registrantProfile.email.includes("@")) {
+      setDomainBuyError("A valid email address is required for ICANN domain registration.");
+      return;
+    }
+    if (!registrantProfile.phone?.nationalNumber?.trim()) {
+      setDomainBuyError("A valid contact phone number is required by GoDaddy registry.");
+      return;
+    }
+    if (
+      !registrantProfile.address?.address1?.trim() ||
+      !registrantProfile.address?.city?.trim() ||
+      !registrantProfile.address?.postalCode?.trim() ||
+      !registrantProfile.address?.country?.trim()
+    ) {
+      setDomainBuyError("Street address, city, postal code, and 2-letter country code are required.");
+      return;
+    }
+    if (!acceptedDomainTerms) {
+      setDomainBuyError("Please accept the domain registration terms before continuing.");
+      return;
+    }
+
     try {
+      setDomainQuoteLoading(true);
       const token = await getToken();
       const fees = domainQuote.fees || [];
-      const res = await api.post("/deployments/domains/purchase", {
-        deployment_id: "active-deploy",
-        domain: selectedDomainToBuy,
-        period: domainQuote.period || 1,
-        profile: {
-          nameFirst: "Customer",
-          nameLast: "Account",
-          email: "billing@aisitestudio.com",
-          phone: { countryCode: "+1", nationalNumber: "5551234567" },
-          address: { address1: "100 Innovation Way", city: "San Francisco", state: "CA", postalCode: "94105", country: "US" }
+      const res = await api.post(
+        "/deployments/domains/purchase",
+        {
+          deployment_id: "active-deploy",
+          domain: selectedDomainToBuy,
+          period: domainQuote.period || 1,
+          profile: registrantProfile,
+          accepted_no_refund_terms: acceptedDomainTerms,
+          accepted_agreements: (domainQuote.requiredAgreements || []).map((a) => a.agreementType).filter(Boolean),
+          accepted_fees: fees,
+          agreement_accepted_at: agreementAcceptedAt || new Date().toISOString(),
+          quoted_total_minor:
+            Number(domainQuote.price?.value || 1099) +
+            fees.reduce((s, f) => s + Number(f.fee?.value || 0), 0),
+          quoted_currency: domainQuote.price?.currencyCode || "USD",
+          quoted_renewal_price_minor: domainQuote.renewalPrice?.value ?? 1299,
         },
-        accepted_no_refund_terms: true,
-        accepted_agreements: (domainQuote.requiredAgreements || []).map(a => a.agreementType).filter(Boolean),
-        accepted_fees: fees,
-        agreement_accepted_at: new Date().toISOString(),
-        quoted_total_minor: Number(domainQuote.price?.value || 1099) + fees.reduce((s, f) => s + Number(f.fee?.value || 0), 0),
-        quoted_currency: domainQuote.price?.currencyCode || "USD",
-        quoted_renewal_price_minor: domainQuote.renewalPrice?.value ?? 1299,
-      }, token);
+        token
+      );
 
       if (res?.checkout_url) {
         window.location.assign(res.checkout_url);
@@ -410,9 +468,9 @@ export default function StudioDeployPage() {
         setIsDomainBuyModalOpen(false);
       }
     } catch (err) {
-      setCustomDomain(selectedDomainToBuy);
-      toast.success(`Domain "${selectedDomainToBuy}" registered and connected to your website!`);
-      setIsDomainBuyModalOpen(false);
+      setDomainBuyError(err.message || "Failed to process domain purchase with GoDaddy.");
+    } finally {
+      setDomainQuoteLoading(false);
     }
   };
 
@@ -432,7 +490,7 @@ export default function StudioDeployPage() {
               {displayTitle}
             </span>
             <span>/</span>
-            <span className="text-violet-600 font-bold">Deploy to Cloud</span>
+            <span className="text-[#dfb180] font-bold">Deploy to Cloud</span>
           </div>
 
           <Link
@@ -448,8 +506,8 @@ export default function StudioDeployPage() {
         <div className="bg-white border border-slate-200/90 rounded-2xl p-6 sm:p-8 mb-8 shadow-xs relative overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
             <div>
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-violet-50 text-violet-700 border border-violet-200 mb-2.5">
-                <Rocket className="h-3.5 w-3.5 text-violet-600" />
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#c89666]/15 text-[#dfb180] border border-[#c89666]/30 mb-2.5">
+                <Rocket className="h-3.5 w-3.5 text-[#dfb180]" />
                 <span>Production Cloud Deployer</span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
@@ -492,7 +550,7 @@ export default function StudioDeployPage() {
                     onClick={() => setSelectedTemplateCategory("all")}
                     className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
                       selectedTemplateCategory === "all"
-                        ? "bg-white text-violet-700 font-bold shadow-xs"
+                        ? "bg-white text-[#dfb180] font-bold shadow-xs"
                         : "hover:text-slate-900"
                     }`}
                   >
@@ -515,7 +573,7 @@ export default function StudioDeployPage() {
                     onClick={() => setSelectedTemplateCategory("studio")}
                     className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer ${
                       selectedTemplateCategory === "studio"
-                        ? "bg-white text-violet-700 font-bold shadow-xs"
+                        ? "bg-white text-[#dfb180] font-bold shadow-xs"
                         : "hover:text-slate-900"
                     }`}
                   >
@@ -539,7 +597,7 @@ export default function StudioDeployPage() {
                 {/* Templates Cards Grid */}
                 {templatesLoading ? (
                   <div className="p-8 text-center rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center gap-2 text-xs text-slate-500">
-                    <RefreshCw className="h-4 w-4 animate-spin text-violet-600" />
+                    <RefreshCw className="h-4 w-4 animate-spin text-[#dfb180]" />
                     <span>Loading your deployable projects...</span>
                   </div>
                 ) : filteredDeployableTemplates.length === 0 ? (
@@ -557,7 +615,7 @@ export default function StudioDeployPage() {
                           className={`deploy-template-card ${isSelected ? "selected" : ""}`}
                         >
                           <div className="flex items-start gap-2.5">
-                            <div className="w-9 h-9 rounded-xl bg-violet-50 text-violet-700 border border-violet-200 flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden">
+                            <div className="w-9 h-9 rounded-xl bg-[#c89666]/15 text-[#dfb180] border border-[#c89666]/30 flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden">
                               {tpl.thumbnail_url ? (
                                 <img src={tpl.thumbnail_url} alt="" className="w-full h-full object-cover" />
                               ) : tpl.originCategory === "purchased" ? (
@@ -565,7 +623,7 @@ export default function StudioDeployPage() {
                               ) : tpl.originCategory === "edited" ? (
                                 <Palette className="w-4 h-4 text-blue-600" />
                               ) : (
-                                <Cpu className="w-4 h-4 text-violet-600" />
+                                <Cpu className="w-4 h-4 text-[#dfb180]" />
                               )}
                             </div>
                             <div className="flex-1 min-w-0">
@@ -580,7 +638,7 @@ export default function StudioDeployPage() {
                                     ? "bg-emerald-50 text-emerald-700"
                                     : tpl.originCategory === "edited"
                                     ? "bg-blue-50 text-blue-700"
-                                    : "bg-violet-50 text-violet-700"
+                                    : "bg-[#c89666]/15 text-[#dfb180]"
                                 }`}>
                                   {tpl.originCategory === "purchased" ? "Purchased" : tpl.originCategory === "edited" ? "Edited" : "Studio AI"}
                                 </span>
@@ -590,11 +648,11 @@ export default function StudioDeployPage() {
                           </div>
 
                           <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center justify-between text-[10px]">
-                            <span className={isSelected ? "text-violet-700 font-bold" : "text-slate-400"}>
+                            <span className={isSelected ? "text-[#dfb180] font-bold" : "text-slate-400"}>
                               {isSelected ? "Selected to Deploy" : "Click to select"}
                             </span>
                             <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${
-                              isSelected ? "border-violet-600 bg-violet-600 text-white" : "border-slate-300"
+                              isSelected ? "border-[#c89666]/30 bg-[#c89666]/15 text-white" : "border-slate-300"
                             }`}>
                               {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
                             </div>
@@ -617,14 +675,14 @@ export default function StudioDeployPage() {
                     onClick={() => setProvider("local")}
                     className={`cursor-pointer rounded-2xl border p-3.5 transition flex flex-col justify-between ${
                       provider === "local"
-                        ? "border-violet-600 bg-violet-50/70 shadow-sm ring-2 ring-violet-500/20"
+                        ? "border-[#c89666]/30 bg-[#c89666]/15 shadow-sm ring-2 ring-violet-500/20"
                         : "border-slate-200 bg-slate-50/50 hover:bg-slate-100/60 hover:border-slate-300"
                     }`}
                   >
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <Zap className="h-4 w-4 text-violet-600" />
-                        <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[9px] font-bold text-violet-700">
+                        <Zap className="h-4 w-4 text-[#dfb180]" />
+                        <span className="rounded bg-[#c89666]/15 px-1.5 py-0.5 text-[9px] font-bold text-[#dfb180]">
                           Recommended
                         </span>
                       </div>
@@ -638,7 +696,7 @@ export default function StudioDeployPage() {
                     onClick={() => setProvider("vercel")}
                     className={`cursor-pointer rounded-2xl border p-3.5 transition flex flex-col justify-between ${
                       provider === "vercel"
-                        ? "border-violet-600 bg-violet-50/70 shadow-sm ring-2 ring-violet-500/20"
+                        ? "border-[#c89666]/30 bg-[#c89666]/15 shadow-sm ring-2 ring-violet-500/20"
                         : "border-slate-200 bg-slate-50/50 hover:bg-slate-100/60 hover:border-slate-300"
                     }`}
                   >
@@ -659,7 +717,7 @@ export default function StudioDeployPage() {
                     onClick={() => setProvider("netlify")}
                     className={`cursor-pointer rounded-2xl border p-3.5 transition flex flex-col justify-between ${
                       provider === "netlify"
-                        ? "border-violet-600 bg-violet-50/70 shadow-sm ring-2 ring-violet-500/20"
+                        ? "border-[#c89666]/30 bg-[#c89666]/15 shadow-sm ring-2 ring-violet-500/20"
                         : "border-slate-200 bg-slate-50/50 hover:bg-slate-100/60 hover:border-slate-300"
                     }`}
                   >
@@ -682,7 +740,7 @@ export default function StudioDeployPage() {
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
                   3. Project Subdomain / Identifier *
                 </label>
-                <div className="flex items-center rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 shadow-xs focus-within:border-violet-600 focus-within:ring-2 focus-within:ring-violet-500/15 transition">
+                <div className="flex items-center rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 shadow-xs focus-within:border-[#c89666]/30 focus-within:ring-2 focus-within:ring-violet-500/15 transition">
                   <span className="text-xs text-slate-400 font-mono select-none mr-1">https://</span>
                   <input
                     type="text"
@@ -700,7 +758,7 @@ export default function StudioDeployPage() {
                     Letters, numbers, and hyphens only.
                   </p>
                   {subdomainStatus.checking && (
-                    <div className="flex items-center gap-1.5 text-[11px] text-violet-600 font-medium">
+                    <div className="flex items-center gap-1.5 text-[11px] text-[#dfb180] font-medium">
                       <RefreshCw className="h-3 w-3 animate-spin" />
                       <span>Checking availability...</span>
                     </div>
@@ -728,9 +786,9 @@ export default function StudioDeployPage() {
                             key={i}
                             type="button"
                             onClick={() => setProjectName(sug)}
-                            className="px-2.5 py-1 rounded-lg bg-white hover:bg-violet-50 border border-amber-300 hover:border-violet-400 text-violet-700 text-xs font-bold transition flex items-center gap-1 shadow-2xs cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg bg-white hover:bg-[#c89666]/15 border border-amber-300 hover:border-[#c89666]/30 text-[#dfb180] text-xs font-bold transition flex items-center gap-1 shadow-2xs cursor-pointer"
                           >
-                            <Sparkles className="h-3 w-3 text-violet-600" />
+                            <Sparkles className="h-3 w-3 text-[#dfb180]" />
                             <span>Use: {sug}</span>
                           </button>
                         ))}
@@ -750,7 +808,7 @@ export default function StudioDeployPage() {
                   value={customDomain}
                   onChange={(e) => setCustomDomain(e.target.value.trim().toLowerCase())}
                   placeholder="e.g. www.mycompany.com"
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 outline-none placeholder:text-slate-400 focus:border-violet-600 focus:ring-2 focus:ring-violet-500/15 shadow-xs transition font-mono"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 outline-none placeholder:text-slate-400 focus:border-[#c89666]/30 focus:ring-2 focus:ring-violet-500/15 shadow-xs transition font-mono"
                 />
                 <p className="mt-1.5 text-[11px] text-slate-500">
                   Optional. Point your DNS A record to our edge cluster to activate.
@@ -781,7 +839,7 @@ export default function StudioDeployPage() {
               <button
                 type="submit"
                 disabled={deploying}
-                className="w-full py-3.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm shadow-md shadow-violet-600/20 flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-3.5 rounded-xl bg-[#c89666]/15 hover:bg-[#c89666]/15 text-white font-bold text-sm shadow-md shadow-violet-600/20 flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {deploying ? (
                   <>
@@ -802,8 +860,8 @@ export default function StudioDeployPage() {
           <div className="lg:col-span-5 space-y-6">
             {/* Deploying Progress Banner */}
             {deploying && (
-              <div className="rounded-2xl border border-violet-500/30 bg-slate-900 p-6 shadow-lg text-white">
-                <div className="flex items-center gap-2 text-xs font-bold text-violet-300 mb-4">
+              <div className="rounded-2xl border border-[#c89666]/30 bg-slate-900 p-6 shadow-lg text-white">
+                <div className="flex items-center gap-2 text-xs font-bold text-[#dfb180] mb-4">
                   <Terminal className="h-4 w-4" />
                   <span>Cloud Deployment Console</span>
                 </div>
@@ -817,8 +875,8 @@ export default function StudioDeployPage() {
                     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
                     <span>Step 2: Packaging assets &amp; code</span>
                   </div>
-                  <div className="flex items-center gap-2 text-violet-300">
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-violet-400" />
+                  <div className="flex items-center gap-2 text-[#dfb180]">
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-[#dfb180]" />
                     <span>Step 3: Redirecting to live details &amp; logs...</span>
                   </div>
                 </div>
@@ -835,21 +893,21 @@ export default function StudioDeployPage() {
                 
                 <div className="space-y-3 text-xs text-slate-600">
                   <div className="flex items-start gap-2.5">
-                    <CheckCircle2 className="h-4 w-4 text-violet-600 shrink-0 mt-0.5" />
+                    <CheckCircle2 className="h-4 w-4 text-[#dfb180] shrink-0 mt-0.5" />
                     <div>
                       <strong className="text-slate-900 block font-semibold">Automatic HTTPS &amp; SSL</strong>
                       <span>Zero-config Let's Encrypt certificates provisioned and auto-renewed.</span>
                     </div>
                   </div>
                   <div className="flex items-start gap-2.5">
-                    <CheckCircle2 className="h-4 w-4 text-violet-600 shrink-0 mt-0.5" />
+                    <CheckCircle2 className="h-4 w-4 text-[#dfb180] shrink-0 mt-0.5" />
                     <div>
                       <strong className="text-slate-900 block font-semibold">Global CDN Edge Delivery</strong>
                       <span>Assets served from edge points of presence with sub-50ms TTFB.</span>
                     </div>
                   </div>
                   <div className="flex items-start gap-2.5">
-                    <CheckCircle2 className="h-4 w-4 text-violet-600 shrink-0 mt-0.5" />
+                    <CheckCircle2 className="h-4 w-4 text-[#dfb180] shrink-0 mt-0.5" />
                     <div>
                       <strong className="text-slate-900 block font-semibold">Live Logs &amp; Telemetry</strong>
                       <span>Real-time container execution logs and status monitoring in your Dashboard.</span>
@@ -857,12 +915,12 @@ export default function StudioDeployPage() {
                   </div>
                 </div>
 
-                <div className="p-3.5 rounded-xl border border-violet-100 bg-violet-50/60 text-xs text-violet-800 space-y-1">
+                <div className="p-3.5 rounded-xl border border-[#c89666]/30 bg-[#c89666]/15 text-xs text-[#dfb180] space-y-1">
                   <div className="font-bold flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-violet-600" />
+                    <Sparkles className="w-3.5 h-3.5 text-[#dfb180]" />
                     <span>After Deploy:</span>
                   </div>
-                  <p className="text-[11px] text-violet-700 leading-relaxed">
+                  <p className="text-[11px] text-[#dfb180] leading-relaxed">
                     Once deployed, you will be taken to your Dashboard Deployments page to inspect live server logs, visit your website, or configure rollback options.
                   </p>
                 </div>
@@ -873,11 +931,11 @@ export default function StudioDeployPage() {
 
         {/* AI Domain Recommendations — when not on a personal domain */}
         {(!customDomain || customDomain.endsWith(".aisitestudio.com") || customDomain.endsWith(".site-studio.live") || customDomain.includes("localhost")) && (
-          <div className="mt-8 bg-white border border-violet-200/80 rounded-2xl p-6 sm:p-8 shadow-xs space-y-4">
+          <div className="mt-8 bg-white border border-[#c89666]/30 rounded-2xl p-6 sm:p-8 shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
-                <div className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700">
-                  <Sparkles className="h-3.5 w-3.5 text-violet-600" />
+                <div className="inline-flex items-center gap-1.5 rounded-full border border-[#c89666]/30 bg-[#c89666]/15 px-3 py-1 text-xs font-bold text-[#dfb180]">
+                  <Sparkles className="h-3.5 w-3.5 text-[#dfb180]" />
                   <span>AI Domain Recommendations</span>
                 </div>
                 <h3 className="text-lg font-extrabold text-slate-900 mt-2">
@@ -894,7 +952,7 @@ export default function StudioDeployPage() {
               {getDomainSuggestions(projectName).map((sug, idx) => (
                 <div
                   key={idx}
-                  className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 flex flex-col justify-between space-y-3 hover:border-violet-400 hover:bg-violet-50/30 transition-all shadow-xs"
+                  className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 flex flex-col justify-between space-y-3 hover:border-[#c89666]/30 hover:bg-[#c89666]/15 transition-all shadow-xs"
                 >
                   <div>
                     <div className="flex items-center justify-between">
@@ -928,7 +986,7 @@ export default function StudioDeployPage() {
                     <button
                       type="button"
                       onClick={() => handleOpenBuyDomain(sug.name)}
-                      className="flex-1 px-3 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm shadow-violet-600/20 transition cursor-pointer"
+                      className="flex-1 px-3 py-2 rounded-xl bg-[#c89666]/15 hover:bg-[#c89666]/15 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm shadow-violet-600/20 transition cursor-pointer"
                     >
                       <ShoppingCart className="h-3.5 w-3.5" />
                       <span>Buy Domain</span>
@@ -953,33 +1011,56 @@ export default function StudioDeployPage() {
                       handleOpenBuyDomain(customSearchDomain);
                     }
                   }}
-                  className="px-3.5 py-2 text-xs rounded-xl border border-slate-300 bg-white text-slate-900 font-mono outline-none focus:border-violet-600 focus:ring-2 focus:ring-violet-500/10 w-full sm:w-64"
+                  className="px-3.5 py-2 text-xs rounded-xl border border-slate-300 bg-white text-slate-900 font-mono outline-none focus:border-[#c89666]/30 focus:ring-2 focus:ring-violet-500/10 w-full sm:w-64"
                 />
                 <button
                   type="button"
                   disabled={!customSearchDomain}
                   onClick={() => handleOpenBuyDomain(customSearchDomain)}
-                  className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs disabled:opacity-50 transition cursor-pointer shrink-0"
+                  className="px-4 py-2 rounded-xl bg-[#c89666]/15 hover:bg-[#c89666]/15 text-white font-bold text-xs disabled:opacity-50 transition cursor-pointer shrink-0"
                 >
                   Check &amp; Buy
                 </button>
               </div>
             </div>
+
+            {/* Alternative: Dashboard Domain Management & Custom Purchase */}
+            <div className="mt-4 p-4 rounded-2xl bg-gradient-to-r from-[#c89666] to-[#b5804f]/80 from-[#c89666] to-[#b5804f]/60 from-[#c89666] to-[#b5804f]/80 border border-[#c89666]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#c89666]/15 border border-[#c89666]/30 text-[#dfb180] flex items-center justify-center shrink-0">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-extrabold text-slate-900">Don't like these suggestions or already have a domain?</h4>
+                  <p className="text-[11px] text-slate-600 leading-snug">
+                    Search all global TLDs via GoDaddy, or connect a domain you already own with free SSL in your Dashboard.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate("/dashboard?tab=deployments")}
+                className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center justify-center gap-2 shrink-0 transition shadow-sm cursor-pointer"
+              >
+                <span>Manage &amp; Buy in Dashboard</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         )}
 
-        {/* In-Website Domain Purchasing Modal */}
+        {/* In-Website GoDaddy Domain Purchasing Modal */}
         {isDomainBuyModalOpen && (
           <div className="deploy-modal-backdrop" onClick={() => setIsDomainBuyModalOpen(false)}>
             <div className="deploy-modal-dialog-light space-y-5" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between border-b border-slate-200 pb-4">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center font-bold">
+                  <div className="w-9 h-9 rounded-xl bg-[#c89666]/15 text-[#dfb180] flex items-center justify-center font-bold">
                     <Globe className="h-5 w-5" />
                   </div>
                   <div>
-                    <h3 className="font-extrabold text-base text-slate-900">Buy &amp; Connect Custom Domain</h3>
-                    <p className="text-xs text-slate-500">Direct registration inside AI Site Studio</p>
+                    <h3 className="font-extrabold text-base text-slate-900">Register Custom Domain (GoDaddy)</h3>
+                    <p className="text-xs text-slate-500">Official ICANN Registration &amp; Automatic DNS Setup</p>
                   </div>
                 </div>
                 <button
@@ -992,17 +1073,23 @@ export default function StudioDeployPage() {
               </div>
 
               <div className="space-y-4 text-xs">
-                <div className="p-4 rounded-xl border border-violet-200 bg-violet-50/60 flex items-center justify-between">
+                {/* Domain & Live Quote Banner */}
+                <div className="p-4 rounded-xl border border-[#c89666]/30 bg-[#c89666]/15 flex items-center justify-between">
                   <div>
                     <div className="font-mono font-extrabold text-sm text-slate-900">{selectedDomainToBuy}</div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">1 Year Domain Registration &amp; Automated DNS</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">1-Year Registration &bull; Instant DNS Integration</div>
                   </div>
                   <div className="text-right">
                     {domainQuoteLoading ? (
-                      <RefreshCw className="h-4 w-4 animate-spin text-violet-600" />
+                      <RefreshCw className="h-4 w-4 animate-spin text-[#dfb180]" />
                     ) : domainQuote ? (
-                      <div className="text-emerald-700 font-extrabold text-base font-mono">
-                        {domainQuote.price?.currencyCode || "$"}{((Number(domainQuote.price?.value || 1099) + (domainQuote.fees || []).reduce((s, f) => s + Number(f.fee?.value || 0), 0)) / 100).toFixed(2)}
+                      <div>
+                        <div className="text-emerald-700 font-extrabold text-base font-mono">
+                          {domainQuote.price?.currencyCode || "$"}{((Number(domainQuote.price?.value || 1099) + (domainQuote.fees || []).reduce((s, f) => s + Number(f.fee?.value || 0), 0)) / 100).toFixed(2)}
+                        </div>
+                        <div className="text-[10px] text-slate-500">
+                          Renews at {domainQuote.renewalPrice?.currencyCode || "$"}{(Number(domainQuote.renewalPrice?.value || 1299) / 100).toFixed(2)}/yr
+                        </div>
                       </div>
                     ) : (
                       <span className="text-slate-600 font-mono font-bold">$10.99</span>
@@ -1016,7 +1103,149 @@ export default function StudioDeployPage() {
                   </div>
                 )}
 
-                <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 space-y-2 text-[11px] text-slate-600">
+                {/* GoDaddy Registrant Legal Information */}
+                <div className="space-y-3 border border-slate-200 rounded-xl p-3.5 bg-slate-50/50">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                      Registrant Contact Details
+                    </span>
+                    <span className="text-[10px] text-slate-500">Required by ICANN / GoDaddy</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-snug">
+                    Enter the legal owner contact details for domain WHOIS registry verification.
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">First Name *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="First name"
+                        value={registrantProfile.nameFirst}
+                        onChange={(e) => setRegistrantProfile((p) => ({ ...p, nameFirst: e.target.value }))}
+                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">Last Name *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Last name"
+                        value={registrantProfile.nameLast}
+                        onChange={(e) => setRegistrantProfile((p) => ({ ...p, nameLast: e.target.value }))}
+                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">Email Address *</label>
+                      <input
+                        type="email"
+                        required
+                        placeholder="registrant@example.com"
+                        value={registrantProfile.email}
+                        onChange={(e) => setRegistrantProfile((p) => ({ ...p, email: e.target.value }))}
+                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">Country Dial Code *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="+1 or +91"
+                        value={registrantProfile.phone.countryCode}
+                        onChange={(e) => setRegistrantProfile((p) => ({ ...p, phone: { ...p.phone, countryCode: e.target.value } }))}
+                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">Phone Number *</label>
+                      <input
+                        type="tel"
+                        required
+                        placeholder="e.g. 9876543210"
+                        value={registrantProfile.phone.nationalNumber}
+                        onChange={(e) => setRegistrantProfile((p) => ({ ...p, phone: { ...p.phone, nationalNumber: e.target.value } }))}
+                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">Street Address *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Street address line 1"
+                        value={registrantProfile.address.address1}
+                        onChange={(e) => setRegistrantProfile((p) => ({ ...p, address: { ...p.address, address1: e.target.value } }))}
+                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <input
+                        type="text"
+                        placeholder="Address line 2 (Suite, Apt, etc. - Optional)"
+                        value={registrantProfile.address.address2 || ""}
+                        onChange={(e) => setRegistrantProfile((p) => ({ ...p, address: { ...p.address, address2: e.target.value } }))}
+                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">City *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="City"
+                        value={registrantProfile.address.city}
+                        onChange={(e) => setRegistrantProfile((p) => ({ ...p, address: { ...p.address, city: e.target.value } }))}
+                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">State / Province</label>
+                      <input
+                        type="text"
+                        placeholder="State or Province"
+                        value={registrantProfile.address.state || ""}
+                        onChange={(e) => setRegistrantProfile((p) => ({ ...p, address: { ...p.address, state: e.target.value } }))}
+                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">Postal Code *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="PIN / Postal Code"
+                        value={registrantProfile.address.postalCode}
+                        onChange={(e) => setRegistrantProfile((p) => ({ ...p, address: { ...p.address, postalCode: e.target.value } }))}
+                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">Country Code (2-letter) *</label>
+                      <input
+                        type="text"
+                        required
+                        maxLength={2}
+                        placeholder="US, IN, GB, CA"
+                        value={registrantProfile.address.country}
+                        onChange={(e) => setRegistrantProfile((p) => ({ ...p, address: { ...p.address, country: e.target.value.toUpperCase() } }))}
+                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 font-mono uppercase outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Features & Certs */}
+                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-1.5 text-[11px] text-slate-600">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
                     <span>Includes free automated Let's Encrypt TLS/SSL certificate</span>
@@ -1027,19 +1256,78 @@ export default function StudioDeployPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                    <span>Secure checkout powered by Stripe &amp; GoDaddy registry</span>
+                    <span>Direct wholesale registration powered by GoDaddy API</span>
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  disabled={domainQuoteLoading}
-                  onClick={handleConfirmDomainCheckout}
-                  className="w-full py-3 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-violet-600/20 transition cursor-pointer"
-                >
-                  <ShoppingCart className="h-4 w-4" />
-                  <span>Confirm &amp; Connect Domain</span>
-                </button>
+                {/* Agreements & Consent */}
+                <div className="space-y-2 p-3 bg-[#c89666]/15 border border-[#c89666]/30 rounded-xl text-[11px] text-slate-700">
+                  {(domainQuote?.requiredAgreements || [
+                    { agreementType: "DNRA", title: "GoDaddy Domain Name Registration Agreement", url: "https://www.godaddy.com/legal/agreements/domain-name-registration-agreement" },
+                    { agreementType: "UTOS", title: "Universal Terms of Service", url: "https://www.godaddy.com/legal/agreements/universal-terms-of-service-agreement" }
+                  ]).map((agreement) => (
+                    <label key={agreement.agreementType} className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={acceptedRegistrarAgreements.includes(agreement.agreementType)}
+                        onChange={(e) => {
+                          setAgreementAcceptedAt(new Date().toISOString());
+                          setAcceptedRegistrarAgreements((curr) =>
+                            e.target.checked
+                              ? [...curr, agreement.agreementType]
+                              : curr.filter((t) => t !== agreement.agreementType)
+                          );
+                        }}
+                        className="mt-0.5 rounded text-[#dfb180] focus:ring-violet-500"
+                      />
+                      <span>
+                        I accept the{" "}
+                        <a href={agreement.url} target="_blank" rel="noreferrer" className="underline font-semibold text-[#dfb180] hover:text-[#dfb180]">
+                          {agreement.title || agreement.agreementType}
+                        </a>
+                        .
+                      </span>
+                    </label>
+                  ))}
+
+                  <label className="flex items-start gap-2 cursor-pointer pt-1">
+                    <input
+                      type="checkbox"
+                      checked={acceptedDomainTerms}
+                      onChange={(e) => {
+                        setAgreementAcceptedAt(new Date().toISOString());
+                        setAcceptedDomainTerms(e.target.checked);
+                      }}
+                      className="mt-0.5 rounded text-[#dfb180] focus:ring-violet-500"
+                    />
+                    <span>
+                      I authorize registration of <strong>{selectedDomainToBuy}</strong> for 1 year at the quoted price. I understand domain registrations are non-refundable per registry policy once provisioned.
+                    </span>
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsDomainBuyModalOpen(false)}
+                    className="flex-1 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={domainQuoteLoading}
+                    onClick={handleConfirmDomainCheckout}
+                    className="flex-1 py-2.5 rounded-xl bg-[#c89666]/15 hover:bg-[#c89666]/15 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-violet-600/20 transition cursor-pointer"
+                  >
+                    {domainQuoteLoading ? (
+                      <RefreshCw className="h-4 w-4 animate-spin text-white" />
+                    ) : (
+                      <ShoppingCart className="h-4 w-4" />
+                    )}
+                    <span>Pay &amp; Register via GoDaddy</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>

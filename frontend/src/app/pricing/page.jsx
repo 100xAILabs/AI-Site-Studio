@@ -28,22 +28,23 @@ import "./Page.css";
 
 const PLANS = [
   {
-    id: "starter",
-    badge: "Free Forever",
+    id: "free",
+    badge: "Free Starter",
     badgeType: "free",
-    name: "Starter Edition",
-    description: "Ideal for exploring templates, testing live previews, and inspecting source code quality.",
+    name: "Free Tier",
+    description: "Explore templates, inspect code, and purchase credits only when you want to build or edit.",
     monthlyPrice: 0,
     annualPrice: 0,
-    tokensIncluded: 10,
+    tokensIncluded: 0,
     deploymentsIncluded: 0,
     features: [
-      { text: "10 Gemini AI Credits included", highlight: true, icon: "gemini" },
-      { text: "1 Active Sandbox Live Preview", highlight: false },
-      { text: "Full responsive reflow canvas simulator", highlight: false },
-      { text: "Automated ZIP tech stack & security scanner", highlight: false },
-      { text: "Download free community templates", highlight: false },
-      { text: "Standard community forum support", highlight: false },
+      { text: "1 Free Website Generation included (Build your first site 100% free)", highlight: true, icon: "gemini" },
+      { text: "Buy credits on-demand to create additional websites ($10 / 50 tokens)", highlight: true },
+      { text: "1 Watermarked template download only (One-time test)", highlight: false },
+      { text: "Option to buy templates clean without watermark", highlight: false },
+      { text: "Deploy live websites with hosting charges ($12/mo)", highlight: false },
+      { text: "Auto-heal (AI Site Doctor) is disabled", highlight: false },
+      { text: "Inspect template code & sandbox preview", highlight: false },
     ],
     cta: "Start Free",
     ctaType: "outline",
@@ -54,50 +55,50 @@ const PLANS = [
     id: "pro",
     badge: "✦ Most Popular for Creators",
     badgeType: "pro",
-    name: "Pro Creator",
-    description: "For designers, indie developers, and makers who need live deployments, AI Fill copy, and auto-healing.",
+    name: "Pro Plan",
+    description: "For creators who want clean downloads, live deployments, and autonomous site healing.",
     monthlyPrice: 19,
     annualPrice: 15,
     tokensIncluded: 150,
     deploymentsIncluded: 3,
     features: [
-      { text: "150 Gemini AI Credits / month (Auto-refill)", highlight: true, icon: "gemini" },
-      { text: "3 Live Managed Website Deployments included", highlight: true },
-      { text: "Autonomous AI Site Doctor error & link healing", highlight: true },
-      { text: "Full AI Fill copy & brand personalization engine", highlight: false },
-      { text: "Unlimited commercial template exports (Zero watermark)", highlight: false },
+      { text: "Download templates without watermark", highlight: true },
+      { text: "150 Gemini AI Credits / month for template creation & edits", highlight: true, icon: "gemini" },
+      { text: "Discounted token packs (40% OFF compared to Free users)", highlight: true },
+      { text: "Deploy up to 3 live websites on high-speed edge", highlight: true },
+      { text: "Free editor access with up to 2 image replacements per template", highlight: false },
+      { text: "Auto-heal for 1 website (locked once registered, cannot change)", highlight: false },
       { text: "Instant Studio subdomains (*.aisitestudio.com)", highlight: false },
-      { text: "Full-Stack REST API generation (FastAPI / Express)", highlight: false },
-      { text: "Priority Gemini 1.5 Pro inference speed", highlight: false },
+      { text: "Standard email & community support", highlight: false },
     ],
     cta: "Upgrade to Pro",
     ctaType: "primary",
-    href: "/checkout?plan=pro",
+    href: "/subscribe?plan=pro",
     popular: true,
   },
   {
-    id: "agency",
-    badge: "High Performance",
+    id: "extreme",
+    badge: "⚡ Extreme — Full Power",
     badgeType: "agency",
-    name: "Agency & Scale",
-    description: "For agencies, client-facing teams, and high-traffic brands demanding custom domains and dedicated edge compute.",
-    monthlyPrice: 49,
-    annualPrice: 39,
-    tokensIncluded: 500,
+    name: "Extreme Plan",
+    description: "Total power: generate full-stack code without credit friction, free hosting deployments, and resell your templates.",
+    monthlyPrice: 50,
+    annualPrice: 40,
+    tokensIncluded: 1000,
     deploymentsIncluded: 999,
     features: [
-      { text: "500 Gemini AI Credits / month (Priority Quota)", highlight: true, icon: "gemini" },
-      { text: "Unlimited Live Website Deployments", highlight: true },
-      { text: "Dedicated High-Speed Edge CDN nodes (sub-ms)", highlight: true },
-      { text: "Custom Domain linking + automated TLS 1.3 SSL", highlight: false },
-      { text: "24/7 Autonomous uptime & incident resolution monitor", highlight: false },
-      { text: "White-label exports with clean source code & docs", highlight: false },
-      { text: "Multi-agent architecture synthesis & code conversion", highlight: false },
-      { text: "Dedicated engineering concierge & 24/7 support", highlight: false },
+      { text: "Generate code without extra credit friction (1,000+ AI credits/mo)", highlight: true, icon: "gemini" },
+      { text: "Free deployment charges (Unlimited live hosting included)", highlight: true },
+      { text: "Resell your templates on the marketplace (platform fee applies)", highlight: true },
+      { text: "Unlimited image & asset changes multiple times", highlight: true },
+      { text: "AI Prompt Editor fully unlocked for conversational code edits", highlight: true },
+      { text: "Autonomous AI Site Doctor: Heal unlimited websites automatically", highlight: true },
+      { text: "Cheapest token top-ups (60% OFF lowest rates)", highlight: false },
+      { text: "White-label exports & zero watermark on all source code", highlight: false },
     ],
-    cta: "Launch Agency Tier",
+    cta: "Get Extreme Plan",
     ctaType: "agency-btn",
-    href: "/checkout?plan=agency",
+    href: "/subscribe?plan=extreme",
     popular: false,
   },
 ];
@@ -107,30 +108,36 @@ const TOKEN_PACKS = [
     id: "tokens_50",
     name: "Starter Compute Pack",
     credits: 50,
-    price: 5,
+    freePrice: 10,
+    proPrice: 6,
+    extremePrice: 4,
     badge: "Entry Pack",
-    unitPrice: "$0.10 / token",
-    description: "50 Gemini AI Credits for 50 autonomous doctor repairs, 5 new site syntheses, or 50 section AI Fills.",
+    unitPrice: "$0.20 (Free) · $0.12 (Pro) · $0.08 (Extreme) / token",
+    description: "50 Gemini AI Credits for section fills, component generation, and template customizations.",
     popular: false,
   },
   {
     id: "tokens_200",
-    name: "Pro Creator Pack",
+    name: "Creator Compute Pack",
     credits: 200,
-    price: 15,
-    badge: "Save 25% — Most Popular",
-    unitPrice: "$0.075 / token",
-    description: "200 Gemini AI Credits for continuous production healing, 20 site builds, and heavy copy customizations.",
+    freePrice: 30,
+    proPrice: 18,
+    extremePrice: 12,
+    badge: "Save 40% on Pro · 60% on Extreme",
+    unitPrice: "$0.15 (Free) · $0.09 (Pro) · $0.06 (Extreme) / token",
+    description: "200 Gemini AI Credits for multi-page builds, heavy copy revisions, and AI prompt edits.",
     popular: true,
   },
   {
     id: "tokens_500",
-    name: "Studio Enterprise Pack",
+    name: "Extreme Studio Fleet Pack",
     credits: 500,
-    price: 30,
-    badge: "Save 40% — Best Value",
-    unitPrice: "$0.06 / token",
-    description: "500 Gemini AI Credits for agency fleets, complex multi-agent coding tasks, and unlimited incident fixes.",
+    freePrice: 60,
+    proPrice: 35,
+    extremePrice: 24,
+    badge: "Best Value Pack",
+    unitPrice: "$0.12 (Free) · $0.07 (Pro) · $0.048 (Extreme) / token",
+    description: "500 Gemini AI Credits for continuous multi-site production, heavy coding, and fleet scaling.",
     popular: false,
   },
 ];
@@ -175,14 +182,14 @@ export default function PricingPage() {
   const totalEstimatedTokens = synthesisTokens + healingTokens + copyTokens;
 
   // Recommended plan logic
-  let recommendedPlan = "Starter Edition ($0)";
-  let recommendedReason = "Ideal for 1 exploratory project with 10 free credits.";
-  if (siteCount >= 2 && siteCount <= 8) {
-    recommendedPlan = "Pro Creator Plan ($15/mo)";
-    recommendedReason = `Includes 150 monthly tokens + 3 live managed hosting deployments — matches your ${siteCount} websites perfectly!`;
-  } else if (siteCount > 8) {
-    recommendedPlan = "Agency & Scale Plan ($39/mo)";
-    recommendedReason = `Includes 500 monthly tokens + unlimited deployments for your ${siteCount} client websites fleet.`;
+  let recommendedPlan = "Free Tier ($0)";
+  let recommendedReason = "Ideal for exploring templates, code inspections, and on-demand credit purchases.";
+  if (siteCount >= 2 && siteCount <= 3) {
+    recommendedPlan = "Pro Plan ($15/mo)";
+    recommendedReason = `Includes 150 monthly tokens + 3 live website deployments with 40% OFF token pack discounts!`;
+  } else if (siteCount > 3) {
+    recommendedPlan = "Extreme Plan ($40/mo)";
+    recommendedReason = `Includes 1,000+ monthly tokens, free deployments, unlimited auto-heal, and template reselling.`;
   }
 
   // Handle Token Top-Up Purchase -> Takes user to checkout payment options
@@ -205,7 +212,7 @@ export default function PricingPage() {
               transition={{ duration: 0.4 }}
               className="pricing-pill-badge"
             >
-              <Sparkles className="w-4 h-4 text-purple-400" />
+              <Sparkles className="w-4 h-4 text-[#dfb180]" />
               <span>Transparent Gemini Compute Architecture</span>
             </motion.div>
 
@@ -320,7 +327,7 @@ export default function PricingPage() {
                     ) : (
                       <button
                         type="button"
-                        onClick={() => navigate(`/checkout?plan=${plan.id}&billing=${billingCycle}`)}
+                        onClick={() => navigate(`/subscribe?plan=${plan.id}&billing=${billingCycle}`)}
                         className={`tier-cta-btn ${plan.ctaType}`}
                       >
                         <span>{plan.cta}</span>
@@ -337,7 +344,7 @@ export default function PricingPage() {
           <div className="estimator-card">
             <div className="estimator-header">
               <div className="pricing-pill-badge" style={{ margin: "0 auto 1rem auto" }}>
-                <Activity className="w-3.5 h-3.5 text-purple-400" />
+                <Activity className="w-3.5 h-3.5 text-[#dfb180]" />
                 <span>Real Compute Architecture</span>
               </div>
               <h2 className="estimator-title">Website Compute & Token Estimator</h2>
@@ -369,7 +376,7 @@ export default function PricingPage() {
               <div className="calc-breakdown-card">
                 <div>
                   <div className="calc-icon-title">
-                    <Wand2 className="w-4 h-4 text-indigo-400" />
+                    <Wand2 className="w-4 h-4 text-[#dfb180]" />
                     <span>Synthesis & Architecture</span>
                   </div>
                   <p className="calc-card-desc">
@@ -403,7 +410,7 @@ export default function PricingPage() {
               <div className="calc-breakdown-card">
                 <div>
                   <div className="calc-icon-title">
-                    <Sparkles className="w-4 h-4 text-purple-400" />
+                    <Sparkles className="w-4 h-4 text-[#dfb180]" />
                     <span>AI Fill Copy Refinements</span>
                   </div>
                   <p className="calc-card-desc">
@@ -439,7 +446,7 @@ export default function PricingPage() {
           <div className="token-packs-section">
             <div className="token-packs-header">
               <div className="pricing-pill-badge" style={{ margin: "0 auto 1rem auto" }}>
-                <Coins className="w-3.5 h-3.5 text-purple-400" />
+                <Coins className="w-3.5 h-3.5 text-[#dfb180]" />
                 <span>Pay-As-You-Go Credits</span>
               </div>
               <h2 className="estimator-title" style={{ fontSize: "1.85rem" }}>
@@ -451,43 +458,60 @@ export default function PricingPage() {
             </div>
 
             <div className="token-packs-grid">
-              {TOKEN_PACKS.map((pack) => (
-                <div
-                  key={pack.id}
-                  className={`token-pack-card ${pack.popular ? "popular" : ""}`}
-                >
-                  <span className="token-pack-tag">{pack.badge}</span>
-                  <h4 className="token-pack-title">{pack.name}</h4>
-                  <p className="token-pack-desc">{pack.description}</p>
+              {TOKEN_PACKS.map((pack) => {
+                const userTier = (user?.subscription_tier || "free").toLowerCase();
+                const isExtreme = ["extreme", "agency", "enterprise"].includes(userTier);
+                const isPro = userTier === "pro";
+                const userPrice = isExtreme ? pack.extremePrice : isPro ? pack.proPrice : pack.freePrice;
 
-                  <div className="token-pack-price-row">
-                    <div>
-                      <span className="token-pack-price">${pack.price}</span>
-                      <span style={{ color: "#94a3b8", fontSize: "0.85rem" }}> USD</span>
-                    </div>
-                    <span className="token-pack-unitPrice">{pack.unitPrice}</span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => handlePurchaseTokens(pack.id)}
-                    disabled={purchasingPack === pack.id}
-                    className="token-buy-btn"
+                return (
+                  <div
+                    key={pack.id}
+                    className={`token-pack-card ${pack.popular ? "popular" : ""}`}
                   >
-                    {purchasingPack === pack.id ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Processing Order...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Coins className="w-4 h-4 text-purple-400" />
-                        <span>Get {pack.credits} Tokens</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              ))}
+                    <span className="token-pack-tag">{pack.badge}</span>
+                    <h4 className="token-pack-title">{pack.name}</h4>
+                    <p className="token-pack-desc">{pack.description}</p>
+
+                    <div className="token-pack-price-row">
+                      <div>
+                        <span className="token-pack-price">${userPrice}</span>
+                        <span style={{ color: "#94a3b8", fontSize: "0.85rem" }}> USD</span>
+                        {isExtreme && (
+                          <span style={{ marginLeft: "0.5rem", fontSize: "0.75rem", color: "#34d399", fontWeight: 600 }}>
+                            (60% Extreme Tier Discount)
+                          </span>
+                        )}
+                        {isPro && (
+                          <span style={{ marginLeft: "0.5rem", fontSize: "0.75rem", color: "#c89666", fontWeight: 600 }}>
+                            (40% Pro Tier Discount)
+                          </span>
+                        )}
+                      </div>
+                      <span className="token-pack-unitPrice">{pack.unitPrice}</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handlePurchaseTokens(pack.id)}
+                      disabled={purchasingPack === pack.id}
+                      className="token-buy-btn"
+                    >
+                      {purchasingPack === pack.id ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Processing Order...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Coins className="w-4 h-4 text-[#dfb180]" />
+                          <span>Get {pack.credits} Tokens for ${userPrice}</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -527,7 +551,7 @@ export default function PricingPage() {
                     >
                       <span>{faq.q}</span>
                       <ChevronDown
-                        className="w-4 h-4 text-purple-400 transition-transform duration-200"
+                        className="w-4 h-4 text-[#dfb180] transition-transform duration-200"
                         style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}
                       />
                     </button>

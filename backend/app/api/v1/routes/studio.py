@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
@@ -183,6 +183,55 @@ async def create_studio_build_prompt(
         raise HTTPException(status_code=502, detail=f"Build prompt generation failed: {exc}")
 
 
+@router.get("/quota")
+async def get_studio_quota(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns the user's Studio website generation quota:
+    - Free tier: 1 website 100% free. Additional websites require AI credits (5 credits each).
+    - Pro tier: Included in subscription (uses monthly AI credits).
+    - Extreme tier: Unlimited friction-free generation.
+    """
+    tier = (current_user.subscription_tier or "free").lower()
+    is_admin = getattr(current_user, "role", "") in ("admin", "super_admin") or getattr(current_user, "is_admin", False)
+    is_extreme = tier in ("extreme", "agency", "enterprise")
+    is_pro = tier == "pro"
+
+    stmt_count = select(func.count(StudioBuild.id)).where(
+        StudioBuild.user_id == current_user.id,
+        StudioBuild.status == "completed"
+    )
+    res_count = await db.execute(stmt_count)
+    completed_builds = res_count.scalar() or 0
+
+    can_generate = True
+    reason = None
+    user_credits = current_user.ai_credits if current_user.ai_credits is not None else 0
+
+    if not is_admin and not is_extreme:
+        if tier == "free":
+            if completed_builds >= 1 and user_credits < 5:
+                can_generate = False
+                reason = "You have used your 1 free website generation. To create more websites, please purchase AI credits or upgrade your plan."
+        elif is_pro:
+            if user_credits < 5:
+                can_generate = False
+                reason = "Your Pro monthly AI credits are depleted. Please top up your credits to generate more websites."
+
+    return {
+        "tier": tier,
+        "completed_builds": completed_builds,
+        "is_free_generation_available": (tier == "free" and completed_builds == 0),
+        "free_generation_used": (tier == "free" and completed_builds >= 1),
+        "ai_credits": user_credits,
+        "can_generate": can_generate,
+        "reason": reason,
+        "credits_required": 0 if (tier == "free" and completed_builds == 0) or is_extreme or is_admin else 5,
+    }
+
+
 @router.post("/generate")
 async def generate_studio_project(
     request: StudioGenerateRequest,
@@ -191,6 +240,56 @@ async def generate_studio_project(
 ):
     limit = 100 if settings.DEBUG else 30
     await enforce_user_limit(str(current_user.id), "studio-generate", limit=limit, window_seconds=3600)
+
+    # ── Subscription & Quota Enforcement ────────────────────────────
+    # 1. Free Tier:
+    #    - First website generation is 100% FREE.
+    #    - If user already completed 1+ websites, they MUST have at least 5 AI credits.
+    # 2. Pro Tier:
+    #    - Uses monthly credits (5 credits per generation).
+    # 3. Extreme Tier:
+    #    - Unlimited generation without credit deduction.
+    tier = (current_user.subscription_tier or "free").lower()
+    is_admin = getattr(current_user, "role", "") in ("admin", "super_admin") or getattr(current_user, "is_admin", False)
+    is_extreme = tier in ("extreme", "agency", "enterprise")
+    is_pro = tier == "pro"
+
+    CREDITS_PER_BUILD = 5
+    credits_to_deduct = 0
+
+    if not is_admin and not is_extreme:
+        if tier == "free":
+            stmt_count = select(func.count(StudioBuild.id)).where(
+                StudioBuild.user_id == current_user.id,
+                StudioBuild.status == "completed"
+            )
+            res_count = await db.execute(stmt_count)
+            completed_builds = res_count.scalar() or 0
+
+            if completed_builds >= 1:
+                user_credits = current_user.ai_credits if current_user.ai_credits is not None else 0
+                if user_credits < CREDITS_PER_BUILD:
+                    raise HTTPException(
+                        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                        detail="You have already generated your 1 free website. To create more websites, please purchase AI credits or upgrade your plan."
+                    )
+                credits_to_deduct = CREDITS_PER_BUILD
+        elif is_pro:
+            user_credits = current_user.ai_credits if current_user.ai_credits is not None else 0
+            if user_credits < CREDITS_PER_BUILD:
+                raise HTTPException(
+                    status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                    detail="Your Pro monthly AI credits are depleted. Please top up your credits to generate more websites."
+                )
+            credits_to_deduct = CREDITS_PER_BUILD
+
+    if credits_to_deduct > 0:
+        current_user.ai_credits = max(0, (current_user.ai_credits or 0) - credits_to_deduct)
+        db.add(current_user)
+        logger.info(
+            "Deducted %d credits from user %s (%s tier) for website generation. Remaining: %d",
+            credits_to_deduct, current_user.email, tier, current_user.ai_credits
+        )
 
     resolved_stack = detect_stack_from_prompt(request.prompt, request.category, request.genre, requested_stack=request.stack or "auto")
     build = StudioBuild(
@@ -231,6 +330,7 @@ async def generate_studio_project(
     async def stream_events():
         sequence = 0
         last_message_sequence = message_sequence
+        generation_succeeded = False
         yield f"data: {json.dumps({'type': 'session', 'build_id': str(build_id)}, ensure_ascii=False)}\n\n"
         service_db = AsyncSessionLocal()
         try:
@@ -270,6 +370,7 @@ async def generate_studio_project(
                             if event.get("type") in {"agent", "page"}:
                                 b.current_phase = str(event.get("agent") or event.get("name") or event.get("filename") or b.current_phase)[:80]
                             if event.get("type") == "complete":
+                                generation_succeeded = True
                                 project = event.get("project") or {}
                                 b.status = "completed"
                                 b.current_phase = "completed"
@@ -332,6 +433,16 @@ async def generate_studio_project(
                 pass
             yield f"data: {json.dumps({'type': 'error', 'message': str(exc)[:500]}, ensure_ascii=False)}\n\n"
         finally:
+            if credits_to_deduct > 0 and not generation_succeeded:
+                try:
+                    async with AsyncSessionLocal() as refund_db:
+                        u = await refund_db.get(User, current_user.id)
+                        if u:
+                            u.ai_credits = (u.ai_credits or 0) + credits_to_deduct
+                            await refund_db.commit()
+                            logger.info("Refunded %d credits to user %s due to incomplete build.", credits_to_deduct, current_user.email)
+                except Exception as ref_exc:
+                    logger.warning("Could not refund credits for user %s: %s", current_user.email, ref_exc)
             try:
                 await service_db.close()
             except Exception as close_err:

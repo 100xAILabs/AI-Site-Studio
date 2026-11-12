@@ -363,6 +363,31 @@ class LocalProjectManager:
             return target
         return project_dir if (project_dir / "index.html").exists() else None
 
+    def export_project_zip(
+        self,
+        identifier: str,
+        version: str = "latest",
+    ) -> bytes | None:
+        proj_dir = self.get_local_project_dir(identifier, version=version)
+        if not proj_dir or not proj_dir.is_dir():
+            proj_dir = self.get_local_project_dir(identifier, version="before_edit")
+        if not proj_dir or not proj_dir.is_dir():
+            return None
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(proj_dir):
+                dirs[:] = [d for d in dirs if d not in {"node_modules", ".git", "__pycache__", ".venv", "dist", "build"}]
+                for file_name in files:
+                    file_path = Path(root) / file_name
+                    rel_path = file_path.relative_to(proj_dir).as_posix()
+                    try:
+                        zf.writestr(rel_path, file_path.read_bytes())
+                    except Exception as err:
+                        logger.warning("Failed to add %s to export zip: %s", rel_path, err)
+
+        return buf.getvalue()
+
     def unpack_zip_bytes_to_local(
         self,
         template_id: UUID | str,

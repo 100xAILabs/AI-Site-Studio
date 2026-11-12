@@ -1,7 +1,7 @@
 {
   "version": "1.0",
-  "updated_at": "2026-11-10T12:55:03.796466+00:00",
-  "total_mistakes_logged": 32,
+  "updated_at": "2026-11-12T11:35:15.108830+00:00",
+  "total_mistakes_logged": 37,
   "lessons": [
     {
       "id": "lesson_multi_page_nav_hashes",
@@ -10,8 +10,8 @@
       "rule": "In multi-page websites, NEVER use bare anchor hashes (e.g. href=\"#featured\", href=\"#services\", href=\"#about\") in the navigation of secondary pages. All cross-page links must be relative (e.g. href=\"about.html\", href=\"projects.html\", href=\"skills.html\", or href=\"index.html#featured\").",
       "mistake_trigger": "navigation_hash_anchor",
       "severity": "high",
-      "occurrence_count": 3,
-      "last_seen": "2026-11-10T12:55:03.794423+00:00",
+      "occurrence_count": 4,
+      "last_seen": "2026-11-11T11:03:55.259044+00:00",
       "last_file": "index.html"
     },
     {
@@ -31,8 +31,8 @@
       "rule": "Never include markdown backtick fences (```html or ```) or conversational commentary (e.g. 'This completes the HTML structure...') in generated code files. Output pure, clean HTML/CSS/JS only.",
       "mistake_trigger": "markdown_code_fence_leakage",
       "severity": "critical",
-      "occurrence_count": 4,
-      "last_seen": "2026-11-06T14:02:46.392057+00:00",
+      "occurrence_count": 6,
+      "last_seen": "2026-11-12T11:35:15.095201+00:00",
       "last_file": "index.html"
     },
     {
@@ -62,8 +62,8 @@
       "rule": "Ensure every DOM ID like #drawerOverlay is unique; never emit duplicate overlay elements.",
       "mistake_trigger": "duplicate_overlay_id",
       "severity": "high",
-      "occurrence_count": 3,
-      "last_seen": "2026-11-06T14:02:46.408360+00:00",
+      "occurrence_count": 5,
+      "last_seen": "2026-11-12T11:35:15.108830+00:00",
       "last_file": "index.html"
     },
     {

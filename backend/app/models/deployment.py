@@ -88,10 +88,10 @@ class DeploymentVersion(UUIDMixin, TimestampMixin, Base):
 
     __tablename__ = "deployment_versions"
 
-    deployment_id: Mapped[uuid.UUID] = mapped_column(
+    deployment_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("deployments.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True
     )
     version: Mapped[str] = mapped_column(String(50), nullable=False)  # v1.0, v1.1, etc.
@@ -112,10 +112,10 @@ class Domain(UUIDMixin, TimestampMixin, Base):
 
     __tablename__ = "domains"
 
-    deployment_id: Mapped[uuid.UUID] = mapped_column(
+    deployment_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("deployments.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -152,10 +152,10 @@ class DeploymentLog(UUIDMixin, Base):
 
     __tablename__ = "deployment_logs"
 
-    deployment_id: Mapped[uuid.UUID] = mapped_column(
+    deployment_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("deployments.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True
     )
     level: Mapped[str] = mapped_column(String(20), default="INFO", nullable=False)  # INFO, WARN, ERROR, SUCCESS

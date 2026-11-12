@@ -1,4 +1,4 @@
-/* Modern Studio Navbar — Dark Obsidian & Neon Violet */
+/* Modern Studio Navbar — Matte Obsidian & Medium Dark Wheat */
 
 .navbar-header {
   position: fixed;
@@ -22,11 +22,11 @@
 }
 
 .navbar-header.scrolled {
-  background: rgba(8, 10, 24, 0.88);
+  background: rgba(10, 10, 12, 0.94);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.6);
   padding-top: 0.85rem;
   padding-bottom: 0.85rem;
 }
@@ -54,13 +54,13 @@
 .navbar-logo-icon {
   width: 32px;
   height: 32px;
-  filter: drop-shadow(0 0 10px rgba(139, 92, 246, 0.4));
+  filter: drop-shadow(0 0 10px rgba(200, 150, 102, 0.45));
   transition: transform 0.2s ease, filter 0.2s ease;
 }
 
 .logo-container:hover .navbar-logo-icon {
   transform: rotate(-3deg) scale(1.05);
-  filter: drop-shadow(0 0 16px rgba(168, 85, 247, 0.65));
+  filter: drop-shadow(0 0 16px rgba(200, 150, 102, 0.7));
 }
 
 .logo-text {
@@ -113,9 +113,9 @@
   bottom: -6px;
   width: 28px;
   height: 2.5px;
-  background: #8b5cf6;
+  background: #c89666;
   border-radius: 9999px;
-  box-shadow: 0 0 10px #8b5cf6, 0 0 20px rgba(139, 92, 246, 0.6);
+  box-shadow: 0 0 10px #c89666, 0 0 20px rgba(200, 150, 102, 0.6);
 }
 
 .nav-dropdown-wrapper {
@@ -141,13 +141,13 @@
   left: 50%;
   transform: translateX(-50%);
   width: 260px;
-  background: rgba(14, 17, 36, 0.96);
+  background: rgba(18, 18, 20, 0.98);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 16px;
   padding: 0.6rem;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6), 0 0 20px rgba(139, 92, 246, 0.15);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.7), 0 0 20px rgba(200, 150, 102, 0.15);
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
@@ -219,8 +219,8 @@
 .navbar-search-pill-form:focus-within {
   width: 240px;
   background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(168, 85, 247, 0.5);
-  box-shadow: 0 0 16px rgba(168, 85, 247, 0.25);
+  border-color: rgba(200, 150, 102, 0.6);
+  box-shadow: 0 0 16px rgba(200, 150, 102, 0.25);
 }
 
 .navbar-search-icon {
@@ -275,7 +275,7 @@
   right: -2px;
   width: 16px;
   height: 16px;
-  background: #a855f7;
+  background: #c89666;
   color: #ffffff;
   font-size: 0.68rem;
   font-weight: 700;
@@ -283,7 +283,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 0 8px rgba(168, 85, 247, 0.7);
+  box-shadow: 0 0 8px rgba(200, 150, 102, 0.7);
 }
 
 /* Auth Buttons */
@@ -343,8 +343,8 @@
 }
 
 .navbar-user-pill-link:hover {
-  background: rgba(168, 85, 247, 0.12);
-  border-color: rgba(168, 85, 247, 0.35);
+  background: rgba(200, 150, 102, 0.12);
+  border-color: rgba(200, 150, 102, 0.4);
 }
 
 .navbar-avatar-circle {
@@ -352,7 +352,7 @@
   height: 32px;
   border-radius: 50%;
   overflow: hidden;
-  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
+  background: linear-gradient(135deg, #c89666 0%, #dfb180 100%);
   border: 1.5px solid rgba(255, 255, 255, 0.25);
   display: flex;
   align-items: center;
@@ -413,9 +413,9 @@
   border-radius: 9999px;
   font-size: 0.875rem;
   font-weight: 600;
-  color: #ffffff !important;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
-  box-shadow: 0 4px 18px rgba(139, 92, 246, 0.45);
+  color: #0a0a0c !important;
+  background: linear-gradient(135deg, #c89666 0%, #b5804f 100%);
+  box-shadow: 0 4px 18px rgba(200, 150, 102, 0.45);
   text-decoration: none;
   transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   border: none;
@@ -423,7 +423,8 @@
 
 .btn-studio-getstarted:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 24px rgba(139, 92, 246, 0.65);
+  background: linear-gradient(135deg, #dfb180 0%, #c89666 100%);
+  box-shadow: 0 6px 24px rgba(200, 150, 102, 0.65);
 }
 
 /* Mobile Toggle & Drawer */
@@ -504,8 +505,8 @@
 
 .mobile-link:hover,
 .mobile-link-active {
-  background: rgba(139, 92, 246, 0.15);
-  color: #ffffff;
+  background: rgba(200, 150, 102, 0.18);
+  color: #c89666;
 }
 
 .mobile-auth-actions {

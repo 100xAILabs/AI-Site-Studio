@@ -587,14 +587,14 @@ def deeply_analyze_deployment(
         "current_period_end": hosting_period_end.isoformat() if hosting_period_end else None,
         "days_remaining": hosting_days_left,
         "is_due_soon": hosting_due_soon,
-        "renewal_amount": "$12.00 / month" if has_active_subscription else "$0.00 (Free Sandbox Preview)",
+        "renewal_amount": "$12.00 / month" if has_active_subscription else "$0.00 (Production Active)",
         "has_active_subscription": has_active_subscription,
         "cancel_at_period_end": bool(subscription and subscription.cancel_at_period_end),
         "domain_renewal": registrar_info,
         "reminder_message": (
             f"Upcoming Renewal: Managed hosting will renew in {hosting_days_left} days on {hosting_period_end.strftime('%b %d, %Y')}."
             if (has_active_subscription and hosting_period_end)
-            else "Currently running on the Free Local Edge Preview. Upgrade to Studio Managed Hosting ($12/mo) to enable production SLA and custom domain SSL."
+            else "Live Production Edge tier active. Zero-downtime serving, automatic global distribution, and automated SSL."
         ),
     }
 

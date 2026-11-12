@@ -4,7 +4,7 @@ html:has(.studio-deploy-page),
 body:has(.studio-deploy-page),
 .studio-deploy-page {
   background-color: #f8fafc !important;
-  color: #0f172a !important;
+  color: #ffffff !important;
   min-height: 100vh;
   position: relative;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, Helvetica, Arial, sans-serif;
@@ -55,16 +55,16 @@ body:has(.studio-deploy-page),
 }
 
 .deploy-template-card:hover {
-  border-color: #a5b4fc;
+  border-color: #e8d7be;
   background: #f8fafc;
   transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.08);
+  box-shadow: 0 4px 14px rgba(200, 150, 102, 0.08);
 }
 
 .deploy-template-card.selected {
-  border-color: #6366f1 !important;
+  border-color: #c89666 !important;
   background: #f5f3ff !important;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25), 0 4px 16px rgba(99, 102, 241, 0.12) !important;
+  box-shadow: 0 0 0 2px rgba(200, 150, 102, 0.25), 0 4px 16px rgba(200, 150, 102, 0.12) !important;
 }
 
 .deploy-provider-card {
@@ -85,9 +85,9 @@ body:has(.studio-deploy-page),
 }
 
 .deploy-provider-card.selected {
-  border-color: #6366f1 !important;
+  border-color: #c89666 !important;
   background: #eef2ff !important;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.15);
+  box-shadow: 0 4px 14px rgba(200, 150, 102, 0.15);
 }
 
 .deploy-input-wrapper {
@@ -101,8 +101,8 @@ body:has(.studio-deploy-page),
 }
 
 .deploy-input-wrapper:focus-within {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+  border-color: #c89666;
+  box-shadow: 0 0 0 3px rgba(200, 150, 102, 0.12);
 }
 
 .deploy-input {
@@ -110,13 +110,13 @@ body:has(.studio-deploy-page),
   border: none;
   background: transparent;
   font-size: 0.875rem;
-  color: #0f172a;
+  color: #ffffff;
   outline: none;
   font-family: monospace;
 }
 
 .deploy-terminal {
-  background: #0f172a !important;
+  background: #121216 !important;
   color: #e2e8f0 !important;
   border-radius: 1rem;
   padding: 1.25rem;
@@ -130,7 +130,7 @@ body:has(.studio-deploy-page),
   position: fixed !important;
   inset: 0 !important;
   z-index: 9999 !important;
-  background-color: rgba(15, 23, 42, 0.75) !important;
+  background-color: rgba(18, 18, 22, 0.75) !important;
   backdrop-filter: blur(8px) !important;
   -webkit-backdrop-filter: blur(8px) !important;
   display: flex !important;
@@ -157,14 +157,16 @@ body:has(.studio-deploy-page),
 
 .deploy-modal-dialog-light {
   width: 100% !important;
-  max-width: 520px !important;
+  max-width: 640px !important;
   background-color: #ffffff !important;
-  color: #0f172a !important;
+  color: #ffffff !important;
   border: 1px solid #e2e8f0 !important;
   border-radius: 1.25rem !important;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.3) !important;
   padding: 1.5rem !important;
   position: relative !important;
+  max-height: 90vh !important;
+  overflow-y: auto !important;
 }
 
 .deploy-logs-terminal {

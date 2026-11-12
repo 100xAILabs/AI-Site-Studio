@@ -31,8 +31,8 @@ export default function TemplateArchitectureDiagram({ template }) {
       tag: "Device Adaptive",
       icon: Monitor,
       color: "#38bdf8",
-      accentBg: "rgba(56, 189, 248, 0.12)",
-      borderColor: "rgba(56, 189, 248, 0.35)",
+      accentBg: "rgba(223, 177, 128, 0.12)",
+      borderColor: "rgba(223, 177, 128, 0.35)",
       telemetry: "Reflow: 100% Responsive",
       metrics: [
         { label: "Target Viewports", val: "320px – 1920px" },
@@ -47,7 +47,7 @@ export default function TemplateArchitectureDiagram({ template }) {
       title: "Atomic Edge CDN & Routing",
       tag: "Edge Infrastructure",
       icon: Globe,
-      color: "#818cf8",
+      color: "#dfb180",
       accentBg: "rgba(129, 140, 248, 0.12)",
       borderColor: "rgba(129, 140, 248, 0.35)",
       telemetry: "Latency: < 12ms Edge Response",
@@ -64,9 +64,9 @@ export default function TemplateArchitectureDiagram({ template }) {
       title: "Physical Source Bundle",
       tag: "Production Codebase",
       icon: Layers,
-      color: "#a855f7",
-      accentBg: "rgba(168, 85, 247, 0.15)",
-      borderColor: "rgba(168, 85, 247, 0.45)",
+      color: "#c89666",
+      accentBg: "rgba(200, 150, 102, 0.15)",
+      borderColor: "rgba(200, 150, 102, 0.45)",
       telemetry: `Files: ${pagesCount} Pages Verified`,
       metrics: [
         { label: "Architecture", val: frameworkName },
@@ -82,8 +82,8 @@ export default function TemplateArchitectureDiagram({ template }) {
       tag: "Semantic Personalization",
       icon: Sparkles,
       color: "#c084fc",
-      accentBg: "rgba(192, 132, 252, 0.12)",
-      borderColor: "rgba(192, 132, 252, 0.35)",
+      accentBg: "rgba(223, 177, 128, 0.12)",
+      borderColor: "rgba(223, 177, 128, 0.35)",
       telemetry: "Model: Gemini 1.5 Flash",
       metrics: [
         { label: "AI Copy Generation", val: "1 Credit / Section" },
@@ -119,14 +119,14 @@ export default function TemplateArchitectureDiagram({ template }) {
       {/* Header */}
       <div className="architecture-header">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-purple-500/10 border border-purple-500/30 text-purple-400">
+          <div className="p-1.5 rounded-lg bg-[#c89666]/15 border border-[#c89666]/30 text-[#dfb180]">
             <Zap className="w-4 h-4" />
           </div>
           <h3 className="section-title" style={{ margin: 0 }}>
             Live Architecture & Request Flow Lifecycle
           </h3>
         </div>
-        <span className="text-xs text-purple-300 font-mono bg-purple-500/10 px-2.5 py-1 rounded-full border border-purple-500/20">
+        <span className="text-xs text-[#dfb180] font-mono bg-[#c89666]/15 px-2.5 py-1 rounded-full border border-[#c89666]/30">
           Interactive Pipeline Map
         </span>
       </div>
@@ -148,7 +148,7 @@ export default function TemplateArchitectureDiagram({ template }) {
                 className={`architecture-node-card ${isSelected ? "active" : ""}`}
                 style={{
                   borderColor: isSelected ? node.borderColor : "rgba(255, 255, 255, 0.08)",
-                  background: isSelected ? node.accentBg : "rgba(13, 17, 34, 0.65)",
+                  background: isSelected ? node.accentBg : "rgba(18, 18, 22, 0.65)",
                 }}
               >
                 <div

@@ -288,9 +288,9 @@ export default function AdminModerationHub({
       case "html":
         return "text-orange-800 border-orange-200 bg-orange-50";
       case "astro":
-        return "text-purple-800 border-purple-200 bg-purple-50";
+        return "text-[#dfb180] border-[#c89666]/30 bg-[#c89666]/15";
       default:
-        return "text-indigo-800 border-indigo-200 bg-indigo-50";
+        return "text-[#dfb180] border-[#c89666]/30 bg-[#c89666]/15";
     }
   };
 
@@ -343,7 +343,7 @@ export default function AdminModerationHub({
             <span className="mod-stat-label">Total Catalog</span>
             <div className="mod-stat-val-row">
               <span className="mod-stat-value">{metrics.total}</span>
-              <span className="mod-stat-pill bg-indigo-50 text-indigo-700 border border-indigo-200">
+              <span className="mod-stat-pill bg-[#c89666]/15 text-[#dfb180] border border-[#c89666]/30">
                 All Items
               </span>
             </div>
@@ -1155,8 +1155,8 @@ export default function AdminModerationHub({
               </div>
 
               {/* Quality Audit Checklist */}
-              <div className="p-4 rounded-xl bg-indigo-50/70 border border-indigo-200/80 space-y-3">
-                <div className="text-xs font-bold text-indigo-900 flex items-center gap-2">
+              <div className="p-4 rounded-xl bg-[#c89666]/15 border border-[#c89666]/30 space-y-3">
+                <div className="text-xs font-bold text-[#dfb180] flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-primary" />
                   Marketplace Quality Standard Checks
                 </div>

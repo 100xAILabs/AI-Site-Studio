@@ -165,7 +165,7 @@ function NavbarComponent() {
                     className="dropdown-menu-item"
                     onClick={() => setTemplatesDropdown(false)}
                   >
-                    <Zap className="dropdown-item-icon text-purple-400" />
+                    <Zap className="dropdown-item-icon text-[#dfb180]" />
                     <div>
                       <div className="dropdown-item-title">AI & SaaS</div>
                       <div className="dropdown-item-desc">Modern tech & software designs</div>
@@ -187,7 +187,7 @@ function NavbarComponent() {
                     className="dropdown-menu-item"
                     onClick={() => setTemplatesDropdown(false)}
                   >
-                    <Briefcase className="dropdown-item-icon text-indigo-400" />
+                    <Briefcase className="dropdown-item-icon text-[#c89666]" />
                     <div>
                       <div className="dropdown-item-title">Business & Agency</div>
                       <div className="dropdown-item-desc">Hotels, agencies & corporate</div>

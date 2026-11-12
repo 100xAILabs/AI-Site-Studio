@@ -11,14 +11,14 @@ export function SiteStudioLogoIcon({ className = "w-8 h-8", style }) {
     >
       <defs>
         <linearGradient id="ss-neon-grad-1" x1="6" y1="30" x2="28" y2="6" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#6366f1" />
-          <stop offset="0.45" stopColor="#8b5cf6" />
-          <stop offset="1" stopColor="#c084fc" />
+          <stop stopColor="#c89666" />
+          <stop offset="0.5" stopColor="#dfb180" />
+          <stop offset="1" stopColor="#f4ecdf" />
         </linearGradient>
         <linearGradient id="ss-neon-grad-2" x1="12" y1="34" x2="32" y2="10" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#4f46e5" />
-          <stop offset="0.5" stopColor="#a855f7" />
-          <stop offset="1" stopColor="#e879f9" />
+          <stop stopColor="#b5804f" />
+          <stop offset="0.5" stopColor="#d4a373" />
+          <stop offset="1" stopColor="#faedcd" />
         </linearGradient>
       </defs>
       {/* Primary dynamic angled ribbon */}

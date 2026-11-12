@@ -223,6 +223,17 @@ function StudioLaunchPage() {
               <ShieldCheck size={14} className="launch-meta-icon-emerald" />
               <span>100% Mobile Responsive</span>
             </span>
+            <span className="launch-meta-pill">
+              {effectiveTemplate?.changelog?.is_white_label ? (
+                <span className="text-emerald-400 font-bold flex items-center gap-1">
+                  ✦ Zero Watermark (Pro White-Label)
+                </span>
+              ) : (
+                <span className="text-amber-300 font-medium flex items-center gap-1" title="Includes embedded attribution and watermark-license.html">
+                  Standard Edition (Watermarked)
+                </span>
+              )}
+            </span>
           </div>
 
           {/* Primary Action Buttons Stack */}
@@ -260,7 +271,7 @@ function StudioLaunchPage() {
 
             {/* 4. Edit in Live Canvas */}
             <Link to={editorUrl} className="launch-btn-edit">
-              <Edit3 size={16} style={{ color: "#6366f1" }} />
+              <Edit3 size={16} style={{ color: "#c89666" }} />
               <span>Edit in Live Canvas</span>
             </Link>
           </div>

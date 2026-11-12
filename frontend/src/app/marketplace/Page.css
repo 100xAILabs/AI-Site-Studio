@@ -17,7 +17,7 @@
 .color-picker-dialog {
   width: 100% !important;
   max-width: 380px !important;
-  background-color: #0f172a !important;
+  background-color: #ffffff !important;
   border: 1px solid #334155 !important;
   border-radius: 1.25rem !important;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8) !important;
@@ -43,7 +43,7 @@
   display: flex !important;
   flex-direction: column !important;
   gap: 1.25rem !important;
-  background-color: #0f172a !important;
+  background-color: #ffffff !important;
 }
 
 .color-picker-section-label {
@@ -112,7 +112,7 @@
   align-items: center !important;
   gap: 0.75rem !important;
   padding-top: 0.75rem !important;
-  border-top: 1px solid #1e293b !important;
+  border-top: 1px solid #27272a !important;
 }
 
 .color-picker-hex-input-wrapper {
@@ -121,7 +121,7 @@
   align-items: center !important;
   gap: 0.5rem !important;
   padding: 0.625rem 0.875rem !important;
-  background-color: #020617 !important;
+  background-color: #09090b !important;
   border: 1px solid #334155 !important;
   border-radius: 0.75rem !important;
   font-family: monospace !important;
@@ -145,7 +145,7 @@
 .color-picker-done-btn {
   padding: 0.625rem 1.25rem !important;
   border-radius: 0.75rem !important;
-  background-color: #4f46e5 !important;
+  background-color: #b5804f !important;
   color: #ffffff !important;
   font-weight: 700 !important;
   font-size: 0.8125rem !important;
@@ -281,7 +281,7 @@
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: rgba(15, 23, 42, 0.65);
+  background: rgba(18, 18, 22, 0.65);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   display: flex;
@@ -472,23 +472,23 @@
    ========================================================================== */
 
 .marketplace-redesign {
-  --background: 230 35% 5%;
-  --foreground: 210 40% 98%;
-  --card: 228 32% 9%;
-  --popover: 228 32% 9%;
-  --muted: 226 28% 14%;
-  --muted-foreground: 215 20% 65%;
-  --border: 226 28% 18%;
-  --input: 226 28% 18%;
-  --primary: 263 90% 66%;
+  --background: 0 0% 4%;
+  --foreground: 0 0% 98%;
+  --card: 240 4% 10%;
+  --popover: 240 4% 10%;
+  --muted: 240 4% 14%;
+  --muted-foreground: 240 5% 65%;
+  --border: 240 4% 18%;
+  --input: 240 4% 18%;
+  --primary: 30 50% 59%;
   --primary-foreground: 0 0% 100%;
-  --accent: 263 70% 30%;
+  --accent: 30 45% 45%;
   min-height: 100vh;
   padding: 6.5rem 0 5rem;
-  background: radial-gradient(circle at 10% 10%, rgba(124, 58, 237, 0.1) 0%, transparent 45%),
-              radial-gradient(circle at 90% 90%, rgba(16, 185, 129, 0.06) 0%, transparent 50%),
-              linear-gradient(180deg, #070913 0%, #0c1022 100%) !important;
-  color: #f1f5f9 !important;
+  background: radial-gradient(circle at 10% 10%, rgba(200, 150, 102, 0.08) 0%, transparent 45%),
+              radial-gradient(circle at 90% 90%, rgba(200, 150, 102, 0.04) 0%, transparent 50%),
+              #09090b !important;
+  color: #fafafa !important;
   overflow-x: hidden;
 }
 
@@ -510,8 +510,8 @@
   gap: 0.55rem;
   padding: 0.4rem 0.95rem;
   border-radius: 9999px;
-  background: rgba(124, 58, 237, 0.12);
-  border: 1px solid rgba(139, 92, 246, 0.3);
+  background: rgba(200, 150, 102, 0.12);
+  border: 1px solid rgba(212, 163, 115, 0.3);
   font-size: 0.775rem;
   font-weight: 600;
   color: #e2e8f0;
@@ -549,7 +549,7 @@
 }
 
 .marketplace-title-gradient {
-  background: linear-gradient(135deg, #c084fc 0%, #38bdf8 100%);
+  background: linear-gradient(135deg, #ffffff 0%, #dfb180 50%, #c89666 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -568,13 +568,13 @@
   gap: 0.65rem;
   padding: 0.8rem 1.4rem;
   border-radius: 0.85rem;
-  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
+  background: linear-gradient(135deg, #b5804f 0%, #c89666 100%);
   color: #ffffff;
   font-weight: 700;
   font-size: 0.875rem;
   border: none;
   cursor: pointer;
-  box-shadow: 0 4px 20px rgba(139, 92, 246, 0.35);
+  box-shadow: 0 4px 20px rgba(212, 163, 115, 0.35);
   transition: all 0.2s ease;
   flex-shrink: 0;
 }
@@ -585,20 +585,20 @@
   gap: 0.9rem;
   min-width: 19rem;
   padding: 1.05rem 1.35rem;
-  border: 1px solid rgba(167, 139, 250, 0.38);
+  border: 1px solid rgba(223, 177, 128, 0.38);
   border-radius: 999px;
-  background: radial-gradient(circle at 15% 50%, rgba(124, 58, 237, 0.28), transparent 52%), rgba(15, 16, 34, 0.88);
+  background: #141418;
   color: #f8fafc;
   text-decoration: none;
-  box-shadow: 0 12px 36px rgba(76, 29, 149, 0.2), inset 0 1px rgba(255, 255, 255, 0.06);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5), inset 0 1px rgba(255, 255, 255, 0.06);
   transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   flex-shrink: 0;
 }
 
 .marketplace-create-callout:hover {
   transform: translateY(-3px);
-  border-color: rgba(192, 132, 252, 0.8);
-  box-shadow: 0 16px 42px rgba(124, 58, 237, 0.3), inset 0 1px rgba(255, 255, 255, 0.08);
+  border-color: rgba(223, 177, 128, 0.8);
+  box-shadow: 0 16px 42px rgba(200, 150, 102, 0.3), inset 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .marketplace-create-icon {
@@ -607,11 +607,11 @@
   width: 2.8rem;
   height: 2.8rem;
   flex: 0 0 auto;
-  border: 1px solid rgba(216, 180, 254, 0.32);
+  border: 1px solid rgba(200, 150, 102, 0.35);
   border-radius: 50%;
-  background: linear-gradient(145deg, #8b5cf6, #6d28d9);
-  color: white;
-  box-shadow: 0 0 22px rgba(139, 92, 246, 0.4);
+  background: linear-gradient(145deg, #dfb180, #c89666);
+  color: #09090b;
+  box-shadow: 0 0 22px rgba(212, 163, 115, 0.4);
 }
 
 .marketplace-create-copy,
@@ -632,14 +632,14 @@
 .marketplace-create-copy > span {
   align-items: center;
   gap: 0.35rem;
-  color: #c4b5fd;
+  color: #dfb180;
   font-size: 0.76rem;
   font-weight: 650;
 }
 
 .marketplace-studio-cta:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 30px rgba(139, 92, 246, 0.55);
+  box-shadow: 0 8px 30px rgba(212, 163, 115, 0.55);
   color: #ffffff;
 }
 
@@ -666,7 +666,7 @@
 .marketplace-redesign .sidebar-filters-aside {
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   border-radius: 1.25rem !important;
-  background: rgba(13, 17, 34, 0.85) !important;
+  background: rgba(18, 18, 22, 0.85) !important;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4) !important;
   backdrop-filter: blur(20px) !important;
   -webkit-backdrop-filter: blur(20px) !important;
@@ -679,7 +679,7 @@
 
 .marketplace-redesign .filters-header {
   padding: 1rem 1.25rem !important;
-  background: rgba(13, 17, 34, 0.95) !important;
+  background: rgba(18, 18, 22, 0.95) !important;
   backdrop-filter: blur(16px) !important;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
   flex-shrink: 0;
@@ -699,7 +699,7 @@
   flex: 1 1 auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  scrollbar-color: rgba(168, 85, 247, 0.4) transparent;
+  scrollbar-color: rgba(200, 150, 102, 0.4) transparent;
   padding-bottom: 1rem;
 }
 
@@ -712,12 +712,12 @@
 }
 
 .marketplace-redesign .filters-sections-container::-webkit-scrollbar-thumb {
-  background: rgba(168, 85, 247, 0.3);
+  background: rgba(200, 150, 102, 0.3);
   border-radius: 9999px;
 }
 
 .marketplace-redesign .filters-sections-container::-webkit-scrollbar-thumb:hover {
-  background: rgba(168, 85, 247, 0.6);
+  background: rgba(200, 150, 102, 0.6);
 }
 
 .marketplace-redesign .filter-section {
@@ -729,7 +729,7 @@
 }
 
 .marketplace-redesign .filter-toggle-btn:hover {
-  color: #c084fc !important;
+  color: #dfb180 !important;
 }
 
 .marketplace-redesign .checkbox-label {
@@ -746,8 +746,8 @@
 }
 
 .marketplace-redesign .checkbox-indicator.checked {
-  background-color: #7c3aed !important;
-  border-color: #7c3aed !important;
+  background-color: #b5804f !important;
+  border-color: #b5804f !important;
 }
 
 .marketplace-redesign .marketplace-main {
@@ -794,7 +794,7 @@
   padding: 0.45rem;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
   border-radius: 1rem !important;
-  background: rgba(13, 17, 34, 0.85) !important;
+  background: rgba(18, 18, 22, 0.85) !important;
   backdrop-filter: blur(20px) !important;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important;
   transition: border-color 160ms ease, box-shadow 160ms ease;
@@ -804,13 +804,13 @@
 .marketplace-redesign .marketplace-search-wrapper.dropdown-open,
 .marketplace-redesign .marketplace-search-wrapper:focus-within {
   z-index: 9999 !important;
-  border-color: rgba(168, 85, 247, 0.6) !important;
-  box-shadow: 0 0 25px rgba(168, 85, 247, 0.25) !important;
+  border-color: rgba(200, 150, 102, 0.6) !important;
+  box-shadow: 0 0 25px rgba(200, 150, 102, 0.25) !important;
 }
 
 .marketplace-redesign .marketplace-search-wrapper.ai-active {
-  border-color: rgba(168, 85, 247, 0.8) !important;
-  box-shadow: 0 0 30px rgba(168, 85, 247, 0.35) !important;
+  border-color: rgba(200, 150, 102, 0.8) !important;
+  box-shadow: 0 0 30px rgba(200, 150, 102, 0.35) !important;
 }
 
 .marketplace-redesign .marketplace-search {
@@ -839,7 +839,7 @@
   color: #ffffff !important;
   font-size: 0.95rem;
   box-shadow: none;
-  caret-color: #c084fc;
+  caret-color: #dfb180;
 }
 
 .marketplace-redesign .marketplace-search-input::placeholder {
@@ -879,9 +879,9 @@
   gap: 0.5rem;
   height: 2.75rem;
   padding: 0 1.15rem;
-  border: 1px solid rgba(168, 85, 247, 0.4) !important;
+  border: 1px solid rgba(200, 150, 102, 0.4) !important;
   border-radius: 0.75rem !important;
-  background: linear-gradient(135deg, rgba(124, 58, 237, 0.2) 0%, rgba(168, 85, 247, 0.28) 100%) !important;
+  background: linear-gradient(135deg, rgba(200, 150, 102, 0.2) 0%, rgba(200, 150, 102, 0.28) 100%) !important;
   color: #e2e8f0 !important;
   font-size: 0.825rem;
   font-weight: 700;
@@ -891,10 +891,10 @@
 
 .marketplace-redesign .ai-toggle-btn:hover,
 .marketplace-redesign .ai-toggle-btn.active {
-  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%) !important;
-  border-color: rgba(192, 132, 252, 0.7) !important;
+  background: linear-gradient(135deg, #b5804f 0%, #c89666 100%) !important;
+  border-color: rgba(223, 177, 128, 0.7) !important;
   color: #ffffff !important;
-  box-shadow: 0 0 20px rgba(168, 85, 247, 0.5) !important;
+  box-shadow: 0 0 20px rgba(200, 150, 102, 0.5) !important;
 }
 
 .marketplace-redesign .ai-toggle-icon {
@@ -928,11 +928,11 @@
 }
 
 .marketplace-redesign .sort-btn.active {
-  background: rgba(139, 92, 246, 0.22) !important;
-  border-color: rgba(139, 92, 246, 0.45) !important;
-  color: #c084fc !important;
+  background: rgba(212, 163, 115, 0.22) !important;
+  border-color: rgba(212, 163, 115, 0.45) !important;
+  color: #dfb180 !important;
   font-weight: 750;
-  box-shadow: 0 0 15px rgba(139, 92, 246, 0.2);
+  box-shadow: 0 0 15px rgba(212, 163, 115, 0.2);
 }
 
 .marketplace-redesign .view-toggle {
@@ -960,7 +960,7 @@
 }
 
 .marketplace-redesign .view-btn.active {
-  background: rgba(139, 92, 246, 0.25);
+  background: rgba(212, 163, 115, 0.25);
   color: #ffffff;
 }
 
@@ -1001,9 +1001,9 @@
 
 .marketplace-redesign .quick-category-pill.active {
   border-color: transparent !important;
-  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%) !important;
+  background: linear-gradient(135deg, #b5804f 0%, #c89666 100%) !important;
   color: #ffffff !important;
-  box-shadow: 0 4px 15px rgba(139, 92, 246, 0.4) !important;
+  box-shadow: 0 4px 15px rgba(212, 163, 115, 0.4) !important;
   font-weight: 750;
 }
 
@@ -1036,7 +1036,7 @@
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   border-radius: 1.25rem !important;
-  background: rgba(13, 17, 34, 0.85) !important;
+  background: rgba(18, 18, 22, 0.85) !important;
   backdrop-filter: blur(20px) !important;
   -webkit-backdrop-filter: blur(20px) !important;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4) !important;
@@ -1046,12 +1046,12 @@
 
 .marketplace-redesign .template-card:hover {
   transform: translateY(-4px);
-  border-color: rgba(168, 85, 247, 0.45) !important;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 25px rgba(168, 85, 247, 0.15) !important;
+  border-color: rgba(200, 150, 102, 0.45) !important;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 25px rgba(200, 150, 102, 0.15) !important;
 }
 
 .marketplace-redesign .card-thumbnail-container {
-  background: #080c1d !important;
+  background: #101014 !important;
 }
 
 .marketplace-redesign .card-badge-list {
@@ -1078,7 +1078,7 @@
 .marketplace-redesign .grid-empty-state {
   border: 1px dashed rgba(255, 255, 255, 0.15) !important;
   border-radius: 1.25rem !important;
-  background: rgba(13, 17, 34, 0.6) !important;
+  background: rgba(18, 18, 22, 0.6) !important;
   color: #f1f5f9 !important;
   padding: 3rem 1.5rem;
 }
@@ -1124,27 +1124,27 @@
 
 .marketplace-redesign .page-num-btn.active {
   border-color: transparent !important;
-  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%) !important;
+  background: linear-gradient(135deg, #b5804f 0%, #c89666 100%) !important;
   color: #ffffff !important;
-  box-shadow: 0 4px 15px rgba(139, 92, 246, 0.4) !important;
+  box-shadow: 0 4px 15px rgba(212, 163, 115, 0.4) !important;
 }
 
 /* -- Mobile Filter Slide-Over Drawer -- */
 .marketplace-redesign .mobile-filter-drawer {
-  background: #090d1e !important;
+  background: #121216 !important;
   color: #f1f5f9 !important;
   border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
 }
 
 .marketplace-redesign .mobile-filter-header,
 .marketplace-redesign .mobile-filter-footer {
-  background: #070914 !important;
+  background: #09090b !important;
   border-color: rgba(255, 255, 255, 0.08) !important;
 }
 
 .marketplace-redesign .mobile-filter-apply-btn {
-  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%) !important;
-  box-shadow: 0 4px 18px rgba(139, 92, 246, 0.4) !important;
+  background: linear-gradient(135deg, #b5804f 0%, #c89666 100%) !important;
+  box-shadow: 0 4px 18px rgba(212, 163, 115, 0.4) !important;
   color: #ffffff !important;
 }
 
@@ -1155,12 +1155,12 @@
   left: 0;
   right: 0;
   z-index: 99999 !important;
-  background: rgba(11, 15, 30, 0.98) !important;
+  background: rgba(18, 18, 22, 0.98) !important;
   backdrop-filter: blur(24px) !important;
   -webkit-backdrop-filter: blur(24px) !important;
-  border: 1px solid rgba(139, 92, 246, 0.3) !important;
+  border: 1px solid rgba(212, 163, 115, 0.3) !important;
   border-radius: 1rem !important;
-  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.85), 0 0 30px rgba(139, 92, 246, 0.15) !important;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.85), 0 0 30px rgba(212, 163, 115, 0.15) !important;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -1223,16 +1223,16 @@
 }
 
 .amazon-trending-pill:hover {
-  background: rgba(139, 92, 246, 0.25) !important;
+  background: rgba(212, 163, 115, 0.25) !important;
   color: #ffffff !important;
-  border-color: rgba(139, 92, 246, 0.5) !important;
+  border-color: rgba(212, 163, 115, 0.5) !important;
   transform: translateY(-1px);
 }
 
 .amazon-trending-pill .pill-icon {
   width: 0.78rem;
   height: 0.78rem;
-  color: #c084fc !important;
+  color: #dfb180 !important;
 }
 
 .amazon-quick-search-row {
@@ -1249,7 +1249,7 @@
 
 .amazon-quick-search-row:hover,
 .amazon-quick-search-row.is-selected {
-  background: rgba(139, 92, 246, 0.18) !important;
+  background: rgba(212, 163, 115, 0.18) !important;
 }
 
 .amazon-quick-search-left {
@@ -1261,7 +1261,7 @@
 }
 
 .amazon-quick-search-left strong {
-  color: #38bdf8 !important;
+  color: #dfb180 !important;
   font-weight: 750;
 }
 
@@ -1298,8 +1298,8 @@
 
 .amazon-match-item:hover,
 .amazon-match-item.is-selected {
-  background: rgba(139, 92, 246, 0.15) !important;
-  border-color: rgba(139, 92, 246, 0.3) !important;
+  background: rgba(212, 163, 115, 0.15) !important;
+  border-color: rgba(212, 163, 115, 0.3) !important;
 }
 
 .amazon-match-thumb {
@@ -1308,7 +1308,7 @@
   border-radius: 0.45rem;
   object-fit: cover;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  background: #090d1e !important;
+  background: #121216 !important;
   flex-shrink: 0;
 }
 
@@ -1342,9 +1342,9 @@
   text-transform: uppercase;
   padding: 0.1rem 0.4rem;
   border-radius: 999px;
-  background: rgba(139, 92, 246, 0.25) !important;
-  color: #c084fc !important;
-  border: 1px solid rgba(139, 92, 246, 0.4) !important;
+  background: rgba(212, 163, 115, 0.25) !important;
+  color: #dfb180 !important;
+  border: 1px solid rgba(212, 163, 115, 0.4) !important;
   flex-shrink: 0;
 }
 
@@ -1370,8 +1370,8 @@
 }
 
 .amazon-match-price.is-free {
-  color: #38bdf8 !important;
-  background: rgba(56, 189, 248, 0.15) !important;
+  color: #dfb180 !important;
+  background: rgba(223, 177, 128, 0.15) !important;
   padding: 0.15rem 0.45rem;
   border-radius: 0.35rem;
 }
@@ -1384,7 +1384,7 @@
   font-weight: 750;
   padding: 0.35rem 0.75rem;
   border-radius: 0.5rem;
-  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%) !important;
+  background: linear-gradient(135deg, #b5804f 0%, #c89666 100%) !important;
   color: #fff !important;
   border: 0;
   cursor: pointer;
@@ -1434,8 +1434,8 @@
 }
 
 .amazon-category-item:hover {
-  background: rgba(139, 92, 246, 0.2) !important;
-  border-color: rgba(139, 92, 246, 0.4) !important;
+  background: rgba(212, 163, 115, 0.2) !important;
+  border-color: rgba(212, 163, 115, 0.4) !important;
   color: #ffffff !important;
 }
 
@@ -1499,7 +1499,7 @@
   .marketplace-redesign .marketplace-mobile-filter-btn {
     display: inline-flex;
     border-color: rgba(255, 255, 255, 0.12);
-    background: rgba(13, 17, 34, 0.85);
+    background: rgba(18, 18, 22, 0.85);
     color: #f1f5f9;
   }
   .marketplace-redesign .marketplace-quick-categories {
@@ -1534,17 +1534,17 @@
 }
 
 .mobile-filter-drawer {
-  background: #090d1e !important;
+  background: #121216 !important;
   color: #f1f5f9 !important;
 }
 
 .mobile-filter-header,
 .mobile-filter-footer {
-  background: #070914 !important;
+  background: #09090b !important;
   border-color: rgba(255, 255, 255, 0.08) !important;
 }
 
 .mobile-filter-apply-btn {
-  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%) !important;
-  box-shadow: 0 4px 18px rgba(139, 92, 246, 0.4) !important;
+  background: linear-gradient(135deg, #b5804f 0%, #c89666 100%) !important;
+  box-shadow: 0 4px 18px rgba(212, 163, 115, 0.4) !important;
 }

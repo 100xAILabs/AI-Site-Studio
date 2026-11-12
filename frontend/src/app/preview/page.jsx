@@ -165,7 +165,7 @@ function extractTemplateFromHtml(htmlString) {
       brandName = navBrand.textContent.trim();
     }
 
-    let primaryColor = "#4f46e5";
+    let primaryColor = "#b5804f";
     const styles = doc.querySelectorAll("style");
     styles.forEach((st) => {
       const text = st.textContent || "";
@@ -612,6 +612,7 @@ export default function PreviewPage() {
   // Authentication & Demo Lock State
   const isSignedIn = useAuthStore((s) => s.isSignedIn);
   const authToken = useAuthStore((s) => s.token);
+  const user = useAuthStore((s) => s.user);
   const [demoSessionToken, setDemoSessionToken] = useState(null);
   const [demoRemainingSeconds, setDemoRemainingSeconds] = useState(1800); // 30 minutes
   const [isDemoExpired, setIsDemoExpired] = useState(false);
@@ -824,6 +825,30 @@ export default function PreviewPage() {
     const file = e.target.files?.[0];
     if (!file || !selectedAssetForUpload || !templateId) return;
 
+    // Subscription Tier Enforcement:
+    // 1. Free: Requires credits or plan upgrade
+    // 2. Pro: Maximum 2 image replacements per template
+    // 3. Extreme: Unlimited image changes multiple times
+    const userTier = (user?.subscription_tier || "free").toLowerCase();
+    const isExtreme = ["extreme", "agency", "enterprise"].includes(userTier);
+    const isPro = userTier === "pro";
+    const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+
+    if (!isExtreme && !isPro && !isAdmin) {
+      if ((user?.ai_credits || 0) < 5) {
+        alert("On the Free Tier, image replacements require purchasing credits or upgrading your plan. Upgrade to the Pro Plan (up to 2 image replacements per template) or Extreme Plan (unlimited image changes) to modify templates.");
+        return;
+      }
+    }
+
+    if (isPro && !isExtreme && !isAdmin) {
+      const alreadyReplacedThis = replacedAssetPaths.has(selectedAssetForUpload.rel_path);
+      if (!alreadyReplacedThis && replacedAssetPaths.size >= 2) {
+        alert("Your Pro Plan includes up to 2 image replacements per template. You have already customized 2 photos for this template! Upgrade to the Extreme Plan for unlimited image and asset replacements multiple times.");
+        return;
+      }
+    }
+
     setReplacingAssetPath(selectedAssetForUpload.rel_path);
     try {
       const draftId = await ensureUserDraftCopy();
@@ -999,7 +1024,7 @@ export default function PreviewPage() {
           sectionSubtitle: `Welcome to the official ${newPageName.trim()} subpage.`,
           story: `This page is fully integrated into your multi-page website studio. Customize its layout, copy, and components lively.`,
           primaryCta: "Learn More",
-          themeColor: brand.primary_color || "#6366f1",
+          themeColor: brand.primary_color || "#c89666",
         },
       }));
     }
@@ -1017,7 +1042,7 @@ export default function PreviewPage() {
     business_name: "Apex Design Studio",
     tagline: "Next-Generation Web & Design Solutions",
     logo_text: "APEX",
-    primary_color: "#4f46e5",
+    primary_color: "#b5804f",
     secondary_color: "#0ea5e9",
     contact_email: "hello@apex-studio.com",
     contact_phone: "+1 (800) 555-0199",
@@ -1031,7 +1056,7 @@ export default function PreviewPage() {
       navLinks: ["Templates", "Features", "Pricing", "About"],
       ctaText: "Get Started",
       stickyGlass: true,
-      themeColor: "#4f46e5"
+      themeColor: "#b5804f"
     },
     hero: {
       badgeText: "🚀 Next-Gen Web Studio",
@@ -1043,7 +1068,7 @@ export default function PreviewPage() {
       stat1Label: "Uptime SLA",
       stat2Value: "450k+",
       stat2Label: "Active Users",
-      themeColor: "#4f46e5"
+      themeColor: "#b5804f"
     },
     services: {
       sectionTitle: "Comprehensive Digital Capabilities",
@@ -1054,7 +1079,7 @@ export default function PreviewPage() {
       s2Desc: "Niche-tailored, high-converting copy and localized metatags.",
       s3Title: "SEO & Performance",
       s3Desc: "Lighthouse 100 optimization with automated schema markup.",
-      themeColor: "#4f46e5"
+      themeColor: "#b5804f"
     },
     about: {
       badgeText: "About Apex Studio",
@@ -1062,7 +1087,7 @@ export default function PreviewPage() {
       story: "Founded in 2024, our studio bridges the gap between dynamic code generation and human craft. We provide creators, developers, and enterprises with production-ready website templates.",
       mission: "To empower every creator to build, customize, and launch world-class digital experiences effortlessly.",
       teamCount: "24 Engineers & Designers",
-      themeColor: "#4f46e5"
+      themeColor: "#b5804f"
     },
     pricing: {
       title: "Flexible Transparent Pricing",
@@ -1077,7 +1102,7 @@ export default function PreviewPage() {
       tier3Price: "$299",
       tier3Period: "/ license",
       popular: true,
-      themeColor: "#4f46e5"
+      themeColor: "#b5804f"
     },
     testimonials: {
       sectionTitle: "Trusted by Creators & Agencies Worldwide",
@@ -1086,7 +1111,7 @@ export default function PreviewPage() {
       role: "VP of Product",
       company: "CloudScale Inc.",
       rating: "5",
-      themeColor: "#4f46e5"
+      themeColor: "#b5804f"
     },
     contact: {
       title: "Get in Touch with Our Team",
@@ -1096,14 +1121,14 @@ export default function PreviewPage() {
       address: "",
       hours: "Mon - Fri: 9:00 AM - 6:00 PM PST",
       buttonText: "Send Message",
-      themeColor: "#4f46e5"
+      themeColor: "#b5804f"
     },
     announcement: {
       badge: "Special Offer",
       title: "Spring 2026 Collection Live",
       message: "Explore our newest production-ready templates with 20% discount using promo code SPRING26.",
       ctaText: "Explore Now",
-      themeColor: "#4f46e5"
+      themeColor: "#b5804f"
     },
     footer: {
       brandName: "Apex Design Studio",
@@ -1112,7 +1137,7 @@ export default function PreviewPage() {
       link1: "Privacy Policy",
       link2: "Terms of Service",
       link3: "Support Center",
-      themeColor: "#4f46e5"
+      themeColor: "#b5804f"
     }
   });
   const defaultSectionPropsRef = useRef(sectionProps);
@@ -1163,7 +1188,7 @@ export default function PreviewPage() {
 
         if (cancelled) return;
         let initialProps = { ...defaultSectionPropsRef.current };
-        let primaryColor = "#6366f1";
+        let primaryColor = "#c89666";
 
         // Check local storage for persistent user custom color first!
         try {
@@ -1207,7 +1232,7 @@ export default function PreviewPage() {
             setPages(dynamicPages);
           }
 
-          if (primaryColor === "#6366f1" && data.color_scheme) {
+          if (primaryColor === "#c89666" && data.color_scheme) {
             if (data.color_scheme.trim().startsWith("#")) {
               primaryColor = data.color_scheme.trim();
             } else {
@@ -1248,7 +1273,7 @@ export default function PreviewPage() {
         // Apply extracted brand & section props directly from template source files
         if (extracted && extracted.status === "success") {
           const diskColor = extracted.brand?.primary_color;
-          if (diskColor && diskColor.startsWith("#") && primaryColor === "#6366f1") {
+          if (diskColor && diskColor.startsWith("#") && primaryColor === "#c89666") {
             primaryColor = diskColor;
           }
 
@@ -1917,7 +1942,7 @@ export default function PreviewPage() {
       if (preset) {
         handleApplyBusinessPreset(preset);
       } else if (qLower.includes("dark") || qLower.includes("glassmorphism")) {
-        handleFieldChange("themeColor", "#8b5cf6");
+        handleFieldChange("themeColor", "#d4a373");
         setCanvasBg("dark");
       } else {
         throw new Error("AI editing needs a real template draft. In demo mode, try a listed business or theme preset.");
@@ -2060,7 +2085,7 @@ export default function PreviewPage() {
             <button
               type="button"
               onClick={() => navigate(`/studio/launch?template=${encodeURIComponent(effectiveTemplateId || "")}`)}
-              className="sb-ghost-btn text-xs font-semibold py-1.5 px-3 border border-violet-500/30 text-violet-300 hover:text-white hover:bg-violet-500/20"
+              className="sb-ghost-btn text-xs font-semibold py-1.5 px-3 border border-[#c89666]/30 text-[#dfb180] hover:text-white hover:bg-[#c89666]/20"
               title="Return to Launch Hub"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
@@ -2117,19 +2142,31 @@ export default function PreviewPage() {
                 <button
                   type="button"
                   onClick={() => {
+                    const userTier = (user?.subscription_tier || "free").toLowerCase();
+                    const isExtreme = ["extreme", "agency", "enterprise"].includes(userTier);
+                    const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+                    if (!isExtreme && !isAdmin) {
+                      if (window.confirm("The AI Prompt Editor is an exclusive feature of the Extreme Plan. It allows conversational AI code refactoring, full-stack generation, and automated multi-site healing. Would you like to view the Extreme Plan now?")) {
+                        navigate("/pricing");
+                      }
+                      return;
+                    }
                     setEditorMode(editorMode === "ai" ? "manual" : "ai");
                     if (mobilePanel === "sections") setMobilePanel("edit");
                   }}
                   className={cn(
                     "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer select-none",
                     editorMode === "ai"
-                      ? "bg-indigo-500/20 border-indigo-500/50 text-indigo-300 shadow-sm"
-                      : "bg-card/80 hover:bg-indigo-500/10 border-border hover:border-indigo-500/40 text-muted-foreground hover:text-indigo-400"
+                      ? "bg-[#c89666]/20 border-[#c89666]/50 text-[#dfb180] shadow-sm"
+                      : "bg-card/80 hover:bg-[#c89666]/10 border-border hover:border-[#c89666]/40 text-muted-foreground hover:text-[#dfb180]"
                   )}
-                  title="Use AI to edit and change website code"
+                  title="Use AI to edit and change website code (Extreme Plan)"
                 >
-                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                  <Sparkles className="w-3.5 h-3.5 text-[#dfb180]" />
                   <span>{editorMode === "ai" ? "AI Editing Code" : "Use AI to Change Code"}</span>
+                  {!["extreme", "agency", "enterprise"].includes((user?.subscription_tier || "free").toLowerCase()) && !user?.is_admin && user?.role !== "admin" && (
+                    <span className="text-[9px] uppercase px-1 py-0.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded font-black ml-0.5">Extreme</span>
+                  )}
                 </button>
 
                 {/* Quick return button to manual content editor when in photo or AI mode */}
@@ -2199,8 +2236,8 @@ export default function PreviewPage() {
                 <span className="hidden md:inline">Private Draft (Protected)</span>
               </div>
             ) : (
-              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-500/15 border border-violet-500/30 text-violet-400 text-xs font-semibold" title="Marketplace master preview. Edits auto-copy to your private draft.">
-                <Sparkles className="w-3.5 h-3.5 text-violet-400" />
+              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#c89666]/15 border border-[#c89666]/30 text-[#dfb180] text-xs font-semibold" title="Marketplace master preview. Edits auto-copy to your private draft.">
+                <Sparkles className="w-3.5 h-3.5 text-[#dfb180]" />
                 <span className="hidden md:inline">Marketplace Sandbox</span>
               </div>
             )}
@@ -2227,7 +2264,7 @@ export default function PreviewPage() {
               type="button"
               onClick={() => handleFinalizeChanges(true)}
               disabled={savingManual || savingWithAi}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 hover:from-violet-500 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-500/25 transition-all border border-indigo-400/30 cursor-pointer disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] text-xs font-bold shadow-lg shadow-black/40 transition-all border border-[#c89666]/30 cursor-pointer disabled:opacity-50"
               title="AI Deep Save: Scans and refactors the entire codebase using AI to verify all references"
             >
               <Sparkles className={`w-3.5 h-3.5 text-amber-300 ${savingWithAi ? "animate-spin" : ""}`} />
@@ -2263,7 +2300,7 @@ export default function PreviewPage() {
                 </button>
                 {/* Tech Stack Badge */}
                 <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/5 border border-white/10 text-[11px] font-semibold text-slate-300">
-                  <Code className="w-3.5 h-3.5 text-violet-400" />
+                  <Code className="w-3.5 h-3.5 text-[#dfb180]" />
                   <span>{({ react: "React + FastAPI", vue: "Vue + FastAPI", angular: "Angular + FastAPI", nextjs: "Next.js + FastAPI" }[String(templateData?.framework || "html").toLowerCase()] || "HTML5 + CSS + JS")}</span>
                 </span>
 
@@ -2283,7 +2320,7 @@ export default function PreviewPage() {
                     const targetId = customDraftId || activeTemplateId;
                     navigate(`/dashboard?tab=deployments&deployTemplate=${targetId}&autoOpen=true`);
                   }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:opacity-95 text-white text-xs font-bold shadow-lg shadow-emerald-500/20 transition-all border-0 cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] text-xs font-bold shadow-lg shadow-emerald-500/20 transition-all border-0 cursor-pointer"
                   title="Deploy this website live with managed hosting"
                 >
                   <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
@@ -2309,7 +2346,7 @@ export default function PreviewPage() {
               type="button"
               onClick={() => handleFinalizeChanges(true)}
               disabled={savingManual || savingWithAi}
-              className="py-1.5 px-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-1 border border-indigo-400/30 disabled:opacity-50"
+              className="py-1.5 px-2.5 rounded-xl bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] text-xs font-bold flex items-center gap-1 border border-[#c89666]/30 disabled:opacity-50"
               title="AI deep save across entire codebase"
             >
               <Sparkles className={`w-3 h-3 text-amber-300 ${savingWithAi ? "animate-spin" : ""}`} />
@@ -2554,7 +2591,7 @@ export default function PreviewPage() {
           <div className="sb-page-switcher-bar">
             <div className="flex items-center gap-1.5 overflow-x-auto py-1 scrollbar-none flex-1">
               <div className="flex items-center gap-1 text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground mr-1 shrink-0">
-                <Layers className="w-3.5 h-3.5 text-indigo-400" />
+                <Layers className="w-3.5 h-3.5 text-[#dfb180]" />
                 <span className="hidden sm:inline">Pages ({pages.length}):</span>
               </div>
               {pages.map((p) => {
@@ -2573,7 +2610,7 @@ export default function PreviewPage() {
                     <span>{p.icon || "📄"}</span>
                     <span>{p.title}</span>
                     {p.isNew && (
-                      <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-bold">NEW</span>
+                      <span className="text-[9px] px-1 py-0.2 rounded bg-[#c89666]/20 text-[#dfb180] font-bold">NEW</span>
                     )}
                   </button>
                 );
@@ -2584,7 +2621,7 @@ export default function PreviewPage() {
                 className="sb-add-page-btn"
                 title="Create a new subpage in this website"
               >
-                <Plus className="w-3 h-3 text-indigo-400" />
+                <Plus className="w-3 h-3 text-[#dfb180]" />
                 <span>+ Add Page</span>
               </button>
             </div>
@@ -2928,7 +2965,7 @@ export default function PreviewPage() {
                       type="button"
                       onClick={() => handleFinalizeChanges(true)}
                       disabled={savingManual || savingWithAi}
-                      className="py-1 px-2 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-[10px] flex items-center gap-1 shadow cursor-pointer border border-indigo-400/30 transition-all disabled:opacity-50"
+                      className="py-1 px-2 rounded-lg bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] font-bold text-[10px] flex items-center gap-1 shadow cursor-pointer border border-[#c89666]/30 transition-all disabled:opacity-50"
                       title="AI deep save: Scans and refactors the entire codebase using AI to verify all references"
                     >
                       <Sparkles className={`w-3 h-3 text-amber-300 ${savingWithAi ? "animate-spin" : ""}`} />
@@ -3026,7 +3063,7 @@ export default function PreviewPage() {
                     type="button"
                     onClick={handleSaveAllSections}
                     disabled={savingManual}
-                    className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white font-bold text-xs shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                    className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] font-bold text-xs shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
                     title="Save and permanently finalize all sections across the entire website at once"
                   >
                     <Zap className="w-4 h-4 fill-amber-300 text-amber-300" />
@@ -3189,7 +3226,7 @@ export default function PreviewPage() {
                       type="button"
                       onClick={handleFinalizeChanges}
                       disabled={savingManual || !hasUnfinalizedChanges}
-                      className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white font-bold text-xs shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-40"
+                      className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] font-bold text-xs shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-40"
                     >
                       <Check className="w-4 h-4" />
                       <span>Save &amp; Finalize Photos</span>
@@ -3230,7 +3267,7 @@ export default function PreviewPage() {
                     <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
                     <span>Content Editor</span>
                   </button>
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-500/15 border border-indigo-500/25 text-indigo-300 text-[11px] font-bold">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#c89666]/15 border border-[#c89666]/25 text-[#dfb180] text-[11px] font-bold">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                     <span>AI Ready</span>
                   </div>
@@ -3238,7 +3275,7 @@ export default function PreviewPage() {
 
                 <div className="flex items-center justify-between pt-0.5">
                   <div className="flex items-center gap-1.5">
-                    <div className="w-6 h-6 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                    <div className="w-6 h-6 rounded-lg bg-[#c89666]/20 border border-[#c89666]/30 flex items-center justify-center text-[#dfb180]">
                       <Sparkles className="w-3.5 h-3.5" />
                     </div>
                     <h3 className="font-extrabold text-xs text-foreground tracking-tight">AI Prompt Assistant</h3>
@@ -3285,7 +3322,7 @@ export default function PreviewPage() {
                       type="button"
                       onClick={() => handleFinalizeChanges(true)}
                       disabled={savingManual || savingWithAi}
-                      className="py-1 px-2.5 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-[10px] flex items-center gap-1 shadow cursor-pointer border border-indigo-400/30 transition-all disabled:opacity-50"
+                      className="py-1 px-2.5 rounded-lg bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] font-bold text-[10px] flex items-center gap-1 shadow cursor-pointer border border-[#c89666]/30 transition-all disabled:opacity-50"
                       title="AI deep save: Scans and refactors the entire codebase using AI to verify all references"
                     >
                       <Sparkles className={`w-3 h-3 text-amber-300 ${savingWithAi ? "animate-spin" : ""}`} />
@@ -3311,7 +3348,7 @@ export default function PreviewPage() {
                   item.id === "init" ? (
                     <div key={item.id} className="p-3.5 rounded-2xl bg-card/80 border border-border/80 text-foreground space-y-3 shadow-sm">
                       <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-lg bg-indigo-600 flex items-center justify-center text-white shadow-sm shrink-0">
+                        <div className="w-6 h-6 rounded-lg bg-[#c89666] flex items-center justify-center text-white shadow-sm shrink-0">
                           <Bot className="w-3.5 h-3.5" />
                         </div>
                         <div className="min-w-0 flex-1">
@@ -3337,9 +3374,9 @@ export default function PreviewPage() {
                               onClick={() => {
                                 setAiInput(suggestion);
                               }}
-                              className="text-left text-[11px] px-2.5 py-1.5 rounded-lg bg-muted/40 hover:bg-indigo-500/15 hover:text-indigo-300 border border-border/60 hover:border-indigo-500/30 text-foreground transition-all flex items-center gap-1.5 cursor-pointer"
+                              className="text-left text-[11px] px-2.5 py-1.5 rounded-lg bg-muted/40 hover:bg-[#c89666]/15 hover:text-[#dfb180] border border-border/60 hover:border-[#c89666]/30 text-foreground transition-all flex items-center gap-1.5 cursor-pointer"
                             >
-                              <Sparkles className="w-2.5 h-2.5 text-indigo-400 shrink-0" />
+                              <Sparkles className="w-2.5 h-2.5 text-[#dfb180] shrink-0" />
                               <span className="truncate">{suggestion}</span>
                             </button>
                           ))}
@@ -3359,7 +3396,7 @@ export default function PreviewPage() {
                       <div className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground mb-1 px-1">
                         {item.role === "assistant" ? (
                           <>
-                            <Sparkles className="w-3 h-3 text-indigo-400" />
+                            <Sparkles className="w-3 h-3 text-[#dfb180]" />
                             <span>AI Assistant</span>
                           </>
                         ) : (
@@ -3373,7 +3410,7 @@ export default function PreviewPage() {
                           "p-3 rounded-2xl shadow-sm text-xs font-normal whitespace-pre-wrap break-words",
                           item.role === "assistant"
                             ? "bg-muted/70 border border-border/80 text-foreground rounded-tl-xs"
-                            : "bg-gradient-to-r from-indigo-600 to-indigo-700 text-white border border-indigo-500/40 rounded-tr-xs shadow-indigo-500/10"
+                            : "bg-gradient-to-r from-[#c89666] to-[#b5804f] text-[#09090b] border border-[#c89666]/40 rounded-tr-xs shadow-black/40"
                         )}
                       >
                         {item.text}
@@ -3385,15 +3422,15 @@ export default function PreviewPage() {
                 {/* AI Refactoring / Thinking Spinner */}
                 {isAiProcessing && (
                   <div className="mr-auto items-start max-w-[90%] space-y-1">
-                    <div className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-400 px-1">
+                    <div className="flex items-center gap-1.5 text-[10px] font-bold text-[#dfb180] px-1">
                       <Sparkles className="w-3 h-3 animate-spin" />
                       <span>AI Code Engine</span>
                     </div>
-                    <div className="p-3 rounded-2xl rounded-tl-xs bg-indigo-500/10 border border-indigo-500/30 text-indigo-200 text-xs flex items-center gap-2.5 shadow-sm animate-pulse">
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400 flex-shrink-0" />
+                    <div className="p-3 rounded-2xl rounded-tl-xs bg-[#c89666]/10 border border-[#c89666]/30 text-[#f4ecdf] text-xs flex items-center gap-2.5 shadow-sm animate-pulse">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#dfb180] flex-shrink-0" />
                       <div>
                         <div className="font-semibold">Refactoring template code...</div>
-                        <div className="text-[10px] text-indigo-300/80">Updating live preview in center canvas</div>
+                        <div className="text-[10px] text-[#dfb180]/80">Updating live preview in center canvas</div>
                       </div>
                     </div>
                   </div>
@@ -3404,7 +3441,7 @@ export default function PreviewPage() {
 
               {/* Bottom Message Sender: Docked at bottom */}
               <div className="p-3 pb-4 border-t border-border/60 bg-card/95 backdrop-blur-md flex-shrink-0 space-y-2">
-                <div className="flex items-end gap-2 bg-background/90 border border-border/80 focus-within:border-indigo-500/80 focus-within:ring-1 focus-within:ring-indigo-500/30 rounded-2xl p-2 pl-3 shadow-inner transition-all">
+                <div className="flex items-end gap-2 bg-background/90 border border-border/80 focus-within:border-[#c89666]/80 focus-within:ring-1 focus-within:ring-[#c89666]/30 rounded-2xl p-2 pl-3 shadow-inner transition-all">
                   <textarea
                     rows={1}
                     placeholder="Ask AI to change anything..."
@@ -3427,7 +3464,7 @@ export default function PreviewPage() {
                     type="button"
                     onClick={() => executeAiPrompt()}
                     disabled={!aiInput.trim() || isAiProcessing}
-                    className="h-8 w-8 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center shrink-0 shadow transition-all disabled:opacity-30 disabled:hover:bg-indigo-600 cursor-pointer"
+                    className="h-8 w-8 rounded-xl bg-[#c89666] hover:bg-[#dfb180] text-white flex items-center justify-center shrink-0 shadow transition-all disabled:opacity-30 disabled:hover:bg-[#c89666] cursor-pointer"
                     title="Send (Enter ↵)"
                   >
                     {isAiProcessing ? (
@@ -3475,7 +3512,7 @@ export default function PreviewPage() {
                 type="button"
                 onClick={handleFinalizeAndExit}
                 disabled={savingManual}
-                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer"
+                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer"
               >
                 <Check className="w-4 h-4" />
                 <span>{savingManual ? "Saving..." : "Finalize & Save Changes, Then Exit"}</span>
@@ -3509,7 +3546,7 @@ export default function PreviewPage() {
           <div className="bg-card border border-border/80 rounded-2xl shadow-2xl max-w-md w-full p-5 space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-border/40 pb-3">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                <div className="w-8 h-8 rounded-xl bg-[#c89666]/15 border border-[#c89666]/30 flex items-center justify-center text-[#dfb180]">
                   <Plus className="w-4 h-4" />
                 </div>
                 <div>
@@ -3556,7 +3593,7 @@ export default function PreviewPage() {
                       className={cn(
                         "p-2.5 rounded-xl border text-left transition-all text-xs",
                         newPagePreset === preset.id
-                          ? "border-indigo-500 bg-indigo-500/10 text-indigo-400 font-bold"
+                          ? "border-[#c89666] bg-[#c89666]/10 text-[#dfb180] font-bold"
                           : "border-border/60 hover:bg-muted/40 text-muted-foreground"
                       )}
                     >
@@ -3594,7 +3631,7 @@ export default function PreviewPage() {
 }
 
 function renderDesignedOutputView(sectionId, props) {
-  const themeColor = props.themeColor || "#4f46e5";
+  const themeColor = props.themeColor || "#b5804f";
   const sid = (sectionId || "").toLowerCase();
 
   // 🧭 1. NAVIGATION HEADER
@@ -4115,7 +4152,7 @@ function hslToRgb(h, s, l) {
 }
 
 function normalizeToHex(input) {
-  if (!input) return "#4f46e5";
+  if (!input) return "#b5804f";
   const str = input.trim();
   if (str.startsWith("#")) {
     const raw = str.replace(/[^0-9a-fA-F]/g, "");
@@ -4161,7 +4198,7 @@ function getFormattedColor(hex, format) {
 // 12 Curated Vibrant Modern Web Palette Colors
 const ADDITIONAL_COLOR_SWATCHES = [
   { name: "Emerald", hex: "#10b981", tag: "Success Emerald" },
-  { name: "Royal Violet", hex: "#8b5cf6", tag: "Vibrant Violet" },
+  { name: "Royal Violet", hex: "#d4a373", tag: "Vibrant Violet" },
   { name: "Rose Pink", hex: "#ec4899", tag: "Modern Rose" },
   { name: "Sunset Amber", hex: "#f59e0b", tag: "Warm Gold" },
   { name: "Coral Orange", hex: "#f97316", tag: "Sunset Coral" },
@@ -4170,7 +4207,7 @@ const ADDITIONAL_COLOR_SWATCHES = [
   { name: "Cyan Aqua", hex: "#06b6d4", tag: "Neon Cyan" },
   { name: "Slate Navy", hex: "#1e293b", tag: "Dark Slate" },
   { name: "Obsidian", hex: "#09090b", tag: "Obsidian Black" },
-  { name: "Plum Purple", hex: "#7c3aed", tag: "Deep Purple" },
+  { name: "Plum Purple", hex: "#c89666", tag: "Deep Purple" },
   { name: "Classic Ruby", hex: "#c4222c", tag: "Classic Ruby" },
 ];
 
@@ -4185,7 +4222,7 @@ function ThemeColorPicker({
   templateId = null,
   onApplyColor = null
 }) {
-  const currentColor = value || "#4f46e5";
+  const currentColor = value || "#b5804f";
   const [format, setFormat] = useState("HEX"); // "HEX" | "RGB" | "HSL"
   const [copied, setCopied] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
@@ -4253,7 +4290,7 @@ function ThemeColorPicker({
   };
 
   const currentHex = normalizeToHex(currentColor).toLowerCase();
-  const isPrimaryActive = currentHex === "#4f46e5" || currentHex === "#6366f1";
+  const isPrimaryActive = currentHex === "#b5804f" || currentHex === "#c89666";
   const isSecondaryActive = currentHex === "#0ea5e9" || currentHex === "#0284c7";
 
   return (
@@ -4287,7 +4324,7 @@ function ThemeColorPicker({
       <div className="space-y-1.5">
         <div className="flex items-center justify-between text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
           <span>Application Brand Colors</span>
-          <span className="font-mono text-[9px] text-indigo-500 font-bold bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20">
+          <span className="font-mono text-[9px] text-[#c89666] font-bold bg-[#c89666]/10 px-1.5 py-0.5 rounded border border-[#c89666]/20">
             Design Tokens
           </span>
         </div>
@@ -4295,29 +4332,29 @@ function ThemeColorPicker({
           {/* Primary Preset */}
           <button
             type="button"
-            onClick={() => handleSelectColor("#4f46e5")}
+            onClick={() => handleSelectColor("#b5804f")}
             className={cn(
               "sb-color-brand-item",
               isPrimaryActive
-                ? "border-indigo-500 bg-indigo-500/10 ring-2 ring-indigo-500/30 shadow-sm"
-                : "border-border/70 hover:bg-muted/40 hover:border-indigo-500/40"
+                ? "border-[#c89666] bg-[#c89666]/10 ring-2 ring-[#c89666]/30 shadow-sm"
+                : "border-border/70 hover:bg-muted/40 hover:border-[#c89666]/40"
             )}
           >
             <div className="flex items-center justify-between w-full">
               <div className="flex items-center gap-1.5">
                 <span
                   className="w-3.5 h-3.5 rounded-full shadow-sm flex-shrink-0 border border-white/20"
-                  style={{ backgroundColor: "#4f46e5" }}
+                  style={{ backgroundColor: "#b5804f" }}
                 />
                 <span className="text-xs font-bold text-foreground">Primary</span>
               </div>
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 uppercase">
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#c89666]/15 text-[#dfb180] border border-[#c89666]/30 uppercase">
                 Brand
               </span>
             </div>
             <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground">
               <span>{format === "HEX" ? "#4F46E5" : format === "RGB" ? "rgb(79, 70, 229)" : "hsl(231, 58%, 55%)"}</span>
-              {isPrimaryActive && <Check className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />}
+              {isPrimaryActive && <Check className="w-3.5 h-3.5 text-[#c89666] flex-shrink-0" />}
             </div>
           </button>
 
@@ -4379,7 +4416,7 @@ function ThemeColorPicker({
                   <Check
                     className={cn(
                       "w-3.5 h-3.5 stroke-[3]",
-                      sw.hex === "#09090b" || sw.hex === "#1e293b" || sw.hex === "#7c3aed" || sw.hex === "#c4222c" || sw.hex === "#e11d48" || sw.hex === "#2563eb"
+                      sw.hex === "#09090b" || sw.hex === "#1e293b" || sw.hex === "#c89666" || sw.hex === "#c4222c" || sw.hex === "#e11d48" || sw.hex === "#2563eb"
                         ? "text-white"
                         : "text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]"
                     )}
@@ -4412,7 +4449,7 @@ function ThemeColorPicker({
             />
             <input
               type="color"
-              value={currentHex.length === 7 ? currentHex : "#4f46e5"}
+              value={currentHex.length === 7 ? currentHex : "#b5804f"}
               onChange={(e) => handleSelectColor(e.target.value)}
               className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
               title="Click to open system color picker"
@@ -4455,7 +4492,7 @@ function ThemeColorPicker({
             "w-full py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer border",
             isApplied
               ? "bg-emerald-600 text-white border-emerald-500 shadow-emerald-500/20"
-              : "bg-gradient-to-r from-indigo-600 via-indigo-500 to-pink-500 hover:opacity-95 text-white border-indigo-400/30"
+              : "bg-gradient-to-r from-[#c89666] to-[#b5804f] text-[#09090b] border-[#c89666]/30"
           )}
         >
           {isApplying ? (

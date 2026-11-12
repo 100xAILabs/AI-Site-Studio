@@ -29,12 +29,11 @@ export default function SignInPage({ isRegister = false }) {
   const navigate = useNavigate();
   const location = useLocation();
   const from = new URLSearchParams(location.search).get("from") || "/dashboard";
-  const initialRole = new URLSearchParams(location.search).get("role") || "buyer";
   const urlError = new URLSearchParams(location.search).get("error") || "";
 
   const { isSignedIn, isLoaded } = useAppUser();
 
-  const [role, setRole] = useState(initialRole.toLowerCase() === "seller" ? "seller" : "buyer");
+  const [role, setRole] = useState("buyer");
   const [agreed, setAgreed] = useState(true);
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState(urlError);
@@ -55,13 +54,6 @@ export default function SignInPage({ isRegister = false }) {
       navigate(from, { replace: true });
     }
   }, [isLoaded, isSignedIn, navigate, from]);
-
-  // Sync role when initialRole query parameter changes
-  useEffect(() => {
-    if (initialRole) {
-      setRole(initialRole.toLowerCase() === "seller" ? "seller" : "buyer");
-    }
-  }, [initialRole]);
 
   // Handle lock countdown timer
   useEffect(() => {
@@ -212,7 +204,7 @@ export default function SignInPage({ isRegister = false }) {
           >
             {/* Eyebrow Pill */}
             <div className="auth-eyebrow-pill">
-              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+              <Sparkles className="w-3.5 h-3.5 text-[#dfb180]" />
               <span>Build • Create • Grow</span>
             </div>
 
@@ -235,7 +227,7 @@ export default function SignInPage({ isRegister = false }) {
               {/* Floating Badge Top-Right: AI Powered Builder */}
               <div className="floating-ai-badge">
                 <div className="ai-badge-icon-wrap">
-                  <Sparkles className="w-3.5 h-3.5 text-purple-300" />
+                  <Sparkles className="w-3.5 h-3.5 text-[#dfb180]" />
                 </div>
                 <div className="ai-badge-text-wrap">
                   <span className="ai-badge-title">AI Powered</span>
@@ -245,7 +237,7 @@ export default function SignInPage({ isRegister = false }) {
 
               {/* Floating Code Badge on Left */}
               <div className="floating-code-badge">
-                <Code2 className="w-5 h-5 text-purple-300" />
+                <Code2 className="w-5 h-5 text-[#dfb180]" />
               </div>
 
               {/* Realistic Sleek Laptop Body */}
@@ -319,15 +311,15 @@ export default function SignInPage({ isRegister = false }) {
             {/* Bottom 3 Feature Metrics */}
             <div className="auth-metrics-bar">
               <div className="auth-metric-item">
-                <Zap className="w-4 h-4 text-purple-400" />
+                <Zap className="w-4 h-4 text-[#dfb180]" />
                 <span className="metric-text">100+ Templates</span>
               </div>
               <div className="auth-metric-item">
-                <ShieldCheck className="w-4 h-4 text-purple-400" />
+                <ShieldCheck className="w-4 h-4 text-[#dfb180]" />
                 <span className="metric-text">Secure &amp; Reliable</span>
               </div>
               <div className="auth-metric-item">
-                <Headphones className="w-4 h-4 text-purple-400" />
+                <Headphones className="w-4 h-4 text-[#dfb180]" />
                 <span className="metric-text">24/7 Support</span>
               </div>
             </div>
@@ -351,77 +343,8 @@ export default function SignInPage({ isRegister = false }) {
               </div>
               <h2 className="auth-glass-title">Site Studio</h2>
               <p className="auth-glass-subtitle">
-                Choose how you want to access your account
+                Sign in to your account
               </p>
-            </div>
-
-            {/* Segmented Role Toggle Buttons */}
-            <div className="auth-role-segmented-track">
-              <button
-                type="button"
-                onClick={() => {
-                  setRole("buyer");
-                  setError("");
-                }}
-                className={`auth-role-segmented-btn ${role === "buyer" ? "active" : ""}`}
-              >
-                <User className="w-4 h-4" />
-                <span>Buyer</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setRole("seller");
-                  setError("");
-                }}
-                className={`auth-role-segmented-btn ${role === "seller" ? "active" : ""}`}
-              >
-                <Store className="w-4 h-4" />
-                <span>Seller</span>
-              </button>
-            </div>
-
-            {/* Dual Role Account Type Feature Cards */}
-            <div className="auth-role-cards-grid">
-              <div
-                onClick={() => {
-                  setRole("buyer");
-                  setError("");
-                }}
-                className={`auth-role-card ${role === "buyer" ? "selected" : ""}`}
-                role="button"
-                tabIndex={0}
-              >
-                <div className="auth-role-card-icon-box">
-                  <ShoppingCart className="w-5 h-5 text-purple-400" />
-                </div>
-                <div className="auth-role-card-text">
-                  <h4 className="role-card-title">Buyer Account</h4>
-                  <p className="role-card-desc">
-                    Discover, purchase and manage website templates.
-                  </p>
-                </div>
-              </div>
-
-              <div
-                onClick={() => {
-                  setRole("seller");
-                  setError("");
-                }}
-                className={`auth-role-card ${role === "seller" ? "selected" : ""}`}
-                role="button"
-                tabIndex={0}
-              >
-                <div className="auth-role-card-icon-box">
-                  <Store className="w-5 h-5 text-purple-400" />
-                </div>
-                <div className="auth-role-card-text">
-                  <h4 className="role-card-title">Seller Account</h4>
-                  <p className="role-card-desc">
-                    Upload, publish and sell your templates.
-                  </p>
-                </div>
-              </div>
             </div>
 
             {/* Email & Password Authentication Form */}
@@ -536,7 +459,7 @@ export default function SignInPage({ isRegister = false }) {
                 ) : (
                   <>
                     <span>
-                      {isRegister ? `Create ${roleLabel} Account` : `Sign In as ${roleLabel}`}
+                      {isRegister ? "Create Account" : "Sign In"}
                     </span>
                     <ArrowRight className="w-4 h-4 ml-2" />
                   </>
@@ -564,33 +487,6 @@ export default function SignInPage({ isRegister = false }) {
                   <AlertCircle className="w-4 h-4 flex-shrink-0" style={{ marginTop: "2px" }} />
                   <div style={{ flex: 1 }}>
                     <span style={{ display: "block", lineHeight: 1.45 }}>{error}</span>
-                    {error.toLowerCase().includes("switch to") && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const target = error.toLowerCase().includes("seller") ? "seller" : "buyer";
-                          setRole(target);
-                          setError("");
-                        }}
-                        style={{
-                          marginTop: "8px",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "6px",
-                          padding: "5px 12px",
-                          borderRadius: "6px",
-                          fontSize: "0.76rem",
-                          fontWeight: 700,
-                          color: "#ffffff",
-                          background: "#7c3aed",
-                          border: "1px solid rgba(255, 255, 255, 0.2)",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <span>Switch to {error.toLowerCase().includes("seller") ? "Seller" : "Buyer"} Login</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
-                    )}
                     {error.toLowerCase().includes("google") && (
                       <button
                         type="button"
@@ -604,7 +500,7 @@ export default function SignInPage({ isRegister = false }) {
                           borderRadius: "6px",
                           fontSize: "0.78rem",
                           fontWeight: 700,
-                          color: "#111827",
+                          color: "#121216",
                           background: "#ffffff",
                           border: "none",
                           cursor: "pointer",
@@ -629,7 +525,7 @@ export default function SignInPage({ isRegister = false }) {
             {duplicateAccountInfo && (
               <div className="auth-duplicate-card">
                 <div className="duplicate-card-header">
-                  <AlertCircle className="w-4 h-4 text-purple-400 flex-shrink-0" />
+                  <AlertCircle className="w-4 h-4 text-[#dfb180] flex-shrink-0" />
                   <div>
                     <h5 className="duplicate-title">Account Already Exists</h5>
                     <p className="duplicate-desc">

@@ -164,7 +164,7 @@ export default function PayoutReceiptPage() {
         </button>
         <button
           onClick={handlePrint}
-          className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-primary to-indigo-600 text-white rounded-xl text-xs font-bold hover:opacity-95 transition-all shadow-lg shadow-primary/20 cursor-pointer border-none"
+          className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-primary from-[#c89666] to-[#b5804f] text-white rounded-xl text-xs font-bold hover:opacity-95 transition-all shadow-lg shadow-primary/20 cursor-pointer border-none"
         >
           <Printer className="w-3.5 h-3.5" /> Print / PDF
         </button>
@@ -203,8 +203,8 @@ export default function PayoutReceiptPage() {
         {/* Details: Entity & Seller */}
         <div className="grid grid-cols-2 gap-4 text-xs">
           <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl space-y-0.5">
-            <span className="text-[9px] uppercase font-black text-indigo-700 tracking-wider flex items-center gap-1">
-              <Building2 className="w-3 h-3 text-indigo-600" /> DISBURSER
+            <span className="text-[9px] uppercase font-black text-[#dfb180] tracking-wider flex items-center gap-1">
+              <Building2 className="w-3 h-3 text-[#dfb180]" /> DISBURSER
             </span>
             <p className="font-bold text-slate-900 text-xs">Site Studio LLC</p>
             <p className="text-slate-500 text-[10px]">finance@aisitestudio.com</p>

@@ -7,11 +7,11 @@ import {
 import { cn } from "@/lib/utils";
 
 export const PRESET_THEMES = [
-  { id: "saas", label: "SaaS Modern", emoji: "🚀", color: "#6366f1", desc: "Tech startups, devtools & cloud apps" },
+  { id: "saas", label: "SaaS Modern", emoji: "🚀", color: "#c89666", desc: "Tech startups, devtools & cloud apps" },
   { id: "ecommerce", label: "E-Commerce", emoji: "🛍️", color: "#0f766e", desc: "Bespoke goods, fashion & lifestyle" },
   { id: "bakery", label: "Artisanal Café", emoji: "☕", color: "#d97706", desc: "French bakery, bistro & roastery" },
   { id: "medical", label: "Healthcare", emoji: "🏥", color: "#059669", desc: "Holistic clinic, dental & wellness" },
-  { id: "agency", label: "Creative Agency", emoji: "💎", color: "#8b5cf6", desc: "Design studio, brand craft & WebGL" },
+  { id: "agency", label: "Creative Agency", emoji: "💎", color: "#d4a373", desc: "Design studio, brand craft & WebGL" },
 ];
 
 export const STORYBOOK_SECTION_PRESETS = {
@@ -20,7 +20,7 @@ export const STORYBOOK_SECTION_PRESETS = {
       business_name: "Apex Cloud Studio",
       tagline: "Autonomous Cloud Infrastructure & AI Automation",
       logo_text: "APEX",
-      primary_color: "#4f46e5",
+      primary_color: "#b5804f",
       secondary_color: "#0ea5e9",
       contact_email: "hello@apexcloud.io",
       contact_phone: "+1 (800) 555-0199",
@@ -56,7 +56,7 @@ export const STORYBOOK_SECTION_PRESETS = {
       business_name: "Studio Vanguard",
       tagline: "Award-Winning Brand Architecture & Digital Craft",
       logo_text: "VANGUARD",
-      primary_color: "#8b5cf6",
+      primary_color: "#d4a373",
       secondary_color: "#f43f5e",
       contact_email: "hello@vanguard.design",
       contact_phone: "+1 (415) 555-3301",
@@ -376,7 +376,7 @@ export function StorybookPresetBar({ sectionKey, onFetchPreset, activePreset = "
     <div className="section-storybook-banner">
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-1.5">
-          <div className="w-5 h-5 rounded-md bg-gradient-to-tr from-pink-500 to-indigo-600 flex items-center justify-center text-white text-[10px] font-black shadow-sm">
+          <div className="w-5 h-5 rounded-md bg-gradient-to-tr from-pink-500 from-[#c89666] to-[#b5804f] flex items-center justify-center text-white text-[10px] font-black shadow-sm">
             SB
           </div>
           <div>
@@ -388,7 +388,7 @@ export function StorybookPresetBar({ sectionKey, onFetchPreset, activePreset = "
         <button
           type="button"
           onClick={() => onFetchPreset(activePreset || "saas")}
-          className="px-2.5 py-1 bg-gradient-to-r from-pink-500 to-indigo-600 hover:opacity-95 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 shadow-sm transition-all"
+          className="px-2.5 py-1 bg-gradient-to-r from-pink-500 from-[#c89666] to-[#b5804f] hover:opacity-95 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 shadow-sm transition-all"
           title="Instantly fetch curated Storybook content into this form"
         >
           <Zap className="w-3 h-3 fill-current" />
@@ -425,7 +425,7 @@ export function StorybookPresetBar({ sectionKey, onFetchPreset, activePreset = "
  * StorybookMiniPreview — Renders an interactive live Storybook preview card inside each section editor
  */
 export function StorybookMiniPreview({ section, brand, pages }) {
-  const primaryColor = brand?.primary_color || "#4f46e5";
+  const primaryColor = brand?.primary_color || "#b5804f";
   const secondaryColor = brand?.secondary_color || "#0ea5e9";
 
   return (
@@ -553,7 +553,7 @@ export function StorybookMiniPreview({ section, brand, pages }) {
               >
                 <Layers className="w-3.5 h-3.5" />
               </div>
-              <span className="text-[10px] font-bold text-indigo-400 font-mono">FEATURE CARD</span>
+              <span className="text-[10px] font-bold text-[#dfb180] font-mono">FEATURE CARD</span>
             </div>
             <h5 className="font-bold text-xs text-foreground mt-1">
               {pages?.services?.s1_title || "Instant Code Synthesis"}
@@ -595,7 +595,7 @@ export function StorybookMiniPreview({ section, brand, pages }) {
 
         {/* PRICING PREVIEW */}
         {section === "pricing" && (
-          <div className="w-full max-w-xs mx-auto p-3.5 rounded-xl bg-card border border-indigo-500/40 shadow-md text-left relative">
+          <div className="w-full max-w-xs mx-auto p-3.5 rounded-xl bg-card border border-[#c89666]/30 shadow-md text-left relative">
             <span
               className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full text-[9px] font-black text-white"
               style={{ backgroundColor: primaryColor }}
@@ -632,8 +632,8 @@ export function StorybookMiniPreview({ section, brand, pages }) {
         {/* CONTACT PREVIEW */}
         {section === "contact" && (
           <div className="w-full p-3 rounded-xl bg-card border border-border/60 text-left space-y-2">
-            <div className="p-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-xs flex items-center gap-2">
-              <Mail className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
+            <div className="p-2 rounded-lg bg-[#c89666]/15 border border-[#c89666]/30 text-xs flex items-center gap-2">
+              <Mail className="w-3.5 h-3.5 text-[#dfb180] flex-shrink-0" />
               <span className="font-mono text-[11px] text-foreground truncate">{pages?.contact?.email || brand?.contact_email || "support@studio.com"}</span>
             </div>
             <div className="p-2 rounded-lg bg-muted/40 border border-border/40 text-xs flex items-center gap-2">
@@ -655,7 +655,7 @@ export function StorybookMiniPreview({ section, brand, pages }) {
                 <h5 className="font-bold text-xs text-foreground">{pages?.footer?.brand_name || brand?.business_name || "Apex Studio"}</h5>
                 <p className="text-[10px] text-muted-foreground">{pages?.footer?.tagline || brand?.tagline || "Digital Solutions"}</p>
               </div>
-              <span className="text-[9px] font-mono text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded">FOOTER</span>
+              <span className="text-[9px] font-mono text-[#dfb180] bg-[#c89666]/15 px-1.5 py-0.5 rounded">FOOTER</span>
             </div>
             <div className="pt-2 border-t border-border/40 flex items-center justify-between text-[10px] text-muted-foreground">
               <span>{pages?.footer?.copyright || `© ${new Date().getFullYear()} All rights reserved.`}</span>

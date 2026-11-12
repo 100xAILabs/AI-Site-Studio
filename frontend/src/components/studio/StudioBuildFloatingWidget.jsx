@@ -60,13 +60,13 @@ export default function StudioBuildFloatingWidget() {
       aria-label="Studio process notification"
       className="fixed bottom-6 right-6 z-50 transition-all duration-300 ease-out"
     >
-      <div className="w-[340px] sm:w-[380px] overflow-hidden rounded-2xl border border-violet-500/30 bg-[#0c121e]/95 backdrop-blur-xl shadow-2xl shadow-violet-950/50 text-white">
+      <div className="w-[340px] sm:w-[380px] overflow-hidden rounded-2xl border border-[#c89666]/30 bg-[#0c121e]/95 backdrop-blur-xl shadow-2xl shadow-violet-950/50 text-white">
         {/* Top Header Bar */}
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 bg-slate-900/40">
           <div className="flex items-center gap-2.5 truncate pr-2">
             <span className="relative flex h-2.5 w-2.5">
-              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isComplete ? "bg-emerald-400" : "bg-violet-400"}`} />
-              <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isComplete ? "bg-emerald-500" : "bg-violet-500"}`} />
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isComplete ? "bg-emerald-400" : "bg-[#c89666]/15"}`} />
+              <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isComplete ? "bg-emerald-500" : "bg-[#c89666]/15"}`} />
             </span>
             <span className="text-xs font-bold text-white truncate max-w-[200px]">
               {projectTitle || "AI Website Studio"}
@@ -109,7 +109,7 @@ export default function StudioBuildFloatingWidget() {
                 <Link
                   to={launchHubUrl}
                   onClick={resetBuild}
-                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-violet-600/30 hover:bg-violet-500 transition cursor-pointer"
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#c89666]/15 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-violet-600/30 hover:bg-[#c89666]/15 transition cursor-pointer"
                 >
                   <Rocket className="h-3.5 w-3.5" />
                   <span>Open Launch Hub</span>
@@ -120,20 +120,20 @@ export default function StudioBuildFloatingWidget() {
               /* Planning State */
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="inline-flex items-center gap-1.5 text-violet-300 font-semibold">
+                  <span className="inline-flex items-center gap-1.5 text-[#dfb180] font-semibold">
                     <Brain className="h-3.5 w-3.5 animate-pulse" />
                     <span>Planning Agent</span>
                   </span>
                   <span className="text-[10px] text-slate-400 font-mono">Analyzing Brief...</span>
                 </div>
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-                  <div className="h-full w-2/3 animate-pulse rounded-full bg-gradient-to-r from-violet-500 to-indigo-500" />
+                  <div className="h-full w-2/3 animate-pulse rounded-full bg-gradient-to-r from-[#c89666] to-[#b5804f] from-[#c89666] to-[#b5804f]" />
                 </div>
                 <div className="flex items-center justify-between pt-1">
                   <span className="text-[10px] text-slate-400">Architecting project blueprint</span>
                   <button
                     onClick={() => navigate("/studio")}
-                    className="text-[11px] font-bold text-violet-400 hover:text-violet-300 transition"
+                    className="text-[11px] font-bold text-[#dfb180] hover:text-[#dfb180] transition"
                   >
                     View in Studio →
                   </button>
@@ -143,8 +143,8 @@ export default function StudioBuildFloatingWidget() {
               /* Building / Multi-Agent Generating State */
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="inline-flex items-center gap-1.5 text-violet-300 font-semibold truncate max-w-[220px]">
-                    <LoaderCircle className="h-3.5 w-3.5 animate-spin text-violet-400 shrink-0" />
+                  <span className="inline-flex items-center gap-1.5 text-[#dfb180] font-semibold truncate max-w-[220px]">
+                    <LoaderCircle className="h-3.5 w-3.5 animate-spin text-[#dfb180] shrink-0" />
                     <span>{activeAgent || "Agents Working"}</span>
                   </span>
                   <span className="text-[11px] font-bold font-mono text-emerald-400">{progress}%</span>
@@ -153,7 +153,7 @@ export default function StudioBuildFloatingWidget() {
                 {/* Animated Progress Bar */}
                 <div className="h-2 w-full overflow-hidden rounded-full bg-white/10 p-0.5">
                   <div
-                    className="h-full rounded-full bg-gradient-to-r from-violet-500 via-indigo-500 to-emerald-400 transition-all duration-500"
+                    className="h-full rounded-full bg-gradient-to-r from-[#c89666] to-[#b5804f] from-[#c89666] to-[#b5804f] to-emerald-400 transition-all duration-500"
                     style={{ width: `${Math.max(8, progress)}%` }}
                   />
                 </div>
@@ -162,7 +162,7 @@ export default function StudioBuildFloatingWidget() {
                   <span className="text-slate-400">Running in background...</span>
                   <button
                     onClick={() => navigate("/studio")}
-                    className="inline-flex items-center gap-1 font-bold text-violet-400 hover:text-violet-300 transition"
+                    className="inline-flex items-center gap-1 font-bold text-[#dfb180] hover:text-[#dfb180] transition"
                   >
                     <span>Open Full Screen</span>
                     <ExternalLink size={11} />
@@ -182,7 +182,7 @@ export default function StudioBuildFloatingWidget() {
             <span className="text-[11px] text-slate-300 font-medium truncate">
               {isComplete ? "✓ Generation Complete" : `${activeAgent || "Building"} (${progress}%)`}
             </span>
-            <span className="text-[10px] text-violet-400 font-bold ml-2">Click to expand</span>
+            <span className="text-[10px] text-[#dfb180] font-bold ml-2">Click to expand</span>
           </div>
         )}
       </div>

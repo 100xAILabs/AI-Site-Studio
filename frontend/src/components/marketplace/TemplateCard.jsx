@@ -23,7 +23,6 @@ import { cn, formatPrice, formatConvertedPrice, formatNumber, discountPercent } 
 import { useCartStore } from "@/store";
 import { useCurrencyStore } from "@/store/currencyStore";
 import { useAppUser } from "@/lib/auth";
-import { TEMPLATE_DOWNLOADS_FREE } from "@/lib/marketplaceConfig";
 import "./TemplateCard.css";
 
 const StarRating = ({ rating, count }) => (

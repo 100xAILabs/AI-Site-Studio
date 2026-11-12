@@ -20,7 +20,7 @@ import {
   Play, Flame, Award, Activity, Sparkles, Clock, Plus,
   ExternalLink, Calendar, ShieldCheck, Info, Edit3, Upload, Lock,
   DollarSign, Tag, Layers, Loader2, CheckCircle2, Trash2, Image as ImageIcon,
-  ThumbsUp, ThumbsDown,
+  ThumbsUp, ThumbsDown, Gift,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Navbar from "@/components/layout/Navbar";
@@ -30,7 +30,7 @@ import { cn, formatPrice, formatConvertedPrice, formatNumber, convertToUSD } fro
 import { useCartStore } from "@/store";
 import { useCurrencyStore } from "@/store/currencyStore";
 import { API_URL, api } from "@/lib/api";
-import { TEMPLATE_DOWNLOADS_FREE } from "@/lib/marketplaceConfig";
+import DownloadWarningModal from "@/components/modals/DownloadWarningModal";
 import TemplateArchitectureDiagram from "./TemplateArchitectureDiagram";
 import TemplatePerformanceGraphs from "./TemplatePerformanceGraphs";
 import "./Page.css";
@@ -245,7 +245,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
   const { userCurrency, rates } = useCurrencyStore();
   const [activeImage, setActiveImage] = useState(0);
   const [copied, setCopied] = useState(false);
-  // Single-tier flat rate license package
+  const [selectedLicenseType, setSelectedLicenseType] = useState("regular"); // "regular" (watermarked) | "extended" (zero watermark)
   const [heroTab, setHeroTab] = useState("desktop"); // screenshot, gallery, video, mobile, tablet, desktop
 
   // Live Preview Device section
@@ -307,17 +307,22 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
 
   // Declare template query hook first to avoid TDZ ReferenceError in render hooks
   const { data: template, isLoading, error } = useTemplate(slug, token);
+  const [showDownloadWarning, setShowDownloadWarning] = useState(false);
 
-  const handleFreeDownload = async () => {
-    if (!template) return;
+  const startDownloadFlow = () => {
     if (!isSignedIn) {
       navigate(`/sign-in?from=${encodeURIComponent(window.location.pathname)}`);
       return;
     }
+    setShowDownloadWarning(true);
+  };
+
+  const executeDownload = async () => {
+    if (!template) return;
     setIsDownloading(true);
     try {
       const authToken = token || await getToken();
-      const result = await api.post(`/templates/${template.id}/download?format=zip`, {}, authToken);
+      const result = await api.post(`/templates/${template.id}/download?format=zip&license=${encodeURIComponent(selectedLicenseType)}`, {}, authToken);
       if (!result?.download_url) throw new Error("The download file is not available yet.");
       let downloadUrl = result.download_url;
       if (authToken && !downloadUrl.includes("token=")) {
@@ -332,12 +337,15 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
       document.body.appendChild(link);
       link.click();
       link.remove();
+      setShowDownloadWarning(false);
     } catch (downloadError) {
       window.alert(downloadError.message || "Could not download this template.");
     } finally {
       setIsDownloading(false);
     }
   };
+
+  const handleFreeDownload = startDownloadFlow;
 
   // Helper functions for license enum mapping
   const mapLicenseToBackend = (val) => {
@@ -397,15 +405,16 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
 
   const handleEditCurrencySwitch = (newCurrency) => {
     const currentVal = Number(editForm.price) || 0;
-    const inrRate = rates?.INR || 87.0;
-    let convertedPrice = currentVal;
-    
-    if (editForm.price_currency === "USD" && newCurrency === "INR") {
-      convertedPrice = Math.round(currentVal * inrRate);
-    } else if (editForm.price_currency === "INR" && newCurrency === "USD") {
-      convertedPrice = Math.round((currentVal / inrRate) * 100) / 100;
-    }
-    
+    const oldCurr = editForm.price_currency || "USD";
+    if (oldCurr === newCurrency) return;
+
+    // Convert old currency value into USD first
+    const inUSD = convertToUSD(currentVal, oldCurr, rates);
+    const targetRate = rates?.[newCurrency] || CURRENCY_RATES_TO_USD[newCurrency] || 1.0;
+    const convertedPrice = newCurrency === "USD"
+      ? inUSD
+      : Math.round(inUSD * targetRate * 100) / 100;
+
     setEditForm((prev) => ({
       ...prev,
       price: convertedPrice,
@@ -541,8 +550,13 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
     }
     setIsSavingEdit(true);
     try {
-      const finalPrice = Number(editForm.price) || 0;
-      const cleanTags = editForm.tags 
+      const rawPrice = Number(editForm.price) || 0;
+      // Convert to exact USD price for the marketplace listing
+      const finalPrice = editForm.price_currency && editForm.price_currency !== "USD"
+        ? convertToUSD(rawPrice, editForm.price_currency, rates)
+        : rawPrice;
+
+      const cleanTags = editForm.tags
         ? Array.from(new Set(editForm.tags.split(",").map(t => t.trim().replace(/^#/, "")).filter(Boolean)))
         : [];
 
@@ -788,46 +802,69 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
       const buyParam = searchParams.get("buy");
       const actionParam = searchParams.get("action");
       if (!isTemplateFree && (buyParam === "1" || actionParam === "buy" || buyParam === "true")) {
+        const isUserPro = Boolean(
+          user?.is_pro_subscriber ||
+          ["pro", "agency", "creator_pro", "enterprise"].includes(String(user?.subscription_tier || "").toLowerCase())
+        );
+        const resolvedLic = isUserPro ? "extended" : selectedLicenseType;
+        const resolvedPrice = isUserPro || resolvedLic === "regular" ? (effectivePrice > 0 ? effectivePrice : 49) : Math.round((effectivePrice > 0 ? effectivePrice : 49) * 1.8);
         addToCart({
           templateId: template.id,
           title: template.title,
-          price: effectivePrice > 0 ? effectivePrice : 49,
+          price: resolvedPrice,
           price_currency: template.price_currency || "USD",
           thumbnail: template.thumbnail_url || template.gallery_images?.[0] || "",
-          licenseType: "regular",
+          licenseType: resolvedLic,
         });
         navigate("/checkout");
       }
     }
-  }, [template, searchParams, effectivePrice]);
+  }, [template, searchParams, effectivePrice, user, selectedLicenseType]);
+
+  const userTier = String(user?.subscription_tier || "free").toLowerCase();
+  const isUserExtreme = userTier === "extreme" || userTier === "enterprise" || userTier === "agency";
+  const isUserPro = Boolean(user?.is_pro_subscriber || ["pro", "creator_pro"].includes(userTier));
+  const hasPurchased = Boolean(template?.is_purchased);
+
+  const basePrice = effectivePrice > 0 ? effectivePrice : 49;
+  const activeLicense = "commercial";
+  const activePrice = isTemplateFree ? 0 : basePrice;
 
   const handleAddToCart = () => {
-    if (!template || isTemplateFree) return;
+    if (!template) return;
+    if (isTemplateFree || hasPurchased) {
+      startDownloadFlow();
+      return;
+    }
+    if (isInCart) {
+      navigate("/checkout");
+      return;
+    }
     addToCart({
       templateId: template.id,
       title: template.title,
-      price: effectivePrice > 0 ? effectivePrice : 49,
+      price: activePrice,
       price_currency: template.price_currency || "USD",
-      thumbnail: template.thumbnail_url,
-      licenseType: "regular",
+      thumbnail: template.thumbnail_url || template.gallery_images?.[0] || "",
+      licenseType: activeLicense,
     });
   };
 
   const handleBuyNow = (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
     if (!template) return;
-    if (isTemplateFree) {
-      handleFreeDownload();
+    if (isTemplateFree || hasPurchased) {
+      startDownloadFlow();
       return;
     }
     if (!isInCart) {
       addToCart({
         templateId: template.id,
         title: template.title,
-        price: effectivePrice > 0 ? effectivePrice : 49,
+        price: activePrice,
         price_currency: template.price_currency || "USD",
-        thumbnail: template.thumbnail_url,
-        licenseType: "regular",
+        thumbnail: template.thumbnail_url || template.gallery_images?.[0] || "",
+        licenseType: activeLicense,
       });
     }
     navigate("/checkout");
@@ -959,12 +996,12 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
     const rawList = Array.isArray(template?.changelog)
       ? template.changelog
       : (Array.isArray(template?.changelog?.releases)
-          ? template.changelog.releases
-          : (Array.isArray(template?.changelog?.history)
-              ? template.changelog.history
-              : (Array.isArray(template?.changelog?.entries)
-                  ? template.changelog.entries
-                  : null)));
+        ? template.changelog.releases
+        : (Array.isArray(template?.changelog?.history)
+          ? template.changelog.history
+          : (Array.isArray(template?.changelog?.entries)
+            ? template.changelog.entries
+            : null)));
 
     if (rawList && rawList.length > 0) {
       return rawList.map((item, idx) => {
@@ -1216,153 +1253,242 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
     );
   }
 
-  const renderPurchaseCard = (extraClass = "") => (
-    <div className={cn("details-price-card glass-card", extraClass)}>
-      <div>
-        <div className="details-price-row flex items-baseline justify-between mb-1">
-          <span className="details-price-value text-3xl font-extrabold text-foreground">
-            {isTemplateFree ? "Free" : formatPrice(template.price, "USD")}
-          </span>
-          {template.original_price && template.original_price > template.price && (
-            <span className="details-price-original text-sm line-through text-muted-foreground">
-              {formatPrice(template.original_price, "USD")}
-            </span>
-          )}
-        </div>
-        <span className="text-xs text-muted-foreground block font-medium mt-1">{isTemplateFree ? "Free source download • Full commercial & personal use" : "One-time payment • Full commercial & personal license"}</span>
-      </div>
+  const renderPurchaseCard = (extraClass = "") => {
+    const isOwner = Boolean(user?.id && user?.id === template?.seller_id);
+    const rawPrice = Number(template?.price) > 0 ? Number(template.price) : 0;
+    const isFree = Boolean(template?.is_free && rawPrice === 0);
+    const templatePrice = isFree ? 0 : (rawPrice > 0 ? rawPrice : 49);
+    const origPrice = Number(template?.original_price) > templatePrice ? Number(template.original_price) : null;
+    const discountPct = origPrice ? Math.round(((origPrice - templatePrice) / origPrice) * 100) : 0;
 
-      {/* Verified Tech Stack Badge */}
-      <div className="rounded-xl border border-border/70 bg-muted/40 p-3 mb-3 text-xs space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="flex items-center gap-1.5 font-semibold text-foreground">
-            <Cpu className="w-3.5 h-3.5 text-primary" />
-            <span>Verified Tech Stack</span>
-          </span>
-          <span className="font-bold text-primary">
-            {{
-              react: "React",
-              nextjs: "Next.js",
-              vue: "Vue.js",
-              nuxt: "Nuxt",
-              angular: "Angular",
-              svelte: "Svelte",
-              astro: "Astro",
-              tailwind: "Tailwind CSS",
-              html: "HTML5 / CSS / JavaScript",
-            }[String(template?.framework || "html").toLowerCase()] || template?.framework || "HTML5 / CSS / JavaScript"}
-          </span>
-        </div>
-        <div className="flex flex-wrap gap-1.5 pt-0.5">
-          <span className="px-2 py-0.5 rounded-md bg-background border border-border/80 text-[11px] font-medium text-foreground">
-            {template?.framework === "html" || !template?.framework ? "HTML5 & CSS3" : `${({ react: "React", nextjs: "Next.js", vue: "Vue.js", nuxt: "Nuxt", angular: "Angular", svelte: "Svelte", astro: "Astro", tailwind: "Tailwind CSS" }[String(template.framework).toLowerCase()] || template.framework)} live demo`}
-          </span>
-          <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-[11px] font-medium text-emerald-400">
-            Instant ZIP Download
-          </span>
-        </div>
-      </div>
+    const frameworkName = {
+      react: "React 19 & Tailwind",
+      nextjs: "Next.js 15 App Router",
+      vue: "Vue 3 & Vite",
+      nuxt: "Nuxt 3",
+      angular: "Angular",
+      svelte: "SvelteKit",
+      astro: "Astro 4",
+      tailwind: "HTML5 & Tailwind CSS",
+      html: "HTML5 / CSS3 / JavaScript",
+    }[String(template?.framework || "html").toLowerCase()] || template?.framework || "HTML5 / CSS3 / JavaScript";
 
-      {/* Action Buttons */}
-      <div className="details-action-stack space-y-2">
-        {(user?.id && user?.id === template?.seller_id) ? (
-          <>
-            <button
-              onClick={() => {
-                setEditModalTab("general");
-                setIsEditModalOpen(true);
-              }}
-              className="w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-primary to-indigo-600 hover:opacity-95 text-white shadow-md shadow-primary/20 transition-all text-sm cursor-pointer border-0"
-            >
-              <Edit3 className="w-4 h-4" /> Edit Template Details
-            </button>
-            <button
-              type="button"
-              onClick={handleFreeDownload}
-              disabled={isDownloading}
-              className="details-purchase-btn w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-primary hover:bg-primary/95 text-primary-foreground shadow-md shadow-primary/20 transition-all text-sm disabled:opacity-60 cursor-pointer"
-            >
-              {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              {isDownloading ? "Preparing download…" : "Download Source Archive (Owner Access)"}
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              onClick={handleAddToCart}
-              className={cn(
-                "details-purchase-btn w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md text-sm cursor-pointer",
-                isInCart
-                  ? "bg-green-500 hover:bg-green-600 text-white shadow-green-500/20"
-                  : "bg-primary hover:bg-primary/95 text-primary-foreground shadow-primary/20"
+    return (
+      <div className={cn("details-price-card glass-card", extraClass)}>
+        {/* 1. Authentic Price Header — Strict Dollar ($) Display */}
+        <div className="pb-3 border-b border-border/60">
+          <div className="flex items-baseline justify-between gap-2 mb-1">
+            <div className="flex items-baseline gap-2.5">
+              <span className="details-price-value text-3xl font-extrabold text-foreground tracking-tight">
+                {isFree ? "Free" : formatPrice(templatePrice, "USD")}
+              </span>
+              {!isFree && origPrice && (
+                <span className="text-sm font-semibold text-muted-foreground line-through">
+                  {formatPrice(origPrice, "USD")}
+                </span>
               )}
-            >
-              {isInCart ? (
-                <>
-                  <Check className="w-4 h-4" /> Added to Cart
-                </>
-              ) : (
-                <>
-                  <ShoppingCart className="w-4 h-4" /> Add to Cart
-                </>
-              )}
-            </button>
-            <button
-              onClick={handleBuyNow}
-              className="details-preview-link w-full py-3 rounded-xl text-center font-bold text-sm block cursor-pointer"
-            >
-              Buy Now
-            </button>
-            {isTemplateFree && (
-              <button
-                type="button"
-                onClick={handleFreeDownload}
-                disabled={isDownloading}
-                className="w-full py-2.5 px-3 rounded-xl font-semibold flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs transition-all cursor-pointer border border-slate-300 dark:border-slate-700"
-              >
-                {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                {isDownloading ? "Preparing download…" : "Free Source Code Download"}
-              </button>
+            </div>
+
+            {/* Status / Plan Badge */}
+            {isFree ? (
+              <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
+                Free Community
+              </span>
+            ) : hasPurchased ? (
+              <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                <Check className="w-3 h-3" /> License Active
+              </span>
+            ) : discountPct > 0 ? (
+              <span className="text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">
+                Save {discountPct}%
+              </span>
+            ) : (
+              <span className="text-xs font-semibold text-muted-foreground bg-muted/60 border border-border/80 px-2 py-0.5 rounded-full">
+                One-Time Payment
+              </span>
             )}
-          </>
+          </div>
+
+          <p className="text-xs text-muted-foreground font-medium mt-1">
+            {hasPurchased
+              ? "You own this template. Instant clean source code download available."
+              : isFree
+                ? "Open-source community edition. Free to inspect and customize."
+                : "Full commercial license with clean source code, zero watermarks & lifetime updates."}
+          </p>
+        </div>
+
+        {/* 2. Unified Commercial License Inclusions — No Extra Charges */}
+        {!isFree && !hasPurchased && (
+          <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 my-3 text-xs space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-emerald-400 flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                Commercial License Included
+              </span>
+              <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 whitespace-nowrap inline-flex items-center leading-normal">
+                White-Label
+              </span>
+            </div>
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              100% clean source code • Zero attribution • Unlimited commercial & personal client projects with no extra fees.
+            </p>
+          </div>
         )}
 
-        
+        {/* 3. Verified Specifications */}
+        <div className="rounded-xl border border-border/70 bg-muted/30 p-2.5 my-3 text-xs space-y-2">
+          <div className="flex items-center justify-between border-b border-border/50 pb-1.5">
+            <span className="flex items-center gap-1.5 font-semibold text-foreground text-[11px]">
+              <Cpu className="w-3.5 h-3.5 text-primary" />
+              <span>Tech Stack</span>
+            </span>
+            <span className="font-bold text-primary text-[11px]">
+              {frameworkName}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-y-1.5 text-[11px] text-muted-foreground">
+            <div className="flex items-center gap-1.5">
+              <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+              <span>Full Source Code (ZIP)</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+              <span>{template?.is_responsive !== false ? "100% Mobile Ready" : "Desktop Ready"}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+              <span>{template?.has_dark_mode ? "Dark & Light Mode" : "Light Mode UI"}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+              <span>{template?.pages_count || template?.included_pages?.length || 1} Pages Included</span>
+            </div>
+          </div>
+        </div>
 
-        <Link
-          href={`/preview?template=${template.id}`}
-          className="w-full py-2.5 text-xs text-center border border-dashed border-primary/40 text-primary hover:bg-primary/[0.02] transition-colors rounded-xl font-semibold flex items-center justify-center gap-1.5"
-          style={{ textDecoration: 'none' }}
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          Try Live Preview Editor
-        </Link>
-      </div>
+        {/* 4. Action Stack (Buttons) */}
+        <div className="space-y-2 mt-3.5">
+          {isOwner ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditModalTab("general");
+                  setIsEditModalOpen(true);
+                }}
+                className="w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] shadow-md shadow-black/40 transition-all text-sm cursor-pointer border-0"
+              >
+                <Edit3 className="w-4 h-4" /> Edit Template Details
+              </button>
+              <button
+                type="button"
+                onClick={startDownloadFlow}
+                disabled={isDownloading}
+                className="details-purchase-btn w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-muted hover:bg-muted/80 text-foreground border border-border shadow-sm transition-all text-sm disabled:opacity-60 cursor-pointer"
+              >
+                {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                {isDownloading ? "Preparing package…" : "Download Source ZIP (Owner Access)"}
+              </button>
+            </>
+          ) : hasPurchased ? (
+            <button
+              type="button"
+              onClick={startDownloadFlow}
+              disabled={isDownloading}
+              className="details-purchase-btn w-full py-3.5 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 text-white shadow-lg shadow-emerald-500/20 transition-all text-sm cursor-pointer border-0"
+            >
+              {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              <span>{isDownloading ? "Preparing Clean Package…" : "Download Source Code (Purchased ✓)"}</span>
+            </button>
+          ) : isFree ? (
+            <button
+              type="button"
+              onClick={startDownloadFlow}
+              disabled={isDownloading}
+              className="details-purchase-btn w-full py-3.5 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 transition-all text-sm cursor-pointer border-0"
+            >
+              {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              <span>{isDownloading ? "Preparing Download…" : "Download Free Template"}</span>
+            </button>
+          ) : (
+            <>
+              {/* Primary: Buy Now */}
+              <button
+                type="button"
+                onClick={handleBuyNow}
+                className="w-full py-3.5 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] shadow-lg shadow-black/40 transition-all text-sm cursor-pointer border-0"
+              >
+                <Zap className="w-4 h-4 fill-current" />
+                <span>Buy Now • {formatPrice(templatePrice, "USD")}</span>
+              </button>
 
-      {/* Trust Badges */}
-      <div className="trust-badges-section">
-        <span className="trust-badges-title">Developer Guarantees</span>
-        <div className="trust-badges-grid">
-          <div className="trust-badge-item">
-            <Check className="w-3 h-3 text-green-500" style={{ flexShrink: 0 }} />
-            <span>Lifetime Updates</span>
-          </div>
-          <div className="trust-badge-item">
-            <Shield className="w-3 h-3 text-green-500" style={{ flexShrink: 0 }} />
-            <span>Secure Payment</span>
-          </div>
-          <div className="trust-badge-item">
-            <Download className="w-3 h-3 text-green-500" />
-            <span>Instant Download</span>
-          </div>
-          <div className="trust-badge-item">
-            <FileText className="w-3 h-3 text-green-500" />
-            <span>Docs Included</span>
+              {/* Secondary: Add to Cart & Watermarked Download for all users */}
+              <div className="grid grid-cols-2 gap-2 pt-0.5">
+                <button
+                  type="button"
+                  onClick={handleAddToCart}
+                  className={cn(
+                    "py-2.5 px-3 rounded-xl font-semibold flex items-center justify-center gap-1.5 transition-all text-xs cursor-pointer border",
+                    isInCart
+                      ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400"
+                      : "bg-background/80 hover:bg-muted border-border/80 text-foreground shadow-sm"
+                  )}
+                >
+                  {isInCart ? <Check className="w-3.5 h-3.5" /> : <ShoppingCart className="w-3.5 h-3.5" />}
+                  <span>{isInCart ? "In Cart (Checkout)" : "Add to Cart"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={startDownloadFlow}
+                  className="py-2.5 px-3 rounded-xl font-semibold flex items-center justify-center gap-1.5 transition-all text-xs cursor-pointer border border-border/80 bg-background/50 hover:bg-muted/70 text-muted-foreground hover:text-foreground"
+                >
+                  <Download className="w-3.5 h-3.5 text-primary" />
+                  <span>Get Watermarked (Free)</span>
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Tertiary: Live Preview */}
+          <Link
+            href={`/preview?template=${template.id}`}
+            className="w-full py-2.5 text-xs text-center border border-border/80 bg-background/50 hover:bg-muted/70 text-foreground transition-all rounded-xl font-medium flex items-center justify-center gap-1.5 mt-2"
+            style={{ textDecoration: 'none' }}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-primary" />
+            <span>Launch Live Interactive Canvas</span>
+          </Link>
+        </div>
+
+        {/* 5. Marketplace Trust Guarantees */}
+        <div className="trust-badges-section mt-4 pt-3 border-t border-border/60">
+          <span className="trust-badges-title text-[11px] font-bold text-muted-foreground uppercase tracking-wider block mb-2">
+            Marketplace Guarantees
+          </span>
+          <div className="trust-badges-grid grid grid-cols-2 gap-2 text-[11px]">
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>Lifetime Updates</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <Shield className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>256-Bit SSL Checkout</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <Download className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>Instant ZIP Delivery</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <FileText className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>Full Documentation</span>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="details-page-wrapper details-page-redesign">
@@ -1475,7 +1601,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                 {heroTab === "screenshot" || heroTab === "gallery" ? (
                   /* Screenshot / Gallery view */
                   <div
-                    style={{ position: "absolute", inset: 0, cursor: "zoom-in", display: "flex", alignItems: "center", justifyContent: "center", background: "#0a0a14" }}
+                    style={{ position: "absolute", inset: 0, cursor: "zoom-in", display: "flex", alignItems: "center", justifyContent: "center", background: "#09090b" }}
                     onClick={() => setLightboxImg(allImages[activeImage])}
                   >
                     <Image
@@ -1627,8 +1753,8 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                     {template.updated_at
                       ? new Date(template.updated_at).toLocaleDateString("en-US", { year: "numeric", month: "short" })
                       : template.created_at
-                      ? new Date(template.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short" })
-                      : "Recently"}
+                        ? new Date(template.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short" })
+                        : "Recently"}
                   </span>
                 </div>
               </div>
@@ -2484,7 +2610,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                   {/* Published Time */}
                   <div className="flex items-center justify-between py-1 border-b border-border/30">
                     <span className="text-muted-foreground flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5 text-blue-500" /> Published Date
+                      <Calendar className="w-3.5 h-3.5 text-[#c89666]" /> Published Date
                     </span>
                     <span className="font-semibold text-foreground">
                       {template.created_at
@@ -2839,13 +2965,13 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
               {/* ── Modal Top Header ── */}
               <div className="edit-modal-header">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 shrink-0">
+                  <div className="w-10 h-10 rounded-xl bg-[#c89666]/10 border border-[#c89666]/30 flex items-center justify-center text-[#dfb180] shrink-0">
                     <Edit3 className="w-5 h-5" />
                   </div>
                   <div>
                     <h2 className="edit-modal-header-title">
                       <span>Edit Template Details</span>
-                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-200">
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-[#c89666]/15 text-[#dfb180] border border-[#c89666]/30">
                         #{String(template?.id || "").slice(0, 8)}
                       </span>
                     </h2>
@@ -3021,7 +3147,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                           <label className="edit-modal-label">Fixed Price Amount ({editForm.price_currency})</label>
                           <div className="edit-modal-price-wrap">
                             <span className="edit-modal-price-symbol">
-                              {editForm.price_currency === "INR" ? "₹" : editForm.price_currency === "EUR" ? "€" : editForm.price_currency === "GBP" ? "£" : "$"}
+                              {editForm.price_currency === "INR" ? "₹" : editForm.price_currency === "EUR" ? "€" : editForm.price_currency === "GBP" ? "£" : editForm.price_currency === "CAD" ? "CA$" : editForm.price_currency === "AUD" ? "A$" : "$"}
                             </span>
                             <input
                               type="number"
@@ -3033,11 +3159,11 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                               className="edit-modal-price-input"
                             />
                           </div>
-                          <div className="text-[11px] text-slate-500 mt-1.5 font-medium">
-                            {editForm.price_currency === "INR" ? (
-                              <span>Marketplace Listing Price: <strong className="text-indigo-600 font-bold">${convertToUSD(editForm.price, "INR", rates)} USD</strong> <span className="text-slate-400">(Auto-converted from ₹{Number(editForm.price || 0).toLocaleString()} INR)</span></span>
+                          <div className="text-[11px] text-slate-400 mt-1.5 font-medium">
+                            {editForm.price_currency && editForm.price_currency !== "USD" ? (
+                              <span>Marketplace Listing Price: <strong className="text-emerald-400 font-bold">${convertToUSD(editForm.price, editForm.price_currency, rates)} USD</strong> <span className="text-slate-500">(Auto-converted to Dollars)</span></span>
                             ) : (
-                              <span>Marketplace Listing Price: <strong className="text-indigo-600 font-bold">${editForm.price} USD</strong></span>
+                              <span>Marketplace Listing Price: <strong className="text-emerald-400 font-bold">${Number(editForm.price || 0)} USD</strong></span>
                             )}
                           </div>
                         </div>
@@ -3049,9 +3175,9 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                   {/* TAB 3: SCREENSHOTS & GALLERY */}
                   {editModalTab === "gallery" && (
                     <div className="space-y-4">
-                      <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl flex items-start gap-3">
-                        <Sparkles className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
-                        <div className="text-xs text-slate-700 leading-relaxed">
+                      <div className="p-3 bg-[#18181d] border border-[#2e2e33] rounded-xl flex items-start gap-3">
+                        <Sparkles className="w-4 h-4 text-[#dfb180] shrink-0 mt-0.5" />
+                        <div className="text-xs text-slate-300 leading-relaxed">
                           <strong>Showcase Screenshots Gallery:</strong> Upload multiple high-resolution captures of your pages, responsive layouts, panels, and components.
                         </div>
                       </div>
@@ -3085,9 +3211,9 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[340px] overflow-y-auto p-1">
                         {/* Cover Photo */}
                         {editForm.thumbnail_url && (
-                          <div className="relative aspect-video rounded-xl overflow-hidden border-2 border-indigo-500/60 bg-slate-100 group shadow-sm">
+                          <div className="relative aspect-video rounded-xl overflow-hidden border-2 border-[#c89666]/60 bg-[#121216] group shadow-sm">
                             <img src={editForm.thumbnail_url} alt="Cover Thumbnail" className="w-full h-full object-cover" />
-                            <span className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded bg-indigo-600 text-white text-[9px] font-bold tracking-wider uppercase shadow">
+                            <span className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded bg-[#c89666] text-[#09090b] text-[9px] font-bold tracking-wider uppercase shadow">
                               Cover Photo
                             </span>
                           </div>
@@ -3095,7 +3221,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
 
                         {/* Gallery Screenshots */}
                         {(editForm.gallery_images || []).map((imgUrl, gIdx) => (
-                          <div key={gIdx} className="relative aspect-video rounded-xl overflow-hidden border border-slate-200 bg-slate-100 group shadow-sm">
+                          <div key={gIdx} className="relative aspect-video rounded-xl overflow-hidden border border-slate-700 bg-[#121216] group shadow-sm">
                             <img src={imgUrl} alt={`Screenshot ${gIdx + 1}`} className="w-full h-full object-cover" />
                             <span className="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded bg-black/60 backdrop-blur-sm text-white text-[9px] font-mono font-bold">
                               #{gIdx + 1}
@@ -3113,7 +3239,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
 
                         {/* + Add Screenshots Tile */}
                         <label className={cn(
-                          "aspect-video rounded-xl border-2 border-dashed border-indigo-400 hover:border-indigo-600 bg-indigo-50/50 hover:bg-indigo-50 flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer group text-indigo-600 select-none",
+                          "aspect-video rounded-xl border-2 border-dashed border-[#c89666]/40 hover:border-[#c89666] bg-[#141418] hover:bg-[#18181d] flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer group text-[#dfb180] select-none",
                           isUploadingGallery && "pointer-events-none opacity-60"
                         )}>
                           <input
@@ -3126,16 +3252,16 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                           />
                           {isUploadingGallery ? (
                             <>
-                              <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+                              <Loader2 className="w-5 h-5 animate-spin text-[#dfb180]" />
                               <span className="text-[10px] font-bold">Uploading...</span>
                             </>
                           ) : (
                             <>
-                              <div className="w-8 h-8 rounded-full bg-indigo-100 group-hover:bg-indigo-200 flex items-center justify-center group-hover:scale-110 transition-transform">
-                                <Plus className="w-4 h-4 text-indigo-600" />
+                              <div className="w-8 h-8 rounded-full bg-[#c89666]/20 group-hover:bg-[#c89666]/30 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                <Plus className="w-4 h-4 text-[#dfb180]" />
                               </div>
                               <span className="text-[11px] font-bold">Add Screenshots</span>
-                              <span className="text-[9px] text-slate-500">(Multiple allowed)</span>
+                              <span className="text-[9px] text-slate-400">(Multiple allowed)</span>
                             </>
                           )}
                         </label>
@@ -3218,7 +3344,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                   {editModalTab === "archive" && (
                     <div className="space-y-4">
                       <div className="edit-modal-zip-box">
-                        <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 shadow-sm">
+                        <div className="w-12 h-12 rounded-2xl bg-[#18181d] border border-[#2e2e33] flex items-center justify-center text-[#dfb180] shadow-sm">
                           <Upload className="w-6 h-6" />
                         </div>
                         <div>
@@ -3228,7 +3354,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                           </p>
                         </div>
 
-                        <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold shadow-md shadow-indigo-600/20 hover:bg-indigo-700 transition-all">
+                        <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#c89666] text-[#09090b] text-xs font-bold shadow-md shadow-black/40 hover:bg-[#dfb180] transition-all">
                           <Plus className="w-4 h-4" />
                           <span>Choose .ZIP or .HTML File</span>
                           <input
@@ -3344,6 +3470,16 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
           </button>
         </div>
       </div>
+
+      {/* Mandatory License & Code Usage Warning Modal */}
+      <DownloadWarningModal
+        isOpen={showDownloadWarning}
+        onClose={() => setShowDownloadWarning(false)}
+        onConfirm={executeDownload}
+        templateTitle={template?.title || template?.name || "Template Source Package"}
+        licenseType={hasPurchased || isOwnerOrAdmin ? "commercial" : selectedLicenseType}
+        isDownloading={isDownloading}
+      />
     </div>
   );
 }

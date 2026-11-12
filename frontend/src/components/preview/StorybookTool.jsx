@@ -146,7 +146,7 @@ export default function StorybookTool({
   const [sectionProps, setSectionProps] = useState(() => {
     const bName = templatePages?.navbar?.brand_name || activeBrandColors?.business_name || "Apex Design Studio";
     const lText = templatePages?.navbar?.logo_text || activeBrandColors?.logo_text || "APEX";
-    const pColor = activeBrandColors?.primary_color || "#6366f1";
+    const pColor = activeBrandColors?.primary_color || "#c89666";
 
     return {
       navbar: {
@@ -315,7 +315,7 @@ export default function StorybookTool({
 
         <Link
           to={`/storybook?template=${templateId}&story=${selectedSectionId}`}
-          className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-pink-500 to-indigo-600 hover:opacity-90 text-white text-[11px] font-bold flex items-center gap-1 shadow-sm transition-all"
+          className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-pink-500 from-[#c89666] to-[#b5804f] hover:opacity-90 text-white text-[11px] font-bold flex items-center gap-1 shadow-sm transition-all"
           title="Open expansive full-page Section Studio"
         >
           <span>Open Full Page Studio</span>
@@ -451,7 +451,7 @@ export default function StorybookTool({
           <button
             type="button"
             onClick={handleApplyToLivePreview}
-            className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-pink-500 to-indigo-600 hover:opacity-95 text-white font-bold text-xs shadow-md shadow-pink-500/20 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+            className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-pink-500 from-[#c89666] to-[#b5804f] hover:opacity-95 text-white font-bold text-xs shadow-md shadow-pink-500/20 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
           >
             <Zap className="w-3.5 h-3.5 fill-amber-300 text-amber-300" />
             <span>Apply to Live Preview</span>
@@ -466,7 +466,7 @@ export default function StorybookTool({
 // COMPACT DESIGNED OUTPUT VIEWS FOR EMBEDDED TOOL
 // ─────────────────────────────────────────────────────────────────────────────
 function renderToolOutputView(sectionId, props) {
-  const themeColor = props.themeColor || "#6366f1";
+  const themeColor = props.themeColor || "#c89666";
 
   switch (sectionId) {
     case "navbar":

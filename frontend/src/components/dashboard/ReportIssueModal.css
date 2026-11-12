@@ -6,7 +6,7 @@
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background-color: rgba(15, 23, 42, 0.65);
+  background-color: rgba(18, 18, 22, 0.65);
   backdrop-filter: blur(6px);
   display: flex;
   align-items: flex-start;
@@ -269,9 +269,9 @@
 }
 
 .rim-sev-btn.active-medium {
-  background-color: rgba(59, 130, 246, 0.15);
-  border-color: rgba(59, 130, 246, 0.5);
-  color: #3b82f6;
+  background-color: rgba(200, 150, 102, 0.15);
+  border-color: rgba(200, 150, 102, 0.5);
+  color: #c89666;
 }
 
 .rim-sev-btn.active-high {
@@ -476,8 +476,8 @@
   width: 3rem;
   height: 3rem;
   border-radius: 0.875rem;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(168, 85, 247, 0.15));
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  background: linear-gradient(135deg, rgba(200, 150, 102, 0.15), rgba(200, 150, 102, 0.15));
+  border: 1px solid rgba(200, 150, 102, 0.3);
   display: flex;
   align-items: center;
   justify-content: center;

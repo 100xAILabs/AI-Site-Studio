@@ -43,12 +43,8 @@ COUNTRY_TAX_RATES = {
 }
 
 def calculate_country_tax(subtotal: Decimal, country_code: Optional[str] = None) -> tuple[Decimal, Decimal, str, float]:
-    code = (country_code or "US").upper()
-    info = COUNTRY_TAX_RATES.get(code, {"name": "Other", "rate": Decimal("0.10"), "label": "Digital Goods Tax (10%)"})
-    rate = info["rate"]
-    tax = (subtotal * rate).quantize(Decimal("0.01"))
-    total = subtotal + tax
-    return tax, total, info["label"], float(rate)
+    """Tax-inclusive pricing: all prices are all-inclusive with zero extra tax added."""
+    return Decimal("0.00"), subtotal, "Tax Included (0%)", 0.0
 
 
 def _generate_order_number() -> str:
@@ -63,11 +59,6 @@ async def create_order(
     current_user: User = Depends(get_current_user),
 ):
     """Create a new order. Returns the order with PENDING status ready for payment."""
-    if settings.TEMPLATE_DOWNLOADS_FREE:
-        raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail="Marketplace templates are free to download right now. Open a template and choose Free Download.",
-        )
     template_repo = TemplateRepository(db)
     subtotal = Decimal("0")
     order_items = []
@@ -130,7 +121,13 @@ async def create_order(
     await db.commit()
     
     refreshed = await db.execute(
-        select(Order).options(selectinload(Order.items).selectinload(OrderItem.template)).where(Order.id == order.id)
+        select(Order)
+        .options(
+            selectinload(Order.items).selectinload(OrderItem.template),
+            selectinload(Order.payment),
+            selectinload(Order.user),
+        )
+        .where(Order.id == order.id)
     )
     return OrderResponse.model_validate(refreshed.scalar_one())
 
@@ -145,7 +142,8 @@ async def list_orders(
         select(Order)
         .options(
             selectinload(Order.items).selectinload(OrderItem.template),
-            selectinload(Order.user)
+            selectinload(Order.payment),
+            selectinload(Order.user),
         )
         .where(Order.user_id == current_user.id)
         .order_by(Order.created_at.desc())
@@ -206,6 +204,8 @@ async def get_order(
     if changed:
         order.extra_metadata = meta
         await db.commit()
+        refreshed = await db.execute(query)
+        order = refreshed.scalar_one()
 
     resp = OrderResponse.model_validate(order)
     if not resp.items:

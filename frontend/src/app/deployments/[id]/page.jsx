@@ -71,7 +71,7 @@ function ArchitectureTopologyDiagram({ siteData, bundleStats, domainInfo, tokens
       title: "Pre-Flight Auditor",
       sub: `${tokens?.healing_actions_performed || 4} Auto-heals applied`,
       icon: Sparkles,
-      color: "text-purple-400",
+      color: "text-[#dfb180]",
       badge: "Healthy",
     },
     {
@@ -89,7 +89,7 @@ function ArchitectureTopologyDiagram({ siteData, bundleStats, domainInfo, tokens
       title: domainInfo?.name || "Edge Host",
       sub: domainInfo?.is_purchased ? "Registered Domain" : "Platform Subdomain",
       icon: Shield,
-      color: "text-indigo-400",
+      color: "text-[#dfb180]",
       badge: "SSL Enforced",
     },
     {
@@ -107,7 +107,7 @@ function ArchitectureTopologyDiagram({ siteData, bundleStats, domainInfo, tokens
     <div className="deploy-topology-wrapper">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
-          <Workflow className="w-4 h-4 text-purple-400" />
+          <Workflow className="w-4 h-4 text-[#dfb180]" />
           <h3 className="text-xs font-bold text-white uppercase tracking-wider">
             Live Deployment Architecture &amp; Delivery Topology Graph
           </h3>
@@ -211,10 +211,10 @@ function TrafficTimelineGraph({ recentLogs, totalRequests }) {
     <div className="deploy-chart-wrapper">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-purple-400" />
+          <Activity className="w-4 h-4 text-[#dfb180]" />
           <span className="text-xs font-bold text-white">Live Request Timeline &amp; Traffic Pulse Curve</span>
         </div>
-        <span className="text-[11px] text-purple-300 font-mono font-semibold">
+        <span className="text-[11px] text-[#dfb180] font-mono font-semibold">
           {httpLogs.length} Verified Hits
         </span>
       </div>
@@ -223,12 +223,12 @@ function TrafficTimelineGraph({ recentLogs, totalRequests }) {
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
           <defs>
             <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.45" />
-              <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0.0" />
+              <stop offset="0%" stopColor="#d4a373" stopOpacity="0.45" />
+              <stop offset="100%" stopColor="#d4a373" stopOpacity="0.0" />
             </linearGradient>
             <linearGradient id="lineGradient" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor="#38bdf8" />
-              <stop offset="50%" stopColor="#a855f7" />
+              <stop offset="50%" stopColor="#c89666" />
               <stop offset="100%" stopColor="#10b981" />
             </linearGradient>
           </defs>
@@ -304,7 +304,7 @@ function TrafficTimelineGraph({ recentLogs, totalRequests }) {
 
       <div className="flex items-center justify-between text-[10px] text-slate-400 mt-2 font-mono px-2">
         <span>{points[0]?.time.toLocaleTimeString() || "Start"}</span>
-        <span className="text-purple-300 font-sans font-semibold">Hover nodes for route telemetry</span>
+        <span className="text-[#dfb180] font-sans font-semibold">Hover nodes for route telemetry</span>
         <span>{points[points.length - 1]?.time.toLocaleTimeString() || "Latest"}</span>
       </div>
     </div>
@@ -422,7 +422,7 @@ function HealthDonutChart({ analytics }) {
 
           <div className="p-2 rounded-lg bg-white/5 text-[11px] text-slate-400 flex items-center justify-between">
             <span>Total Requests Analyzed:</span>
-            <span className="font-mono font-bold text-purple-300">{totalReq}</span>
+            <span className="font-mono font-bold text-[#dfb180]">{totalReq}</span>
           </div>
         </div>
       </div>
@@ -448,8 +448,8 @@ function TokenRadialGauge({ tokens }) {
         <svg className="w-36 h-20 overflow-visible" viewBox="0 0 140 75">
           <defs>
             <linearGradient id="tokenGaugeGradient" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#7c3aed" />
-              <stop offset="100%" stopColor="#a855f7" />
+              <stop offset="0%" stopColor="#c89666" />
+              <stop offset="100%" stopColor="#c89666" />
             </linearGradient>
           </defs>
 
@@ -624,13 +624,13 @@ export default function DeployedWebsiteDetailsPage() {
               ],
             },
             renewal_reminder: {
-              hosting_status: "free_preview",
+              hosting_status: "production_active",
               current_period_end: null,
               days_remaining: null,
               is_due_soon: false,
-              renewal_amount: "$0.00 (Free Sandbox Preview)",
+              renewal_amount: "$0.00 (Production Active)",
               has_active_subscription: false,
-              reminder_message: "Currently running on the Free Local Edge Preview. Upgrade to Studio Managed Hosting ($12/mo) to enable production SLA and custom domain SSL.",
+              reminder_message: "Live Production Edge tier active. Zero-downtime serving, automatic global distribution, and automated SSL.",
             },
             token_diagnostic: {
               current_ai_credits: 10,
@@ -809,7 +809,7 @@ export default function DeployedWebsiteDetailsPage() {
         <Navbar />
         <div className="deploy-details-container flex items-center justify-center min-h-[60vh]">
           <div className="flex flex-col items-center gap-3">
-            <RefreshCw className="w-8 h-8 text-purple-400 animate-spin" />
+            <RefreshCw className="w-8 h-8 text-[#dfb180] animate-spin" />
             <p className="text-sm text-slate-400 font-semibold">Loading deployment telemetry &amp; health diagnostics...</p>
           </div>
         </div>
@@ -866,10 +866,21 @@ export default function DeployedWebsiteDetailsPage() {
       <div className="deploy-details-container">
         {/* ── Top Navigation Bar ───────────────────────────────────────── */}
         <div className="deploy-details-nav-bar">
-          <Link to="/dashboard?tab=deployments" className="deploy-back-link">
-            <ArrowLeft className="w-4 h-4" />
-            <span>Back to Deployments</span>
-          </Link>
+          <button
+            type="button"
+            onClick={() => {
+              if (window.history.length > 1) {
+                navigate(-1);
+              } else {
+                navigate("/dashboard?tab=my-websites");
+              }
+            }}
+            className="deploy-back-link"
+            title="Go back to previous page"
+          >
+            <ArrowLeft className="w-4 h-4 text-[#dfb180]" />
+            <span>Back to Previous Page</span>
+          </button>
 
           <div className="deploy-nav-actions">
             <button
@@ -911,7 +922,7 @@ export default function DeployedWebsiteDetailsPage() {
           <div className="deploy-hero-content">
             <div className="deploy-hero-left">
               <div className="deploy-project-icon-avatar">
-                <Rocket className="w-7 h-7 text-purple-400" />
+                <Rocket className="w-7 h-7 text-[#dfb180]" />
               </div>
 
               <div className="deploy-hero-info">
@@ -996,21 +1007,21 @@ export default function DeployedWebsiteDetailsPage() {
                   {renewal.has_active_subscription
                     ? (renewal.is_due_soon
                         ? `Payment Reminder: Hosting Renews in ${renewal.days_remaining} Days!`
-                        : `Active Managed Hosting (${renewal.renewal_amount || "$12.00/mo"})`)
-                    : `Free Local Edge Preview Tier (${renewal.renewal_amount || "$0.00 / Free"})`}
+                        : `Studio Managed Hosting (${renewal.renewal_amount || "$12.00/mo"})`)
+                    : `Studio Production Edge Tier (${renewal.renewal_amount || "$0.00 (Production Active)"})`}
                 </h4>
                 <p className="deploy-renewal-desc">
-                  {renewal.reminder_message || "Automatic edge preview active."}
+                  {renewal.reminder_message || "Live production edge serving active."}
                   {renewal.domain_renewal?.expires_at && ` • Domain registration valid until ${new Date(renewal.domain_renewal.expires_at).toLocaleDateString()}.`}
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${renewal.is_due_soon ? "bg-amber-500/20 text-amber-300 border border-amber-500/40" : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"}`}>
+              <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${renewal.is_due_soon ? "bg-amber-500/20 text-amber-300 border border-amber-500/40" : "bg-[#c89666]/20 text-[#dfb180] border border-[#c89666]/40"}`}>
                 {renewal.has_active_subscription
                   ? `⏳ ${renewal.days_remaining} Days Remaining`
-                  : "✓ Free Sandbox Active"}
+                  : "✓ Production Active"}
               </span>
               <button
                 type="button"
@@ -1080,7 +1091,7 @@ export default function DeployedWebsiteDetailsPage() {
             onClick={() => setActiveTab("blockers")}
             className={`deploy-tab-btn ${activeTab === "blockers" ? "active" : ""}`}
           >
-            <Coins className="w-4 h-4 text-purple-400" />
+            <Coins className="w-4 h-4 text-[#dfb180]" />
             <span>Blockers &amp; AI Tokens</span>
             {blockers.length > 0 && <span className="deploy-tab-badge alert">{blockers.length}</span>}
           </button>
@@ -1173,7 +1184,7 @@ export default function DeployedWebsiteDetailsPage() {
               <div className="deploy-canvas-body">
                 {iframeLoading && (
                   <div className="deploy-canvas-loader">
-                    <RefreshCw className="w-6 h-6 text-purple-400 animate-spin" />
+                    <RefreshCw className="w-6 h-6 text-[#dfb180] animate-spin" />
                     <span className="text-xs text-slate-300 font-semibold">Connecting to Edge CDN preview...</span>
                   </div>
                 )}
@@ -1212,7 +1223,7 @@ export default function DeployedWebsiteDetailsPage() {
                   </div>
                   <div className="flex justify-between py-1 border-b border-white/5">
                     <span className="text-slate-400">Physical Bundle</span>
-                    <span className="font-mono text-purple-300">
+                    <span className="font-mono text-[#dfb180]">
                       {bundleStats.html_pages_count ? `${bundleStats.html_pages_count} Pages (${bundleStats.total_size_formatted})` : (siteData.output_dir || "dist")}
                     </span>
                   </div>
@@ -1239,7 +1250,7 @@ export default function DeployedWebsiteDetailsPage() {
               <div className="deploy-detail-card">
                 <div className="deploy-card-header">
                   <div className="deploy-card-title-wrap">
-                    <Coins className="w-4 h-4 text-purple-400" />
+                    <Coins className="w-4 h-4 text-[#dfb180]" />
                     <div>
                       <h3 className="deploy-card-title">AI Tokens &amp; Compute</h3>
                       <p className="deploy-card-sub">Autonomous Healing &amp; Edit Quota</p>
@@ -1248,7 +1259,7 @@ export default function DeployedWebsiteDetailsPage() {
                   <button
                     type="button"
                     onClick={() => setIsTokenModalOpen(true)}
-                    className="text-xs font-bold text-purple-400 hover:text-purple-300"
+                    className="text-xs font-bold text-[#dfb180] hover:text-[#dfb180]"
                   >
                     + Top Up
                   </button>
@@ -1268,7 +1279,7 @@ export default function DeployedWebsiteDetailsPage() {
 
                   <div className="p-2.5 rounded-lg bg-white/5 text-[11px] text-slate-300 flex items-center justify-between">
                     <span>AI Healing Actions Used:</span>
-                    <span className="font-bold text-purple-300">{tokens.healing_actions_performed || 0} repairs completed</span>
+                    <span className="font-bold text-[#dfb180]">{tokens.healing_actions_performed || 0} repairs completed</span>
                   </div>
                 </div>
               </div>
@@ -1288,7 +1299,7 @@ export default function DeployedWebsiteDetailsPage() {
                 <div className="space-y-2.5 text-xs">
                   <div className="flex justify-between py-1 border-b border-white/5">
                     <span className="text-slate-400">Connected Host</span>
-                    <span className="font-mono text-purple-300 truncate max-w-[180px]">{domainInfo.name}</span>
+                    <span className="font-mono text-[#dfb180] truncate max-w-[180px]">{domainInfo.name}</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-white/5">
                     <span className="text-slate-400">Domain Classification</span>
@@ -1407,11 +1418,11 @@ export default function DeployedWebsiteDetailsPage() {
               <div className="deploy-stat-box">
                 <span className="deploy-stat-label">
                   <span>Total Visitors</span>
-                  <Users className="w-3.5 h-3.5 text-purple-400" />
+                  <Users className="w-3.5 h-3.5 text-[#dfb180]" />
                 </span>
                 <span className="deploy-stat-val">{analytics.total_visitors?.toLocaleString() || 0}</span>
                 <span className="deploy-stat-sub text-slate-400">
-                  <Activity className="w-3 h-3 text-purple-400" />
+                  <Activity className="w-3 h-3 text-[#dfb180]" />
                   <span>{analytics.visitors_subtitle || "Verified from server logs"}</span>
                 </span>
               </div>
@@ -1462,7 +1473,7 @@ export default function DeployedWebsiteDetailsPage() {
               <div className="deploy-detail-card">
                 <div className="deploy-card-header">
                   <div className="deploy-card-title-wrap">
-                    <Globe className="w-4 h-4 text-purple-400" />
+                    <Globe className="w-4 h-4 text-[#dfb180]" />
                     <div>
                       <h3 className="deploy-card-title">Traffic Referrers &amp; Channels</h3>
                       <p className="deploy-card-sub">Live verified access routes</p>
@@ -1475,7 +1486,7 @@ export default function DeployedWebsiteDetailsPage() {
                     <div key={src.source} className="deploy-bar-item">
                       <div className="deploy-bar-header">
                         <span className="font-semibold text-slate-300">{src.source}</span>
-                        <span className="font-mono text-purple-300 font-bold">{src.percentage}% ({src.visitors || 0} hits)</span>
+                        <span className="font-mono text-[#dfb180] font-bold">{src.percentage}% ({src.visitors || 0} hits)</span>
                       </div>
                       <div className="deploy-progress-track">
                         <div className="deploy-progress-fill" style={{ width: `${src.percentage}%` }} />
@@ -1519,7 +1530,7 @@ export default function DeployedWebsiteDetailsPage() {
               <div className="deploy-detail-card">
                 <div className="deploy-card-header">
                   <div className="deploy-card-title-wrap">
-                    <FileText className="w-4 h-4 text-purple-400" />
+                    <FileText className="w-4 h-4 text-[#dfb180]" />
                     <div>
                       <h3 className="deploy-card-title">Most Visited Pages</h3>
                       <p className="deploy-card-sub">Real HTTP request counts per route</p>
@@ -1535,7 +1546,7 @@ export default function DeployedWebsiteDetailsPage() {
                       <div key={p.page} className="deploy-bar-item">
                         <div className="deploy-bar-header">
                           <span className="font-mono text-slate-200 text-xs font-semibold">{p.page}</span>
-                          <span className="font-mono text-purple-300 text-xs font-bold">{p.views} views ({p.percentage}%)</span>
+                          <span className="font-mono text-[#dfb180] text-xs font-bold">{p.views} views ({p.percentage}%)</span>
                         </div>
                         <div className="deploy-progress-track">
                           <div className="deploy-progress-fill" style={{ width: `${p.percentage}%` }} />
@@ -1697,7 +1708,7 @@ export default function DeployedWebsiteDetailsPage() {
               <div className="deploy-token-hero">
                 <div>
                   <div className="flex items-center gap-2">
-                    <Coins className="w-5 h-5 text-purple-400" />
+                    <Coins className="w-5 h-5 text-[#dfb180]" />
                     <h3 className="text-lg font-bold text-white">AI Tokens &amp; Studio Credit Balance</h3>
                   </div>
                   <p className="text-xs text-slate-400 mt-1 max-w-lg">
@@ -1709,7 +1720,7 @@ export default function DeployedWebsiteDetailsPage() {
                   <div className="deploy-token-number">
                     {tokens.current_ai_credits ?? 10} <span>/ 50 credits</span>
                   </div>
-                  <span className="text-xs text-purple-300 font-semibold">Active monthly allowance</span>
+                  <span className="text-xs text-[#dfb180] font-semibold">Active monthly allowance</span>
                 </div>
               </div>
 
@@ -1738,7 +1749,7 @@ export default function DeployedWebsiteDetailsPage() {
             <div className="deploy-detail-card">
               <div className="deploy-card-header">
                 <div className="deploy-card-title-wrap">
-                  <Globe className="w-4 h-4 text-purple-400" />
+                  <Globe className="w-4 h-4 text-[#dfb180]" />
                   <div>
                     <h3 className="deploy-card-title">Domain Configuration</h3>
                     <p className="deploy-card-sub">
@@ -1790,7 +1801,7 @@ export default function DeployedWebsiteDetailsPage() {
                               <span className="deploy-dns-type-tag">{rec.type}</span>
                             </td>
                             <td className="font-mono font-bold">{rec.host}</td>
-                            <td className="font-mono text-purple-300">{rec.target}</td>
+                            <td className="font-mono text-[#dfb180]">{rec.target}</td>
                             <td className="text-slate-400">{rec.ttl}</td>
                             <td>
                               <span className="text-emerald-400 font-semibold text-xs">✓ Verified</span>
@@ -1822,29 +1833,29 @@ export default function DeployedWebsiteDetailsPage() {
                   <span className="deploy-stat-val text-lg">
                     {renewal.has_active_subscription && renewal.current_period_end
                       ? new Date(renewal.current_period_end).toLocaleDateString()
-                      : "Unbilled / Free Preview"}
+                      : "Active / Zero-Downtime Edge"}
                   </span>
-                  <span className={`deploy-stat-sub ${renewal.has_active_subscription ? "text-amber-400 font-bold" : "text-emerald-400 font-semibold"}`}>
+                  <span className={`deploy-stat-sub ${renewal.has_active_subscription ? "text-amber-400 font-bold" : "text-[#dfb180] font-semibold"}`}>
                     {renewal.has_active_subscription
                       ? `⏳ Renews in ${renewal.days_remaining} Days`
-                      : "✓ Free Sandbox Active"}
+                      : "✓ Production Active"}
                   </span>
                 </div>
 
                 <div className="deploy-stat-box">
                   <span className="deploy-stat-label">Hosting Plan</span>
-                  <span className="deploy-stat-val text-lg">{renewal.renewal_amount || "$0.00 / Free"}</span>
+                  <span className="deploy-stat-val text-lg">{renewal.renewal_amount || "$0.00 (Production Active)"}</span>
                   <span className="text-[11px] text-slate-400">
-                    {renewal.has_active_subscription ? "Managed Edge Cloud (Active)" : "High-speed Local Edge Tier"}
+                    {renewal.has_active_subscription ? "Managed Edge Cloud (Active)" : "High-speed Production Edge Tier"}
                   </span>
                 </div>
 
                 <div className="deploy-stat-box">
                   <span className="deploy-stat-label">Billing Status</span>
                   <span className="deploy-stat-val text-lg">
-                    {renewal.has_active_subscription ? "Stripe Subscription" : "Free Preview Tier"}
+                    {renewal.has_active_subscription ? "Stripe Subscription" : "Production Edge Active"}
                   </span>
-                  <span className={`text-[11px] font-semibold ${renewal.has_active_subscription ? "text-emerald-400" : "text-purple-300"}`}>
+                  <span className={`text-[11px] font-semibold ${renewal.has_active_subscription ? "text-emerald-400" : "text-[#dfb180]"}`}>
                     {renewal.has_active_subscription ? "✓ Auto-Renew Active" : "No Charges Pending"}
                   </span>
                 </div>
@@ -1863,7 +1874,7 @@ export default function DeployedWebsiteDetailsPage() {
             <div className="deploy-detail-card">
               <div className="deploy-card-header">
                 <div className="deploy-card-title-wrap">
-                  <CheckSquare className="w-4 h-4 text-purple-400" />
+                  <CheckSquare className="w-4 h-4 text-[#dfb180]" />
                   <div>
                     <h3 className="deploy-card-title">Production Readiness Checklist</h3>
                     <p className="deploy-card-sub">
@@ -1925,7 +1936,7 @@ export default function DeployedWebsiteDetailsPage() {
           <div className="deploy-modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Coins className="w-5 h-5 text-purple-400" />
+                <Coins className="w-5 h-5 text-[#dfb180]" />
                 <h3 className="text-base font-bold text-white">Top Up AI Tokens</h3>
               </div>
               <button
@@ -1950,11 +1961,11 @@ export default function DeployedWebsiteDetailsPage() {
                 <div
                   key={pack.amount}
                   onClick={() => setSelectedTokenPack(pack.amount)}
-                  className={`p-3 rounded-xl border text-center cursor-pointer transition-all ${selectedTokenPack === pack.amount ? "border-purple-500 bg-purple-500/20" : "border-white/10 bg-white/5 hover:border-white/20"}`}
+                  className={`p-3 rounded-xl border text-center cursor-pointer transition-all ${selectedTokenPack === pack.amount ? "border-[#c89666] bg-[#c89666]/20" : "border-white/10 bg-white/5 hover:border-white/20"}`}
                 >
                   <span className="text-xs text-slate-400 uppercase font-bold">{pack.label}</span>
                   <div className="text-xl font-black text-white my-1">+{pack.amount}</div>
-                  <span className="text-xs text-purple-300 font-bold">{pack.price}</span>
+                  <span className="text-xs text-[#dfb180] font-bold">{pack.price}</span>
                 </div>
               ))}
             </div>
@@ -1999,7 +2010,7 @@ export default function DeployedWebsiteDetailsPage() {
               placeholder="e.g. G-847291240"
               value={trackingTagInput}
               onChange={(e) => setTrackingTagInput(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-lg p-2.5 text-sm text-white font-mono outline-none focus:border-purple-500"
+              className="w-full bg-white/5 border border-white/10 rounded-lg p-2.5 text-sm text-white font-mono outline-none focus:border-[#c89666]"
             />
 
             <button

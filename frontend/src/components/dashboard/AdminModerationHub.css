@@ -75,13 +75,13 @@
 .mod-stat-card:hover {
   transform: translateY(-2px);
   border-color: hsl(var(--primary) / 0.4);
-  box-shadow: 0 6px 16px -2px rgba(99, 102, 241, 0.12);
+  box-shadow: 0 6px 16px -2px rgba(200, 150, 102, 0.12);
 }
 
 .mod-stat-card.is-active {
   border-color: hsl(var(--primary));
   background: hsl(var(--primary) / 0.04);
-  box-shadow: 0 0 0 1px hsl(var(--primary)), 0 4px 14px -2px rgba(99, 102, 241, 0.15);
+  box-shadow: 0 0 0 1px hsl(var(--primary)), 0 4px 14px -2px rgba(200, 150, 102, 0.15);
 }
 
 .mod-stat-icon-wrap {
@@ -96,7 +96,7 @@
 
 .mod-stat-icon-indigo {
   background: #eef2ff;
-  color: #4f46e5;
+  color: #b5804f;
   border: 1px solid #c7d2fe;
 }
 
@@ -501,7 +501,7 @@
   align-items: center;
   justify-content: center;
   background: #eef2ff;
-  color: #4f46e5;
+  color: #b5804f;
 }
 
 .mod-meta-info {
@@ -551,7 +551,7 @@
   gap: 0.2rem;
   font-size: 0.6rem;
   font-weight: 700;
-  color: #7c3aed;
+  color: #b5804f;
   background: #f5f3ff;
   border: 1px solid #ddd6fe;
   padding: 0.08rem 0.35rem;
@@ -570,7 +570,7 @@
   width: 1.85rem;
   height: 1.85rem;
   border-radius: 9999px;
-  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  background: linear-gradient(135deg, #b5804f 0%, #b5804f 100%);
   color: #ffffff;
   font-size: 0.65rem;
   font-weight: 700;
@@ -763,14 +763,14 @@
 .mod-btn-preview {
   background: #eef2ff;
   border: 1px solid #c7d2fe;
-  color: #4338ca;
+  color: #936338;
 }
 
 .mod-btn-preview:hover {
-  background: #4f46e5;
-  border-color: #4f46e5;
+  background: #b5804f;
+  border-color: #b5804f;
   color: #ffffff;
-  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.25);
+  box-shadow: 0 2px 8px rgba(181, 128, 79, 0.25);
   transform: translateY(-1px);
 }
 
@@ -795,7 +795,7 @@
 .mod-btn-info:hover {
   background: #eef2ff;
   border-color: #c7d2fe;
-  color: #4338ca;
+  color: #936338;
   transform: translateY(-1px);
 }
 
@@ -852,7 +852,7 @@
 
 .mod-card-item.is-selected {
   border-color: hsl(var(--primary));
-  box-shadow: 0 0 0 1px hsl(var(--primary)), 0 4px 14px rgba(99, 102, 241, 0.15);
+  box-shadow: 0 0 0 1px hsl(var(--primary)), 0 4px 14px rgba(200, 150, 102, 0.15);
 }
 
 .mod-card-media {
@@ -914,7 +914,7 @@
 .mod-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.6);
+  background: rgba(18, 18, 22, 0.6);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   display: flex;
@@ -934,7 +934,7 @@
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
   border-radius: 1.25rem;
-  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.25), 0 0 30px -10px rgba(99, 102, 241, 0.15);
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.25), 0 0 30px -10px rgba(200, 150, 102, 0.15);
   width: 100%;
   max-width: 680px;
   max-height: 90vh;
@@ -1027,7 +1027,7 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  box-shadow: 0 15px 35px -5px rgba(0, 0, 0, 0.12), 0 0 20px -5px rgba(99, 102, 241, 0.2);
+  box-shadow: 0 15px 35px -5px rgba(0, 0, 0, 0.12), 0 0 20px -5px rgba(200, 150, 102, 0.2);
   backdrop-filter: blur(12px);
   animation: modToastIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   font-size: 0.82rem;
