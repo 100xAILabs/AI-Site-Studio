@@ -578,13 +578,19 @@ async def get_domain_challenge(
     # 3. Live DNS check via DNS-over-HTTPS
     check_result = await verify_domain_dns_ownership(clean_domain, token)
     is_verified = bool(check_result.get("verified"))
+    is_sandbox = check_result.get("method") == "sandbox_simulation"
 
-    # Fetch live A records to report what the domain currently points to
-    live_a_records = await query_public_dns_records(clean_domain, record_type="A")
-    live_txt_records = await query_public_dns_records(f"_studio-challenge.{clean_domain}", record_type="TXT")
-
-    txt_matched = any(token in t for t in live_txt_records)
-    a_matched = any(ip in EDGE_SERVER_IPS for ip in live_a_records)
+    if is_sandbox:
+        live_a_records = ["149.28.243.12 (Sandbox Simulated)"]
+        live_txt_records = [token]
+        txt_matched = True
+        a_matched = True
+    else:
+        # Fetch live A records to report what the domain currently points to
+        live_a_records = await query_public_dns_records(clean_domain, record_type="A")
+        live_txt_records = await query_public_dns_records(f"_studio-challenge.{clean_domain}", record_type="TXT")
+        txt_matched = any(token in t for t in live_txt_records)
+        a_matched = any(ip in EDGE_SERVER_IPS for ip in live_a_records)
 
     records = [
         {

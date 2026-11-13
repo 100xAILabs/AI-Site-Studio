@@ -4975,6 +4975,22 @@ function Dashboard() {
                                     {challengeLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Check"}
                                   </button>
                                 </div>
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] pt-1 gap-1">
+                                  <span className="text-[#a8a29e]">
+                                    Don't own a domain yet? Your website is already live on the free platform URL.
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const demoDomain = `${(selectedTargetDeployment?.project_name || "mysite").toLowerCase().replace(/[^a-z0-9]/g, "") || "mysite"}.test`;
+                                      setConnectDomainName(demoDomain);
+                                      handleCheckDomainChallenge(demoDomain);
+                                    }}
+                                    className="text-[#dfb180] hover:text-[#c89666] font-bold hover:underline cursor-pointer shrink-0 text-left sm:text-right"
+                                  >
+                                    ✨ Try with a Sandbox Test Domain (.test)
+                                  </button>
+                                </div>
                               </div>
 
                               {ownershipMessage && (
