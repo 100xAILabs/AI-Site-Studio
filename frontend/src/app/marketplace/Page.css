@@ -468,28 +468,27 @@
 }
 
 /* ==========================================================================
-   Obsidian Dark Glass Marketplace Theme (Ultra-Premium, Zero Box)
+   Marketplace Dual Theme (Light Cream & Obsidian Dark Glass)
    ========================================================================== */
 
 .marketplace-redesign {
-  --background: 0 0% 4%;
-  --foreground: 0 0% 98%;
-  --card: 240 4% 10%;
-  --popover: 240 4% 10%;
-  --muted: 240 4% 14%;
-  --muted-foreground: 240 5% 65%;
-  --border: 240 4% 18%;
-  --input: 240 4% 18%;
-  --primary: 30 50% 59%;
-  --primary-foreground: 0 0% 100%;
-  --accent: 30 45% 45%;
   min-height: 100vh;
   padding: 6.5rem 0 5rem;
+  background-color: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
+  overflow-x: hidden;
+}
+
+:root:not(.dark) .marketplace-redesign {
+  background: radial-gradient(circle at 10% 10%, rgba(200, 150, 102, 0.05) 0%, transparent 45%),
+              radial-gradient(circle at 90% 90%, rgba(200, 150, 102, 0.03) 0%, transparent 50%),
+              hsl(var(--background)) !important;
+}
+
+.dark .marketplace-redesign {
   background: radial-gradient(circle at 10% 10%, rgba(200, 150, 102, 0.08) 0%, transparent 45%),
               radial-gradient(circle at 90% 90%, rgba(200, 150, 102, 0.04) 0%, transparent 50%),
               hsl(var(--background)) !important;
-  color: hsl(var(--foreground)) !important;
-  overflow-x: hidden;
 }
 
 .marketplace-redesign .marketplace-container {
@@ -510,11 +509,11 @@
   gap: 0.55rem;
   padding: 0.4rem 0.95rem;
   border-radius: 9999px;
-  background: rgba(200, 150, 102, 0.12);
-  border: 1px solid rgba(212, 163, 115, 0.3);
+  background: hsl(var(--primary) / 0.12);
+  border: 1px solid hsl(var(--primary) / 0.3);
   font-size: 0.775rem;
   font-weight: 600;
-  color: #e2e8f0;
+  color: hsl(var(--foreground));
   margin-bottom: 0.85rem;
   backdrop-filter: blur(10px);
 }
@@ -523,7 +522,7 @@
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.4);
+  background: hsl(var(--muted-foreground) / 0.5);
 }
 
 .marketplace-hero-row {
@@ -544,12 +543,12 @@
   font-weight: 850;
   line-height: 1.1;
   letter-spacing: -0.035em;
-  color: #ffffff;
+  color: hsl(var(--foreground));
   margin: 0;
 }
 
 .marketplace-title-gradient {
-  background: linear-gradient(135deg, #ffffff 0%, #dfb180 50%, #c89666 100%);
+  background: linear-gradient(135deg, hsl(var(--foreground)) 0%, #dfb180 50%, #c89666 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -557,7 +556,7 @@
 .marketplace-hero-sub {
   max-width: 42rem;
   margin-top: 0.65rem;
-  color: #94a3b8;
+  color: hsl(var(--muted-foreground));
   font-size: 0.975rem;
   line-height: 1.6;
 }
@@ -568,13 +567,13 @@
   gap: 0.65rem;
   padding: 0.8rem 1.4rem;
   border-radius: 0.85rem;
-  background: linear-gradient(135deg, #b5804f 0%, #c89666 100%);
-  color: #ffffff;
-  font-weight: 700;
+  background: linear-gradient(135deg, #dfb180 0%, #c89666 100%);
+  color: #09090b;
+  font-weight: 750;
   font-size: 0.875rem;
   border: none;
   cursor: pointer;
-  box-shadow: 0 4px 20px rgba(212, 163, 115, 0.35);
+  box-shadow: 0 4px 20px hsla(var(--primary) / 0.35);
   transition: all 0.2s ease;
   flex-shrink: 0;
 }
@@ -585,20 +584,20 @@
   gap: 0.9rem;
   min-width: 19rem;
   padding: 1.05rem 1.35rem;
-  border: 1px solid rgba(223, 177, 128, 0.38);
+  border: 1px solid hsl(var(--border));
   border-radius: 999px;
-  background: #141418;
-  color: #f8fafc;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
   text-decoration: none;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5), inset 0 1px rgba(255, 255, 255, 0.06);
+  box-shadow: var(--shadow-sm);
   transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   flex-shrink: 0;
 }
 
 .marketplace-create-callout:hover {
   transform: translateY(-3px);
-  border-color: rgba(223, 177, 128, 0.8);
-  box-shadow: 0 16px 42px rgba(200, 150, 102, 0.3), inset 0 1px rgba(255, 255, 255, 0.08);
+  border-color: hsl(var(--primary) / 0.6);
+  box-shadow: 0 14px 36px hsla(var(--primary) / 0.18);
 }
 
 .marketplace-create-icon {
@@ -607,11 +606,11 @@
   width: 2.8rem;
   height: 2.8rem;
   flex: 0 0 auto;
-  border: 1px solid rgba(200, 150, 102, 0.35);
+  border: 1px solid hsl(var(--primary) / 0.35);
   border-radius: 50%;
   background: linear-gradient(145deg, #dfb180, #c89666);
   color: #09090b;
-  box-shadow: 0 0 22px rgba(212, 163, 115, 0.4);
+  box-shadow: 0 0 20px hsla(var(--primary) / 0.35);
 }
 
 .marketplace-create-copy,
@@ -627,20 +626,21 @@
 .marketplace-create-copy strong {
   font-size: 0.93rem;
   line-height: 1.25;
+  color: hsl(var(--foreground));
 }
 
 .marketplace-create-copy > span {
   align-items: center;
   gap: 0.35rem;
-  color: #dfb180;
+  color: hsl(var(--primary));
   font-size: 0.76rem;
   font-weight: 650;
 }
 
 .marketplace-studio-cta:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 30px rgba(212, 163, 115, 0.55);
-  color: #ffffff;
+  box-shadow: 0 8px 30px hsla(var(--primary) / 0.55);
+  color: #09090b;
 }
 
 /* -- Main Layout Grid -- */
@@ -664,13 +664,13 @@
 }
 
 .marketplace-redesign .sidebar-filters-aside {
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid hsl(var(--border)) !important;
   border-radius: 1.25rem !important;
-  background: rgba(18, 18, 22, 0.85) !important;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4) !important;
+  background: hsl(var(--card) / 0.95) !important;
+  box-shadow: var(--shadow-sm) !important;
   backdrop-filter: blur(20px) !important;
   -webkit-backdrop-filter: blur(20px) !important;
-  color: #f1f5f9 !important;
+  color: hsl(var(--foreground)) !important;
   max-height: calc(100vh - 6.5rem);
   display: flex;
   flex-direction: column;
@@ -679,9 +679,9 @@
 
 .marketplace-redesign .filters-header {
   padding: 1rem 1.25rem !important;
-  background: rgba(18, 18, 22, 0.95) !important;
+  background: hsl(var(--card)) !important;
   backdrop-filter: blur(16px) !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-bottom: 1px solid hsl(var(--border)) !important;
   flex-shrink: 0;
   position: sticky;
   top: 0;
@@ -690,7 +690,7 @@
 
 .marketplace-redesign .filters-header-text {
   letter-spacing: 0.08em !important;
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .marketplace-redesign .filters-sections-container {
@@ -699,7 +699,7 @@
   flex: 1 1 auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  scrollbar-color: rgba(200, 150, 102, 0.4) transparent;
+  scrollbar-color: hsl(var(--primary) / 0.4) transparent;
   padding-bottom: 1rem;
 }
 
@@ -712,42 +712,42 @@
 }
 
 .marketplace-redesign .filters-sections-container::-webkit-scrollbar-thumb {
-  background: rgba(200, 150, 102, 0.3);
+  background: hsl(var(--primary) / 0.3);
   border-radius: 9999px;
 }
 
 .marketplace-redesign .filters-sections-container::-webkit-scrollbar-thumb:hover {
-  background: rgba(200, 150, 102, 0.6);
+  background: hsl(var(--primary) / 0.6);
 }
 
 .marketplace-redesign .filter-section {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-bottom: 1px solid hsl(var(--border) / 0.6) !important;
 }
 
 .marketplace-redesign .filter-toggle-btn {
-  color: #cbd5e1 !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .marketplace-redesign .filter-toggle-btn:hover {
-  color: #dfb180 !important;
+  color: hsl(var(--primary)) !important;
 }
 
 .marketplace-redesign .checkbox-label {
-  color: #94a3b8 !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 .marketplace-redesign .checkbox-option:hover .checkbox-label {
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .marketplace-redesign .checkbox-indicator {
-  border-color: rgba(255, 255, 255, 0.2) !important;
-  background: rgba(0, 0, 0, 0.3) !important;
+  border-color: hsl(var(--border)) !important;
+  background: hsl(var(--muted) / 0.4) !important;
 }
 
 .marketplace-redesign .checkbox-indicator.checked {
-  background-color: #b5804f !important;
-  border-color: #b5804f !important;
+  background-color: hsl(var(--primary)) !important;
+  border-color: hsl(var(--primary)) !important;
 }
 
 .marketplace-redesign .marketplace-main {
@@ -792,11 +792,11 @@
   align-items: center;
   gap: 0.65rem;
   padding: 0.45rem;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border: 1px solid hsl(var(--border)) !important;
   border-radius: 1rem !important;
-  background: rgba(18, 18, 22, 0.85) !important;
+  background: hsl(var(--card)) !important;
   backdrop-filter: blur(20px) !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important;
+  box-shadow: var(--shadow-sm) !important;
   transition: border-color 160ms ease, box-shadow 160ms ease;
   z-index: 70;
 }
@@ -804,13 +804,13 @@
 .marketplace-redesign .marketplace-search-wrapper.dropdown-open,
 .marketplace-redesign .marketplace-search-wrapper:focus-within {
   z-index: 9999 !important;
-  border-color: rgba(200, 150, 102, 0.6) !important;
-  box-shadow: 0 0 25px rgba(200, 150, 102, 0.25) !important;
+  border-color: hsl(var(--primary) / 0.7) !important;
+  box-shadow: 0 0 20px hsla(var(--primary) / 0.25) !important;
 }
 
 .marketplace-redesign .marketplace-search-wrapper.ai-active {
-  border-color: rgba(200, 150, 102, 0.8) !important;
-  box-shadow: 0 0 30px rgba(200, 150, 102, 0.35) !important;
+  border-color: hsl(var(--primary)) !important;
+  box-shadow: 0 0 25px hsla(var(--primary) / 0.35) !important;
 }
 
 .marketplace-redesign .marketplace-search {
@@ -826,7 +826,7 @@
   left: 0.85rem;
   width: 1.05rem;
   height: 1.05rem;
-  color: #94a3b8 !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 .marketplace-redesign .marketplace-search-input {
@@ -836,14 +836,14 @@
   border: 0;
   outline: 0;
   background: transparent !important;
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
   font-size: 0.95rem;
   box-shadow: none;
-  caret-color: #dfb180;
+  caret-color: hsl(var(--primary));
 }
 
 .marketplace-redesign .marketplace-search-input::placeholder {
-  color: #64748b !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 .marketplace-redesign .search-clear-btn {
@@ -856,14 +856,14 @@
   border: 0;
   border-radius: 50%;
   background: transparent;
-  color: #94a3b8;
+  color: hsl(var(--muted-foreground));
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .marketplace-redesign .search-clear-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
 }
 
 .marketplace-redesign .search-clear-icon {
@@ -879,10 +879,10 @@
   gap: 0.5rem;
   height: 2.75rem;
   padding: 0 1.15rem;
-  border: 1px solid rgba(200, 150, 102, 0.4) !important;
+  border: 1px solid hsl(var(--primary) / 0.35) !important;
   border-radius: 0.75rem !important;
-  background: linear-gradient(135deg, rgba(200, 150, 102, 0.2) 0%, rgba(200, 150, 102, 0.28) 100%) !important;
-  color: #e2e8f0 !important;
+  background: hsl(var(--primary) / 0.12) !important;
+  color: hsl(var(--foreground)) !important;
   font-size: 0.825rem;
   font-weight: 700;
   cursor: pointer;
@@ -891,10 +891,10 @@
 
 .marketplace-redesign .ai-toggle-btn:hover,
 .marketplace-redesign .ai-toggle-btn.active {
-  background: linear-gradient(135deg, #b5804f 0%, #c89666 100%) !important;
-  border-color: rgba(223, 177, 128, 0.7) !important;
-  color: #ffffff !important;
-  box-shadow: 0 0 20px rgba(200, 150, 102, 0.5) !important;
+  background: linear-gradient(135deg, #dfb180 0%, #c89666 100%) !important;
+  border-color: transparent !important;
+  color: #09090b !important;
+  box-shadow: 0 0 20px hsla(var(--primary) / 0.4) !important;
 }
 
 .marketplace-redesign .ai-toggle-icon {
@@ -915,32 +915,33 @@
   font-size: 0.8rem;
   font-weight: 600;
   border-radius: 0.65rem;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #94a3b8;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .marketplace-redesign .sort-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--primary) / 0.4);
 }
 
 .marketplace-redesign .sort-btn.active {
-  background: rgba(212, 163, 115, 0.22) !important;
-  border-color: rgba(212, 163, 115, 0.45) !important;
-  color: #dfb180 !important;
+  background: hsl(var(--primary) / 0.16) !important;
+  border-color: hsl(var(--primary) / 0.6) !important;
+  color: hsl(var(--primary)) !important;
   font-weight: 750;
-  box-shadow: 0 0 15px rgba(212, 163, 115, 0.2);
+  box-shadow: 0 0 12px hsla(var(--primary) / 0.15);
 }
 
 .marketplace-redesign .view-toggle {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
   border-radius: 0.65rem;
   padding: 0.2rem;
 }
@@ -950,18 +951,18 @@
   border-radius: 0.5rem;
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: hsl(var(--muted-foreground));
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .marketplace-redesign .view-btn:hover {
-  color: #ffffff;
+  color: hsl(var(--foreground));
 }
 
 .marketplace-redesign .view-btn.active {
-  background: rgba(212, 163, 115, 0.25);
-  color: #ffffff;
+  background: hsl(var(--primary) / 0.2);
+  color: hsl(var(--primary));
 }
 
 /* -- Horizontal Category Pills -- */
@@ -974,36 +975,37 @@
   overflow-x: auto;
   padding: 0.25rem 0 1rem;
   margin: 0 0 1.25rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-bottom: 1px solid hsl(var(--border) / 0.6) !important;
   scrollbar-width: none;
 }
 
 .marketplace-redesign .quick-category-pill {
   flex: 0 0 auto;
   padding: 0.5rem 0.95rem;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid hsl(var(--border)) !important;
   border-radius: 0.75rem !important;
-  background: rgba(255, 255, 255, 0.04) !important;
-  color: #94a3b8 !important;
+  background: hsl(var(--card)) !important;
+  color: hsl(var(--muted-foreground)) !important;
   font-size: 0.8125rem;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
   transition: all 160ms ease;
+  box-shadow: var(--shadow-sm);
 }
 
 .marketplace-redesign .quick-category-pill:hover {
-  border-color: rgba(255, 255, 255, 0.18) !important;
-  background: rgba(255, 255, 255, 0.08) !important;
-  color: #ffffff !important;
+  border-color: hsl(var(--primary) / 0.5) !important;
+  background: hsl(var(--muted)) !important;
+  color: hsl(var(--foreground)) !important;
   transform: translateY(-1px);
 }
 
 .marketplace-redesign .quick-category-pill.active {
   border-color: transparent !important;
-  background: linear-gradient(135deg, #b5804f 0%, #c89666 100%) !important;
-  color: #ffffff !important;
-  box-shadow: 0 4px 15px rgba(212, 163, 115, 0.4) !important;
+  background: linear-gradient(135deg, #dfb180 0%, #c89666 100%) !important;
+  color: #09090b !important;
+  box-shadow: 0 4px 15px hsla(var(--primary) / 0.35) !important;
   font-weight: 750;
 }
 
@@ -1014,14 +1016,14 @@
   justify-content: space-between;
   gap: 0.75rem;
   margin: 0 0 1.15rem;
-  color: #94a3b8 !important;
+  color: hsl(var(--muted-foreground)) !important;
   font-size: 0.85rem;
 }
 
 .marketplace-redesign .result-count-text {
   margin: 0;
   font-weight: 600;
-  color: #cbd5e1;
+  color: hsl(var(--foreground));
 }
 
 /* -- Template Cards & Grid (Obsidian Glass) -- */
@@ -1034,24 +1036,24 @@
 
 .marketplace-redesign .template-card {
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid hsl(var(--border)) !important;
   border-radius: 1.25rem !important;
-  background: rgba(18, 18, 22, 0.85) !important;
+  background: hsl(var(--card)) !important;
   backdrop-filter: blur(20px) !important;
   -webkit-backdrop-filter: blur(20px) !important;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4) !important;
-  color: #f1f5f9 !important;
+  box-shadow: var(--shadow-sm) !important;
+  color: hsl(var(--foreground)) !important;
   transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
 
 .marketplace-redesign .template-card:hover {
   transform: translateY(-4px);
-  border-color: rgba(200, 150, 102, 0.45) !important;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 25px rgba(200, 150, 102, 0.15) !important;
+  border-color: hsl(var(--primary) / 0.5) !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.12), 0 0 20px hsla(var(--primary) / 0.15) !important;
 }
 
 .marketplace-redesign .card-thumbnail-container {
-  background: #101014 !important;
+  background: hsl(var(--muted)) !important;
 }
 
 .marketplace-redesign .card-badge-list {
@@ -1064,27 +1066,27 @@
 }
 
 .marketplace-redesign .card-title {
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .marketplace-redesign .card-desc {
-  color: #94a3b8 !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 .marketplace-redesign .card-author {
-  color: #64748b !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 .marketplace-redesign .grid-empty-state {
-  border: 1px dashed rgba(255, 255, 255, 0.15) !important;
+  border: 1px dashed hsl(var(--border)) !important;
   border-radius: 1.25rem !important;
-  background: rgba(18, 18, 22, 0.6) !important;
-  color: #f1f5f9 !important;
+  background: hsl(var(--card) / 0.6) !important;
+  color: hsl(var(--foreground)) !important;
   padding: 3rem 1.5rem;
 }
 
 .marketplace-redesign .empty-title {
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 /* -- Pagination (Obsidian Glass) -- */
@@ -1100,21 +1102,22 @@
 .marketplace-redesign .page-num-btn {
   min-height: 2.5rem;
   padding: 0.55rem 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid hsl(var(--border)) !important;
   border-radius: 0.75rem !important;
-  background: rgba(255, 255, 255, 0.04) !important;
-  color: #e2e8f0 !important;
+  background: hsl(var(--card)) !important;
+  color: hsl(var(--foreground)) !important;
   font-size: 0.825rem;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.15s ease;
+  box-shadow: var(--shadow-sm);
 }
 
 .marketplace-redesign .page-nav-btn:hover:not(:disabled),
 .marketplace-redesign .page-num-btn:hover {
-  background: rgba(255, 255, 255, 0.09) !important;
-  border-color: rgba(255, 255, 255, 0.18) !important;
-  color: #ffffff !important;
+  background: hsl(var(--muted)) !important;
+  border-color: hsl(var(--primary) / 0.5) !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .marketplace-redesign .page-nav-btn:disabled {
@@ -1124,16 +1127,16 @@
 
 .marketplace-redesign .page-num-btn.active {
   border-color: transparent !important;
-  background: linear-gradient(135deg, #b5804f 0%, #c89666 100%) !important;
-  color: #ffffff !important;
-  box-shadow: 0 4px 15px rgba(212, 163, 115, 0.4) !important;
+  background: linear-gradient(135deg, #dfb180 0%, #c89666 100%) !important;
+  color: #09090b !important;
+  box-shadow: 0 4px 15px hsla(var(--primary) / 0.35) !important;
 }
 
 /* -- Mobile Filter Slide-Over Drawer -- */
 .marketplace-redesign .mobile-filter-drawer {
-  background: #121216 !important;
-  color: #f1f5f9 !important;
-  border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
+  background: hsl(var(--card)) !important;
+  color: hsl(var(--foreground)) !important;
+  border-right: 1px solid hsl(var(--border)) !important;
 }
 
 .marketplace-redesign .mobile-filter-header,
@@ -1143,9 +1146,9 @@
 }
 
 .marketplace-redesign .mobile-filter-apply-btn {
-  background: linear-gradient(135deg, #b5804f 0%, #c89666 100%) !important;
-  box-shadow: 0 4px 18px rgba(212, 163, 115, 0.4) !important;
-  color: #ffffff !important;
+  background: linear-gradient(135deg, #dfb180 0%, #c89666 100%) !important;
+  box-shadow: 0 4px 18px hsla(var(--primary) / 0.35) !important;
+  color: #09090b !important;
 }
 
 /* -- Amazon-Style Instant Search & Autocomplete Dropdown (Dark Glass) -- */
@@ -1155,18 +1158,18 @@
   left: 0;
   right: 0;
   z-index: 99999 !important;
-  background: rgba(18, 18, 22, 0.98) !important;
+  background: hsl(var(--card)) !important;
   backdrop-filter: blur(24px) !important;
   -webkit-backdrop-filter: blur(24px) !important;
-  border: 1px solid rgba(212, 163, 115, 0.3) !important;
+  border: 1px solid hsl(var(--primary) / 0.35) !important;
   border-radius: 1rem !important;
-  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.85), 0 0 30px rgba(212, 163, 115, 0.15) !important;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.25), 0 0 30px hsla(var(--primary) / 0.15) !important;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   animation: amazonDropdownIn 140ms cubic-bezier(0.16, 1, 0.3, 1);
   text-align: left;
-  color: #f1f5f9;
+  color: hsl(var(--foreground));
 }
 
 @keyframes amazonDropdownIn {
@@ -1185,7 +1188,7 @@
 }
 
 .amazon-dropdown-section:not(:last-child) {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-bottom: 1px solid hsl(var(--border)) !important;
 }
 
 .amazon-dropdown-section-title {
@@ -1196,7 +1199,7 @@
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #94a3b8 !important;
+  color: hsl(var(--muted-foreground)) !important;
   margin: 0 0 0.65rem;
 }
 
@@ -1212,9 +1215,9 @@
   gap: 0.35rem;
   padding: 0.35rem 0.8rem;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  color: #cbd5e1 !important;
+  background: hsl(var(--background)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  color: hsl(var(--foreground)) !important;
   font-size: 0.78rem;
   font-weight: 650;
   cursor: pointer;
@@ -1223,16 +1226,16 @@
 }
 
 .amazon-trending-pill:hover {
-  background: rgba(212, 163, 115, 0.25) !important;
-  color: #ffffff !important;
-  border-color: rgba(212, 163, 115, 0.5) !important;
+  background: hsl(var(--primary) / 0.15) !important;
+  color: hsl(var(--primary)) !important;
+  border-color: hsl(var(--primary) / 0.5) !important;
   transform: translateY(-1px);
 }
 
 .amazon-trending-pill .pill-icon {
   width: 0.78rem;
   height: 0.78rem;
-  color: #dfb180 !important;
+  color: hsl(var(--primary)) !important;
 }
 
 .amazon-quick-search-row {
@@ -1241,15 +1244,15 @@
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.75rem 1rem;
-  background: rgba(255, 255, 255, 0.03) !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: hsl(var(--card)) !important;
+  border-bottom: 1px solid hsl(var(--border)) !important;
   cursor: pointer;
   transition: background 120ms ease;
 }
 
 .amazon-quick-search-row:hover,
 .amazon-quick-search-row.is-selected {
-  background: rgba(212, 163, 115, 0.18) !important;
+  background: hsl(var(--primary) / 0.12) !important;
 }
 
 .amazon-quick-search-left {
@@ -1257,11 +1260,11 @@
   align-items: center;
   gap: 0.55rem;
   font-size: 0.85rem;
-  color: #e2e8f0 !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .amazon-quick-search-left strong {
-  color: #dfb180 !important;
+  color: hsl(var(--primary)) !important;
   font-weight: 750;
 }
 
@@ -1271,11 +1274,11 @@
   gap: 0.2rem;
   padding: 0.15rem 0.45rem;
   border-radius: 0.35rem;
-  background: rgba(255, 255, 255, 0.08) !important;
-  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  background: hsl(var(--muted)) !important;
+  border: 1px solid hsl(var(--border)) !important;
   font-size: 0.68rem;
   font-weight: 700;
-  color: #cbd5e1 !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 .amazon-matches-list {
@@ -1298,8 +1301,8 @@
 
 .amazon-match-item:hover,
 .amazon-match-item.is-selected {
-  background: rgba(212, 163, 115, 0.15) !important;
-  border-color: rgba(212, 163, 115, 0.3) !important;
+  background: hsl(var(--primary) / 0.12) !important;
+  border-color: hsl(var(--primary) / 0.3) !important;
 }
 
 .amazon-match-thumb {
@@ -1307,8 +1310,8 @@
   height: 36px;
   border-radius: 0.45rem;
   object-fit: cover;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  background: #121216 !important;
+  border: 1px solid hsl(var(--border)) !important;
+  background: hsl(var(--muted)) !important;
   flex-shrink: 0;
 }
 
@@ -1330,7 +1333,7 @@
 .amazon-match-title {
   font-size: 0.85rem;
   font-weight: 750;
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1342,15 +1345,15 @@
   text-transform: uppercase;
   padding: 0.1rem 0.4rem;
   border-radius: 999px;
-  background: rgba(212, 163, 115, 0.25) !important;
-  color: #dfb180 !important;
-  border: 1px solid rgba(212, 163, 115, 0.4) !important;
+  background: hsl(var(--primary) / 0.15) !important;
+  color: hsl(var(--primary)) !important;
+  border: 1px solid hsl(var(--primary) / 0.3) !important;
   flex-shrink: 0;
 }
 
 .amazon-match-subtitle {
   font-size: 0.72rem;
-  color: #94a3b8 !important;
+  color: hsl(var(--muted-foreground)) !important;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1370,8 +1373,8 @@
 }
 
 .amazon-match-price.is-free {
-  color: #dfb180 !important;
-  background: rgba(223, 177, 128, 0.15) !important;
+  color: hsl(var(--primary)) !important;
+  background: hsl(var(--primary) / 0.15) !important;
   padding: 0.15rem 0.45rem;
   border-radius: 0.35rem;
 }
@@ -1384,8 +1387,8 @@
   font-weight: 750;
   padding: 0.35rem 0.75rem;
   border-radius: 0.5rem;
-  background: linear-gradient(135deg, #b5804f 0%, #c89666 100%) !important;
-  color: #fff !important;
+  background: linear-gradient(135deg, #dfb180 0%, #c89666 100%) !important;
+  color: #09090b !important;
   border: 0;
   cursor: pointer;
   transition: opacity 120ms ease;
@@ -1400,10 +1403,10 @@
   align-items: center;
   justify-content: space-between;
   padding: 0.5rem 1rem;
-  background: rgba(0, 0, 0, 0.4) !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: hsl(var(--muted) / 0.4) !important;
+  border-top: 1px solid hsl(var(--border)) !important;
   font-size: 0.7rem;
-  color: #94a3b8 !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 .amazon-dropdown-footer span {
@@ -1424,19 +1427,19 @@
   justify-content: space-between;
   padding: 0.5rem 0.75rem;
   border-radius: 0.6rem;
-  background: rgba(255, 255, 255, 0.04) !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: hsl(var(--background)) !important;
+  border: 1px solid hsl(var(--border)) !important;
   font-size: 0.78rem;
   font-weight: 650;
-  color: #cbd5e1 !important;
+  color: hsl(var(--foreground)) !important;
   cursor: pointer;
   transition: all 120ms ease;
 }
 
 .amazon-category-item:hover {
-  background: rgba(212, 163, 115, 0.2) !important;
-  border-color: rgba(212, 163, 115, 0.4) !important;
-  color: #ffffff !important;
+  background: hsl(var(--primary) / 0.15) !important;
+  border-color: hsl(var(--primary) / 0.4) !important;
+  color: hsl(var(--primary)) !important;
 }
 
 /* -- Responsive Reflow -- */
@@ -1498,9 +1501,9 @@
   }
   .marketplace-redesign .marketplace-mobile-filter-btn {
     display: inline-flex;
-    border-color: rgba(255, 255, 255, 0.12);
-    background: rgba(18, 18, 22, 0.85);
-    color: #f1f5f9;
+    border-color: hsl(var(--border));
+    background: hsl(var(--card));
+    color: hsl(var(--foreground));
   }
   .marketplace-redesign .marketplace-quick-categories {
     margin-bottom: 0.9rem;
@@ -1545,6 +1548,7 @@
 }
 
 .mobile-filter-apply-btn {
-  background: linear-gradient(135deg, #b5804f 0%, #c89666 100%) !important;
-  box-shadow: 0 4px 18px rgba(212, 163, 115, 0.4) !important;
+  background: linear-gradient(135deg, #dfb180 0%, #c89666 100%) !important;
+  color: #09090b !important;
+  box-shadow: 0 4px 18px hsla(var(--primary) / 0.4) !important;
 }

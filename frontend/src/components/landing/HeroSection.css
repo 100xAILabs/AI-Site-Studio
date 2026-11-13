@@ -1108,52 +1108,52 @@
   justify-content: center;
 }
 
-/* The CTA link — no box, centered, big text, arrow left */
+/* The CTA link — styled pill, high-contrast text, arrow left */
 .feat-cta-link-btn {
   display: inline-flex;
   align-items: center;
-  gap: 14px;
-  padding: 6px 12px;
-  border-radius: 8px;
-  border: none;
+  gap: 16px;
+  padding: 8px 20px;
+  border-radius: 14px;
+  border: 1px solid transparent;
   background: transparent;
   text-decoration: none;
   cursor: pointer;
-  transition: transform 0.18s ease, opacity 0.18s ease;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .feat-cta-link-btn:hover {
-  transform: translateY(-2px);
-  opacity: 0.85;
+  background: hsl(var(--muted) / 0.7);
+  border-color: hsl(var(--border));
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: var(--shadow-sm);
 }
 
 /* Arrow on LEFT side of label */
 .feat-cta-arrow-left {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
-  opacity: 0.9;
-  transition: transform 0.18s ease;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .feat-cta-link-btn:hover .feat-cta-arrow-left {
-  transform: translateX(4px);
+  transform: translateX(6px);
 }
 
 /* Big feature name — high contrast theme-aware */
 .feat-cta-label {
   font-size: 1.85rem;
   font-weight: 850;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.03em;
   line-height: 1.1;
   white-space: nowrap;
   color: hsl(var(--foreground)) !important;
-  transition: color 0.2s ease, transform 0.2s ease;
+  transition: color 0.2s ease;
 }
 
 .feat-cta-link-btn:hover .feat-cta-label {
   color: hsl(var(--primary)) !important;
-  transform: translateX(4px);
 }
 
 /* ============================================================

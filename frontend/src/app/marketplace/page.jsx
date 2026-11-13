@@ -632,7 +632,7 @@ function Marketplace() {
                               </div>
                             ) : (
                               <div className="amazon-dropdown-section" style={{ padding: "1rem", textAlign: "center" }}>
-                                <p style={{ margin: 0, fontSize: "0.82rem", color: "#77766f" }}>
+                                <p style={{ margin: 0, fontSize: "0.82rem", color: "hsl(var(--muted-foreground))" }}>
                                   No instant card matches for <strong>&ldquo;{searchInput}&rdquo;</strong>. Press Enter to search catalog.
                                 </p>
                               </div>
