@@ -104,16 +104,6 @@ async def verify_domain_dns_ownership(domain: str, expected_token: str) -> Dict[
                 "details": "Protected domain blocklist matched."
             }
 
-    # Check 1b: Developer Sandbox Simulation TLDs (.test, .local, .example)
-    # Allows developers and users without a purchased domain to test the full custom domain workflow safely
-    if clean.endswith(".test") or clean.endswith(".local") or clean.endswith(".example"):
-        return {
-            "verified": True,
-            "method": "sandbox_simulation",
-            "details": f"Developer Sandbox Test Domain '{clean}' verified successfully for testing.",
-            "records": ["sandbox-simulation-active"],
-        }
-
     # Normalize TXT challenge host
     txt_subdomain = f"_studio-challenge.{clean}"
 

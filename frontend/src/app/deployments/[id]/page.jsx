@@ -1307,7 +1307,7 @@ export default function DeployedWebsiteDetailsPage() {
                   </div>
                   <div className="flex justify-between py-1 border-b border-white/5">
                     <span className="text-slate-400">Hosting Tier</span>
-                    <span className="font-bold text-slate-200">{renewal.has_active_subscription ? "Managed Cloud Edge" : "Free Local Edge Tier"}</span>
+                    <span className="font-bold text-slate-200">{renewal.has_active_subscription ? "Managed Cloud Edge" : "Studio Edge Production Tier"}</span>
                   </div>
                   <div className="flex justify-between py-1">
                     <span className="text-slate-400">SSL Encryption</span>

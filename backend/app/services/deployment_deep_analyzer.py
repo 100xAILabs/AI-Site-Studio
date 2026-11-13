@@ -577,7 +577,7 @@ def deeply_analyze_deployment(
             hosting_days_left = max(0, (hosting_period_end - now_utc).days)
             hosting_due_soon = hosting_days_left <= 7
     else:
-        hosting_status = "free_preview"
+        hosting_status = "active_production"
         hosting_period_end = None
         hosting_days_left = None
         hosting_due_soon = False
