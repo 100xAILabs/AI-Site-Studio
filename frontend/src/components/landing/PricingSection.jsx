@@ -1,29 +1,10 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Check, Zap } from "lucide-react";
+import { Check, Zap, Sparkles, ArrowRight } from "lucide-react";
 import Link from "@/components/Link";
+import { PLANS_LIST } from "@/lib/plans";
 import "./PricingSection.css";
-
-const PLANS = [
-  {
-    name: "Community Edition",
-    price: 0,
-    description: "Everything you need to analyze, customize, and export website templates.",
-    features: [
-      "Browse professional frontend templates",
-      "Unlimited ZIP uploads & automated code analysis",
-      "Dynamic interactive live browser previews",
-      "One-click direct source ZIP downloads",
-      "Derive brand CSS templates & color schemes",
-      "Lighthouse SEO and accessibility scanning",
-      "100% free and open-source utility",
-    ],
-    cta: "Explore the Marketplace",
-    href: "/marketplace",
-    popular: true,
-  },
-];
 
 export default function PricingSection() {
   return (
@@ -38,8 +19,8 @@ export default function PricingSection() {
             transition={{ duration: 0.4 }}
             className="section-badge"
           >
-            <Zap className="section-badge-icon" />
-            100% Free Platform
+            <Sparkles className="section-badge-icon" />
+            Transparent Studio Pricing
           </motion.div>
           <motion.h2
             initial={{ opacity: 0, y: 16 }}
@@ -48,7 +29,7 @@ export default function PricingSection() {
             transition={{ duration: 0.45, delay: 0.08 }}
             className="section-title"
           >
-            No Fees. No Signups required to browse. <span className="gradient-text">Just Build.</span>
+            Predictable Plans for <span className="gradient-text">Developers &amp; Studios.</span>
           </motion.h2>
           <motion.p
             initial={{ opacity: 0, y: 16 }}
@@ -57,46 +38,59 @@ export default function PricingSection() {
             transition={{ duration: 0.45, delay: 0.16 }}
             className="section-subtitle"
           >
-            Site Studio is a free utility platform for frontend developers to analyze, live preview, and download templates.
+            Test full generation free, deploy live websites with custom domains, and let autonomous Auto-Heal protect your sites.
           </motion.p>
         </div>
 
-        {/* Plans */}
-        <div className="pricing-grid-solo">
-          {PLANS.map((plan) => (
+        {/* 3-Tier Plans Grid */}
+        <div className="pricing-grid">
+          {PLANS_LIST.map((plan) => (
             <motion.div
-              key={plan.name}
+              key={plan.id}
               initial={{ opacity: 0, y: 30 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
-              className="pricing-card popular pricing-card-solo"
+              className={`pricing-card ${plan.popular ? "popular" : ""}`}
             >
+              {plan.popular && (
+                <div className="popular-badge-wrapper">
+                  <span className="popular-badge">✦ Recommended for Most Studios</span>
+                </div>
+              )}
+
               <div className="pricing-header">
                 <h3>{plan.name}</h3>
                 <p>{plan.description}</p>
               </div>
 
               <div className="pricing-price-wrapper">
-                <span className="pricing-price" style={{ color: "var(--emerald-500)" }}>
-                  $0
+                <span className="pricing-price">
+                  ${plan.monthlyPrice}
                 </span>
-                <span className="pricing-period">/ forever</span>
+                <span className="pricing-period">
+                  {plan.monthlyPrice === 0 ? " / forever" : " / month"}
+                </span>
               </div>
+              {plan.annualPrice > 0 && (
+                <div className="text-xs text-muted-foreground mt-1 mb-4">
+                  ${plan.annualPrice}/yr billed annually (2 months free)
+                </div>
+              )}
 
-              <ul className="pricing-features-grid">
-                {plan.features.map((feature) => (
-                  <li key={feature} className="pricing-feature-item">
+              <ul className="pricing-features-grid mt-4">
+                {plan.features.slice(0, 5).map((feature, fIdx) => (
+                  <li key={fIdx} className="pricing-feature-item">
                     <Check className="pricing-check-icon" />
-                    <span className="text-sm">{feature}</span>
+                    <span className="text-sm">{feature.text}</span>
                   </li>
                 ))}
               </ul>
 
               <Link
                 href={plan.href}
-                className="pricing-cta popular"
+                className={`pricing-cta ${plan.popular ? "popular" : ""}`}
               >
-                {plan.cta}
+                {plan.cta} <ArrowRight className="w-4 h-4 ml-1.5 inline" />
               </Link>
             </motion.div>
           ))}

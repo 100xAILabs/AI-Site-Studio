@@ -379,16 +379,24 @@ async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Op
         if order.extra_metadata and order.extra_metadata.get("type") == "subscription_plan":
             try:
                 plan_id = str(order.extra_metadata.get("plan_id") or "pro").lower()
+                billing_cycle = str(order.extra_metadata.get("billing_cycle") or "monthly").lower()
                 user_res = await db.execute(select(User).where(User.id == order.user_id))
                 target_user = user_res.scalar_one_or_none()
                 if target_user:
                     target_user.subscription_tier = plan_id
-                    target_user.is_pro_subscriber = plan_id in ("pro", "extreme", "agency")
+                    days = 365 if billing_cycle == "annual" else 30
+                    target_user.subscription_expires_at = datetime.now(timezone.utc) + timedelta(days=days)
+                    target_user.subscription_status = "active"
+                    target_user.auto_renew = True
+                    target_user.subscription_id = str(order.order_number)
                     sub_credits = int(order.extra_metadata.get("credits_to_add") or 0)
                     if sub_credits > 0 and not order.extra_metadata.get("credits_credited"):
                         target_user.ai_credits = (target_user.ai_credits or 0) + sub_credits
                         order.extra_metadata["credits_credited"] = True
-                    logger.info("Upgraded user %s subscription tier to %s (Pro subscriber: %s, AI credits: %s)", target_user.email, plan_id, target_user.is_pro_subscriber, target_user.ai_credits)
+                    logger.info(
+                        "Upgraded user %s subscription tier to %s (Expires: %s, AI credits: %s)",
+                        target_user.email, plan_id, target_user.subscription_expires_at, target_user.ai_credits
+                    )
             except Exception as sub_err:
                 logger.warning("Could not update subscription tier for order %s: %s", order.id, sub_err)
     except Exception as lic_err:
@@ -599,6 +607,23 @@ async def stripe_webhook(
         elif metadata.get("purchase_type") == "domain_registration":
             from app.services.domain_purchase_service import fulfill_domain_checkout
             await fulfill_domain_checkout(checkout_session, db)
+        elif metadata.get("purchase_type") == "user_subscription":
+            from app.services.subscription_service import SubscriptionService
+            sub_service = SubscriptionService(db)
+            sub_id = checkout_session.get("subscription")
+            user_id_str = metadata.get("user_id")
+            plan_id = metadata.get("plan_id") or "pro"
+            billing_cycle = metadata.get("billing_cycle") or "monthly"
+            await sub_service.handle_subscription_payment_success(
+                provider="stripe",
+                event_id=event["id"],
+                user_id=uuid.UUID(user_id_str) if user_id_str else None,
+                user_email=checkout_session.get("customer_email"),
+                plan_id=plan_id,
+                billing_cycle=billing_cycle,
+                provider_sub_id=sub_id,
+                payload=event,
+            )
         elif metadata.get("purchase_type") == "hosting_subscription":
             subscription_id = checkout_session.get("subscription")
             if subscription_id:
@@ -759,6 +784,23 @@ async def stripe_webhook(
                     logger.exception("Could not queue hosting grace-period cancellation")
                 await db.commit()
 
+            from app.models.subscription import UserSubscription
+            u_sub_res = await db.execute(select(UserSubscription).where(
+                UserSubscription.provider_subscription_id == subscription_id
+            ))
+            u_sub = u_sub_res.scalar_one_or_none()
+            if u_sub:
+                from app.services.subscription_service import SubscriptionService
+                sub_svc = SubscriptionService(db)
+                await sub_svc.handle_subscription_payment_failure(
+                    provider="stripe",
+                    event_id=event["id"],
+                    user_id=u_sub.user_id,
+                    user_email=None,
+                    provider_sub_id=subscription_id,
+                    payload=event,
+                )
+
     elif event["type"] == "invoice.payment_succeeded":
         invoice = event["data"]["object"]
         subscription_id = invoice.get("subscription")
@@ -771,6 +813,25 @@ async def stripe_webhook(
                 row.status = "active"
                 row.last_payment_failed_at = None
                 await db.commit()
+
+            from app.models.subscription import UserSubscription
+            u_sub_res = await db.execute(select(UserSubscription).where(
+                UserSubscription.provider_subscription_id == subscription_id
+            ))
+            u_sub = u_sub_res.scalar_one_or_none()
+            if u_sub:
+                from app.services.subscription_service import SubscriptionService
+                sub_svc = SubscriptionService(db)
+                await sub_svc.handle_subscription_payment_success(
+                    provider="stripe",
+                    event_id=event["id"],
+                    user_id=u_sub.user_id,
+                    user_email=None,
+                    plan_id=u_sub.plan_id,
+                    billing_cycle=u_sub.billing_cycle,
+                    provider_sub_id=subscription_id,
+                    payload=event,
+                )
 
     elif event["type"] == "payment_intent.succeeded":
         intent = event["data"]["object"]
@@ -987,28 +1048,57 @@ async def razorpay_webhook(
         user_email = sub_notes.get("user_email") or rz_sub_payment.get("email")
         user_id_str = sub_notes.get("user_id")
         plan_id = (sub_notes.get("plan_id") or "pro").lower()
+        billing_cycle = (sub_notes.get("billing_cycle") or "monthly").lower()
+        sub_id = rz_sub.get("id") or rz_sub_payment.get("subscription_id")
 
-        target_user = None
+        from app.services.subscription_service import SubscriptionService
+        sub_svc = SubscriptionService(db)
+        parsed_user_id = None
         if user_id_str:
             try:
-                target_user = await db.get(User, uuid.UUID(user_id_str))
+                parsed_user_id = uuid.UUID(user_id_str)
             except Exception:
                 pass
-        if not target_user and user_email:
-            u_res = await db.execute(select(User).where(User.email == user_email))
-            target_user = u_res.scalar_one_or_none()
 
-        if target_user:
-            target_tier = "extreme" if plan_id in ("extreme", "agency") else "pro"
-            target_user.subscription_tier = target_tier
-            credits_to_add = 1000 if target_tier == "extreme" else 150
-            target_user.ai_credits = (target_user.ai_credits or 0) + credits_to_add
-            await db.commit()
-            logger.info(f"Razorpay webhook: subscription.charged upgraded {target_user.email} to {target_tier}")
-            return {"status": "subscription_charged", "user_email": target_user.email, "tier": target_tier}
-        return {"status": "user_not_found_for_sub", "event": event}
+        res = await sub_svc.handle_subscription_payment_success(
+            provider="razorpay",
+            event_id=event_id,
+            user_id=parsed_user_id,
+            user_email=user_email,
+            plan_id=plan_id,
+            billing_cycle=billing_cycle,
+            provider_sub_id=sub_id,
+            payload=payload_data,
+        )
+        return res
 
-    elif event in ("subscription.halted", "subscription.cancelled", "subscription.completed"):
+    elif event in ("subscription.halted", "subscription.completed"):
+        rz_sub = payload_data.get("subscription", {}).get("entity", {})
+        rz_sub_payment = payload_data.get("payment", {}).get("entity", {})
+        sub_notes = rz_sub.get("notes", {}) or rz_sub_payment.get("notes", {})
+        user_email = sub_notes.get("user_email") or rz_sub_payment.get("email")
+        user_id_str = sub_notes.get("user_id")
+        sub_id = rz_sub.get("id") or rz_sub_payment.get("subscription_id")
+
+        from app.services.subscription_service import SubscriptionService
+        sub_svc = SubscriptionService(db)
+        parsed_user_id = None
+        if user_id_str:
+            try:
+                parsed_user_id = uuid.UUID(user_id_str)
+            except Exception:
+                pass
+
+        res = await sub_svc.handle_subscription_payment_failure(
+            provider="razorpay",
+            event_id=event_id,
+            user_id=parsed_user_id,
+            user_email=user_email,
+            provider_sub_id=sub_id,
+            error_reason=f"Razorpay {event}",
+            payload=payload_data,
+        )
+        return res
         rz_sub = payload_data.get("subscription", {}).get("entity", {})
         rz_sub_payment = payload_data.get("payment", {}).get("entity", {})
         sub_notes = rz_sub.get("notes", {}) or rz_sub_payment.get("notes", {})
@@ -1324,62 +1414,34 @@ async def purchase_plan(
     Initialize purchase of a Studio Pro or Extreme subscription plan via Razorpay.
     Creates an official Order and initializes a Razorpay order.
     """
-    plans = {
-        "free": {
-            "title": "Starter Free Plan",
-            "monthly_price": Decimal("0.00"),
-            "annual_price": Decimal("0.00"),
-            "credits": 0,
-            "deployments": 0,
-        },
-        "pro": {
-            "title": "Pro Plan",
-            "monthly_price": Decimal("19.00"),
-            "annual_price": Decimal("15.00"),
-            "credits": 150,
-            "deployments": 3,
-        },
-        "extreme": {
-            "title": "Extreme Plan (Everything Unlocked)",
-            "monthly_price": Decimal("50.00"),
-            "annual_price": Decimal("40.00"),
-            "credits": 1000,
-            "deployments": 999,
-        },
-        "agency": {
-            "title": "Extreme Plan (Everything Unlocked)",
-            "monthly_price": Decimal("50.00"),
-            "annual_price": Decimal("40.00"),
-            "credits": 1000,
-            "deployments": 999,
-        },
-    }
-    clean_plan_id = payload.plan_id.lower()
-    plan = plans.get(clean_plan_id)
-    if not plan:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid plan_id '{payload.plan_id}'. Choose from: free, pro, extreme"
-        )
+    from app.core.plans import get_plan_config, normalize_plan_id
+    clean_plan_id = normalize_plan_id(payload.plan_id)
+    plan_cfg = get_plan_config(clean_plan_id)
 
     # Free plan instant switch
     if clean_plan_id == "free":
         current_user.subscription_tier = "free"
-        current_user.is_pro_subscriber = False
+        current_user.subscription_expires_at = None
+        current_user.subscription_status = "canceled"
+        current_user.auto_renew = False
+        from app.services.entitlement_service import EntitlementService
+        ent_svc = EntitlementService(db)
+        sub = await ent_svc.get_or_create_user_subscription(current_user)
+        sub.plan_id = "free"
+        sub.status = "active"
+        sub.cancel_at_period_end = False
         await db.commit()
         return {
             "status": "completed",
             "plan_id": "free",
-            "title": plan["title"],
+            "title": plan_cfg["name"],
             "message": "Switched to Free plan successfully.",
             "free": True,
         }
 
-    price = plan["annual_price"] if payload.billing_cycle == "annual" else plan["monthly_price"]
-    total_price = (price * 12) if payload.billing_cycle == "annual" else price
-
-    usd_to_inr_rate = await get_usd_to_inr_rate()
-    inr_amount = (total_price * Decimal(str(usd_to_inr_rate))).quantize(Decimal("0.01"))
+    is_annual = payload.billing_cycle.lower() == "annual"
+    total_price = plan_cfg["annual_price_usd"] if is_annual else plan_cfg["monthly_price_usd"]
+    inr_amount = plan_cfg["annual_price_inr"] if is_annual else plan_cfg["monthly_price_inr"]
     amount_in_paise = int(inr_amount * 100)
 
     import random, string
@@ -1394,12 +1456,12 @@ async def purchase_plan(
         discount=Decimal("0"),
         tax=Decimal("0"),
         total=total_price,
-        notes=f"Subscription: {plan['title']} ({payload.billing_cycle.title()})",
+        notes=f"Subscription: {plan_cfg['name']} ({payload.billing_cycle.title()})",
         extra_metadata={
             "type": "subscription_plan",
             "plan_id": clean_plan_id,
             "billing_cycle": payload.billing_cycle,
-            "credits_to_add": plan["credits"],
+            "credits_to_add": plan_cfg["included_ai_credits"],
             "currency": "USD",
             "inr_amount": float(inr_amount),
         },
@@ -1467,8 +1529,8 @@ async def purchase_plan(
         "currency": "INR",
         "key_id": settings.RAZORPAY_KEY_ID if not is_mock_key else "rzp_test_mockkey",
         "plan_id": clean_plan_id,
-        "title": plan["title"],
-        "credits": plan["credits"],
+        "title": plan_cfg["name"],
+        "credits": plan_cfg["included_ai_credits"],
         "billing_cycle": payload.billing_cycle,
     }
 
@@ -1508,4 +1570,59 @@ async def activate_token_order(
         "status": "success",
         "message": f"Successfully activated order {order.order_number} and credited {order.extra_metadata.get('credits_to_add', 0)} AI tokens!",
         "current_credits": current_user.ai_credits,
+    }
+
+
+@router.get("/subscription-status")
+async def get_subscription_status(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns the user's active subscription tier, expiration timestamp,
+    days remaining, auto_renew state, and live deployment allowances.
+    """
+    now = datetime.now(timezone.utc)
+    is_pro = current_user.is_pro_subscriber
+    tier = (current_user.subscription_tier or "free").lower()
+    expires_at = current_user.subscription_expires_at
+
+    days_remaining = 0
+    is_expired = False
+    if expires_at:
+        exp = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc)
+        if exp > now:
+            days_remaining = max(0, (exp - now).days)
+        else:
+            is_expired = True
+
+    # Count user's current live deployments
+    from app.models.deployment import Deployment
+    dep_res = await db.execute(
+        select(func.count(Deployment.id)).where(
+            Deployment.user_id == current_user.id,
+            Deployment.status == "live",
+        )
+    )
+    active_deployments_count = dep_res.scalar_one() or 0
+
+    if tier in ("extreme", "agency"):
+        max_deployments = 999
+    elif is_pro:
+        max_deployments = 3
+    else:
+        max_deployments = 1
+
+    return {
+        "tier": tier,
+        "is_pro": is_pro,
+        "is_expired": is_expired,
+        "status": current_user.subscription_status or ("active" if is_pro else "free"),
+        "expires_at": expires_at.isoformat() if expires_at else None,
+        "days_remaining": days_remaining,
+        "auto_renew": current_user.auto_renew,
+        "max_deployments": max_deployments,
+        "active_deployments": active_deployments_count,
+        "included_hosting": is_pro or tier in ("extreme", "agency"),
+        "hosting_cost_per_extra_site": 12.00,
     }

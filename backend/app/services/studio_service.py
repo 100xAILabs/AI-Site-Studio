@@ -1522,7 +1522,11 @@ Return JSON only with keys: title, summary, architecture_type (single_page or mu
                 "filename": filename,
                 "purpose": str(page.get("purpose") or "")[:500],
                 "required": filename == "index.html" or page.get("required") is True,
-                "sections": [str(x)[:200] for x in (page.get("sections") or [])[:12]],
+                "sections": [
+                    (x.get("title") or x.get("name") or x.get("label") or x.get("heading") or str(x))[:100]
+                    if isinstance(x, dict) else str(x)[:100]
+                    for x in (page.get("sections") or [])[:12]
+                ],
                 "primary_action": str(page.get("primary_action") or "")[:200],
             })
         if not normalized:

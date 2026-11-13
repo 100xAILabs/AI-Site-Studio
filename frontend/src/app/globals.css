@@ -5,42 +5,66 @@
   padding: 0;
 }
 
-:root {
+:root,
+.light,
+[data-theme="light"],
+html.light {
   /* ═══════════════════════════════════════════════════
-     MATTE OBSIDIAN & LUXURY WHEAT PALETTE
+     SITE STUDIO DESIGN SYSTEM — LIGHT THEME (Warm Editorial)
      ═══════════════════════════════════════════════════ */
-  --background: 0 0% 4%;
-  /* Pure matte black #0a0a0c */
-  --foreground: 0 0% 98%;
-  /* Crisp pure white #fafafa */
-  --card: 0 0% 7.5%;
-  /* Deep matte charcoal card #131316 */
-  --card-foreground: 0 0% 98%;
-  --popover: 0 0% 7.5%;
-  --popover-foreground: 0 0% 98%;
-  --primary: 30 50% 59%;
-  /* Medium dark wheat #c89666 */
-  --primary-foreground: 0 0% 4%;
-  /* Matte dark text on wheat */
-  --secondary: 35 45% 82%;
-  /* Champagne wheat #f0e2d0 */
-  --secondary-foreground: 0 0% 4%;
-  --muted: 0 0% 12%;
-  /* Matte graphite #1f1f23 */
-  --muted-foreground: 33 18% 72%;
-  /* Legible warm silver-wheat #bcb4ab */
-  --accent: 0 0% 12%;
-  --accent-foreground: 0 0% 98%;
-  --destructive: 0 72% 51%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 0 0% 18%;
-  /* Crisp sharp divider #2e2e33 */
-  --input: 0 0% 15%;
-  --ring: 30 50% 59%;
-  --radius: 0.75rem;
-  --brand: 30 50% 59%;
+  --bg-main: #F8F8F6;
+  --surface-main: #FFFFFF;
+  --surface-secondary: #F1F1EF;
+  --text-primary: #171717;
+  --text-secondary: #666666;
+  --text-muted: #858585;
+  --border-color: #E5E5E2;
+  --input-bg: #FFFFFF;
+  --btn-primary-bg: #171717;
+  --btn-primary-text: #FFFFFF;
 
-  /* Brand Palette — Medium Dark Wheat */
+  /* HSL Component Tokens (for hsl(var(--token)) compatibility) */
+  --background: 60 11% 97.3%;       /* #F8F8F6 */
+  --foreground: 0 0% 9%;            /* #171717 */
+  --card: 0 0% 100%;                /* #FFFFFF */
+  --card-foreground: 0 0% 9%;       /* #171717 */
+  --popover: 0 0% 100%;             /* #FFFFFF */
+  --popover-foreground: 0 0% 9%;    /* #171717 */
+  --surface: 0 0% 100%;             /* #FFFFFF */
+  --surface-foreground: 0 0% 9%;
+  --surface-secondary: 60 6% 94.3%; /* #F1F1EF */
+  --sidebar: 60 11% 97.3%;
+  --sidebar-foreground: 0 0% 9%;
+  --sidebar-border: 60 5% 89%;
+
+  --primary: 30 50% 45%;            /* Sophisticated warm wheat on light */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 60 6% 94.3%;         /* #F1F1EF */
+  --secondary-foreground: 0 0% 9%;
+  --muted: 60 6% 94.3%;             /* #F1F1EF */
+  --muted-foreground: 0 0% 40%;     /* #666666 */
+  --accent: 60 6% 91%;              /* #EAEAE7 */
+  --accent-foreground: 0 0% 9%;
+  --destructive: 0 72% 51%;         /* #dc2626 */
+  --destructive-foreground: 0 0% 100%;
+  --error: 0 72% 51%;
+  --success: 142 71% 40%;           /* Accessible green */
+  --warning: 38 92% 44%;            /* Accessible amber */
+  --info: 217 91% 54%;              /* Accessible blue */
+  --border: 60 5% 89%;              /* #E5E5E2 */
+  --input: 60 5% 89%;
+  --ring: 0 0% 9%;
+  --brand: 30 50% 45%;
+  --link: 217 91% 48%;
+
+  /* Chart tokens */
+  --chart-1: 30 70% 50%;
+  --chart-2: 217 91% 54%;
+  --chart-3: 142 71% 40%;
+  --chart-4: 280 65% 55%;
+  --chart-5: 340 75% 55%;
+
+  /* Brand Palette */
   --brand-50: #faf7f2;
   --brand-100: #f4ecdf;
   --brand-200: #e8d7be;
@@ -53,7 +77,7 @@
   --brand-900: #4c2f18;
   --brand-950: #29180b;
 
-  /* Neutral Palette — Matte Pure Charcoal & Black (Zero Blue/Slate) */
+  /* Neutral Palette */
   --neutral-50: #fafafa;
   --neutral-100: #f4f4f5;
   --neutral-200: #e4e4e7;
@@ -66,39 +90,110 @@
   --neutral-900: #141416;
   --neutral-950: #0a0a0c;
 
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'Geist Mono', monospace;
+  /* Typography System */
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'Geist Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  --text-display: clamp(2.5rem, 4vw + 1rem, 3.5rem);
+  --text-h1: clamp(1.875rem, 2.5vw + 1rem, 2.25rem);
+  --text-h2: clamp(1.375rem, 1.5vw + 1rem, 1.75rem);
+  --text-h3: clamp(1rem, 1vw + 0.75rem, 1.25rem);
+  --text-body: 0.9375rem;
+  --text-body-sm: 0.875rem;
+  --text-caption: 0.75rem;
+
+  /* Spacing Scale (4px base) */
+  --space-1: 0.25rem;   /* 4px */
+  --space-2: 0.5rem;    /* 8px */
+  --space-3: 0.75rem;   /* 12px */
+  --space-4: 1rem;      /* 16px */
+  --space-6: 1.5rem;    /* 24px */
+  --space-8: 2rem;      /* 32px */
+  --space-12: 3rem;     /* 48px */
+  --space-16: 4rem;     /* 64px */
+  --space-20: 5rem;     /* 80px */
+  --space-24: 6rem;     /* 96px */
+
+  /* Border radius standard tokens */
+  --radius-sm: 0.375rem;  /* 6px */
+  --radius-md: 0.625rem;  /* 10px */
+  --radius-lg: 0.875rem;  /* 14px */
+  --radius-xl: 1.25rem;   /* 20px */
+  --radius-full: 9999px;
+  --radius: 0.625rem;
+
+  /* Shadows & Glows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.06), 0 2px 6px -1px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 12px 28px -4px rgba(0, 0, 0, 0.08), 0 4px 12px -2px rgba(0, 0, 0, 0.04);
+  --hero-glow: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(200, 150, 102, 0.10), transparent);
+  --card-glow: radial-gradient(ellipse 80% 80% at 50% -40%, rgba(200, 150, 102, 0.04), transparent);
 }
 
 .dark,
 [data-theme="dark"],
 html.dark {
   /* ═══════════════════════════════════════════════════
-     MATTE OBSIDIAN & LUXURY WHEAT PALETTE
+     SITE STUDIO DESIGN SYSTEM — DARK THEME (Sophisticated Obsidian)
      ═══════════════════════════════════════════════════ */
-  --background: 0 0% 4%;
-  --foreground: 0 0% 98%;
-  --card: 0 0% 7.5%;
-  --card-foreground: 0 0% 98%;
-  --popover: 0 0% 7.5%;
-  --popover-foreground: 0 0% 98%;
-  --primary: 30 50% 59%;
+  --bg-main: #101114;
+  --surface-main: #18191D;
+  --surface-secondary: #1F2025;
+  --text-primary: #FAFAFA;
+  --text-secondary: #A1A1AA;
+  --text-muted: #85858F;
+  --border-color: #303137;
+  --input-bg: #1C1D21;
+  --btn-primary-bg: #F4F4F5;
+  --btn-primary-text: #171717;
+
+  /* HSL Component Tokens */
+  --background: 225 11% 7%;         /* #101114 */
+  --foreground: 0 0% 98%;           /* #FAFAFA */
+  --card: 228 9% 10.4%;             /* #18191D */
+  --card-foreground: 0 0% 98%;      /* #FAFAFA */
+  --popover: 228 9% 10.4%;          /* #18191D */
+  --popover-foreground: 0 0% 98%;   /* #FAFAFA */
+  --surface: 228 9% 10.4%;          /* #18191D */
+  --surface-foreground: 0 0% 98%;
+  --surface-secondary: 230 9% 13%;  /* #1F2025 */
+  --sidebar: 225 11% 7%;
+  --sidebar-foreground: 0 0% 98%;
+  --sidebar-border: 231 6% 20%;
+
+  --primary: 30 50% 59%;            /* #c89666 wheat gold */
   --primary-foreground: 0 0% 4%;
-  --secondary: 35 45% 82%;
-  --secondary-foreground: 0 0% 4%;
-  --muted: 0 0% 12%;
-  --muted-foreground: 33 18% 72%;
-  --accent: 0 0% 12%;
+  --secondary: 230 9% 13%;          /* #1F2025 */
+  --secondary-foreground: 0 0% 98%;
+  --muted: 230 9% 13%;              /* #1F2025 */
+  --muted-foreground: 240 5% 65%;   /* #A1A1AA */
+  --accent: 230 9% 16%;
   --accent-foreground: 0 0% 98%;
-  --destructive: 0 72% 51%;
+  --destructive: 0 63% 50%;
   --destructive-foreground: 0 0% 100%;
-  --border: 0 0% 18%;
-  --input: 0 0% 15%;
+  --error: 0 63% 50%;
+  --success: 142 70% 45%;
+  --warning: 38 92% 50%;
+  --info: 217 91% 60%;
+  --border: 231 6% 20%;             /* #303137 */
+  --input: 228 8% 14%;              /* #1C1D21 */
   --ring: 30 50% 59%;
+  --brand: 30 50% 59%;
+  --link: 217 91% 68%;
+
+  /* Chart tokens */
+  --chart-1: 30 65% 60%;
+  --chart-2: 217 91% 65%;
+  --chart-3: 142 70% 50%;
+  --chart-4: 280 65% 65%;
+  --chart-5: 340 75% 65%;
+
+  /* Shadows & Glows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 14px -2px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 16px 36px -4px rgba(0, 0, 0, 0.65);
+  --hero-glow: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(200, 150, 102, 0.12), transparent);
+  --card-glow: radial-gradient(ellipse 80% 80% at 50% -40%, rgba(200, 150, 102, 0.05), transparent);
 }
-
-
-/* Light mode is the only mode */
 
 * {
   border-color: hsl(var(--border));
@@ -136,12 +231,13 @@ html,
 body {
   min-height: 100vh;
   font-family: var(--font-sans);
-  background-color: #09090b !important;
-  color: #fafafa !important;
+  background-color: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 /* Suppress all browser default purple/violet visited link styling */
@@ -151,9 +247,10 @@ a, a:visited, a:active {
 }
 
 #root {
-  background-color: #09090b;
+  background-color: hsl(var(--background));
   min-height: 100vh;
-  color: #fafafa;
+  color: hsl(var(--foreground));
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 /* Custom scrollbar */

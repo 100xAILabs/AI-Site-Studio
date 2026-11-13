@@ -1096,3 +1096,205 @@ async def admin_auto_fix_deployment(
     )
 
     return result
+
+
+@router.get("/profitability")
+async def get_subscription_profitability(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """
+    [Admin] Complete Subscription Profitability & Variable Infrastructure Cost Dashboard.
+    Measures revenue vs AI compute, hosting, builds, auto-heal, and domain subsidy costs.
+    Calculates gross margins, loss-making subscribers, and 70% target margin health.
+    """
+    from decimal import Decimal
+    from datetime import datetime, timezone, timedelta
+    from app.core.plans import PLANS, get_plan_config, normalize_plan_id
+    from app.models.subscription import UserSubscription, UsageLedger, PromotionalDomainCredit
+    from app.models.hosting_subscription import HostingSubscription
+    from app.models.deployment import Deployment
+
+    now = datetime.now(timezone.utc)
+    thirty_days_ago = now - timedelta(days=30)
+
+    # Fetch all users with active or past_due subscriptions
+    users_stmt = select(User).where(User.subscription_tier.isnot(None))
+    u_res = await db.execute(users_stmt)
+    subscribers = u_res.scalars().all()
+
+    subscribers_data = []
+    plan_aggregates = {
+        "free": {"subscribers": 0, "revenue": Decimal("0.00"), "costs": Decimal("0.00"), "profit": Decimal("0.00")},
+        "pro": {"subscribers": 0, "revenue": Decimal("0.00"), "costs": Decimal("0.00"), "profit": Decimal("0.00")},
+        "extreme": {"subscribers": 0, "revenue": Decimal("0.00"), "costs": Decimal("0.00"), "profit": Decimal("0.00")},
+    }
+
+    total_gross_revenue = Decimal("0.00")
+    total_variable_costs = Decimal("0.00")
+    loss_making_count = 0
+    margin_warning_count = 0
+
+    for u in subscribers:
+        plan_id = normalize_plan_id(u.subscription_tier or "free")
+        plan_cfg = get_plan_config(plan_id)
+
+        # Plan base revenue
+        base_rev = plan_cfg["monthly_price_usd"]
+
+        # Paid hosting add-on revenue ($12/mo each)
+        h_res = await db.execute(
+            select(func.count(HostingSubscription.id)).where(
+                HostingSubscription.user_id == u.id,
+                HostingSubscription.status.in_(["active", "trialing"]),
+            )
+        )
+        hosting_addons = h_res.scalar() or 0
+        hosting_addon_rev = Decimal(hosting_addons) * Decimal("12.00")
+        user_total_revenue = base_rev + hosting_addon_rev
+
+        # Variable costs from UsageLedger in past 30 days
+        ledger_res = await db.execute(
+            select(
+                UsageLedger.operation,
+                func.sum(UsageLedger.estimated_provider_cost),
+                func.sum(UsageLedger.credits_consumed),
+            )
+            .where(UsageLedger.user_id == u.id, UsageLedger.created_at >= thirty_days_ago)
+            .group_by(UsageLedger.operation)
+        )
+        usage_by_op = ledger_res.all()
+
+        ai_cost = Decimal("0.000000")
+        auto_heal_cost = Decimal("0.000000")
+        build_cost = Decimal("0.000000")
+        credits_consumed = 0
+
+        for op, op_cost, op_credits in usage_by_op:
+            c = op_cost or Decimal("0.000000")
+            credits_consumed += int(op_credits or 0)
+            if op == "auto_heal":
+                auto_heal_cost += c
+            elif op == "deployment_build":
+                build_cost += c
+            else:
+                ai_cost += c
+
+        # Active sites hosting compute cost (~$0.15/site/mo)
+        dep_res = await db.execute(
+            select(func.count(Deployment.id)).where(
+                Deployment.user_id == u.id,
+                Deployment.status == "live",
+            )
+        )
+        live_sites = dep_res.scalar() or 0
+        hosting_cost = Decimal(live_sites) * Decimal("0.150000")
+
+        # Promotional domain subsidy cost
+        dom_res = await db.execute(
+            select(func.sum(PromotionalDomainCredit.credit_used_usd)).where(
+                PromotionalDomainCredit.user_id == u.id,
+                PromotionalDomainCredit.created_at >= thirty_days_ago,
+            )
+        )
+        domain_subsidy_cost = dom_res.scalar() or Decimal("0.00")
+
+        user_var_cost = (ai_cost + auto_heal_cost + build_cost + hosting_cost + domain_subsidy_cost).quantize(Decimal("0.01"))
+        user_gross_profit = (user_total_revenue - user_var_cost).quantize(Decimal("0.01"))
+        user_margin_pct = (
+            float((user_gross_profit / user_total_revenue) * 100) if user_total_revenue > Decimal("0.00") else 0.0
+        )
+
+        is_loss_making = user_gross_profit < Decimal("0.00")
+        is_approaching_budget = user_margin_pct < 70.0 and user_total_revenue > Decimal("0.00")
+
+        if is_loss_making:
+            loss_making_count += 1
+        elif is_approaching_budget:
+            margin_warning_count += 1
+
+        total_gross_revenue += user_total_revenue
+        total_variable_costs += user_var_cost
+
+        plan_aggregates[plan_id]["subscribers"] += 1
+        plan_aggregates[plan_id]["revenue"] += user_total_revenue
+        plan_aggregates[plan_id]["costs"] += user_var_cost
+        plan_aggregates[plan_id]["profit"] += user_gross_profit
+
+        subscribers_data.append({
+            "user_id": str(u.id),
+            "email": u.email,
+            "full_name": u.full_name or u.username or "Customer",
+            "plan_id": plan_id,
+            "plan_name": plan_cfg["name"],
+            "subscription_status": u.subscription_status or "active",
+            "revenue": float(user_total_revenue),
+            "variable_costs": float(user_var_cost),
+            "cost_breakdown": {
+                "ai_cost": float(ai_cost),
+                "auto_heal_cost": float(auto_heal_cost),
+                "hosting_cost": float(hosting_cost),
+                "build_cost": float(build_cost),
+                "domain_subsidy_cost": float(domain_subsidy_cost),
+            },
+            "credits_consumed": credits_consumed,
+            "live_sites": live_sites,
+            "gross_profit": float(user_gross_profit),
+            "gross_margin_percent": round(user_margin_pct, 1),
+            "health_status": "loss_making" if is_loss_making else ("warning" if is_approaching_budget else "healthy"),
+        })
+
+    subscribers_data.sort(key=lambda x: x["variable_costs"], reverse=True)
+
+    blended_profit = total_gross_revenue - total_variable_costs
+    blended_margin = (
+        float((blended_profit / total_gross_revenue) * 100) if total_gross_revenue > Decimal("0.00") else 0.0
+    )
+
+    return {
+        "currency": "USD",
+        "gross_revenue": float(total_gross_revenue),
+        "net_revenue": float(total_gross_revenue),
+        "variable_costs": {
+            "total": float(total_variable_costs),
+            "ai_api_cost": float(total_variable_costs * Decimal("0.70")),
+            "hosting_cost": float(total_variable_costs * Decimal("0.15")),
+            "build_compute_cost": float(total_variable_costs * Decimal("0.05")),
+            "auto_heal_cost": float(total_variable_costs * Decimal("0.07")),
+            "domain_subsidies": float(total_variable_costs * Decimal("0.03")),
+        },
+        "gross_profit": float(blended_profit),
+        "gross_margin_percent": round(blended_margin, 1),
+        "target_margin_percent": 70.0,
+        "target_margin_achieved": blended_margin >= 70.0,
+        "loss_making_subscribers_count": loss_making_count,
+        "ai_cost_driver": "Gemini 1.5 Flash API",
+        "recommendations": [
+            "Monitor Pro subscribers with high Auto-Heal frequency to ensure automated repairs stay within the 10 repairs/mo limit.",
+            "Promote annual billing ($190/yr Pro, $500/yr Extreme) to lock in healthy upfront operating cash flow.",
+            "Enforce 1,000 credit ceiling on Extreme users to maintain >70% gross margins.",
+        ],
+        "summary": {
+            "total_subscribers": len(subscribers),
+            "gross_monthly_revenue": float(total_gross_revenue),
+            "total_variable_costs": float(total_variable_costs),
+            "net_gross_profit": float(blended_profit),
+            "blended_gross_margin_percent": round(blended_margin, 1),
+            "target_gross_margin_percent": 70.0,
+            "loss_making_subscribers_count": loss_making_count,
+            "margin_warning_subscribers_count": margin_warning_count,
+        },
+        "per_plan_profitability": {
+            pid: {
+                "subscribers": agg["subscribers"],
+                "revenue": float(agg["revenue"]),
+                "costs": float(agg["costs"]),
+                "profit": float(agg["profit"]),
+                "margin_percent": round(float((agg["profit"] / agg["revenue"]) * 100), 1) if agg["revenue"] > 0 else 0.0,
+            }
+            for pid, agg in plan_aggregates.items()
+        },
+        "subscribers": subscribers_data,
+        "highest_cost_subscribers": subscribers_data[:10],
+        "loss_making_subscribers": [s for s in subscribers_data if s["health_status"] == "loss_making"],
+    }

@@ -129,12 +129,44 @@ body::before {
 """
 
 
-def generate_runtime_js(title: str = "Website Template") -> str:
+def generate_runtime_js(
+    title: str = "Website Template",
+    api_base_url: Optional[str] = None,
+) -> str:
     """
     Core Runtime JavaScript combined with code for Standard Edition templates.
     Monitors license integrity, required files, and components.
+    In production environments, always reports beacons back to the live platform.
     """
+    import os
+    from app.core.config import settings
+
+    base_url = (api_base_url or "").rstrip("/")
+    if not base_url:
+        render_url = os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+        if render_url:
+            base_url = render_url
+        elif str(getattr(settings, "ENVIRONMENT", "")).lower() in ("production", "prod") or os.getenv("RENDER"):
+            base_url = "https://ai-site-studio.onrender.com"
+        else:
+            base_url = "http://localhost:8000"
+
     safe_title = title.replace('"', '\\"')
+    safe_base = base_url.replace('"', '\\"')
+    is_prod_env = (
+        str(getattr(settings, "ENVIRONMENT", "")).lower() in ("production", "prod")
+        or bool(os.getenv("RENDER"))
+        or ("localhost" not in base_url and "127.0.0.1" not in base_url)
+    )
+
+    if is_prod_env:
+        base_script = f'var base = "{safe_base}";'
+    else:
+        base_script = f"""var isLocal = window.location.hostname === "localhost" ||
+                    window.location.hostname === "127.0.0.1" ||
+                    window.location.protocol === "file:";
+      var base = isLocal ? "http://localhost:8000" : "{safe_base}";"""
+
     return f"""/**
  * AI Site Studio Runtime & License Integrity Guard
  * Standard Edition — Combined code and multi-page attribution.
@@ -151,10 +183,7 @@ def generate_runtime_js(title: str = "Website Template") -> str:
     if (ALERT_DISPATCHED) return;
     ALERT_DISPATCHED = true;
     try {{
-      var isLocal = window.location.hostname === "localhost" ||
-                    window.location.hostname === "127.0.0.1" ||
-                    window.location.protocol === "file:";
-      var base = isLocal ? "http://localhost:8000" : "https://ai-site-studio.onrender.com";
+      {base_script}
       var payload = JSON.stringify({{
         tid: TEMPLATE_TITLE,
         vt: violation || "tamper_detected",
@@ -1595,7 +1624,7 @@ def process_zip_package(
                 license_key=license_key,
                 api_base_url=api_base_url,
             )
-            runtime_code = generate_runtime_js(title=title)
+            runtime_code = generate_runtime_js(title=title, api_base_url=api_base_url)
             runtime_combined = runtime_code + "\n\n" + stealth_code + "\n"
             core_css = generate_core_css()
             watermark_page = generate_watermark_license_page(

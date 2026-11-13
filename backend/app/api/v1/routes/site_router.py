@@ -151,25 +151,71 @@ async def serve_tenant_workload(
                 resolved_site_id = deployment.site_id if deployment else None
                 if deployment and deployment.provider == "local":
                     from app.core.config import settings
-                    if settings.ENVIRONMENT == "production":
-                        subscription_result = await session.execute(select(HostingSubscription).where(
-                            HostingSubscription.deployment_id == deployment.id
-                        ))
-                        subscription = subscription_result.scalar_one_or_none()
-                        subscription_status = subscription.status if subscription else None
-                        in_grace_period = False
-                        if subscription_status == "past_due" and subscription.last_payment_failed_at:
-                            failed_at = subscription.last_payment_failed_at
-                            if failed_at.tzinfo is None:
-                                failed_at = failed_at.replace(tzinfo=timezone.utc)
-                            in_grace_period = datetime.now(timezone.utc) <= failed_at + timedelta(
-                                days=max(0, settings.HOSTING_GRACE_PERIOD_DAYS)
+                    from app.models.user import User
+
+                    # Resolve deployment owner subscription status
+                    owner_res = await session.execute(select(User).where(User.id == deployment.user_id))
+                    owner = owner_res.scalar_one_or_none()
+                    is_extreme = bool(
+                        owner
+                        and (
+                            (owner.subscription_tier or "").lower() in ("extreme", "agency", "enterprise")
+                            or getattr(owner.role, "value", owner.role) == "admin"
+                        )
+                    )
+                    is_pro = bool(owner and owner.is_pro_subscriber)
+
+                    # 1. Extreme tier has unlimited included hosting
+                    if is_extreme:
+                        pass
+                    # 2. Pro tier has up to 3 live deployments included with zero extra hosting charges
+                    elif is_pro:
+                        pro_count_res = await session.execute(
+                            select(func.count(Deployment.id)).where(
+                                Deployment.user_id == owner.id,
+                                Deployment.status == "live",
                             )
-                        if subscription_status not in {"active", "trialing"} and not in_grace_period:
+                        )
+                        pro_live_sites = pro_count_res.scalar_one() or 0
+                        if pro_live_sites <= 3:
+                            pass  # Included with Pro Plan
+                        else:
+                            # 4th+ site requires hosting subscription
+                            subscription_result = await session.execute(select(HostingSubscription).where(
+                                HostingSubscription.deployment_id == deployment.id
+                            ))
+                            subscription = subscription_result.scalar_one_or_none()
+                            subscription_status = subscription.status if subscription else None
+                            if subscription_status not in {"active", "trialing"}:
+                                return HTMLResponse(
+                                    "<!doctype html><html><head><title>Hosting unavailable</title></head>"
+                                    "<body style='font:16px system-ui;max-width:640px;margin:12vh auto;padding:24px;background:#09090b;color:#fff'>"
+                                    "<h1>Hosting Subscription Required</h1><p>This deployment exceeds the 3 live websites included with your Pro Plan. Complete the $12/month hosting subscription to activate this site.</p></body></html>",
+                                    status_code=402,
+                                )
+                    # 3. Free tier has a 7-day trial window
+                    else:
+                        now = datetime.now(timezone.utc)
+                        trial_exp = (
+                            deployment.trial_expires_at
+                            if (deployment.trial_expires_at and deployment.trial_expires_at.tzinfo)
+                            else (deployment.trial_expires_at.replace(tzinfo=timezone.utc) if deployment.trial_expires_at else None)
+                        )
+                        if trial_exp and now > trial_exp:
                             return HTMLResponse(
-                                "<!doctype html><html><head><title>Hosting unavailable</title></head>"
-                                "<body style='font:16px system-ui;max-width:640px;margin:12vh auto;padding:24px'>"
-                                "<h1>This website's hosting is not active</h1><p>The owner can restore access by completing or updating the hosting subscription in AI Site Studio.</p></body></html>",
+                                "<!doctype html><html><head><meta charset='utf-8'><title>Trial Expired — AI Site Studio</title>"
+                                "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                                "<style>body{background:#09090b;color:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;margin:0;padding:2rem;display:flex;align-items:center;justify-content:center;min-height:100vh} "
+                                ".card{background:#121216;border:1px solid #27272a;border-radius:1rem;padding:2.5rem;max-width:540px;width:100%;text-align:center;box-shadow:0 12px 32px rgba(0,0,0,0.5)} "
+                                "h1{color:#dfb180;font-size:1.5rem;margin:0 0 0.75rem;font-weight:800} "
+                                "p{color:#a1a1aa;font-size:0.95rem;line-height:1.6;margin:0 0 1.75rem} "
+                                ".btn{display:inline-block;background:#c89666;color:#09090b;font-weight:800;text-decoration:none;padding:0.75rem 1.75rem;border-radius:0.75rem;font-size:0.875rem;transition:0.2s} "
+                                ".btn:hover{background:#dfb180}</style></head>"
+                                "<body><div class='card'>"
+                                "<h1>7-Day Free Trial Expired</h1>"
+                                f"<p>The 7-day free trial period for <strong>{deployment.project_name or 'this website'}</strong> has ended. Upgrade to <strong>Studio Pro</strong> to restore permanent live cloud edge hosting and connect custom domains.</p>"
+                                "<a class='btn' href='/pricing'>Upgrade to Pro &amp; Restore Live Site</a>"
+                                "</div></body></html>",
                                 status_code=402,
                             )
         except Exception:

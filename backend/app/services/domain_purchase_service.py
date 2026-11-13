@@ -130,9 +130,13 @@ async def refresh_domain_registration(domain: Domain, db: AsyncSession) -> Domai
     if status == "completed":
         details = json.loads(decrypt_oauth_token(domain.registrar_data_encrypted or ""))
         # GoDaddy v3 registers with the account profile; v1 then assigns the
-        # customer-provided legal registrant contact and disables default renewals.
+        # customer-provided legal registrant contact and syncs user-authorized auto-renewal.
         await godaddy_domain_service.update_registrant(domain.domain, details["profile"])
-        await godaddy_domain_service.set_auto_renew(domain.domain, False)
+        auto_renew_enabled = bool(domain.auto_renew)
+        try:
+            await godaddy_domain_service.set_auto_renew(domain.domain, auto_renew_enabled)
+        except Exception as e:
+            logger.warning(f"Could not sync GoDaddy auto-renew for {domain.domain}: {e}")
         await godaddy_domain_service.upsert_dns(domain.domain)
         deployment_result = await db.execute(select(Deployment).where(Deployment.id == domain.deployment_id))
         deployment = deployment_result.scalar_one_or_none()

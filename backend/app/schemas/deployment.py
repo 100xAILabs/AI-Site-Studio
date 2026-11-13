@@ -18,6 +18,7 @@ class DeploymentBase(BaseModel):
     output_dir: str = "dist"
     env_vars: Optional[Dict[str, str]] = None
     accepted_hosting_terms: bool = False
+    custom_domain: Optional[str] = None
 
     @field_validator("project_name")
     @classmethod
@@ -100,6 +101,9 @@ class DeploymentResponse(DeploymentBase):
     hosting_subscription_status: str = "not_subscribed"
     hosting_subscription_cancel_at_period_end: bool = False
     hosting_subscription_period_end: Optional[datetime] = None
+    trial_expires_at: Optional[datetime] = None
+    custom_domain_trial_expires_at: Optional[datetime] = None
+    is_auto_heal_active: bool = False
     created_at: datetime
     updated_at: datetime
 

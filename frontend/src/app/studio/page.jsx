@@ -50,6 +50,32 @@ const AGENTS = [
   "Packaging Agent",
 ];
 
+function formatSectionDisplay(sec) {
+  if (!sec) return { title: "Section", desc: "" };
+  if (typeof sec === "object") {
+    return {
+      title: String(sec.title || sec.name || sec.label || sec.heading || sec.id || "Section"),
+      desc: String(sec.description || sec.summary || sec.purpose || ""),
+    };
+  }
+  const str = String(sec).trim();
+  if (str.startsWith("{") || str.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(str.replace(/'/g, '"'));
+      if (typeof parsed === "object" && parsed !== null) {
+        return {
+          title: String(parsed.title || parsed.name || parsed.label || parsed.heading || "Section"),
+          desc: String(parsed.description || parsed.summary || ""),
+        };
+      }
+    } catch {
+      const m = str.match(/['"](?:title|name|label)['"]\s*:\s*['"]([^'"]+)['"]/i);
+      if (m) return { title: m[1], desc: "" };
+    }
+  }
+  return { title: str, desc: "" };
+}
+
 export default function StudioPage() {
   const navigate = useNavigate();
   const { getToken } = useAppAuth();
@@ -557,18 +583,18 @@ export default function StudioPage() {
                             ];
 
   return (
-    <div className="studio-app min-h-screen bg-[#080b12] text-slate-100">
+    <div className="studio-app min-h-screen">
       <Navbar />
       <main className="studio-main mx-auto max-w-6xl px-4 pb-20 pt-28 sm:px-6">
-        <button onClick={() => navigate("/marketplace")} className="studio-back mb-7 inline-flex items-center gap-2 text-sm text-slate-400 transition hover:text-white">
+        <button onClick={() => navigate("/marketplace")} className="studio-back mb-7 inline-flex items-center gap-2 text-sm text-zinc-400 transition hover:text-white cursor-pointer">
           <ArrowLeft size={16} /> Back to marketplace
         </button>
 
         <div className="studio-intro mb-10">
           <div className="studio-intro-copy">
-            <div className="studio-eyebrow"><Sparkles size={14} /> YOUR PRIVATE AI WEBSITE STUDIO</div>
+            <div className="studio-eyebrow"><Sparkles size={14} className="text-[#dfb180]" /> YOUR PRIVATE AUTOMATED WEBSITE STUDIO</div>
             <h1>From a rough idea<br /><span>to a complete website.</span></h1>
-            <p>Shape the plan, and let nine focused agents analyze your requirements and build your website or full-stack application.</p>
+            <p>Shape the plan, and let nine specialized synthesis engines analyze your requirements and build your website or full-stack application.</p>
           </div>
         </div>
 
@@ -627,7 +653,7 @@ export default function StudioPage() {
                 <div className="flex items-center justify-between gap-3 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs">
                   <div className="flex items-center gap-2">
                     <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                    <span>You have used your 1 free website generation. To create more websites, please purchase AI credits or upgrade your plan.</span>
+                    <span>You have used your 1 free website generation. To create more websites, please purchase automation credits or upgrade your plan.</span>
                   </div>
                   <button
                     type="button"
@@ -655,33 +681,33 @@ export default function StudioPage() {
                 onChange={(e) => setPrompt(e.target.value)}
                 rows={5}
                 placeholder={"I need a website for [business or project].\nIt is for [the people you want to reach].\nPlease include [important pages, content, or features].\nThe main thing visitors should do is [action].\nI want it to feel [style, mood, or colors]."}
-                className="w-full resize-y rounded-2xl border border-white/10 bg-[#0c111b] px-4 py-3.5 text-sm leading-6 text-white outline-none transition placeholder:text-slate-500 focus:border-[#c89666]/30"
+                className="w-full resize-y rounded-2xl border border-[#272733] bg-[#0b0b0f] px-4 py-3.5 text-sm leading-6 text-white outline-none transition placeholder:text-zinc-500 focus:border-[#c89666] focus:ring-2 focus:ring-[#c89666]/20"
               />
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <p className="text-slate-400">Helpful details: audience, what you offer, key content, and visual style.</p>
-                <span className="shrink-0 text-slate-500">{prompt.length.toLocaleString()}/12,000</span>
+                <p className="text-zinc-400">Helpful details: audience, what you offer, key content, and visual style.</p>
+                <span className="shrink-0 text-zinc-500">{prompt.length.toLocaleString()}/12,000</span>
               </div>
 
 
             </div>
             <fieldset className="studio-page-structure">
-              <legend className="mb-2 block text-sm font-semibold text-slate-200">How many pages should your website have?</legend>
+              <legend className="mb-2 block text-sm font-semibold text-zinc-200">How many pages should your website have?</legend>
               <div className="grid gap-3 sm:grid-cols-2">
                 {[
                   { value: "single_page", title: "Single page", description: "One scrolling page with all content and sections." },
                   { value: "multi_page", title: "Multiple pages", description: "Separate pages for the main parts of your website." },
                 ].map((option) => (
-                  <label key={option.value} className={`cursor-pointer rounded-2xl border p-4 transition focus-within:ring-2 focus-within:ring-violet-400 focus-within:ring-offset-2 focus-within:ring-offset-[#080b12] ${effectivePageStructure === option.value ? "border-[#c89666]/30 bg-[#c89666]/15" : "border-white/10 bg-[#0c111b] hover:border-white/20"}`}>
+                  <label key={option.value} className={`cursor-pointer rounded-2xl border p-4 transition focus-within:ring-2 focus-within:ring-[#c89666] focus-within:ring-offset-2 focus-within:ring-offset-[#09090b] ${effectivePageStructure === option.value ? "border-[#c89666] bg-[#c89666]/10 shadow-sm" : "border-[#272733] bg-[#16161e] hover:border-zinc-600"}`}>
                     <input className="sr-only" type="radio" name="page-structure" value={option.value} checked={effectivePageStructure === option.value} onChange={() => setPageStructure(option.value)} required />
                     <span className="block text-sm font-semibold text-white">{option.title}</span>
-                    <span className="mt-1 block text-xs leading-5 text-slate-400">{option.description}</span>
+                    <span className="mt-1 block text-xs leading-5 text-zinc-400">{option.description}</span>
                   </label>
                 ))}
               </div>
             </fieldset>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-200">
+                <label className="mb-2 block text-sm font-semibold text-zinc-200">
                   Marketplace Category <span className="text-[#dfb180] font-normal">({displayCategories.length} categories)</span>
                 </label>
                 <select
@@ -694,7 +720,7 @@ export default function StudioPage() {
                       setGenre(cat.subCategories[0]);
                     }
                   }}
-                  className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white outline-none focus:border-[#c89666]/30"
+                  className="w-full rounded-xl border border-[#272733] bg-[#0b0b0f] px-4 py-3 text-sm text-white outline-none focus:border-[#c89666] focus:ring-1 focus:ring-[#c89666]/25"
                 >
                   <option value="">Choose a category ({displayCategories.length} available)</option>
                   {displayCategories.map((item) => (
@@ -705,20 +731,20 @@ export default function StudioPage() {
                 </select>
               </div>
               <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-200">Genre or site type</label>
+                <label className="mb-2 block text-sm font-semibold text-zinc-200">Genre or site type</label>
                 <input
                   value={genre}
                   onChange={(e) => setGenre(e.target.value)}
                   maxLength={100}
                   placeholder="e.g. Resort Hotel, Coffee Shop, SaaS Dashboard…"
-                  className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-[#c89666]/30"
+                  className="w-full rounded-xl border border-[#272733] bg-[#0b0b0f] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-[#c89666] focus:ring-1 focus:ring-[#c89666]/25"
                 />
               </div>
             </div>
 
             {/* Quick Sub-Category Suggestion Chips */}
             {availableSubCategories.length > 0 && (
-              <div className="rounded-xl border border-[#c89666]/30 bg-[#c89666]/15 p-3">
+              <div className="rounded-xl border border-[#c89666]/30 bg-[#c89666]/10 p-3">
                 <span className="text-xs font-semibold text-[#dfb180] mb-2 flex items-center gap-1.5">
                   <Tag className="w-3.5 h-3.5 text-[#dfb180]" />
                   Popular {selectedCategory?.name} Specialties (click to auto-fill):
@@ -729,9 +755,9 @@ export default function StudioPage() {
                       key={sub}
                       type="button"
                       onClick={() => setGenre(sub)}
-                      className={`text-xs px-2.5 py-1 rounded-lg border transition ${genre.toLowerCase() === sub.toLowerCase()
-                        ? "bg-[#c89666]/15 border-[#c89666]/30 text-[#dfb180] font-bold shadow-sm shadow-violet-500/20"
-                        : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white"
+                      className={`text-xs px-2.5 py-1 rounded-lg border transition cursor-pointer ${genre.toLowerCase() === sub.toLowerCase()
+                        ? "bg-[#c89666]/20 border-[#c89666]/50 text-[#dfb180] font-bold shadow-sm"
+                        : "bg-[#16161e] border-[#272733] text-zinc-300 hover:bg-[#1a1a24] hover:text-white"
                         }`}
                     >
                       {sub}
@@ -740,7 +766,7 @@ export default function StudioPage() {
                 </div>
               </div>
             )}
-            <p className="text-xs text-slate-400" role="status" aria-live="polite">
+            <p className="text-xs text-zinc-400" role="status" aria-live="polite">
               {prompt.trim().length < 10
                 ? "Add at least 10 characters of detail so the planner can use your requirements."
                 : !categoryId
@@ -750,7 +776,7 @@ export default function StudioPage() {
                     : "Your brief is ready. You can still refine the content in the next step."}
             </p>
             {error && <p role="alert" className="rounded-xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">{error}</p>}
-            <button disabled={loadingPlan || !categoryId || !effectivePageStructure || prompt.trim().length < 10} className="inline-flex w-fit items-center justify-center gap-2 rounded-xl bg-[#c89666]/15 px-5 py-3 text-sm font-bold text-white transition hover:bg-[#c89666]/15 disabled:cursor-not-allowed disabled:opacity-50">
+            <button disabled={loadingPlan || !categoryId || !effectivePageStructure || prompt.trim().length < 10} className="inline-flex w-fit items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-amber-950/40 transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50">
               <WandSparkles size={17} />
               <span>Plan my website</span>
               <ArrowRight size={16} />
@@ -908,26 +934,70 @@ export default function StudioPage() {
 
                   <div className={`studio-proposal-pages grid gap-3 ${plan.pages.length > 1 ? "sm:grid-cols-2" : "grid-cols-1"}`}>
                     {plan.pages.map((page, index) => (
-                      <article key={page.filename} className={`rounded-2xl border bg-[#0c111b] p-4 transition ${page.included === false ? "border-white/5 opacity-60" : "border-white/10 hover:border-[#c89666]/30"}`}>
+                      <article
+                        key={page.filename}
+                        className={`rounded-2xl border p-4.5 transition-all duration-200 ${
+                          page.included === false
+                            ? "border-border/60 bg-muted/20 opacity-60"
+                            : "border-border bg-card shadow-sm hover:border-primary/40 hover:shadow-md"
+                        }`}
+                      >
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <label className="flex cursor-pointer items-center gap-3">
-                            <input type="checkbox" checked={page.included !== false || page.required} disabled={!!page.required} onChange={() => togglePlanPage(page.filename)} className="h-4 w-4 accent-violet-400 disabled:cursor-not-allowed" />
-                            <span className="font-semibold text-sm">{String(index + 1).padStart(2, "0")} · {page.name}</span>
+                            <input
+                              type="checkbox"
+                              checked={page.included !== false || page.required}
+                              disabled={!!page.required}
+                              onChange={() => togglePlanPage(page.filename)}
+                              className="h-4 w-4 accent-amber-500 rounded cursor-pointer disabled:cursor-not-allowed"
+                            />
+                            <span className="font-semibold text-sm text-foreground">
+                              {String(index + 1).padStart(2, "0")} · {page.name}
+                            </span>
                           </label>
-                          <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${page.required ? "bg-amber-300/10 text-amber-200" : "bg-white/5 text-slate-500"}`}>
+                          <span
+                            className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                              page.required
+                                ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/25"
+                                : page.included === false
+                                ? "bg-muted text-muted-foreground"
+                                : "bg-primary/10 text-primary border border-primary/20"
+                            }`}
+                          >
                             {page.required ? "Required" : page.included === false ? "Excluded" : "Optional"}
                           </span>
                         </div>
-                        <p className="mt-2 text-xs text-slate-400">{page.purpose}</p>
+                        <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                          {page.purpose}
+                        </p>
                         {!!page.sections?.length && (
-                          <div className="mt-3">
-                            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Sections</p>
+                          <div className="mt-3.5 pt-3 border-t border-border/60">
+                            <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                              Sections &amp; Components
+                            </p>
                             <div className="flex flex-wrap gap-1.5">
-                              {page.sections.map((section) => {
-                                const selected = (page.selected_sections || page.sections).includes(section);
+                              {page.sections.map((section, sIdx) => {
+                                const info = formatSectionDisplay(section);
+                                const selected = (page.selected_sections || page.sections).some((s) => {
+                                  const sInfo = formatSectionDisplay(s);
+                                  return sInfo.title.toLowerCase() === info.title.toLowerCase() || s === section;
+                                });
                                 return (
-                                  <button key={section} type="button" disabled={page.included === false} aria-pressed={selected} onClick={() => togglePageSection(page.filename, section)} className={`rounded-lg border px-2 py-1 text-[11px] transition ${selected ? "border-[#c89666]/30 bg-[#c89666]/15 text-[#dfb180]" : "border-white/10 bg-transparent text-slate-500 hover:text-slate-300"} disabled:cursor-not-allowed disabled:opacity-40`}>
-                                    {selected ? "✓ " : "+ "}{section}
+                                  <button
+                                    key={info.title + "-" + sIdx}
+                                    type="button"
+                                    disabled={page.included === false}
+                                    aria-pressed={selected}
+                                    onClick={() => togglePageSection(page.filename, section)}
+                                    title={info.desc ? `${info.title} — ${info.desc}` : info.title}
+                                    className={`rounded-lg border px-2.5 py-1 text-[11px] font-medium transition cursor-pointer ${
+                                      selected
+                                        ? "border-primary/40 bg-primary/15 text-primary font-semibold shadow-xs"
+                                        : "border-border bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted"
+                                    } disabled:cursor-not-allowed disabled:opacity-40`}
+                                  >
+                                    {selected ? "✓ " : "+ "}
+                                    {info.title}
                                   </button>
                                 );
                               })}
@@ -1217,7 +1287,7 @@ export default function StudioPage() {
                               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#c89666]/15 hover:bg-[#c89666]/15 text-white font-bold text-xs transition-colors cursor-pointer"
                             >
                               <Sparkles size={14} />
-                              <span>Purchase AI Credits or Upgrade</span>
+                              <span>Purchase Automation Credits or Upgrade</span>
                             </button>
                           </div>
                         )}

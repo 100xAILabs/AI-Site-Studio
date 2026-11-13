@@ -222,7 +222,7 @@ class ErrorBoundary extends Component {
             }}
           >
             {isNetworkError
-              ? 'Unable to communicate with the server. Please verify your internet connection. AI Site Studio will attempt to reconnect once online.'
+              ? 'Unable to communicate with the server. Please verify your internet connection. Site Studio will attempt to reconnect once online.'
               : 'An unexpected rendering error occurred. The incident has been recorded and you can attempt to resume without losing your place.'}
           </p>
 

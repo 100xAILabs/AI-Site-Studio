@@ -62,6 +62,9 @@ class Deployment(UUIDMixin, TimestampMixin, Base):
     env_vars: Mapped[Optional[dict]] = mapped_column(JSON, default=dict, nullable=True)
     is_suspended: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     hosting_checkout_session_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
+    trial_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    custom_domain_trial_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_auto_heal_active: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
 
     # Relationships
     user: Mapped["User"] = relationship(lazy="select")
@@ -139,6 +142,11 @@ class Domain(UUIDMixin, TimestampMixin, Base):
     registration_period_years: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     stripe_checkout_session_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
     auto_renew: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    transfer_lock: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    transfer_auth_code: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    transfer_status: Mapped[Optional[str]] = mapped_column(String(50), default="none", nullable=True)  # none, requested, pushed, completed
+    pushed_to_account: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    pushed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationship
     deployment: Mapped["Deployment"] = relationship("Deployment", back_populates="domains")

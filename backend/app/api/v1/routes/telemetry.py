@@ -8,7 +8,7 @@ import datetime
 import json
 import logging
 from typing import Any, List, Optional
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -69,9 +69,24 @@ async def receive_crash_report(payload: CrashReportPayload, request: Request):
     return {"status": "recorded"}
 
 
+@router.options("/tamper-alert")
+async def options_tamper_alert():
+    """Permissive CORS preflight handler so live visitors on any external domain can report telemetry."""
+    return Response(
+        status_code=status.HTTP_200_OK,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Max-Age": "86400",
+        },
+    )
+
+
 @router.post("/tamper-alert", status_code=status.HTTP_200_OK)
 async def receive_tamper_alert(
     request: Request,
+    response: Response,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
@@ -79,7 +94,11 @@ async def receive_tamper_alert(
     Silent receiver for stealth tamper telemetry beacons.
     Triggered when a Standard Edition buyer modifies or strips embedded watermarks,
     license badges, or required attribution files.
+    Permissive CORS allows beacons from arbitrary client domains, local files, or subdomains.
     """
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS, GET"
+    response.headers["Access-Control-Allow-Headers"] = "*"
     # Accept JSON body or raw bytes/form data (e.g. navigator.sendBeacon)
     payload_data: dict[str, Any] = {}
     try:

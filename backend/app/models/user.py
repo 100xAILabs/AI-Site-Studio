@@ -4,9 +4,10 @@ User ORM model.
 
 import uuid
 import enum
+from datetime import datetime, timezone
 from typing import Optional, List, TYPE_CHECKING
 
-from sqlalchemy import Boolean, Enum as SAEnum, Integer, String, Text, Uuid
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -79,6 +80,13 @@ class User(UUIDMixin, TimestampMixin, Base):
 
     # Billing, Subscriptions & Stripe Connect
     subscription_tier: Mapped[Optional[str]] = mapped_column(String(50), default="free", server_default="free", nullable=True)
+    subscription_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    subscription_status: Mapped[Optional[str]] = mapped_column(String(50), default="active", server_default="active", nullable=True)
+    subscription_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    auto_renew: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    free_domain_claimed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    pro_auto_heal_deployment_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    pro_auto_heal_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(255))
     stripe_connect_account_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     razorpay_customer_id: Mapped[Optional[str]] = mapped_column(String(255))
@@ -86,7 +94,18 @@ class User(UUIDMixin, TimestampMixin, Base):
     @property
     def is_pro_subscriber(self) -> bool:
         tier = (self.subscription_tier or "").lower()
-        return tier in ("pro", "agency", "creator_pro", "enterprise", "extreme")
+        if tier not in ("pro", "agency", "creator_pro", "enterprise", "extreme"):
+            return False
+        if self.subscription_expires_at:
+            now = datetime.now(timezone.utc)
+            expires = (
+                self.subscription_expires_at
+                if self.subscription_expires_at.tzinfo
+                else self.subscription_expires_at.replace(tzinfo=timezone.utc)
+            )
+            if now > expires:
+                return False
+        return True
 
     # Payout details for Sellers
     payout_bank_name: Mapped[Optional[str]] = mapped_column(String(255))

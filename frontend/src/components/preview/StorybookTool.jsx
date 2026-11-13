@@ -206,7 +206,7 @@ export default function StorybookTool({
       },
       testimonials: {
         sectionTitle: "Trusted by Creators Worldwide",
-        quote: "AI Site Studio saved our agency over 60 engineering hours on our latest client redesign. The code quality is immaculate.",
+        quote: "Site Studio saved our agency over 60 engineering hours on our latest client redesign. The code quality is immaculate.",
         author: "Sarah Jenkins",
         role: "VP of Product",
         company: "CloudScale Inc.",
@@ -231,7 +231,7 @@ export default function StorybookTool({
       },
       footer: {
         brandName: templatePages?.footer?.brand_name || bName,
-        tagline: templatePages?.footer?.tagline || activeBrandColors?.tagline || "Empowering creators with production-ready AI templates.",
+        tagline: templatePages?.footer?.tagline || activeBrandColors?.tagline || "Empowering creators with production-ready website templates.",
         copyright: templatePages?.footer?.copyright || `© ${new Date().getFullYear()} ${bName}. All rights reserved.`,
         link1: "Privacy Policy",
         link2: "Terms of Service",

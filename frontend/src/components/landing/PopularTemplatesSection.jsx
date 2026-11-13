@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import Link from "@/components/Link";
 import { motion } from "framer-motion";
 import {
@@ -39,6 +40,7 @@ function getTemplateIcon(item) {
 }
 
 export default function PopularTemplatesSection() {
+  const navigate = useNavigate();
   const [favorites, setFavorites] = useState({});
 
   // Query top high-selling templates from backend API (sorted by best_sellers)
@@ -139,10 +141,18 @@ export default function PopularTemplatesSection() {
                   transition={{ duration: 0.45, delay: idx * 0.06 }}
                   className="popular-template-card"
                 >
-                  {/* Direct Link to the actual template details page */}
-                  <Link
-                    href={`/marketplace/${templateSlug}`}
-                    className="popular-card-link"
+                  {/* Direct interactive card navigating to template details page */}
+                  <div
+                    className="popular-card-link cursor-pointer"
+                    onClick={() => navigate(`/marketplace/${templateSlug}`)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        navigate(`/marketplace/${templateSlug}`);
+                      }
+                    }}
                     title={`Open ${displayTitle} template`}
                   >
                     {/* Visual Preview */}
@@ -162,21 +172,25 @@ export default function PopularTemplatesSection() {
                         loading="lazy"
                         onError={(e) => {
                           e.target.onerror = null;
-                          e.target.src = "/landing/modern_villa.jpg";
+                          e.target.src = "/landing/Hero.png";
                         }}
                       />
 
                       {/* On-Hover Quick Live Preview Action Overlay */}
                       <div className="popular-preview-overlay">
-                        <Link
-                          href={`/preview?template=${templateSlug}`}
+                        <button
+                          type="button"
                           className="popular-overlay-preview-btn"
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            navigate(`/preview?template=${templateSlug}`);
+                          }}
                           title="Open in Live Canvas Editor"
                         >
                           <Eye className="w-3.5 h-3.5 mr-1.5" />
                           <span>Live Preview</span>
-                        </Link>
+                        </button>
                       </div>
                     </div>
 
@@ -205,7 +219,7 @@ export default function PopularTemplatesSection() {
                         />
                       </button>
                     </div>
-                  </Link>
+                  </div>
                 </motion.div>
               );
             })}

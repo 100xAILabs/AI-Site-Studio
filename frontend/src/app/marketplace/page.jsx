@@ -399,7 +399,7 @@ function Marketplace() {
                 <p className="marketplace-hero-sub">
                   {isSeller
                     ? "Manage, view, and inspect your own published marketplace templates in live store view."
-                    : "Modern, multi-page templates with instant live previews, responsive reflow, and AI Fill personalization."}
+                    : "Modern, multi-page templates with instant live previews, responsive reflow, and Smart Fill personalization."}
                 </p>
               </div>
               {isSeller ? (

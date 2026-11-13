@@ -5,38 +5,26 @@ import {
   Globe,
   ArrowLeft,
   CheckCircle2,
-  ExternalLink,
   Copy,
   Check,
   RefreshCw,
-  Server,
-  Shield,
   Sparkles,
-  Terminal,
-  Layers,
   ArrowRight,
   Zap,
-  Edit3,
   ShoppingCart,
   X,
-  FileText,
-  Search,
-  Tag,
-  Clock,
-  ShieldCheck,
   AlertTriangle,
   ShoppingBag,
   Palette,
   Cpu,
-  Folder,
+  Lock,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { useAppAuth, useAppUser } from "@/lib/auth";
-import { api, API_URL } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useStudioBuildStore } from "@/store/studioBuildStore";
 import { toast } from "sonner";
 import "./Deploy.css";
-import "../launch/Launch.css";
 
 export default function StudioDeployPage() {
   const [searchParams] = useSearchParams();
@@ -47,7 +35,6 @@ export default function StudioDeployPage() {
 
   const queryName = searchParams.get("name") || "";
   const initialTemplateId = searchParams.get("template") || localStorage.getItem("last_studio_template_id") || "";
-  const buildId = searchParams.get("build") || "";
 
   // Template selector lists & categories
   const [userTemplates, setUserTemplates] = useState([]);
@@ -57,14 +44,18 @@ export default function StudioDeployPage() {
   const [selectedTemplateId, setSelectedTemplateId] = useState(initialTemplateId || "");
   const [template, setTemplate] = useState(null);
 
-  // Form & deployment options
-  const [provider, setProvider] = useState("local"); // "local" | "vercel" | "netlify"
+  // Configured user custom domains from our website
+  const [configuredDomains, setConfiguredDomains] = useState([]);
+  const [domainsLoading, setDomainsLoading] = useState(true);
+  const [domainMode, setDomainMode] = useState("subdomain"); // "subdomain" | "configured"
+  const [selectedConfiguredDomain, setSelectedConfiguredDomain] = useState("");
+
+  // Form & deployment options (Fixed to our own Studio Edge CDN deployment)
+  const provider = "local";
   const [projectName, setProjectName] = useState(
     (queryName || "").toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")
   );
-  const [customDomain, setCustomDomain] = useState("");
   const [deploying, setDeploying] = useState(false);
-  const [deployStep, setDeployStep] = useState(0); // 0: idle, 1: packaging, 2: building, 3: live
 
   // Subdomain live availability check state
   const [subdomainStatus, setSubdomainStatus] = useState({
@@ -75,7 +66,7 @@ export default function StudioDeployPage() {
     fullSubdomain: "",
   });
 
-  // In-Website Domain Purchasing state
+  // In-Website Domain Purchasing modal state (GoDaddy)
   const [isDomainBuyModalOpen, setIsDomainBuyModalOpen] = useState(false);
   const [selectedDomainToBuy, setSelectedDomainToBuy] = useState("");
   const [domainQuote, setDomainQuote] = useState(null);
@@ -108,16 +99,19 @@ export default function StudioDeployPage() {
     }
   }, [user]);
 
-  // Fetch all user's deployable templates (Purchased, Studio Generated, Customized)
+  // Fetch all user's deployable templates & configured custom domains
   useEffect(() => {
     let isMounted = true;
     async function loadAllDeployableSources() {
       setTemplatesLoading(true);
+      setDomainsLoading(true);
       try {
         const token = await getToken();
-        const [templatesRes, ordersRes] = await Promise.all([
+        const [templatesRes, ordersRes, domainsRes, deploysRes] = await Promise.all([
           api.get("/templates/my-templates", token).catch(() => []),
           api.get("/orders", token).catch(() => []),
+          api.get("/deployments/domains/my-domains", token).catch(() => []),
+          api.get("/deployments", token).catch(() => []),
         ]);
 
         if (isMounted) {
@@ -139,6 +133,36 @@ export default function StudioDeployPage() {
             );
           setPurchasedTemplates(purchased);
 
+          // Parse all configured domains from account
+          const myDomains = [];
+          const seenDomainNames = new Set();
+          if (Array.isArray(domainsRes)) {
+            domainsRes.forEach((d) => {
+              if (d.domain && !d.domain.endsWith(".site-studio.live") && !seenDomainNames.has(d.domain)) {
+                seenDomainNames.add(d.domain);
+                myDomains.push(d);
+              }
+            });
+          }
+          if (Array.isArray(deploysRes)) {
+            deploysRes.forEach((dep) => {
+              if (dep.custom_domain && !seenDomainNames.has(dep.custom_domain)) {
+                seenDomainNames.add(dep.custom_domain);
+                myDomains.push({
+                  id: dep.id,
+                  domain: dep.custom_domain,
+                  domain_type: "custom",
+                  verification_status: "verified",
+                  ssl_status: "active",
+                });
+              }
+            });
+          }
+          setConfiguredDomains(myDomains);
+          if (myDomains.length > 0 && !selectedConfiguredDomain) {
+            setSelectedConfiguredDomain(myDomains[0].domain);
+          }
+
           // If a template was already specified via query or store, select it
           const targetId = initialTemplateId || buildStore?.completedTemplateId;
           if (targetId) {
@@ -154,7 +178,10 @@ export default function StudioDeployPage() {
       } catch (err) {
         console.warn("Could not load deployable template lists:", err);
       } finally {
-        if (isMounted) setTemplatesLoading(false);
+        if (isMounted) {
+          setTemplatesLoading(false);
+          setDomainsLoading(false);
+        }
       }
     }
     loadAllDeployableSources();
@@ -164,7 +191,7 @@ export default function StudioDeployPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getToken, initialTemplateId]);
 
-  // Construct Categorized Deployable Templates
+  // Construct Categorized Deployable Templates with Pre-Edited & Post-Edited Pairing
   const purchasedMap = new Map();
   purchasedTemplates.forEach((p) => {
     if (p.id) purchasedMap.set(p.id, p);
@@ -187,38 +214,106 @@ export default function StudioDeployPage() {
   ) {
     studioItems.unshift({
       id: buildStore.completedTemplateId,
-      title: buildStore.projectTitle || buildStore.plan?.title || "AI Studio Project",
-      short_description: buildStore.plan?.summary || "Generated in AI Site Studio",
+      title: buildStore.projectTitle || buildStore.plan?.title || "Site Studio Project",
+      short_description: buildStore.plan?.summary || "Generated in Site Studio",
       framework: buildStore.plan?.stack?.frontend === "react" ? "react" : "html",
       pages_count: buildStore.plan?.pages?.length || 1,
       originCategory: "studio",
     });
   }
 
-  const editedItems = userTemplates
-    .filter(
-      (t) =>
-        (t.slug && t.slug.includes("-custom-")) ||
-        (t.title &&
-          (t.title.includes("(Customized)") || t.title.startsWith("Customized "))) ||
-        t.template_origin === "custom_draft"
-    )
-    .map((t) => ({ ...t, originCategory: "edited" }));
-
-  const allDeployableTemplates = [
+  const allRawTemplates = [
     ...Array.from(purchasedMap.values()),
     ...studioItems,
-    ...editedItems,
+    ...userTemplates.map((t) => ({ ...t, originCategory: t.originCategory || "user" })),
   ];
 
-  const uniqueDeployableTemplates = Array.from(
-    new Map(allDeployableTemplates.map((item) => [item.id, item])).values()
-  );
+  // Group by base template key to generate clean 1: Pre-Edited (Original) and 2: Post-Edited (Customized)
+  const getBaseTemplateKey = (item) => {
+    if (item.slug && item.slug.includes("-custom-")) {
+      return item.slug.split("-custom-")[0].toLowerCase().trim();
+    }
+    const t = (item.title || "").toLowerCase().trim();
+    const cleaned = t
+      .replace(/^customized\s+/i, "")
+      .replace(/\s*\(customized\)/i, "")
+      .replace(/\s*\(draft\)/i, "")
+      .replace(/\s*draft$/i, "")
+      .trim();
+    return cleaned || item.id;
+  };
 
-  const filteredDeployableTemplates = uniqueDeployableTemplates.filter((item) => {
+  const isTemplateEdited = (item) => {
+    if (item.originCategory === "edited") return true;
+    if (item.template_origin === "custom_draft") return true;
+    if (item.slug && item.slug.includes("-custom-")) return true;
+    const t = (item.title || "").toLowerCase();
+    return t.includes("(customized)") || t.startsWith("customized ") || t.includes("(draft)");
+  };
+
+  // Grouping & Deduplication
+  const groupedByKey = new Map();
+  allRawTemplates.forEach((item) => {
+    const key = getBaseTemplateKey(item);
+    if (!groupedByKey.has(key)) {
+      groupedByKey.set(key, []);
+    }
+    groupedByKey.get(key).push(item);
+  });
+
+  const pairedDeployableTemplates = [];
+
+  groupedByKey.forEach((items) => {
+    const uneditedCandidates = items.filter((i) => !isTemplateEdited(i));
+    const editedCandidates = items.filter((i) => isTemplateEdited(i));
+
+    const rawName = items[0]?.title || "Website Project";
+    const cleanBaseName = rawName
+      .replace(/^customized\s+/i, "")
+      .replace(/\s*\(customized\)/i, "")
+      .replace(/\s*\(draft\)/i, "")
+      .replace(/\s*draft$/i, "")
+      .trim() || rawName;
+
+    // 1. Pre-Edited Version (Original / Base Template)
+    if (uneditedCandidates.length > 0) {
+      const original = uneditedCandidates[0];
+      pairedDeployableTemplates.push({
+        ...original,
+        versionStep: 1,
+        versionLabel: "1. Pre-Edited",
+        versionSubtitle: "Original Template",
+        displayTitle: cleanBaseName,
+        isCustomized: false,
+        originCategory: original.originCategory === "studio" ? "studio" : "purchased",
+      });
+    }
+
+    // 2. Post-Edited Version (Customized - deduplicates intermediate drafts so at most 1 post-edited version exists!)
+    if (editedCandidates.length > 0) {
+      const latestEdited = editedCandidates.reduce((best, curr) => {
+        const bestDate = new Date(best.updated_at || best.created_at || 0).getTime();
+        const currDate = new Date(curr.updated_at || curr.created_at || 0).getTime();
+        return currDate >= bestDate ? curr : best;
+      }, editedCandidates[0]);
+
+      pairedDeployableTemplates.push({
+        ...latestEdited,
+        versionStep: 2,
+        versionLabel: "2. Post-Edited",
+        versionSubtitle: "Customized Version",
+        displayTitle: `${cleanBaseName} (Customized)`,
+        isCustomized: true,
+        originCategory: "edited",
+      });
+    }
+  });
+
+  // Filter based on selected tab
+  const filteredDeployableTemplates = pairedDeployableTemplates.filter((item) => {
     if (selectedTemplateCategory === "purchased") return item.originCategory === "purchased";
     if (selectedTemplateCategory === "studio") return item.originCategory === "studio";
-    if (selectedTemplateCategory === "edited") return item.originCategory === "edited";
+    if (selectedTemplateCategory === "edited") return item.originCategory === "edited" || item.isCustomized;
     return true;
   });
 
@@ -226,7 +321,7 @@ export default function StudioDeployPage() {
   const handleSelectTemplate = (tpl) => {
     setSelectedTemplateId(tpl.id);
     setTemplate(tpl);
-    const clean = (tpl.title || "my-website")
+    const clean = (tpl.displayTitle || tpl.title || "my-website")
       .toLowerCase()
       .replace(/\s+/g, "-")
       .replace(/[^a-z0-9-]/g, "")
@@ -238,12 +333,13 @@ export default function StudioDeployPage() {
   const effectiveTemplate = template || {
     id: selectedTemplateId || initialTemplateId || buildStore.completedTemplateId || "studio-project",
     title: queryName || buildStore.projectTitle || buildStore.plan?.title || "My Studio Website",
+    displayTitle: queryName || buildStore.projectTitle || buildStore.plan?.title || "My Studio Website",
     short_description: buildStore.plan?.summary || "Custom AI-generated website project.",
     framework: buildStore.plan?.stack?.frontend === "react" ? "react" : "html",
     pages_count: buildStore.plan?.pages?.length || 1,
   };
 
-  const displayTitle = effectiveTemplate?.title || queryName || "My Studio Website";
+  const displayTitle = effectiveTemplate?.displayTitle || effectiveTemplate?.title || queryName || "My Studio Website";
   const isReact = effectiveTemplate?.framework === "react";
   const defaultBuildCommand = isReact ? "npm run build" : "none";
   const defaultOutputDir = isReact ? "dist" : ".";
@@ -295,7 +391,7 @@ export default function StudioDeployPage() {
             fullSubdomain: res.subdomain || `${clean}.site-studio.live`,
           });
         }
-      } catch (err) {
+      } catch {
         setSubdomainStatus({
           checking: false,
           available: true,
@@ -317,8 +413,12 @@ export default function StudioDeployPage() {
       return;
     }
 
+    if (domainMode === "configured" && !selectedConfiguredDomain) {
+      toast.error("Please select a configured domain from your account, or switch to the free staging subdomain.");
+      return;
+    }
+
     setDeploying(true);
-    setDeployStep(1);
 
     try {
       const token = await getToken();
@@ -329,6 +429,7 @@ export default function StudioDeployPage() {
         build_command: defaultBuildCommand,
         output_dir: defaultOutputDir,
         accepted_hosting_terms: true,
+        custom_domain: domainMode === "configured" && selectedConfiguredDomain ? selectedConfiguredDomain : null,
       };
 
       const result = await api.post("/deployments", payload, token);
@@ -342,7 +443,6 @@ export default function StudioDeployPage() {
       }, 700);
     } catch (err) {
       setDeploying(false);
-      setDeployStep(0);
       toast.error("Deployment failed: " + (err.message || "Unknown error"));
     }
   };
@@ -350,10 +450,10 @@ export default function StudioDeployPage() {
   const getDomainSuggestions = (name) => {
     const clean = (name || "mysite").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20) || "mysite";
     return [
-      { name: `${clean}.com`, tld: ".com", price: "$10.99/yr", tag: "Most Popular", desc: "Global Standard", badge: "bg-emerald-50 text-emerald-700 border border-emerald-200" },
-      { name: `${clean}.in`, tld: ".in", price: "$8.49/yr", tag: "Regional Fast", desc: "High Speed Local", badge: "bg-blue-50 text-blue-700 border border-blue-200" },
-      { name: `${clean}.co`, tld: ".co", price: "$11.99/yr", tag: "Modern Company", desc: "Startup & Brand", badge: "bg-[#c89666]/15 text-[#dfb180] border border-[#c89666]/30" },
-      { name: `${clean}.online`, tld: ".online", price: "$4.99/yr", tag: "Tailored", desc: "Industry Match", badge: "bg-amber-50 text-amber-700 border border-amber-200" },
+      { name: `${clean}.com`, tld: ".com", price: "$10.99/yr", tag: "Most Popular", desc: "Global Standard" },
+      { name: `${clean}.in`, tld: ".in", price: "$8.49/yr", tag: "Regional Fast", desc: "High Speed Local" },
+      { name: `${clean}.co`, tld: ".co", price: "$11.99/yr", tag: "Startup Brand", desc: "Modern & Clean" },
+      { name: `${clean}.online`, tld: ".online", price: "$4.99/yr", tag: "Best Value", desc: "Digital Identity" },
     ];
   };
 
@@ -383,7 +483,7 @@ export default function StudioDeployPage() {
       } else {
         throw new Error("Local fallback required");
       }
-    } catch (err) {
+    } catch {
       const tld = cleanDomain.split(".").pop() || "com";
       const priceMinor = tld === "com" ? 1099 : (tld === "in" ? 849 : (tld === "co" ? 1199 : 499));
       setDomainQuote({
@@ -463,8 +563,13 @@ export default function StudioDeployPage() {
       if (res?.checkout_url) {
         window.location.assign(res.checkout_url);
       } else {
-        toast.success(`Domain "${selectedDomainToBuy}" successfully registered and linked!`);
-        setCustomDomain(selectedDomainToBuy);
+        toast.success(`Domain "${selectedDomainToBuy}" successfully registered and configured!`);
+        setConfiguredDomains((prev) => [
+          { domain: selectedDomainToBuy, verification_status: "verified", domain_type: "custom" },
+          ...prev,
+        ]);
+        setSelectedConfiguredDomain(selectedDomainToBuy);
+        setDomainMode("configured");
         setIsDomainBuyModalOpen(false);
       }
     } catch (err) {
@@ -474,311 +579,273 @@ export default function StudioDeployPage() {
     }
   };
 
+  const purchasedCount = pairedDeployableTemplates.filter((t) => t.originCategory === "purchased").length;
+  const studioCount = pairedDeployableTemplates.filter((t) => t.originCategory === "studio").length;
+  const customizedCount = pairedDeployableTemplates.filter((t) => t.isCustomized || t.originCategory === "edited").length;
+
   return (
     <div className="studio-deploy-page">
       <Navbar />
 
-      <main className="mx-auto max-w-5xl px-4 pt-24 pb-16 sm:px-6 lg:px-8">
-        {/* Navigation Breadcrumb */}
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
-          <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
-            <Link to="/studio" className="hover:text-slate-900 transition flex items-center gap-1">
+      <main>
+        {/* Breadcrumb Navigation & Back to Dashboard */}
+        <div className="deploy-top-bar">
+          <div className="flex items-center gap-2 text-xs text-zinc-400 font-medium">
+            <Link to="/studio" className="deploy-crumb-link">
               <ArrowLeft className="h-3.5 w-3.5" /> Studio Creator
             </Link>
-            <span>/</span>
-            <span className="font-semibold text-slate-800 truncate max-w-[220px]">
+            <span className="text-zinc-600">/</span>
+            <span className="font-semibold text-zinc-200 truncate max-w-[220px]">
               {displayTitle}
             </span>
-            <span>/</span>
+            <span className="text-zinc-600">/</span>
             <span className="text-[#dfb180] font-bold">Deploy to Cloud</span>
           </div>
 
-          <Link
-            to="/dashboard?tab=deployments"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 transition shadow-xs"
-          >
+          <Link to="/dashboard?tab=deployments" className="deploy-back-btn">
             <ArrowLeft className="h-3.5 w-3.5" />
             <span>Back to Dashboard</span>
           </Link>
         </div>
 
-        {/* Page Header Banner — Clean Light Theme */}
-        <div className="bg-white border border-slate-200/90 rounded-2xl p-6 sm:p-8 mb-8 shadow-xs relative overflow-hidden">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+        {/* Hero Banner */}
+        <div className="deploy-hero-banner">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#c89666]/15 text-[#dfb180] border border-[#c89666]/30 mb-2.5">
-                <Rocket className="h-3.5 w-3.5 text-[#dfb180]" />
-                <span>Production Cloud Deployer</span>
+              <div className="deploy-pill-badge">
+                <Rocket className="h-3.5 w-3.5" />
+                <span>Instant Cloud Deployment</span>
               </div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+              <h1 className="deploy-hero-title">
                 Deploy Website to Cloud
               </h1>
-              <p className="mt-2 text-xs sm:text-sm text-slate-600 max-w-2xl leading-relaxed">
-                Select your template, choose your target server, verify your custom project link, and launch to edge CDN servers with automatic SSL certification.
+              <p className="deploy-hero-subtitle">
+                Choose between original templates (Pre-Edited) and your personalized projects (Post-Edited). Launch to high-speed Edge servers with free automatic SSL.
               </p>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-700 shadow-xs">
-                {isReact ? "React + FastAPI Full-Stack" : "HTML5 + Modern CSS3"}
+            <div className="shrink-0">
+              <span className="deploy-tech-pill">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>{isReact ? "React + FastAPI Full-Stack" : "HTML5 + Modern CSS"}</span>
               </span>
             </div>
           </div>
         </div>
 
-        {/* Deployment Form & Summary Grid */}
-        <div className="grid gap-8 lg:grid-cols-12">
-          {/* Left Column: Deployment Form (7 cols) */}
-          <div className="lg:col-span-7 space-y-6">
-            <form onSubmit={handleStartDeploy} className="bg-white border border-slate-200/90 rounded-2xl p-6 sm:p-7 shadow-xs space-y-6">
-              
-              {/* ── STEP 1: SELECT TEMPLATE OR PROJECT TO DEPLOY ── */}
-              <div>
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                    1. Select Template or Project to Deploy *
-                  </label>
-                  <span className="text-[11px] text-slate-500 font-medium">
-                    {uniqueDeployableTemplates.length} projects ready to deploy
-                  </span>
-                </div>
+        {/* Main Deployment Form */}
+        <form onSubmit={handleStartDeploy} className="space-y-6">
 
-                {/* Filter Tabs: All, Purchased, Studio Generated, Customized */}
-                <div className="flex flex-wrap gap-1.5 p-1 bg-slate-100 rounded-xl mb-3 text-xs font-semibold text-slate-600">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedTemplateCategory("all")}
-                    className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
-                      selectedTemplateCategory === "all"
-                        ? "bg-white text-[#dfb180] font-bold shadow-xs"
-                        : "hover:text-slate-900"
-                    }`}
-                  >
-                    All ({uniqueDeployableTemplates.length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedTemplateCategory("purchased")}
-                    className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer ${
-                      selectedTemplateCategory === "purchased"
-                        ? "bg-white text-emerald-700 font-bold shadow-xs"
-                        : "hover:text-slate-900"
-                    }`}
-                  >
-                    <ShoppingBag className="w-3.5 h-3.5" />
-                    <span>Purchased ({purchasedMap.size})</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedTemplateCategory("studio")}
-                    className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer ${
-                      selectedTemplateCategory === "studio"
-                        ? "bg-white text-[#dfb180] font-bold shadow-xs"
-                        : "hover:text-slate-900"
-                    }`}
-                  >
-                    <Cpu className="w-3.5 h-3.5" />
-                    <span>Studio AI ({studioItems.length})</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedTemplateCategory("edited")}
-                    className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer ${
-                      selectedTemplateCategory === "edited"
-                        ? "bg-white text-blue-700 font-bold shadow-xs"
-                        : "hover:text-slate-900"
-                    }`}
-                  >
-                    <Palette className="w-3.5 h-3.5" />
-                    <span>Edited ({editedItems.length})</span>
-                  </button>
-                </div>
+          {/* ── STEP 1: SELECT PROJECT (PRE-EDITED VS POST-EDITED DEDUPLICATED) ── */}
+          <div className="deploy-step-section">
+            <div className="deploy-step-header">
+              <div className="deploy-step-title">
+                <span className="deploy-step-badge">1</span>
+                <span>Select Project to Deploy</span>
+              </div>
+              <span className="deploy-step-count">
+                {pairedDeployableTemplates.length} projects available (Pre &amp; Post-Edited)
+              </span>
+            </div>
 
-                {/* Templates Cards Grid */}
-                {templatesLoading ? (
-                  <div className="p-8 text-center rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center gap-2 text-xs text-slate-500">
-                    <RefreshCw className="h-4 w-4 animate-spin text-[#dfb180]" />
-                    <span>Loading your deployable projects...</span>
-                  </div>
-                ) : filteredDeployableTemplates.length === 0 ? (
-                  <div className="p-6 text-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 text-slate-500 text-xs">
-                    No templates found in this category. Select another tab or generate one in Studio.
-                  </div>
-                ) : (
-                  <div className="grid gap-2.5 sm:grid-cols-2 max-h-[300px] overflow-y-auto pr-1">
-                    {filteredDeployableTemplates.map((tpl) => {
-                      const isSelected = selectedTemplateId === tpl.id;
-                      return (
-                        <div
-                          key={tpl.id}
-                          onClick={() => handleSelectTemplate(tpl)}
-                          className={`deploy-template-card ${isSelected ? "selected" : ""}`}
-                        >
-                          <div className="flex items-start gap-2.5">
-                            <div className="w-9 h-9 rounded-xl bg-[#c89666]/15 text-[#dfb180] border border-[#c89666]/30 flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden">
-                              {tpl.thumbnail_url ? (
-                                <img src={tpl.thumbnail_url} alt="" className="w-full h-full object-cover" />
-                              ) : tpl.originCategory === "purchased" ? (
-                                <ShoppingBag className="w-4 h-4 text-emerald-600" />
-                              ) : tpl.originCategory === "edited" ? (
-                                <Palette className="w-4 h-4 text-blue-600" />
-                              ) : (
-                                <Cpu className="w-4 h-4 text-[#dfb180]" />
-                              )}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between gap-1">
-                                <h4 className="text-xs font-bold text-slate-900 truncate" title={tpl.title}>
-                                  {tpl.title}
-                                </h4>
-                              </div>
-                              <div className="flex items-center gap-1.5 mt-0.5">
-                                <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
-                                  tpl.originCategory === "purchased"
-                                    ? "bg-emerald-50 text-emerald-700"
-                                    : tpl.originCategory === "edited"
-                                    ? "bg-blue-50 text-blue-700"
-                                    : "bg-[#c89666]/15 text-[#dfb180]"
-                                }`}>
-                                  {tpl.originCategory === "purchased" ? "Purchased" : tpl.originCategory === "edited" ? "Edited" : "Studio AI"}
-                                </span>
-                                <span className="text-[10px] text-slate-400 font-mono uppercase">{tpl.framework || "html"}</span>
-                              </div>
-                            </div>
-                          </div>
+            {/* Category Filter Tabs */}
+            <div className="deploy-filter-tabs">
+              <button
+                type="button"
+                onClick={() => setSelectedTemplateCategory("all")}
+                className={`deploy-filter-btn ${selectedTemplateCategory === "all" ? "active" : ""}`}
+              >
+                All ({pairedDeployableTemplates.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedTemplateCategory("purchased")}
+                className={`deploy-filter-btn ${selectedTemplateCategory === "purchased" ? "active" : ""}`}
+              >
+                <ShoppingBag className="w-3.5 h-3.5 text-emerald-500" />
+                Purchased ({purchasedCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedTemplateCategory("studio")}
+                className={`deploy-filter-btn ${selectedTemplateCategory === "studio" ? "active" : ""}`}
+              >
+                <Cpu className="w-3.5 h-3.5 text-[#dfb180]" />
+                Automated Studio ({studioCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedTemplateCategory("edited")}
+                className={`deploy-filter-btn ${selectedTemplateCategory === "edited" ? "active" : ""}`}
+              >
+                <Palette className="w-3.5 h-3.5 text-amber-500" />
+                Customized ({customizedCount})
+              </button>
+            </div>
 
-                          <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center justify-between text-[10px]">
-                            <span className={isSelected ? "text-[#dfb180] font-bold" : "text-slate-400"}>
-                              {isSelected ? "Selected to Deploy" : "Click to select"}
-                            </span>
-                            <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${
-                              isSelected ? "border-[#c89666]/30 bg-[#c89666]/15 text-white" : "border-slate-300"
-                            }`}>
-                              {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
-                            </div>
-                          </div>
+            {/* Projects Grid (2-Column Responsive, Word-Break & No Text Overflow) */}
+            {templatesLoading ? (
+              <div className="p-10 text-center rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-secondary))] flex items-center justify-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
+                <RefreshCw className="h-4 w-4 animate-spin text-[#dfb180]" />
+                <span>Loading your projects...</span>
+              </div>
+            ) : filteredDeployableTemplates.length === 0 ? (
+              <div className="p-8 text-center rounded-xl border border-dashed border-[hsl(var(--border))] bg-[hsl(var(--surface-secondary))] text-[hsl(var(--muted-foreground))] text-xs">
+                No projects found in this category. Select another tab or generate one in Studio.
+              </div>
+            ) : (
+              <div className="deploy-projects-grid">
+                {filteredDeployableTemplates.map((tpl) => {
+                  const isSelected = selectedTemplateId === tpl.id;
+                  return (
+                    <div
+                      key={tpl.id}
+                      onClick={() => handleSelectTemplate(tpl)}
+                      className={`deploy-project-card ${isSelected ? "selected" : ""}`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="deploy-project-thumb">
+                          {tpl.thumbnail_url ? (
+                            <img src={tpl.thumbnail_url} alt="" className="w-full h-full object-cover" />
+                          ) : tpl.originCategory === "purchased" ? (
+                            <ShoppingBag className="w-5 h-5 text-emerald-500" />
+                          ) : tpl.isCustomized ? (
+                            <Palette className="w-5 h-5 text-amber-500" />
+                          ) : (
+                            <Cpu className="w-5 h-5 text-[#dfb180]" />
+                          )}
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
+                        <div className="flex-1 min-w-0">
+                          {/* Version Badge (1. Pre-Edited vs 2. Post-Edited) + Origin Chip */}
+                          <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+                            <span className={tpl.isCustomized ? "deploy-version-badge-post" : "deploy-version-badge-pre"}>
+                              {tpl.versionLabel}
+                            </span>
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              tpl.originCategory === "purchased"
+                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25"
+                                : tpl.isCustomized
+                                ? "bg-amber-500/10 text-amber-600 dark:text-amber-300 border border-amber-500/25"
+                                : "bg-[#c89666]/15 text-[#b5804f] dark:text-[#dfb180] border border-[#c89666]/30"
+                            }`}>
+                              {tpl.originCategory === "purchased" ? "Purchased" : tpl.isCustomized ? "Customized" : "Automated Studio"}
+                            </span>
+                            <span className="text-[10px] text-[hsl(var(--muted-foreground))] font-mono uppercase font-semibold">{tpl.framework || "html"}</span>
+                          </div>
+
+                          {/* High-Contrast Title with 2-line wrap and break-word */}
+                          <h4 className="deploy-project-title" title={tpl.displayTitle || tpl.title}>
+                            {tpl.displayTitle || tpl.title}
+                          </h4>
+                        </div>
+                      </div>
+
+                      <div className="deploy-project-footer">
+                        <span className={isSelected ? "text-[#b5804f] dark:text-[#dfb180] font-bold" : "text-[hsl(var(--muted-foreground))]"}>
+                          {isSelected ? "Selected for Deploy" : "Click to select"}
+                        </span>
+                        <div className={`deploy-select-indicator ${isSelected ? "selected" : ""}`}>
+                          {isSelected && <Check className="w-3 h-3 text-[#171717] stroke-[3]" />}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
+            )}
+          </div>
 
-              {/* ── STEP 2: CHOOSE HOSTING TARGET ── */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-3">
-                  2. Choose Hosting Target
-                </label>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  {/* Provider 1: Site Studio Edge */}
-                  <div
-                    onClick={() => setProvider("local")}
-                    className={`cursor-pointer rounded-2xl border p-3.5 transition flex flex-col justify-between ${
-                      provider === "local"
-                        ? "border-[#c89666]/30 bg-[#c89666]/15 shadow-sm ring-2 ring-violet-500/20"
-                        : "border-slate-200 bg-slate-50/50 hover:bg-slate-100/60 hover:border-slate-300"
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <Zap className="h-4 w-4 text-[#dfb180]" />
-                        <span className="rounded bg-[#c89666]/15 px-1.5 py-0.5 text-[9px] font-bold text-[#dfb180]">
-                          Recommended
-                        </span>
-                      </div>
-                      <h4 className="text-xs font-extrabold text-slate-900">Studio Edge</h4>
-                      <p className="text-[10px] text-slate-500 mt-1">Global CDN, auto SSL, zero setup.</p>
-                    </div>
-                  </div>
+          {/* ── STEP 2: SUBDOMAIN & CONFIGURED DOMAINS (NO ARBITRARY NEW DOMAIN ENTRY) ── */}
+          <div className="deploy-step-section">
+            <div className="deploy-step-header">
+              <div className="deploy-step-title">
+                <span className="deploy-step-badge">2</span>
+                <span>Project Subdomain &amp; Live Address</span>
+              </div>
+              <span className="text-xs text-zinc-400 font-medium">Studio Edge Deployment</span>
+            </div>
 
-                  {/* Provider 2: Vercel */}
-                  <div
-                    onClick={() => setProvider("vercel")}
-                    className={`cursor-pointer rounded-2xl border p-3.5 transition flex flex-col justify-between ${
-                      provider === "vercel"
-                        ? "border-[#c89666]/30 bg-[#c89666]/15 shadow-sm ring-2 ring-violet-500/20"
-                        : "border-slate-200 bg-slate-50/50 hover:bg-slate-100/60 hover:border-slate-300"
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <Server className="h-4 w-4 text-cyan-600" />
-                        <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[9px] font-bold text-slate-700">
-                          Edge
-                        </span>
-                      </div>
-                      <h4 className="text-xs font-extrabold text-slate-900">Vercel</h4>
-                      <p className="text-[10px] text-slate-500 mt-1">High-speed serverless deployment.</p>
-                    </div>
+            {/* Mode Selector Tabs: Free Subdomain vs Configured Domains from Website */}
+            <div className="grid sm:grid-cols-2 gap-3 mb-4">
+              <div
+                onClick={() => setDomainMode("subdomain")}
+                className={`deploy-domain-choice-card ${domainMode === "subdomain" ? "selected" : ""}`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Zap className="w-4 h-4 text-[#dfb180]" />
+                  <div>
+                    <div className="deploy-domain-choice-title">Free Staging Subdomain</div>
+                    <div className="deploy-domain-choice-sub">*.site-studio.live (Included)</div>
                   </div>
-
-                  {/* Provider 3: Netlify */}
-                  <div
-                    onClick={() => setProvider("netlify")}
-                    className={`cursor-pointer rounded-2xl border p-3.5 transition flex flex-col justify-between ${
-                      provider === "netlify"
-                        ? "border-[#c89666]/30 bg-[#c89666]/15 shadow-sm ring-2 ring-violet-500/20"
-                        : "border-slate-200 bg-slate-50/50 hover:bg-slate-100/60 hover:border-slate-300"
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <Globe className="h-4 w-4 text-emerald-600" />
-                        <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[9px] font-bold text-slate-700">
-                          Atomic
-                        </span>
-                      </div>
-                      <h4 className="text-xs font-extrabold text-slate-900">Netlify</h4>
-                      <p className="text-[10px] text-slate-500 mt-1">Atomic deploys and instant rollback.</p>
-                    </div>
-                  </div>
+                </div>
+                <div className={`deploy-select-indicator ${domainMode === "subdomain" ? "selected" : ""}`}>
+                  {domainMode === "subdomain" && <Check className="w-3 h-3 text-[#171717] stroke-[3]" />}
                 </div>
               </div>
 
-              {/* ── STEP 3: PROJECT SUBDOMAIN & LIVE AVAILABILITY CHECK ── */}
+              <div
+                onClick={() => setDomainMode("configured")}
+                className={`deploy-domain-choice-card ${domainMode === "configured" ? "selected" : ""}`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Globe className="w-4 h-4 text-emerald-500" />
+                  <div>
+                    <div className="deploy-domain-choice-title">Configured Custom Domain</div>
+                    <div className="deploy-domain-choice-sub">
+                      {configuredDomains.length > 0 ? `${configuredDomains.length} domains available` : "From my account"}
+                    </div>
+                  </div>
+                </div>
+                <div className={`deploy-select-indicator ${domainMode === "configured" ? "selected" : ""}`}>
+                  {domainMode === "configured" && <Check className="w-3 h-3 text-[#171717] stroke-[3]" />}
+                </div>
+              </div>
+            </div>
+
+            {/* When Subdomain Mode is Active */}
+            {domainMode === "subdomain" && (
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
-                  3. Project Subdomain / Identifier *
+                <label className="deploy-form-label">
+                  Subdomain Prefix *
                 </label>
-                <div className="flex items-center rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 shadow-xs focus-within:border-[#c89666]/30 focus-within:ring-2 focus-within:ring-violet-500/15 transition">
-                  <span className="text-xs text-slate-400 font-mono select-none mr-1">https://</span>
+                <div className="deploy-domain-input-box">
+                  <span className="text-xs text-[hsl(var(--muted-foreground))] font-mono select-none mr-1.5 font-bold">https://</span>
                   <input
                     type="text"
                     required
                     value={projectName}
                     onChange={(e) => setProjectName(e.target.value.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""))}
                     placeholder="my-portfolio"
-                    className="flex-1 bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400 font-mono font-semibold"
+                    className="deploy-domain-input"
                   />
-                  <span className="text-xs text-slate-500 font-mono select-none">.site-studio.live</span>
+                  <span className="deploy-domain-suffix">.site-studio.live</span>
                 </div>
-                
-                <div className="mt-1.5 flex items-center justify-between">
-                  <p className="text-[11px] text-slate-500">
-                    Letters, numbers, and hyphens only.
+
+                <div className="mt-2 flex items-center justify-between">
+                  <p className="deploy-form-hint">
+                    Only lowercase letters, numbers, and hyphens.
                   </p>
                   {subdomainStatus.checking && (
-                    <div className="flex items-center gap-1.5 text-[11px] text-[#dfb180] font-medium">
+                    <div className="flex items-center gap-1.5 text-xs text-[#b5804f] dark:text-[#dfb180] font-semibold">
                       <RefreshCw className="h-3 w-3 animate-spin" />
-                      <span>Checking availability...</span>
+                      <span>Checking live availability...</span>
                     </div>
                   )}
                 </div>
 
-                {/* Subdomain Live Availability / Suggestions Feedback */}
                 {!subdomainStatus.checking && projectName && (
                   subdomainStatus.available ? (
-                    <div className="mt-2.5 flex items-center gap-2 p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold">
-                      <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <div className="mt-3 flex items-center gap-2 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 text-xs font-semibold">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
                       <span>
-                        <strong>https://{projectName}.site-studio.live</strong> is available!
+                        <strong>https://{projectName}.site-studio.live</strong> is available and ready!
                       </span>
                     </div>
                   ) : (
-                    <div className="mt-2.5 space-y-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs">
-                      <div className="flex items-center gap-2 text-amber-900 font-bold">
-                        <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
-                        <span>"{projectName}" is already taken on our domain. Try one of these related names:</span>
+                    <div className="mt-3 space-y-2 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs">
+                      <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold">
+                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                        <span>"{projectName}" is already taken. Try one of these available names:</span>
                       </div>
                       <div className="flex flex-wrap gap-2 pt-1">
                         {subdomainStatus.suggestions.map((sug, i) => (
@@ -786,10 +853,10 @@ export default function StudioDeployPage() {
                             key={i}
                             type="button"
                             onClick={() => setProjectName(sug)}
-                            className="px-2.5 py-1 rounded-lg bg-white hover:bg-[#c89666]/15 border border-amber-300 hover:border-[#c89666]/30 text-[#dfb180] text-xs font-bold transition flex items-center gap-1 shadow-2xs cursor-pointer"
+                            className="px-3 py-1 rounded-lg bg-[hsl(var(--surface-secondary))] hover:bg-[hsl(var(--muted))] border border-[hsl(var(--border))] hover:border-[#c89666] text-[#b5804f] dark:text-[#dfb180] text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
                           >
                             <Sparkles className="h-3 w-3 text-[#dfb180]" />
-                            <span>Use: {sug}</span>
+                            <span>{sug}</span>
                           </button>
                         ))}
                       </div>
@@ -797,276 +864,275 @@ export default function StudioDeployPage() {
                   )
                 )}
               </div>
+            )}
 
-              {/* ── STEP 4: CONNECT CUSTOM DOMAIN (OPTIONAL) ── */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
-                  4. Connect Custom Domain (Optional)
+            {/* When Configured Custom Domain Mode is Active (NO FREEFORM ENTRY) */}
+            {domainMode === "configured" && (
+              <div className="space-y-3">
+                <label className="deploy-form-label">
+                  Select Configured Domain from Your Account *
                 </label>
-                <input
-                  type="text"
-                  value={customDomain}
-                  onChange={(e) => setCustomDomain(e.target.value.trim().toLowerCase())}
-                  placeholder="e.g. www.mycompany.com"
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 outline-none placeholder:text-slate-400 focus:border-[#c89666]/30 focus:ring-2 focus:ring-violet-500/15 shadow-xs transition font-mono"
-                />
-                <p className="mt-1.5 text-[11px] text-slate-500">
-                  Optional. Point your DNS A record to our edge cluster to activate.
-                </p>
-              </div>
 
-              {/* Build Configurations Summary */}
-              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 text-xs space-y-2">
-                <div className="flex items-center justify-between text-slate-500">
-                  <span>Selected Template:</span>
-                  <span className="font-semibold text-slate-900 truncate max-w-[200px]">{displayTitle}</span>
-                </div>
-                <div className="flex items-center justify-between text-slate-500">
-                  <span>Build Command:</span>
-                  <span className="font-mono font-semibold text-slate-900">{defaultBuildCommand}</span>
-                </div>
-                <div className="flex items-center justify-between text-slate-500">
-                  <span>Output Directory:</span>
-                  <span className="font-mono font-semibold text-slate-900">{defaultOutputDir}</span>
-                </div>
-                <div className="flex items-center justify-between text-slate-500">
-                  <span>SSL Certificate:</span>
-                  <span className="text-emerald-700 font-bold">Free TLS 1.3 Auto-Provisioned</span>
-                </div>
-              </div>
+                {domainsLoading ? (
+                  <div className="p-6 text-center rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-secondary))] flex items-center justify-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
+                    <RefreshCw className="h-4 w-4 animate-spin text-[#dfb180]" />
+                    <span>Loading your configured domains...</span>
+                  </div>
+                ) : configuredDomains.length === 0 ? (
+                  <div className="p-5 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-secondary))] text-xs space-y-3">
+                    <div className="flex items-start gap-2.5">
+                      <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold text-[hsl(var(--foreground))]">No custom domains configured yet in your account.</p>
+                        <p className="text-[hsl(var(--muted-foreground))] mt-1 leading-relaxed">
+                          To connect a custom domain, configure or buy it in your Dashboard first. You cannot enter an unconfigured domain directly here.
+                        </p>
+                      </div>
+                    </div>
+                    <Link
+                      to="/dashboard?tab=deployments"
+                      className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[hsl(var(--card))] hover:bg-[hsl(var(--muted))] border border-[hsl(var(--border))] text-[#b5804f] dark:text-[#dfb180] font-bold text-xs transition"
+                    >
+                      <span>Manage &amp; Configure Domains in Dashboard</span>
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {configuredDomains.map((cd) => {
+                      const isChosen = selectedConfiguredDomain === cd.domain;
+                      return (
+                        <div
+                          key={cd.domain}
+                          onClick={() => setSelectedConfiguredDomain(cd.domain)}
+                          className={`deploy-domain-choice-card ${isChosen ? "selected" : ""}`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="deploy-project-thumb">
+                              <Globe className="w-4 h-4 text-emerald-500" />
+                            </div>
+                            <div>
+                              <div className="font-mono font-bold text-sm text-[hsl(var(--foreground))]">
+                                {cd.domain}
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5 text-[10px]">
+                                <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 font-bold">
+                                  Configured on Website
+                                </span>
+                                <span className="text-[hsl(var(--muted-foreground))] font-medium">DNS Ready</span>
+                              </div>
+                            </div>
+                          </div>
 
-              {/* ── DEPLOY CTA BUTTON (Redirects to dashboard details & logs) ── */}
+                          <div className={`deploy-select-indicator ${isChosen ? "selected" : ""}`}>
+                            {isChosen && <Check className="w-3 h-3 text-[#171717] stroke-[3]" />}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── STEP 3: REVIEW & LAUNCH ── */}
+          <div className="deploy-step-section">
+            <div className="deploy-step-header">
+              <div className="deploy-step-title">
+                <span className="deploy-step-badge">3</span>
+                <span>Review &amp; Launch</span>
+              </div>
+              <span className="text-xs text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Ready for Live Launch
+              </span>
+            </div>
+
+            {/* Review Strip */}
+            <div className="deploy-summary-strip space-y-2.5 text-xs">
+              <div className="deploy-summary-row">
+                <span className="deploy-summary-label">Selected Project:</span>
+                <span className="deploy-summary-value truncate max-w-[280px]">{displayTitle}</span>
+              </div>
+              <div className="deploy-summary-row">
+                <span className="deploy-summary-label">Live Address:</span>
+                <span className="font-mono font-bold text-[#b5804f] dark:text-[#dfb180]">
+                  {domainMode === "configured" && selectedConfiguredDomain
+                    ? `https://${selectedConfiguredDomain}`
+                    : `https://${projectName || "my-website"}.site-studio.live`}
+                </span>
+              </div>
+              {domainMode === "configured" && selectedConfiguredDomain && (
+                <div className="deploy-summary-row">
+                  <span className="deploy-summary-label">Edge Routing:</span>
+                  <span className="font-mono deploy-summary-value">
+                    https://{projectName || "my-website"}.site-studio.live
+                  </span>
+                </div>
+              )}
+              <div className="deploy-summary-row">
+                <span className="deploy-summary-label">Hosting Platform:</span>
+                <span className="deploy-summary-value">
+                  Studio Edge CDN (Built-in)
+                </span>
+              </div>
+              <div className="deploy-summary-row">
+                <span className="deploy-summary-label">SSL Security:</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
+                  <Lock className="w-3.5 h-3.5" /> Free Auto-Provisioned TLS 1.3
+                </span>
+              </div>
+            </div>
+
+            {/* Deploy Action Button */}
+            <div className="mt-5">
               <button
                 type="submit"
                 disabled={deploying}
-                className="w-full py-3.5 rounded-xl bg-[#c89666]/15 hover:bg-[#c89666]/15 text-white font-bold text-sm shadow-md shadow-violet-600/20 flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="deploy-launch-btn"
               >
                 {deploying ? (
                   <>
-                    <RefreshCw className="h-4 w-4 animate-spin text-white" />
-                    <span>Deploying Website to Cloud...</span>
+                    <RefreshCw className="h-5 w-5 animate-spin" />
+                    <span>Building &amp; Launching to Edge...</span>
                   </>
                 ) : (
                   <>
-                    <Rocket className="h-4 w-4" />
-                    <span>Deploy Website Now</span>
+                    <Rocket className="h-5 w-5" />
+                    <span>🚀 Deploy Website Live</span>
                   </>
                 )}
               </button>
-            </form>
+            </div>
+
+            {/* Security & Guarantees */}
+            <div className="deploy-guarantees-grid">
+              <div className="deploy-guarantee-item">
+                <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                <span>Automatic Free SSL &amp; HTTPS</span>
+              </div>
+              <div className="deploy-guarantee-item">
+                <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                <span>Instant Global Edge Routing</span>
+              </div>
+              <div className="deploy-guarantee-item">
+                <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                <span>Real-Time Logs &amp; Health</span>
+              </div>
+            </div>
+          </div>
+        </form>
+
+        {/* ── BRAND CUSTOM DOMAINS (GODADDY INTEGRATION - CONFIGURE NEW DOMAIN ON PLATFORM) ── */}
+        <div className="deploy-step-section mt-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <div>
+              <div className="deploy-pill-badge">
+                <Sparkles className="h-3.5 w-3.5" />
+                <span>Configure New Brand Domains</span>
+              </div>
+              <h3 className="text-base sm:text-lg font-bold text-[hsl(var(--foreground))]">
+                Need a Custom Domain? Configure via GoDaddy
+              </h3>
+              <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
+                Purchased domains are automatically registered with ICANN and added to your configured domains list.
+              </p>
+            </div>
           </div>
 
-          {/* Right Column: Pre-Flight Architecture & Guarantees (5 cols) */}
-          <div className="lg:col-span-5 space-y-6">
-            {/* Deploying Progress Banner */}
-            {deploying && (
-              <div className="rounded-2xl border border-[#c89666]/30 bg-slate-900 p-6 shadow-lg text-white">
-                <div className="flex items-center gap-2 text-xs font-bold text-[#dfb180] mb-4">
-                  <Terminal className="h-4 w-4" />
-                  <span>Cloud Deployment Console</span>
-                </div>
-
-                <div className="space-y-3 font-mono text-xs">
-                  <div className="flex items-center gap-2 text-slate-300">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                    <span>Step 1: Container initialized</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-slate-300">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                    <span>Step 2: Packaging assets &amp; code</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-[#dfb180]">
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-[#dfb180]" />
-                    <span>Step 3: Redirecting to live details &amp; logs...</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Architecture Transparency Card */}
-            {!deploying && (
-              <div className="bg-white border border-slate-200/90 rounded-2xl p-6 space-y-5 shadow-xs">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
-                  <Shield className="h-4 w-4 text-emerald-600" />
-                  <span>Deployment Guarantees</span>
-                </div>
-                
-                <div className="space-y-3 text-xs text-slate-600">
-                  <div className="flex items-start gap-2.5">
-                    <CheckCircle2 className="h-4 w-4 text-[#dfb180] shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="text-slate-900 block font-semibold">Automatic HTTPS &amp; SSL</strong>
-                      <span>Zero-config Let's Encrypt certificates provisioned and auto-renewed.</span>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2.5">
-                    <CheckCircle2 className="h-4 w-4 text-[#dfb180] shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="text-slate-900 block font-semibold">Global CDN Edge Delivery</strong>
-                      <span>Assets served from edge points of presence with sub-50ms TTFB.</span>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2.5">
-                    <CheckCircle2 className="h-4 w-4 text-[#dfb180] shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="text-slate-900 block font-semibold">Live Logs &amp; Telemetry</strong>
-                      <span>Real-time container execution logs and status monitoring in your Dashboard.</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-3.5 rounded-xl border border-[#c89666]/30 bg-[#c89666]/15 text-xs text-[#dfb180] space-y-1">
-                  <div className="font-bold flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-[#dfb180]" />
-                    <span>After Deploy:</span>
-                  </div>
-                  <p className="text-[11px] text-[#dfb180] leading-relaxed">
-                    Once deployed, you will be taken to your Dashboard Deployments page to inspect live server logs, visit your website, or configure rollback options.
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* AI Domain Recommendations — when not on a personal domain */}
-        {(!customDomain || customDomain.endsWith(".aisitestudio.com") || customDomain.endsWith(".site-studio.live") || customDomain.includes("localhost")) && (
-          <div className="mt-8 bg-white border border-[#c89666]/30 rounded-2xl p-6 sm:p-8 shadow-xs space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div>
-                <div className="inline-flex items-center gap-1.5 rounded-full border border-[#c89666]/30 bg-[#c89666]/15 px-3 py-1 text-xs font-bold text-[#dfb180]">
-                  <Sparkles className="h-3.5 w-3.5 text-[#dfb180]" />
-                  <span>AI Domain Recommendations</span>
-                </div>
-                <h3 className="text-lg font-extrabold text-slate-900 mt-2">
-                  Recommended Personal Domains for {displayTitle}
-                </h3>
-                <p className="text-xs text-slate-600 max-w-2xl leading-relaxed">
-                  Your website is currently using a staging address. Register a professional brand domain below to build customer confidence and custom emails. You can purchase and connect it directly inside our website:
-                </p>
-              </div>
-            </div>
-
-            {/* 4 Smart Domain Cards */}
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 pt-1">
-              {getDomainSuggestions(projectName).map((sug, idx) => (
-                <div
-                  key={idx}
-                  className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 flex flex-col justify-between space-y-3 hover:border-[#c89666]/30 hover:bg-[#c89666]/15 transition-all shadow-xs"
-                >
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${sug.badge}`}>
-                        {sug.tag}
-                      </span>
-                      <span className="text-[10px] text-slate-500 font-medium">
-                        {sug.desc}
-                      </span>
-                    </div>
-                    <h4 className="font-mono font-extrabold text-sm text-slate-900 mt-2 truncate" title={sug.name}>
-                      {sug.name}
-                    </h4>
-                    <div className="text-xs font-extrabold text-emerald-700 mt-0.5">
-                      {sug.price}
-                    </div>
-                  </div>
-
-                  <div className="flex gap-1.5 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard?.writeText(sug.name);
-                        toast.success(`Copied "${sug.name}" to clipboard`);
-                      }}
-                      className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 text-xs transition cursor-pointer"
-                      title="Copy domain name"
-                    >
-                      <Copy className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenBuyDomain(sug.name)}
-                      className="flex-1 px-3 py-2 rounded-xl bg-[#c89666]/15 hover:bg-[#c89666]/15 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm shadow-violet-600/20 transition cursor-pointer"
-                    >
-                      <ShoppingCart className="h-3.5 w-3.5" />
-                      <span>Buy Domain</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Custom Search Box */}
-            <div className="pt-3 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-              <span className="text-slate-600 font-medium">Looking for a specific domain name?</span>
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <input
-                  type="text"
-                  placeholder="e.g. mycustombrand.com"
-                  value={customSearchDomain}
-                  onChange={(e) => setCustomSearchDomain(e.target.value.toLowerCase().trim())}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && customSearchDomain) {
-                      e.preventDefault();
-                      handleOpenBuyDomain(customSearchDomain);
-                    }
-                  }}
-                  className="px-3.5 py-2 text-xs rounded-xl border border-slate-300 bg-white text-slate-900 font-mono outline-none focus:border-[#c89666]/30 focus:ring-2 focus:ring-violet-500/10 w-full sm:w-64"
-                />
-                <button
-                  type="button"
-                  disabled={!customSearchDomain}
-                  onClick={() => handleOpenBuyDomain(customSearchDomain)}
-                  className="px-4 py-2 rounded-xl bg-[#c89666]/15 hover:bg-[#c89666]/15 text-white font-bold text-xs disabled:opacity-50 transition cursor-pointer shrink-0"
-                >
-                  Check &amp; Buy
-                </button>
-              </div>
-            </div>
-
-            {/* Alternative: Dashboard Domain Management & Custom Purchase */}
-            <div className="mt-4 p-4 rounded-2xl bg-gradient-to-r from-[#c89666] to-[#b5804f]/80 from-[#c89666] to-[#b5804f]/60 from-[#c89666] to-[#b5804f]/80 border border-[#c89666]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#c89666]/15 border border-[#c89666]/30 text-[#dfb180] flex items-center justify-center shrink-0">
-                  <Globe className="w-5 h-5" />
-                </div>
+          {/* 4 Smart Domain Cards in a Row */}
+          <div className="deploy-domain-grid mb-5">
+            {getDomainSuggestions(projectName).map((sug, idx) => (
+              <div key={idx} className="deploy-domain-card">
                 <div>
-                  <h4 className="text-xs font-extrabold text-slate-900">Don't like these suggestions or already have a domain?</h4>
-                  <p className="text-[11px] text-slate-600 leading-snug">
-                    Search all global TLDs via GoDaddy, or connect a domain you already own with free SSL in your Dashboard.
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#c89666]/15 text-[#b5804f] dark:text-[#dfb180] border border-[#c89666]/30">
+                      {sug.tag}
+                    </span>
+                    <span className="text-[10px] text-[hsl(var(--muted-foreground))] font-medium">
+                      {sug.desc}
+                    </span>
+                  </div>
+                  <h4 className="font-mono font-bold text-sm text-[hsl(var(--foreground))] mt-2 truncate" title={sug.name}>
+                    {sug.name}
+                  </h4>
+                  <div className="text-xs font-bold text-emerald-600 dark:text-emerald-400 mt-1">
+                    {sug.price}
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-2 border-t border-[hsl(var(--border))]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(sug.name);
+                      toast.success(`Copied "${sug.name}" to clipboard`);
+                    }}
+                    className="p-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--surface-secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition cursor-pointer"
+                    title="Copy domain name"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenBuyDomain(sug.name)}
+                    className="flex-1 py-2 px-3 rounded-lg bg-[#c89666] hover:bg-[#dfb180] text-[#171717] text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                  >
+                    <ShoppingCart className="h-3.5 w-3.5" />
+                    <span>Buy Domain</span>
+                  </button>
                 </div>
               </div>
+            ))}
+          </div>
+
+          {/* Custom Search Box */}
+          <div className="pt-4 border-t border-[hsl(var(--border))] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <span className="text-[hsl(var(--muted-foreground))] font-medium">Looking for another domain to register?</span>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <input
+                type="text"
+                placeholder="e.g. mybrandname.com"
+                value={customSearchDomain}
+                onChange={(e) => setCustomSearchDomain(e.target.value.toLowerCase().trim())}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && customSearchDomain) {
+                    e.preventDefault();
+                    handleOpenBuyDomain(customSearchDomain);
+                  }
+                }}
+                className="px-3.5 py-2 text-xs rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] text-[hsl(var(--foreground))] font-mono outline-none focus:border-[#c89666] w-full sm:w-64"
+              />
               <button
                 type="button"
-                onClick={() => navigate("/dashboard?tab=deployments")}
-                className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center justify-center gap-2 shrink-0 transition shadow-sm cursor-pointer"
+                disabled={!customSearchDomain}
+                onClick={() => handleOpenBuyDomain(customSearchDomain)}
+                className="px-4 py-2 rounded-xl bg-[#c89666] hover:bg-[#dfb180] text-[#171717] font-bold text-xs disabled:opacity-50 transition cursor-pointer shrink-0"
               >
-                <span>Manage &amp; Buy in Dashboard</span>
-                <ArrowRight className="w-3.5 h-3.5" />
+                Check &amp; Buy
               </button>
             </div>
           </div>
-        )}
+        </div>
 
-        {/* In-Website GoDaddy Domain Purchasing Modal */}
+        {/* ── GODADDY DOMAIN PURCHASE MODAL ── */}
         {isDomainBuyModalOpen && (
           <div className="deploy-modal-backdrop" onClick={() => setIsDomainBuyModalOpen(false)}>
-            <div className="deploy-modal-dialog-light space-y-5" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+            <div className="deploy-modal-dialog-dark space-y-4" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between border-b border-[hsl(var(--border))] pb-3">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-[#c89666]/15 text-[#dfb180] flex items-center justify-center font-bold">
-                    <Globe className="h-5 w-5" />
+                  <div className="w-8 h-8 rounded-lg bg-[#c89666]/15 text-[#b5804f] dark:text-[#dfb180] flex items-center justify-center font-bold">
+                    <Globe className="h-4 w-4" />
                   </div>
                   <div>
-                    <h3 className="font-extrabold text-base text-slate-900">Register Custom Domain (GoDaddy)</h3>
-                    <p className="text-xs text-slate-500">Official ICANN Registration &amp; Automatic DNS Setup</p>
+                    <h3 className="font-bold text-sm text-[hsl(var(--foreground))]">Register Custom Domain (GoDaddy)</h3>
+                    <p className="text-[11px] text-[hsl(var(--muted-foreground))]">Official ICANN Registration &amp; Automatic DNS Setup</p>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setIsDomainBuyModalOpen(false)}
-                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-900 flex items-center justify-center transition cursor-pointer"
+                  className="w-7 h-7 rounded-lg bg-[hsl(var(--surface-secondary))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] flex items-center justify-center transition cursor-pointer"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -1074,163 +1140,140 @@ export default function StudioDeployPage() {
 
               <div className="space-y-4 text-xs">
                 {/* Domain & Live Quote Banner */}
-                <div className="p-4 rounded-xl border border-[#c89666]/30 bg-[#c89666]/15 flex items-center justify-between">
+                <div className="p-3.5 rounded-xl border border-[#c89666]/30 bg-[#c89666]/10 flex items-center justify-between">
                   <div>
-                    <div className="font-mono font-extrabold text-sm text-slate-900">{selectedDomainToBuy}</div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">1-Year Registration &bull; Instant DNS Integration</div>
+                    <div className="font-mono font-bold text-sm text-[hsl(var(--foreground))]">{selectedDomainToBuy}</div>
+                    <div className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5 font-medium">1-Year Registration &bull; Instant DNS Integration</div>
                   </div>
                   <div className="text-right">
                     {domainQuoteLoading ? (
                       <RefreshCw className="h-4 w-4 animate-spin text-[#dfb180]" />
                     ) : domainQuote ? (
                       <div>
-                        <div className="text-emerald-700 font-extrabold text-base font-mono">
+                        <div className="text-emerald-600 dark:text-emerald-400 font-bold text-base font-mono">
                           {domainQuote.price?.currencyCode || "$"}{((Number(domainQuote.price?.value || 1099) + (domainQuote.fees || []).reduce((s, f) => s + Number(f.fee?.value || 0), 0)) / 100).toFixed(2)}
                         </div>
-                        <div className="text-[10px] text-slate-500">
+                        <div className="text-[10px] text-[hsl(var(--muted-foreground))]">
                           Renews at {domainQuote.renewalPrice?.currencyCode || "$"}{(Number(domainQuote.renewalPrice?.value || 1299) / 100).toFixed(2)}/yr
                         </div>
                       </div>
                     ) : (
-                      <span className="text-slate-600 font-mono font-bold">$10.99</span>
+                      <span className="text-[hsl(var(--foreground))] font-mono font-bold">$10.99</span>
                     )}
                   </div>
                 </div>
 
                 {domainBuyError && (
-                  <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium">
+                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/25 text-red-600 dark:text-red-400 text-xs font-semibold">
                     {domainBuyError}
                   </div>
                 )}
 
-                {/* GoDaddy Registrant Legal Information */}
-                <div className="space-y-3 border border-slate-200 rounded-xl p-3.5 bg-slate-50/50">
+                {/* Registrant Legal Details */}
+                <div className="space-y-3 border border-[hsl(var(--border))] rounded-xl p-3 bg-[hsl(var(--surface-secondary))]">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                    <span className="text-xs font-bold text-[hsl(var(--foreground))] uppercase tracking-wider">
                       Registrant Contact Details
                     </span>
-                    <span className="text-[10px] text-slate-500">Required by ICANN / GoDaddy</span>
+                    <span className="text-[10px] text-[hsl(var(--muted-foreground))] font-medium">Required by ICANN / GoDaddy</span>
                   </div>
-                  <p className="text-[11px] text-slate-600 leading-snug">
-                    Enter the legal owner contact details for domain WHOIS registry verification.
-                  </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">First Name *</label>
+                      <label className="block text-[11px] font-semibold text-[hsl(var(--foreground))] mb-1">First Name *</label>
                       <input
                         type="text"
                         required
                         placeholder="First name"
                         value={registrantProfile.nameFirst}
                         onChange={(e) => setRegistrantProfile((p) => ({ ...p, nameFirst: e.target.value }))}
-                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                        className="deploy-modal-input"
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">Last Name *</label>
+                      <label className="block text-[11px] font-semibold text-[hsl(var(--foreground))] mb-1">Last Name *</label>
                       <input
                         type="text"
                         required
                         placeholder="Last name"
                         value={registrantProfile.nameLast}
                         onChange={(e) => setRegistrantProfile((p) => ({ ...p, nameLast: e.target.value }))}
-                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                        className="deploy-modal-input"
                       />
                     </div>
 
                     <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">Email Address *</label>
+                      <label className="block text-[11px] font-semibold text-[hsl(var(--foreground))] mb-1">Email Address *</label>
                       <input
                         type="email"
                         required
                         placeholder="registrant@example.com"
                         value={registrantProfile.email}
                         onChange={(e) => setRegistrantProfile((p) => ({ ...p, email: e.target.value }))}
-                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                        className="deploy-modal-input"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">Country Dial Code *</label>
+                      <label className="block text-[11px] font-semibold text-[hsl(var(--foreground))] mb-1">Country Dial Code *</label>
                       <input
                         type="text"
                         required
                         placeholder="+1 or +91"
                         value={registrantProfile.phone.countryCode}
                         onChange={(e) => setRegistrantProfile((p) => ({ ...p, phone: { ...p.phone, countryCode: e.target.value } }))}
-                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                        className="deploy-modal-input"
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">Phone Number *</label>
+                      <label className="block text-[11px] font-semibold text-[hsl(var(--foreground))] mb-1">Phone Number *</label>
                       <input
                         type="tel"
                         required
                         placeholder="e.g. 9876543210"
                         value={registrantProfile.phone.nationalNumber}
                         onChange={(e) => setRegistrantProfile((p) => ({ ...p, phone: { ...p.phone, nationalNumber: e.target.value } }))}
-                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                        className="deploy-modal-input"
                       />
                     </div>
 
                     <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">Street Address *</label>
+                      <label className="block text-[11px] font-semibold text-[hsl(var(--foreground))] mb-1">Street Address *</label>
                       <input
                         type="text"
                         required
                         placeholder="Street address line 1"
                         value={registrantProfile.address.address1}
                         onChange={(e) => setRegistrantProfile((p) => ({ ...p, address: { ...p.address, address1: e.target.value } }))}
-                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <input
-                        type="text"
-                        placeholder="Address line 2 (Suite, Apt, etc. - Optional)"
-                        value={registrantProfile.address.address2 || ""}
-                        onChange={(e) => setRegistrantProfile((p) => ({ ...p, address: { ...p.address, address2: e.target.value } }))}
-                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                        className="deploy-modal-input"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">City *</label>
+                      <label className="block text-[11px] font-semibold text-[hsl(var(--foreground))] mb-1">City *</label>
                       <input
                         type="text"
                         required
                         placeholder="City"
                         value={registrantProfile.address.city}
                         onChange={(e) => setRegistrantProfile((p) => ({ ...p, address: { ...p.address, city: e.target.value } }))}
-                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                        className="deploy-modal-input"
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">State / Province</label>
-                      <input
-                        type="text"
-                        placeholder="State or Province"
-                        value={registrantProfile.address.state || ""}
-                        onChange={(e) => setRegistrantProfile((p) => ({ ...p, address: { ...p.address, state: e.target.value } }))}
-                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">Postal Code *</label>
+                      <label className="block text-[11px] font-semibold text-[hsl(var(--foreground))] mb-1">Postal Code *</label>
                       <input
                         type="text"
                         required
                         placeholder="PIN / Postal Code"
                         value={registrantProfile.address.postalCode}
                         onChange={(e) => setRegistrantProfile((p) => ({ ...p, address: { ...p.address, postalCode: e.target.value } }))}
-                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                        className="deploy-modal-input"
                       />
                     </div>
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">Country Code (2-letter) *</label>
+
+                    <div className="sm:col-span-2">
+                      <label className="block text-[11px] font-semibold text-[hsl(var(--foreground))] mb-1">Country Code (2-letter) *</label>
                       <input
                         type="text"
                         required
@@ -1238,59 +1281,15 @@ export default function StudioDeployPage() {
                         placeholder="US, IN, GB, CA"
                         value={registrantProfile.address.country}
                         onChange={(e) => setRegistrantProfile((p) => ({ ...p, address: { ...p.address, country: e.target.value.toUpperCase() } }))}
-                        className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-900 font-mono uppercase outline-none focus:border-[#c89666]/30 focus:ring-1 focus:ring-violet-500"
+                        className="deploy-modal-input font-mono uppercase"
                       />
                     </div>
                   </div>
                 </div>
 
-                {/* Features & Certs */}
-                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-1.5 text-[11px] text-slate-600">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                    <span>Includes free automated Let's Encrypt TLS/SSL certificate</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                    <span>Automatic edge DNS routing to your live website</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                    <span>Direct wholesale registration powered by GoDaddy API</span>
-                  </div>
-                </div>
-
-                {/* Agreements & Consent */}
-                <div className="space-y-2 p-3 bg-[#c89666]/15 border border-[#c89666]/30 rounded-xl text-[11px] text-slate-700">
-                  {(domainQuote?.requiredAgreements || [
-                    { agreementType: "DNRA", title: "GoDaddy Domain Name Registration Agreement", url: "https://www.godaddy.com/legal/agreements/domain-name-registration-agreement" },
-                    { agreementType: "UTOS", title: "Universal Terms of Service", url: "https://www.godaddy.com/legal/agreements/universal-terms-of-service-agreement" }
-                  ]).map((agreement) => (
-                    <label key={agreement.agreementType} className="flex items-start gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={acceptedRegistrarAgreements.includes(agreement.agreementType)}
-                        onChange={(e) => {
-                          setAgreementAcceptedAt(new Date().toISOString());
-                          setAcceptedRegistrarAgreements((curr) =>
-                            e.target.checked
-                              ? [...curr, agreement.agreementType]
-                              : curr.filter((t) => t !== agreement.agreementType)
-                          );
-                        }}
-                        className="mt-0.5 rounded text-[#dfb180] focus:ring-violet-500"
-                      />
-                      <span>
-                        I accept the{" "}
-                        <a href={agreement.url} target="_blank" rel="noreferrer" className="underline font-semibold text-[#dfb180] hover:text-[#dfb180]">
-                          {agreement.title || agreement.agreementType}
-                        </a>
-                        .
-                      </span>
-                    </label>
-                  ))}
-
-                  <label className="flex items-start gap-2 cursor-pointer pt-1">
+                {/* Legal Agreements Checkboxes */}
+                <div className="space-y-2 p-3 bg-[hsl(var(--surface-secondary))] border border-[hsl(var(--border))] rounded-xl text-[11px] text-[hsl(var(--foreground))]">
+                  <label className="flex items-start gap-2 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={acceptedDomainTerms}
@@ -1298,19 +1297,20 @@ export default function StudioDeployPage() {
                         setAgreementAcceptedAt(new Date().toISOString());
                         setAcceptedDomainTerms(e.target.checked);
                       }}
-                      className="mt-0.5 rounded text-[#dfb180] focus:ring-violet-500"
+                      className="mt-0.5 rounded text-[#c89666] focus:ring-0"
                     />
                     <span>
-                      I authorize registration of <strong>{selectedDomainToBuy}</strong> for 1 year at the quoted price. I understand domain registrations are non-refundable per registry policy once provisioned.
+                      I authorize registration of <strong>{selectedDomainToBuy}</strong> for 1 year at the quoted price. I accept the ICANN and GoDaddy registration agreements.
                     </span>
                   </label>
                 </div>
 
+                {/* Modal Buttons */}
                 <div className="flex items-center gap-3 pt-2">
                   <button
                     type="button"
                     onClick={() => setIsDomainBuyModalOpen(false)}
-                    className="flex-1 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs transition cursor-pointer"
+                    className="flex-1 py-2.5 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] hover:bg-[hsl(var(--muted))] text-[hsl(var(--foreground))] font-bold text-xs transition cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -1318,10 +1318,10 @@ export default function StudioDeployPage() {
                     type="button"
                     disabled={domainQuoteLoading}
                     onClick={handleConfirmDomainCheckout}
-                    className="flex-1 py-2.5 rounded-xl bg-[#c89666]/15 hover:bg-[#c89666]/15 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-violet-600/20 transition cursor-pointer"
+                    className="flex-1 py-2.5 rounded-xl bg-[#c89666] hover:bg-[#dfb180] disabled:opacity-50 text-black font-bold text-xs flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
                   >
                     {domainQuoteLoading ? (
-                      <RefreshCw className="h-4 w-4 animate-spin text-white" />
+                      <RefreshCw className="h-4 w-4 animate-spin text-black" />
                     ) : (
                       <ShoppingCart className="h-4 w-4" />
                     )}

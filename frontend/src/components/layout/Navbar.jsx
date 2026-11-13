@@ -33,6 +33,7 @@ import { cn } from "@/lib/utils";
 import { useCartStore } from "@/store";
 import { useCurrencyStore } from "@/store/currencyStore";
 import { SiteStudioLogoIcon } from "./SiteStudioLogo";
+import ThemeToggle from "./ThemeToggle";
 import "./Navbar.css";
 
 function NavbarComponent() {
@@ -250,7 +251,7 @@ function NavbarComponent() {
                     <Sparkles className="dropdown-item-icon text-amber-400" />
                     <div>
                       <div className="dropdown-item-title">Platform Features</div>
-                      <div className="dropdown-item-desc">AI Fill, live canvas & export</div>
+                      <div className="dropdown-item-desc">Smart Fill, live canvas & export</div>
                     </div>
                   </Link>
                   <Link
@@ -307,6 +308,9 @@ function NavbarComponent() {
               )}
             </Link>
           )}
+
+          {/* Theme Selector */}
+          <ThemeToggle />
 
           {/* Sign In & Get Started Free or User Profile */}
           {isSignedIn ? (
@@ -438,6 +442,11 @@ function NavbarComponent() {
                 >
                   Resources & Docs
                 </Link>
+                <div className="mobile-theme-section py-2 px-1 flex items-center justify-between border-t border-b border-border my-2">
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Theme</span>
+                  <ThemeToggle variant="pill" />
+                </div>
+
                 {isSignedIn ? (
                   <>
                     <Link href="/dashboard" className="mobile-link" onClick={() => setMobileOpen(false)}>

@@ -175,12 +175,49 @@
   gap: 1.5rem !important;
   align-items: start !important;
   width: 100% !important;
+  min-width: 0 !important;
 }
 
-@media (max-width: 960px) {
+@media (max-width: 1024px) {
   .my-websites-split-grid {
     grid-template-columns: 1fr !important;
+    gap: 1.25rem !important;
   }
+}
+
+/* Responsive 4-Column Grid for Deployments Cards */
+.deployments-cards-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 1.25rem !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+@media (max-width: 1440px) {
+  .deployments-cards-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 1080px) {
+  .deployments-cards-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 1rem !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .deployments-cards-grid {
+    grid-template-columns: 1fr !important;
+    gap: 1rem !important;
+  }
+}
+
+.deployment-card {
+  min-width: 0 !important;
+  word-break: break-word !important;
+  overflow: hidden !important;
 }
 
 /* Site studio live link suppression of purple visited colors */
@@ -1820,10 +1857,10 @@
 
 .modal-input-solid {
   width: 100% !important;
-  background-color: #09090b !important;
-  color: #ffffff !important;
-  border: 1px solid #27272a !important;
-  border-radius: 1rem !important;
+  background-color: hsl(var(--card)) !important;
+  color: hsl(var(--foreground)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  border-radius: var(--radius-lg, 1rem) !important;
   padding: 0.875rem 1rem !important;
   font-size: 0.875rem !important;
   font-weight: 600 !important;
@@ -1832,21 +1869,21 @@
 }
 
 .modal-input-solid::placeholder {
-  color: #52525b !important;
-  opacity: 1 !important;
+  color: hsl(var(--muted-foreground)) !important;
+  opacity: 0.8 !important;
 }
 
 .modal-input-solid:focus {
-  border-color: #c89666 !important;
-  box-shadow: 0 0 0 2px rgba(200, 150, 102, 0.2) !important;
+  border-color: hsl(var(--primary)) !important;
+  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.2) !important;
 }
 
 .modal-select-solid {
   width: 100% !important;
-  background-color: #09090b !important;
-  color: #ffffff !important;
-  border: 1px solid #27272a !important;
-  border-radius: 1rem !important;
+  background-color: hsl(var(--card)) !important;
+  color: hsl(var(--foreground)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  border-radius: var(--radius-lg, 1rem) !important;
   padding: 0.875rem 1rem !important;
   font-size: 0.875rem !important;
   font-weight: 600 !important;

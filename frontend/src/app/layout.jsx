@@ -12,9 +12,10 @@ export default function RootLayout({ children }) {
       <body className="root-body">
         <ThemeProvider
           attribute="class"
-          forcedTheme="dark"
-          enableSystem={false}
-          disableTransitionOnChange
+          defaultTheme="system"
+          enableSystem={true}
+          storageKey="site-studio-theme"
+          disableTransitionOnChange={false}
         >
           <AppAuthProvider>
             <Providers>

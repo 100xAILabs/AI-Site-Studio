@@ -18,7 +18,7 @@ export const STORYBOOK_SECTION_PRESETS = {
   brand: {
     saas: {
       business_name: "Apex Cloud Studio",
-      tagline: "Autonomous Cloud Infrastructure & AI Automation",
+      tagline: "Autonomous Cloud Infrastructure & Automated Systems",
       logo_text: "APEX",
       primary_color: "#b5804f",
       secondary_color: "#0ea5e9",

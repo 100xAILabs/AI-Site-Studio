@@ -15,13 +15,26 @@ import {
   AlertCircle,
   Search,
   Check,
-  Loader2
+  Loader2,
+  ShieldCheck,
+  Send
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { useAppAuth, useAppUser } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import "./Page.css";
+
+const SUPPORTED_COUNTRIES = [
+  { code: "IN", name: "India (+91)", phoneCode: "+91", placeholder: "98765 43210" },
+  { code: "US", name: "United States (+1)", phoneCode: "+1", placeholder: "555 123 4567" },
+  { code: "GB", name: "United Kingdom (+44)", phoneCode: "+44", placeholder: "7911 123456" },
+  { code: "CA", name: "Canada (+1)", phoneCode: "+1", placeholder: "416 123 4567" },
+  { code: "AU", name: "Australia (+61)", phoneCode: "+61", placeholder: "412 345 678" },
+  { code: "DE", name: "Germany (+49)", phoneCode: "+49", placeholder: "151 1234567" },
+  { code: "SG", name: "Singapore (+65)", phoneCode: "+65", placeholder: "8123 4567" },
+  { code: "AE", name: "United Arab Emirates (+971)", phoneCode: "+971", placeholder: "50 123 4567" },
+];
 
 export default function DomainPurchasePage() {
   const [searchParams] = useSearchParams();
@@ -125,6 +138,7 @@ export default function DomainPurchasePage() {
 
   // Form states (GoDaddy legal requirements)
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [autoRenewAuthorized, setAutoRenewAuthorized] = useState(true);
   const [acceptedAgreements, setAcceptedAgreements] = useState([]);
   const [registrantProfile, setRegistrantProfile] = useState({
     nameFirst: "",
@@ -140,11 +154,24 @@ export default function DomainPurchasePage() {
       const names = (user.name || user.full_name || "").trim().split(" ");
       const fName = names[0] || "";
       const lName = names.slice(1).join(" ") || "";
+      const isIndiaUser = user.country === "India" || user.country === "IN" || (user.phone && user.phone.startsWith("+91"));
       setRegistrantProfile((prev) => ({
         ...prev,
         nameFirst: prev.nameFirst || fName || "",
         nameLast: prev.nameLast || lName || "",
         email: prev.email || user.email || "",
+        phone: {
+          countryCode: prev.phone?.countryCode && prev.phone.countryCode !== "+1" ? prev.phone.countryCode : (isIndiaUser ? "+91" : "+1"),
+          nationalNumber: prev.phone?.nationalNumber || (user.phone ? user.phone.replace(/^\+\d+/, "").trim() : ""),
+        },
+        address: {
+          address1: prev.address?.address1 || user.address || "123 Tech Avenue",
+          address2: prev.address?.address2 || "",
+          city: prev.address?.city || user.city || (isIndiaUser ? "Bangalore" : "San Francisco"),
+          state: prev.address?.state || user.state || (isIndiaUser ? "Karnataka" : "CA"),
+          postalCode: prev.address?.postalCode || user.postal_code || (isIndiaUser ? "560001" : "94107"),
+          country: prev.address?.country && prev.address.country !== "US" ? prev.address.country : (isIndiaUser ? "IN" : "US"),
+        }
       }));
     }
   }, [user]);
@@ -281,6 +308,7 @@ export default function DomainPurchasePage() {
           fees.reduce((s, f) => s + Number(f.fee?.value || 0), 0),
         quoted_currency: domainQuote.price?.currencyCode || "USD",
         quoted_renewal_price_minor: domainQuote.renewalPrice?.value ?? 1299,
+        auto_renew: autoRenewAuthorized,
       };
 
       const res = await api.post("/deployments/domains/purchase", payload, token);
@@ -302,6 +330,20 @@ export default function DomainPurchasePage() {
   const feesTotal = (domainQuote?.fees || []).reduce((acc, f) => acc + Number(f.fee?.value || 0), 0);
   const basePriceMinor = Number(domainQuote?.price?.value || 1099);
   const totalMinor = basePriceMinor + feesTotal;
+
+  const quoteCurrency = (domainQuote?.price?.currencyCode || "USD").toUpperCase();
+  const isINR = quoteCurrency === "INR";
+  const currSymbol = isINR ? "₹" : quoteCurrency === "EUR" ? "€" : quoteCurrency === "GBP" ? "£" : "$";
+  const displayTotal = (totalMinor / 100).toFixed(2);
+  const displayRenewal = (Number(domainQuote?.renewalPrice?.value || 1299) / 100).toFixed(2);
+  const usdEquiv = isINR ? (Number(displayTotal) / 87).toFixed(2) : displayTotal;
+  const usdRenewalEquiv = isINR ? (Number(displayRenewal) / 87).toFixed(2) : displayRenewal;
+  const hasFreeDomainPerk = !!domainQuote?.free_domain_perk_available;
+  const freePerkTier = domainQuote?.free_domain_perk_tier === "extreme" ? "Extreme Plan (1 Year Free)" : "Pro Plan Perk";
+
+  const selectedCountry = useMemo(() => {
+    return SUPPORTED_COUNTRIES.find((c) => c.code === registrantProfile.address.country) || SUPPORTED_COUNTRIES[1];
+  }, [registrantProfile.address.country]);
 
   return (
     <div className="min-h-screen bg-[#09090b] text-[#fafafa] flex flex-col font-sans selection:bg-[#c89666]/30">
@@ -504,13 +546,39 @@ export default function DomainPurchasePage() {
                   </div>
                 </div>
                 <div className="sm:text-right">
-                  <span className="text-xs font-bold text-[#a8a29e] uppercase tracking-wider">Registration Total</span>
-                  <div className="text-3xl font-black font-mono text-white">
-                    ${(totalMinor / 100).toFixed(2)} <span className="text-xs font-normal text-[#a8a29e]">/ yr</span>
-                  </div>
-                  <div className="text-[11px] text-[#71717a] mt-0.5">
-                    Renews at ${(Number(domainQuote?.renewalPrice?.value || 1299) / 100).toFixed(2)}/yr
-                  </div>
+                  {hasFreeDomainPerk ? (
+                    <div>
+                      <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center sm:justify-end gap-1">
+                        <Sparkles className="w-3.5 h-3.5 text-[#c89666]" /> {freePerkTier} Included
+                      </span>
+                      <div className="text-3xl font-black font-mono text-emerald-400 flex items-baseline sm:justify-end gap-1.5">
+                        <span>100% FREE</span>
+                      </div>
+                      <div className="text-xs text-[#a8a29e] mt-0.5 line-through">
+                        Standard: {currSymbol}{displayTotal} {isINR ? `(~$${usdEquiv} USD)` : ""}
+                      </div>
+                      <div className="text-[11px] text-[#71717a] mt-0.5">
+                        Renews at {currSymbol}{displayRenewal}/yr after term
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <span className="text-xs font-bold text-[#a8a29e] uppercase tracking-wider">Registration Total</span>
+                      <div className="text-3xl font-black font-mono text-white flex items-baseline sm:justify-end gap-1.5">
+                        <span>{currSymbol}{displayTotal}</span>
+                        <span className="text-xs font-normal text-[#a8a29e]">/ yr</span>
+                      </div>
+                      {isINR && (
+                        <div className="text-xs font-semibold text-[#c89666] mt-0.5">
+                          &asymp; ${usdEquiv} USD / yr
+                        </div>
+                      )}
+                      <div className="text-[11px] text-[#71717a] mt-0.5">
+                        Renews at {currSymbol}{displayRenewal}/yr
+                        {isINR && ` (~$${usdRenewalEquiv} USD)`}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -565,7 +633,18 @@ export default function DomainPurchasePage() {
               </select>
             </div>
 
-            {/* 3. GoDaddy Required Registrant Legal Details */}
+            {/* 3. Independent Ownership Notice */}
+            <div className="flex items-start gap-3 p-4 rounded-xl bg-[#141418] border border-[#c89666]/30 text-xs text-[#d4d4d8] shadow-md">
+              <ShieldCheck className="w-5 h-5 text-[#c89666] shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-white block font-bold text-sm">100% Independent Legal Registrar Ownership</strong>
+                <p className="mt-0.5 text-[#a8a29e] leading-relaxed">
+                  Per ICANN standards, this domain is registered directly under your legal registrant name and contact details. You retain absolute legal ownership and can export your EPP Authorization Code or push the domain to your personal GoDaddy account at any time.
+                </p>
+              </div>
+            </div>
+
+            {/* 4. GoDaddy Required Registrant Legal Details */}
             <div className="domain-card">
               <div className="flex items-center justify-between border-b border-[#27272a] pb-3.5">
                 <div>
@@ -630,7 +709,7 @@ export default function DomainPurchasePage() {
                     <input
                       type="tel"
                       required
-                      placeholder="e.g. 5551234567"
+                      placeholder={`e.g. ${selectedCountry?.placeholder || "555 123 4567"}`}
                       value={registrantProfile.phone.nationalNumber}
                       onChange={(e) =>
                         setRegistrantProfile((p) => ({
@@ -707,25 +786,30 @@ export default function DomainPurchasePage() {
                 </div>
                 <div>
                   <label className="domain-label">Country (ISO 2-letter) *</label>
-                  <input
-                    type="text"
-                    required
-                    maxLength={2}
-                    placeholder="US"
+                  <select
                     value={registrantProfile.address.country}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const cCode = e.target.value;
+                      const matched = SUPPORTED_COUNTRIES.find((c) => c.code === cCode);
                       setRegistrantProfile((p) => ({
                         ...p,
-                        address: { ...p.address, country: e.target.value.toUpperCase() }
-                      }))
-                    }
-                    className="domain-input font-mono uppercase"
-                  />
+                        address: { ...p.address, country: cCode },
+                        phone: { ...p.phone, countryCode: matched?.phoneCode || p.phone.countryCode }
+                      }));
+                    }}
+                    className="domain-input font-medium cursor-pointer"
+                  >
+                    {SUPPORTED_COUNTRIES.map((c) => (
+                      <option key={c.code} value={c.code} style={{ backgroundColor: "#121216", color: "#ffffff" }}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>
 
-            {/* 4. Mandatory Registry Agreements */}
+            {/* 5. Mandatory Registry Agreements */}
             <div className="rounded-2xl bg-[#16161b] border border-[#27272a] p-5 space-y-3 text-xs text-[#a8a29e] shadow-lg">
               {(domainQuote?.requiredAgreements || [
                 { agreementType: "DNRA", title: "GoDaddy Domain Name Registration Agreement", url: "https://www.godaddy.com/legal/agreements/domain-name-registration-agreement" },
@@ -762,9 +846,30 @@ export default function DomainPurchasePage() {
                   className="mt-0.5 rounded accent-[#c89666] bg-[#09090b] border-[#27272a]"
                 />
                 <span>
-                  I authorize registration of <strong className="text-white font-mono">{activeDomain}</strong> for 1 year at ${(totalMinor / 100).toFixed(2)}. I understand domain registrations are non-refundable per ICANN registry policy once provisioned.
+                  I authorize registration of <strong className="text-white font-mono">{activeDomain}</strong> for 1 year {hasFreeDomainPerk ? "(100% Free under your subscription plan)" : `at ${currSymbol}${displayTotal}${isINR ? ` (~$${usdEquiv} USD)` : ""}`}. I understand domain registrations are non-refundable per ICANN registry policy once provisioned.
                 </span>
               </label>
+
+              {/* Automatic Renewal Authority */}
+              <div className="pt-2.5 border-t border-[#27272a]">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoRenewAuthorized}
+                    onChange={(e) => setAutoRenewAuthorized(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded accent-[#c89666] bg-[#09090b] border-[#27272a] cursor-pointer"
+                  />
+                  <div className="space-y-0.5">
+                    <span className="font-bold text-white flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-[#c89666]" />
+                      Authorize Automatic Annual Renewal ({currSymbol}{displayRenewal}/yr)
+                    </span>
+                    <span className="text-[#a8a29e] text-[11px] leading-relaxed block">
+                      Give authority to automatically renew your domain annually and collect the renewal fee from your authorized account/card before expiry so your website never goes offline. You can revoke this authority anytime in your dashboard.
+                    </span>
+                  </div>
+                </label>
+              </div>
             </div>
 
             {/* Submit & Cancel Actions */}
@@ -786,10 +891,15 @@ export default function DomainPurchasePage() {
                     <RefreshCw className="w-4 h-4 animate-spin text-[#09090b]" />
                     <span>Registering with GoDaddy...</span>
                   </>
+                ) : hasFreeDomainPerk ? (
+                  <>
+                    <Sparkles className="w-4 h-4 text-[#09090b]" />
+                    <span>Claim Free Domain &amp; Complete Registration</span>
+                  </>
                 ) : (
                   <>
                     <ShoppingCart className="w-4 h-4 text-[#09090b]" />
-                    <span>Pay ${(totalMinor / 100).toFixed(2)} &amp; Complete Registration</span>
+                    <span>Pay {currSymbol}{displayTotal}{isINR ? ` (~$${usdEquiv} USD)` : ""} &amp; Complete Registration</span>
                   </>
                 )}
               </button>

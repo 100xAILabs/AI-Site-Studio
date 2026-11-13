@@ -488,7 +488,7 @@ function TokenRadialGauge({ tokens }) {
           <span className="text-emerald-400 font-mono font-bold">✓ {current} repairs ready</span>
         </div>
         <p className="text-[11px] text-slate-400 leading-relaxed">
-          Each autonomous AI Site Doctor repair consumes 1 credit. Your balance is monitored and refreshed continuously.
+          Each autonomous Auto-Heal repair consumes 1 credit. Your balance is monitored and refreshed continuously.
         </p>
       </div>
     </div>
@@ -638,7 +638,7 @@ export default function DeployedWebsiteDetailsPage() {
               is_low: false,
               is_depleted: false,
               status_label: "Healthy Balance (10 Credits)",
-              workload_status: "Optimal compute quota. Sufficient for 10 autonomous repairs or AI edits.",
+              workload_status: "Optimal compute quota. Sufficient for 10 autonomous repairs or automated edits.",
             },
             blockers: detectedBlockers,
             issues_fixed: {
@@ -891,7 +891,7 @@ export default function DeployedWebsiteDetailsPage() {
               title="Autonomous Codebase Repair & Re-deployment"
             >
               <Sparkles className={`w-4 h-4 ${isHealing ? "animate-spin" : ""}`} />
-              <span>{isHealing ? "AI Doctor Healing..." : "Run AI Self-Healing"}</span>
+              <span>{isHealing ? "Auto-Healing in progress..." : "Run Autonomous Self-Healing"}</span>
             </button>
 
             <button
@@ -1573,7 +1573,7 @@ export default function DeployedWebsiteDetailsPage() {
                   <div>
                     <h3 className="deploy-card-title">Autonomous Codebase Healing</h3>
                     <p className="deploy-card-sub">
-                      AI Site Doctor monitors your website, applies zero-downtime hotfixes, and repairs broken assets.
+                      Automated Auto-Heal monitors your website, applies zero-downtime hotfixes, and repairs broken assets.
                     </p>
                   </div>
                 </div>
@@ -1607,7 +1607,7 @@ export default function DeployedWebsiteDetailsPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                            Fixed by {inc.resolved_by || "AI Doctor"}
+                            Fixed by {inc.resolved_by || "Auto-Heal Engine"}
                           </span>
                           <span className="text-[11px] text-slate-500">
                             {inc.created_at ? new Date(inc.created_at).toLocaleDateString() : ""}
@@ -1709,10 +1709,10 @@ export default function DeployedWebsiteDetailsPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <Coins className="w-5 h-5 text-[#dfb180]" />
-                    <h3 className="text-lg font-bold text-white">AI Tokens &amp; Studio Credit Balance</h3>
+                    <h3 className="text-lg font-bold text-white">Automation Tokens &amp; Studio Credit Balance</h3>
                   </div>
                   <p className="text-xs text-slate-400 mt-1 max-w-lg">
-                    AI Site Studio uses tokens for automated AI Site Doctor repairs, AI Fill copy customizations, and continuous integration.
+                    Site Studio uses tokens for automated Auto-Heal repairs, Smart Fill copy customizations, and continuous integration.
                   </p>
                 </div>
 
@@ -1949,7 +1949,7 @@ export default function DeployedWebsiteDetailsPage() {
             </div>
 
             <p className="text-xs text-slate-300">
-              Select an AI token package to fuel autonomous error healing, AI Fill copy generations, and custom backend APIs.
+              Select an automation token package to fuel autonomous error healing, Smart Fill copy generations, and custom backend APIs.
             </p>
 
             <div className="grid grid-cols-3 gap-3">

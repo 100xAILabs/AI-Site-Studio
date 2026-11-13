@@ -217,7 +217,7 @@ export default function ReceiptPage() {
             </p>
             <p className="receipt-party-detail">Verified Marketplace Seller</p>
             <p className="receipt-party-detail" style={{ fontSize: "0.6875rem", color: "#64748b" }}>
-              Platform: AI Site Studio Marketplace
+              Platform: Site Studio Marketplace
             </p>
           </div>
 
@@ -275,7 +275,7 @@ export default function ReceiptPage() {
                   <tr>
                     <td>
                       <p className="receipt-item-title">
-                        {order.notes || "Official AI Site Studio Production Package"}
+                        {order.notes || "Official Site Studio Production Package"}
                       </p>
                       <p className="receipt-item-sub">
                         Full source code package, clean project assets & lifetime verified digital license
@@ -332,7 +332,7 @@ export default function ReceiptPage() {
             <span>Cryptographically Verified Digital Purchase</span>
           </div>
           <p className="receipt-footer-thank">Thank you for choosing Site Studio!</p>
-          <p className="receipt-footer-sub">Official tax invoice & digital proof of purchase • Authorized by AI Site Studio</p>
+          <p className="receipt-footer-sub">Official tax invoice & digital proof of purchase • Authorized by Site Studio</p>
         </div>
 
       </div>

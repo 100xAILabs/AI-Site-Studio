@@ -104,6 +104,14 @@ function AdminPanel() {
     refetchInterval: 15000,
   });
 
+  // Fetch real-time platform profitability & unit economics
+  const { data: profitabilityData, isLoading: profitabilityLoading, refetch: refetchProfitability } = useQuery({
+    queryKey: ["admin-profitability"],
+    queryFn: () => api.get("/admin/profitability", authToken ?? undefined),
+    enabled: !!authToken,
+    refetchInterval: 30000,
+  });
+
   // Fetch seller withdrawal requests for moderation
   const { data: sellerWithdrawals = [] } = useQuery({
     queryKey: ["admin-withdrawals"],
@@ -322,6 +330,7 @@ function AdminPanel() {
           <div className="admin-tab-group">
             {[
               { id: "metrics", label: "Metrics & Logs", icon: TrendingUp },
+              { id: "profitability", label: "Profitability & Economics", icon: Activity },
               { id: "payments", label: "Payments & Revenue", icon: CreditCard },
               { id: "users", label: "Users & Usage", icon: Users },
               { id: "moderation", label: "Moderation & Payouts", icon: Layers },
@@ -851,7 +860,7 @@ function AdminPanel() {
                         <Users className="w-5 h-5 text-primary" /> Platform User & Usage Directory
                       </h3>
                       <p className="text-sm text-muted-foreground">
-                        Monitor user subscription tiers, AI token balances, clean vs watermarked downloads, deployments, and security telemetry.
+                        Monitor user subscription tiers, compute token balances, clean vs watermarked downloads, deployments, and security telemetry.
                       </p>
                     </div>
                     <button
@@ -1008,6 +1017,204 @@ function AdminPanel() {
                     </table>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* PROFITABILITY & UNIT ECONOMICS */}
+            {activeTab === "profitability" && (
+              <div className="space-y-6">
+                {/* Profitability Header */}
+                <div className="admin-table-container p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Activity className="w-5 h-5 text-primary" />
+                      <h3 className="font-bold text-base text-foreground">Unit Economics &amp; Gross Margin Health</h3>
+                      <span className={cn(
+                        "px-2.5 py-0.5 rounded-full text-xs font-bold",
+                        profitabilityData?.target_margin_achieved
+                          ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
+                          : "bg-amber-500/10 text-amber-400 border border-amber-500/30"
+                      )}>
+                        {profitabilityData?.target_margin_achieved ? "70% Target Margin Achieved" : "Margin Optimization Needed"}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Real-time measurement of recurring subscription revenue against direct variable costs: automated synthesis inference, edge hosting, worker compute, Auto-Heal, and domain subsidies.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => refetchProfitability()}
+                    className="px-3.5 py-1.5 bg-muted/50 hover:bg-muted text-xs font-semibold rounded-xl flex items-center gap-1.5 border border-border/60 transition-colors cursor-pointer self-start sm:self-auto"
+                  >
+                    <RefreshCw className={cn("w-3.5 h-3.5", profitabilityLoading && "animate-spin")} /> Refresh Economics
+                  </button>
+                </div>
+
+                {/* Primary Margin Metrics Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="admin-metric-card">
+                    <div className="admin-metric-header">
+                      <span>Gross Revenue (30d)</span>
+                      <CreditCard className="w-4 h-4 text-emerald-400" />
+                    </div>
+                    <div className="admin-metric-value text-emerald-400">
+                      ${profitabilityData?.gross_revenue?.toFixed(2) ?? "0.00"}
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">Net: ${profitabilityData?.net_revenue?.toFixed(2) ?? "0.00"}</span>
+                  </div>
+
+                  <div className="admin-metric-card">
+                    <div className="admin-metric-header">
+                      <span>Variable Costs (30d)</span>
+                      <AlertTriangle className="w-4 h-4 text-rose-400" />
+                    </div>
+                    <div className="admin-metric-value text-rose-400">
+                      ${profitabilityData?.variable_costs?.total?.toFixed(2) ?? "0.00"}
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">Direct infra &amp; API spend</span>
+                  </div>
+
+                  <div className="admin-metric-card">
+                    <div className="admin-metric-header">
+                      <span>Gross Margin %</span>
+                      <TrendingUp className="w-4 h-4 text-primary" />
+                    </div>
+                    <div className="admin-metric-value">
+                      {profitabilityData?.gross_margin_percent?.toFixed(1) ?? "0.0"}%
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">Target: 70.0% gross margin</span>
+                  </div>
+
+                  <div className="admin-metric-card">
+                    <div className="admin-metric-header">
+                      <span>Loss-Making Subscribers</span>
+                      <ShieldAlert className="w-4 h-4 text-amber-400" />
+                    </div>
+                    <div className="admin-metric-value text-amber-400">
+                      {profitabilityData?.loss_making_subscribers_count ?? 0}
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">Accounts exceeding allocated margins</span>
+                  </div>
+                </div>
+
+                {/* Variable Cost Drivers Breakdown */}
+                <div className="admin-table-container p-6 space-y-4">
+                  <h4 className="font-bold text-sm text-foreground flex items-center gap-2">
+                    <span>Variable Cost Stack Breakdown</span>
+                    <span className="text-xs font-normal text-muted-foreground">
+                      (Primary Driver: <strong className="text-primary">{profitabilityData?.ai_cost_driver ?? "Inference Compute"}</strong>)
+                    </span>
+                  </h4>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    <div className="p-3 bg-muted/20 border border-border/40 rounded-xl">
+                      <span className="text-[11px] text-muted-foreground uppercase font-bold block">Inference Compute</span>
+                      <span className="text-lg font-black text-foreground mt-1 block">
+                        ${profitabilityData?.variable_costs?.ai_api_cost?.toFixed(2) ?? "0.00"}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">Synthesis, copy, SEO</span>
+                    </div>
+                    <div className="p-3 bg-muted/20 border border-border/40 rounded-xl">
+                      <span className="text-[11px] text-muted-foreground uppercase font-bold block">Edge Hosting</span>
+                      <span className="text-lg font-black text-foreground mt-1 block">
+                        ${profitabilityData?.variable_costs?.hosting_cost?.toFixed(2) ?? "0.00"}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">CDN &amp; routing</span>
+                    </div>
+                    <div className="p-3 bg-muted/20 border border-border/40 rounded-xl">
+                      <span className="text-[11px] text-muted-foreground uppercase font-bold block">Build &amp; Worker</span>
+                      <span className="text-lg font-black text-foreground mt-1 block">
+                        ${profitabilityData?.variable_costs?.build_compute_cost?.toFixed(2) ?? "0.00"}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">Zip &amp; hydration tasks</span>
+                    </div>
+                    <div className="p-3 bg-muted/20 border border-border/40 rounded-xl">
+                      <span className="text-[11px] text-muted-foreground uppercase font-bold block">Auto-Heal LLM</span>
+                      <span className="text-lg font-black text-foreground mt-1 block">
+                        ${profitabilityData?.variable_costs?.auto_heal_cost?.toFixed(2) ?? "0.00"}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">Autonomous bug patches</span>
+                    </div>
+                    <div className="p-3 bg-muted/20 border border-border/40 rounded-xl">
+                      <span className="text-[11px] text-muted-foreground uppercase font-bold block">Domain Subsidies</span>
+                      <span className="text-lg font-black text-foreground mt-1 block">
+                        ${profitabilityData?.variable_costs?.domain_subsidies?.toFixed(2) ?? "0.00"}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">Capped promotional credits</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Loss-Making Subscribers Table */}
+                <div className="admin-table-container">
+                  <div className="p-4 border-b border-border/40">
+                    <h4 className="font-bold text-sm text-foreground flex items-center gap-2">
+                      <ShieldAlert className="w-4 h-4 text-amber-400" />
+                      <span>Loss-Making Subscribers Requiring Policy Review</span>
+                    </h4>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Accounts whose variable API and infrastructure costs exceed their plan revenue contribution.
+                    </p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-border/40 text-muted-foreground uppercase bg-muted/10">
+                          <th className="p-3">User Email</th>
+                          <th className="p-3">Plan Tier</th>
+                          <th className="p-3">Revenue (30d)</th>
+                          <th className="p-3">Incurred Cost (30d)</th>
+                          <th className="p-3">Net Profit / Loss</th>
+                          <th className="p-3">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {!profitabilityData?.loss_making_subscribers || profitabilityData.loss_making_subscribers.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="p-6 text-center text-muted-foreground text-xs">
+                              <CheckCircle2 className="w-5 h-5 text-emerald-400 mx-auto mb-1" />
+                              Zero loss-making accounts detected. All current subscribers operate at healthy unit economics.
+                            </td>
+                          </tr>
+                        ) : (
+                          profitabilityData.loss_making_subscribers.map((lms, idx) => (
+                            <tr key={idx} className="border-b border-border/20 hover:bg-muted/20 transition-colors">
+                              <td className="p-3 font-mono text-foreground font-semibold">{lms.email || `User #${lms.user_id}`}</td>
+                              <td className="p-3 uppercase font-bold text-[11px] text-muted-foreground">{lms.plan}</td>
+                              <td className="p-3 text-emerald-400 font-semibold">${lms.revenue?.toFixed(2) ?? "0.00"}</td>
+                              <td className="p-3 text-rose-400 font-semibold">${lms.cost?.toFixed(2) ?? "0.00"}</td>
+                              <td className="p-3 font-mono font-bold text-rose-400">
+                                -${Math.abs(lms.margin ?? 0).toFixed(2)}
+                              </td>
+                              <td className="p-3">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-red-500/10 text-red-400 border border-red-500/20">
+                                  Unprofitable
+                                </span>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Strategic Recommendations */}
+                {profitabilityData?.recommendations?.length > 0 && (
+                  <div className="admin-table-container p-6 space-y-3">
+                    <h4 className="font-bold text-sm text-foreground flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-primary" />
+                      <span>Automated Unit Economics Recommendations</span>
+                    </h4>
+                    <div className="space-y-2">
+                      {profitabilityData.recommendations.map((rec, rIdx) => (
+                        <div key={rIdx} className="p-3 bg-muted/20 border border-border/40 rounded-xl text-xs flex items-start gap-2.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-primary mt-1.5 shrink-0" />
+                          <span className="text-foreground leading-relaxed">{rec}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

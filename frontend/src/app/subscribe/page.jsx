@@ -22,6 +22,7 @@ import Navbar from "@/components/layout/Navbar";
 import { useAppAuth, useAppUser } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { formatPrice } from "@/lib/utils";
+import { PLANS } from "@/lib/plans";
 import "./Page.css";
 
 const PLAN_DATA = {
@@ -29,43 +30,27 @@ const PLAN_DATA = {
     id: "pro",
     name: "Pro Plan",
     badge: "✦ Most Popular for Creators",
-    description: "Ideal for web creators and freelancers who need clean, unbranded code, live edge deployments, and autonomous site healing.",
-    monthlyPrice: 19,
-    annualPrice: 15,
-    tokens: 150,
-    deployments: 3,
+    description: PLANS.pro.description,
+    monthlyPrice: PLANS.pro.monthlyPrice,
+    annualPrice: PLANS.pro.annualPrice,
+    annualEffectiveMonthly: PLANS.pro.annualEffectiveMonthly,
+    tokens: PLANS.pro.tokensIncluded,
+    deployments: PLANS.pro.deploymentsIncluded,
     color: "#c89666",
-    features: [
-      "Download all templates without watermarks (Clean Source Code)",
-      "150 Gemini AI Credits / month for site generation & AI Fill edits",
-      "Discounted AI token top-ups (40% OFF standard rates)",
-      "Deploy up to 3 live websites on high-speed edge hosting",
-      "Autonomous AI Site Doctor healing for 1 registered live site",
-      "Full canvas editor access with unlimited copy & styling revisions",
-      "Instant Studio subdomains (*.aisitestudio.com) with SSL",
-      "Priority email & community developer support",
-    ],
+    features: PLANS.pro.features.map((f) => f.text),
   },
   extreme: {
     id: "extreme",
     name: "Extreme Plan",
     badge: "⚡ Extreme — Full Platform Power",
-    description: "Maximum power: generate multi-page sites with zero friction, unlimited hosting deployments, and resell your customized templates.",
-    monthlyPrice: 50,
-    annualPrice: 40,
-    tokens: 1000,
-    deployments: 999,
+    description: PLANS.extreme.description,
+    monthlyPrice: PLANS.extreme.monthlyPrice,
+    annualPrice: PLANS.extreme.annualPrice,
+    annualEffectiveMonthly: PLANS.extreme.annualEffectiveMonthly,
+    tokens: PLANS.extreme.tokensIncluded,
+    deployments: PLANS.extreme.deploymentsIncluded,
     color: "#10b981",
-    features: [
-      "1,000+ Gemini AI Credits / month (Zero credit friction)",
-      "100% White-Label source code exports with full commercial rights",
-      "Free hosting deployments (Unlimited live websites included)",
-      "Resell your customized templates on the public marketplace",
-      "Autonomous AI Site Doctor: Automatically heal unlimited websites",
-      "Conversational AI Prompt Editor unlocked for real-time code changes",
-      "Deepest token top-up discounts (60% OFF lowest rates)",
-      "VIP Dedicated Support & direct engineering channel",
-    ],
+    features: PLANS.extreme.features.map((f) => f.text),
   },
 };
 
@@ -87,8 +72,8 @@ export default function SubscribePage() {
 
   const plan = PLAN_DATA[selectedPlanId] || PLAN_DATA.pro;
   const isAnnual = billingCycle === "annual";
-  const unitMonthlyPrice = isAnnual ? plan.annualPrice : plan.monthlyPrice;
-  const totalUsd = isAnnual ? plan.annualPrice * 12 : plan.monthlyPrice;
+  const unitMonthlyPrice = isAnnual ? (plan.annualEffectiveMonthly || Math.round((plan.annualPrice / 12) * 100) / 100) : plan.monthlyPrice;
+  const totalUsd = isAnnual ? plan.annualPrice : plan.monthlyPrice;
   const totalInr = Math.round(totalUsd * exchangeRate);
 
   useEffect(() => {
@@ -180,7 +165,7 @@ export default function SubscribePage() {
         key: res.key_id,
         amount: res.amount,
         currency: res.currency || "INR",
-        name: "AI Site Studio",
+        name: "Site Studio",
         description: `${plan.name} (${billingCycle.toUpperCase()})`,
         order_id: res.gateway_order_id,
         prefill: {
@@ -257,7 +242,7 @@ export default function SubscribePage() {
             <span className="sub-success-pill">Subscription Active</span>
             <h1 className="sub-success-title">Welcome to {subscribedPlan.name}!</h1>
             <p className="sub-success-desc">
-              Your payment has been successfully captured and verified via Razorpay. Your account is now upgraded with full access to clean white-label downloads, AI Gemini credits, and live hosting.
+              Your payment has been successfully captured and verified via Razorpay. Your account is now upgraded with full access to clean white-label downloads, automated compute credits, and live hosting.
             </p>
 
             <div className="sub-success-features-grid">
@@ -276,7 +261,7 @@ export default function SubscribePage() {
                 Browse Marketplace <ArrowRight className="w-4 h-4 ml-1.5" />
               </Link>
               <Link to="/studio" className="sub-success-btn secondary">
-                Launch AI Studio
+                Launch Studio
               </Link>
               <Link to="/dashboard" className="sub-success-btn ghost">
                 View Account Dashboard
@@ -309,7 +294,7 @@ export default function SubscribePage() {
           <div className="sub-plan-badge">{plan.badge}</div>
           <h1 className="sub-main-title">Complete Your {plan.name} Subscription</h1>
           <p className="sub-main-sub">
-            Direct subscription activation via Razorpay. Instant white-label source code access and monthly AI Gemini compute tokens.
+            Direct subscription activation via Razorpay. Instant white-label source code access and monthly automated compute tokens.
           </p>
 
           {/* Plan Selector Pills */}
@@ -345,7 +330,7 @@ export default function SubscribePage() {
               className={`sub-cycle-btn ${billingCycle === "annual" ? "active" : ""}`}
             >
               <span>Annual Billing</span>
-              <span className="sub-save-pill">Save 20%</span>
+              <span className="sub-save-pill">2 Months Free</span>
             </button>
           </div>
         </div>

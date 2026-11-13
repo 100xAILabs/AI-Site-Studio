@@ -8,7 +8,7 @@ from app.api.v1.routes import (
     auth, templates, categories, search,
     orders, payment, reviews, favorites,
     wishlist, dashboard, admin, preview, ai, files, follows, deployments,
-    payouts, ws, incidents, telemetry, storefront, studio,
+    payouts, ws, incidents, telemetry, storefront, studio, subscriptions,
 )
 
 api_router = APIRouter()
@@ -19,6 +19,7 @@ api_router.include_router(categories.router, prefix="/categories", tags=["Catego
 api_router.include_router(search.router,     prefix="/search",     tags=["Search"])
 api_router.include_router(orders.router,     prefix="/orders",     tags=["Orders"])
 api_router.include_router(payment.router,    prefix="/payment",    tags=["Payment"])
+api_router.include_router(subscriptions.router, prefix="/subscriptions", tags=["Subscriptions"])
 api_router.include_router(reviews.router,    prefix="/reviews",    tags=["Reviews"])
 api_router.include_router(favorites.router,  prefix="/favorites",  tags=["Favorites"])
 api_router.include_router(wishlist.router,   prefix="/wishlist",   tags=["Wishlist"])

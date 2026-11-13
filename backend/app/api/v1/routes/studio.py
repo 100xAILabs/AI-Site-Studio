@@ -254,41 +254,31 @@ async def generate_studio_project(
     is_extreme = tier in ("extreme", "agency", "enterprise")
     is_pro = tier == "pro"
 
-    CREDITS_PER_BUILD = 5
-    credits_to_deduct = 0
+    from app.services.entitlement_service import EntitlementService
+    ent_service = EntitlementService(db)
 
-    if not is_admin and not is_extreme:
-        if tier == "free":
-            stmt_count = select(func.count(StudioBuild.id)).where(
-                StudioBuild.user_id == current_user.id,
-                StudioBuild.status == "completed"
-            )
-            res_count = await db.execute(stmt_count)
-            completed_builds = res_count.scalar() or 0
+    # Central Entitlement Check for Website Generation
+    can_generate, reason, required_credits = await ent_service.check_ai_generation_entitlement(
+        user=current_user, operation="website_generation"
+    )
+    if not can_generate:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=reason,
+        )
 
-            if completed_builds >= 1:
-                user_credits = current_user.ai_credits if current_user.ai_credits is not None else 0
-                if user_credits < CREDITS_PER_BUILD:
-                    raise HTTPException(
-                        status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                        detail="You have already generated your 1 free website. To create more websites, please purchase AI credits or upgrade your plan."
-                    )
-                credits_to_deduct = CREDITS_PER_BUILD
-        elif is_pro:
-            user_credits = current_user.ai_credits if current_user.ai_credits is not None else 0
-            if user_credits < CREDITS_PER_BUILD:
-                raise HTTPException(
-                    status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                    detail="Your Pro monthly AI credits are depleted. Please top up your credits to generate more websites."
-                )
-            credits_to_deduct = CREDITS_PER_BUILD
-
-    if credits_to_deduct > 0:
-        current_user.ai_credits = max(0, (current_user.ai_credits or 0) - credits_to_deduct)
-        db.add(current_user)
-        logger.info(
-            "Deducted %d credits from user %s (%s tier) for website generation. Remaining: %d",
-            credits_to_deduct, current_user.email, tier, current_user.ai_credits
+    # Deduct credits from user allowance and record in UsageLedger with estimated provider cost
+    deducted, ded_msg, credits_to_deduct, est_cost = await ent_service.deduct_ai_credits(
+        user=current_user,
+        operation="website_generation",
+        provider="gemini",
+        model_name="gemini-1.5-flash",
+        metadata={"prompt": request.prompt[:100], "genre": request.genre},
+    )
+    if not deducted and credits_to_deduct > 0:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=ded_msg,
         )
 
     resolved_stack = detect_stack_from_prompt(request.prompt, request.category, request.genre, requested_stack=request.stack or "auto")

@@ -244,7 +244,7 @@ export default function Checkout() {
       key: targetPay.key_id,
       amount: targetPay.amount,
       currency: targetPay.currency || "INR",
-      name: "AI Site Studio",
+      name: "Site Studio",
       description: `Order #${targetOrder.order_number || targetOrder.id?.slice(0, 8)}`,
       order_id: targetPay.gateway_order_id,
       prefill: {
@@ -372,8 +372,8 @@ export default function Checkout() {
       billingCycle: isAnnual ? "annual" : "monthly",
       title: isPro ? "Pro Creator Subscription Plan" : "Extreme Plan Subscription",
       subtitle: isPro
-        ? `150 Gemini AI Credits / mo · 3 Live Deployments · 1 Site Auto-Heal · 40% Token Discount (${isAnnual ? "Billed Annually ($180/yr)" : "$19.00 / month"})`
-        : `1,000+ Gemini AI Credits / mo · Free Deployments · Unlimited Auto-Heal · Template Reselling (${isAnnual ? "Billed Annually ($480/yr)" : "$50.00 / month"})`,
+        ? `150 Automation Credits / mo · 3 Live Deployments · 1 Site Auto-Heal · 40% Token Discount (${isAnnual ? "Billed Annually ($180/yr)" : "$19.00 / month"})`
+        : `1,000+ Automation Credits / mo · Free Deployments · Unlimited Auto-Heal · Template Reselling (${isAnnual ? "Billed Annually ($480/yr)" : "$50.00 / month"})`,
       price: totalPrice,
       monthlyPrice: monthlyRate,
       badge: isPro ? "✦ Pro Creator Subscription" : "⚡ Extreme Plan Subscription",
@@ -386,34 +386,34 @@ export default function Checkout() {
       tokens_50: {
         price: isExtremeUser ? 4.00 : isProUser ? 6.00 : 10.00,
         credits: 50,
-        title: "Starter Compute Pack (50 Gemini Tokens)",
+        title: "Starter Compute Pack (50 Automation Tokens)",
         subtitle: isExtremeUser
-          ? "50 Gemini AI Credits (Extreme Tier 60% Discount Applied)"
+          ? "50 Automation Credits (Extreme Tier 60% Discount Applied)"
           : isProUser
-          ? "50 Gemini AI Credits (Pro Tier 40% Discount Applied)"
-          : "50 Gemini AI Credits for section fills, code generation, and repairs",
-        badge: isExtremeUser ? "Extreme 60% OFF" : isProUser ? "Pro 40% OFF" : "AI Compute Pack",
+          ? "50 Automation Credits (Pro Tier 40% Discount Applied)"
+          : "50 Automation Credits for section fills, code generation, and repairs",
+        badge: isExtremeUser ? "Extreme 60% OFF" : isProUser ? "Pro 40% OFF" : "Compute Pack",
       },
       tokens_200: {
         price: isExtremeUser ? 12.00 : isProUser ? 18.00 : 30.00,
         credits: 200,
-        title: "Creator Compute Pack (200 Gemini Tokens)",
+        title: "Creator Compute Pack (200 Automation Tokens)",
         subtitle: isExtremeUser
-          ? "200 Gemini AI Credits (Extreme Tier 60% Discount Applied)"
+          ? "200 Automation Credits (Extreme Tier 60% Discount Applied)"
           : isProUser
-          ? "200 Gemini AI Credits (Pro Tier 40% Discount Applied)"
-          : "200 Gemini AI Credits for continuous multi-site builds and revisions",
+          ? "200 Automation Credits (Pro Tier 40% Discount Applied)"
+          : "200 Automation Credits for continuous multi-site builds and revisions",
         badge: isExtremeUser ? "Extreme 60% OFF" : isProUser ? "Pro 40% OFF" : "Popular Compute Pack",
       },
       tokens_500: {
         price: isExtremeUser ? 24.00 : isProUser ? 35.00 : 60.00,
         credits: 500,
-        title: "Studio Fleet Pack (500 Gemini Tokens)",
+        title: "Studio Fleet Pack (500 Automation Tokens)",
         subtitle: isExtremeUser
-          ? "500 Gemini AI Credits (Extreme Tier 60% Discount Applied)"
+          ? "500 Automation Credits (Extreme Tier 60% Discount Applied)"
           : isProUser
-          ? "500 Gemini AI Credits (Pro Tier 40% Discount Applied)"
-          : "500 Gemini AI Credits for high-volume builds and full-scale deployments",
+          ? "500 Automation Credits (Pro Tier 40% Discount Applied)"
+          : "500 Automation Credits for high-volume builds and full-scale deployments",
         badge: isExtremeUser ? "Extreme 60% OFF" : isProUser ? "Pro 40% OFF" : "Fleet Compute Pack",
       },
     };
@@ -696,7 +696,7 @@ export default function Checkout() {
                                 <span>Instant Activation</span>
                               </span>
                               <span className="cart-badge-framework">
-                                {directCheckoutItem.type === "plan" ? "Monthly Subscription" : "Gemini AI Tokens"}
+                                {directCheckoutItem.type === "plan" ? "Monthly Subscription" : "Automation Tokens"}
                               </span>
                             </div>
                           </div>

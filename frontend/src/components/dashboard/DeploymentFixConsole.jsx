@@ -32,10 +32,10 @@ import { api } from "../../lib/api";
 import "./DeploymentFixConsole.css";
 
 const AI_MODEL_OPTIONS = [
-  { id: "gemini-1.5-flash", name: "⚡ Google Gemini 1.5 Flash", desc: "Ultra-fast, high-precision copywriting (Recommended)" },
-  { id: "gemini-1.5-pro", name: "🧠 Google Gemini 1.5 Pro", desc: "Deep reasoning, complex page restructure & rich copy" },
-  { id: "gpt-4o", name: "✨ OpenAI GPT-4o", desc: "Creative marketing and persuasive conversion copy" },
-  { id: "ollama", name: "💻 Local Ollama / CUDA AI", desc: "Private local GPU model execution" },
+  { id: "gemini-1.5-flash", name: "⚡ High-Speed Automated Engine", desc: "Ultra-fast, high-precision copywriting (Recommended)" },
+  { id: "gemini-1.5-pro", name: "🧠 Advanced Logic & Restructure Engine", desc: "Deep reasoning, complex page restructure & rich copy" },
+  { id: "gpt-4o", name: "✨ Creative Conversion Engine", desc: "Creative marketing and persuasive conversion copy" },
+  { id: "ollama", name: "💻 Local Engine / Private Compute", desc: "Private local GPU model execution" },
 ];
 
 const QUICK_AI_PROMPTS = [
@@ -352,10 +352,10 @@ export default function DeploymentFixConsole({
 
       if (onUpdateSuccess) onUpdateSuccess();
     } catch (err) {
-      alert("AI Edit error: " + err.message);
+      alert("Synthesis Edit error: " + err.message);
       setTerminalLogs((prev) => [
         ...prev,
-        `[${new Date().toLocaleTimeString()}] ❌ AI Edit error: ${err.message}`,
+        `[${new Date().toLocaleTimeString()}] ❌ Synthesis Edit error: ${err.message}`,
       ]);
     } finally {
       setIsAiGenerating(false);
@@ -401,13 +401,13 @@ export default function DeploymentFixConsole({
     setAiReport(null);
     setTerminalLogs((prev) => [
       ...prev,
-      `[${new Date().toLocaleTimeString()}] ⚡ Dispatched Autonomous AI Site Doctor. Scanning code repository...`,
+      `[${new Date().toLocaleTimeString()}] ⚡ Dispatched Autonomous Auto-Heal Engine. Scanning code repository...`,
     ]);
 
     try {
       const payload = {
         incident_id: incident?.id || undefined,
-        issue_description: incident?.description || "Manual AI Auto-Fix requested from Code Fix Studio.",
+        issue_description: incident?.description || "Manual Auto-Fix requested from Code Fix Studio.",
         error_logs: incident?.error_logs || undefined,
         issue_type: incident?.issue_type || "broken_website",
       };
@@ -421,7 +421,7 @@ export default function DeploymentFixConsole({
       setAiReport(res);
       setTerminalLogs((prev) => [
         ...prev,
-        `[${new Date().toLocaleTimeString()}] ✓ AI Doctor completed diagnosis: ${res.diagnosis || "Patches applied"}`,
+        `[${new Date().toLocaleTimeString()}] ✓ Auto-Heal completed diagnosis: ${res.diagnosis || "Patches applied"}`,
         `[${new Date().toLocaleTimeString()}] ✓ Patched files: ${(res.patched_files || []).join(", ") || "index.html"}`,
       ]);
 
@@ -438,10 +438,10 @@ export default function DeploymentFixConsole({
 
       if (onUpdateSuccess) onUpdateSuccess();
     } catch (err) {
-      alert("AI Auto-Fix failed: " + err.message);
+      alert("Auto-Fix failed: " + err.message);
       setTerminalLogs((prev) => [
         ...prev,
-        `[${new Date().toLocaleTimeString()}] ❌ AI Auto-Fix error: ${err.message}`,
+        `[${new Date().toLocaleTimeString()}] ❌ Auto-Fix error: ${err.message}`,
       ]);
     } finally {
       setIsAiFixing(false);
@@ -524,7 +524,7 @@ export default function DeploymentFixConsole({
               onClick={handleAiAutoFix}
               disabled={isAiFixing}
               className="dfc-btn-ai"
-              title="Run Autonomous AI Site Doctor to diagnose and patch code"
+              title="Run Autonomous Auto-Heal to diagnose and patch code"
             >
               {isAiFixing ? (
                 <>
@@ -534,7 +534,7 @@ export default function DeploymentFixConsole({
               ) : (
                 <>
                   <Sparkles className="w-4 h-4 text-amber-300" />
-                  <span>AI Doctor</span>
+                  <span>Auto-Heal</span>
                 </>
               )}
             </button>
@@ -584,7 +584,7 @@ export default function DeploymentFixConsole({
               <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
               <div>
                 <div className="font-bold text-sm text-foreground">
-                  AI Site Doctor Patched {aiReport.patched_files?.length || 1} File(s)
+                  Auto-Heal Engine Patched {aiReport.patched_files?.length || 1} File(s)
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5">
                   <strong>Diagnosis:</strong> {aiReport.diagnosis}
@@ -683,10 +683,10 @@ export default function DeploymentFixConsole({
                   type="button"
                   onClick={() => setEditorSubTab("ai")}
                   className={`dfc-subtab-btn ${editorSubTab === "ai" ? "active" : ""}`}
-                  title="AI Prompt Assistant — Choose model & write instructions"
+                  title="Automated Assistant — Choose engine & write instructions"
                 >
                   <Wand2 className="w-3.5 h-3.5 text-indigo-500" />
-                  <span>AI Model Edit</span>
+                  <span>Automated Edit</span>
                 </button>
 
                 <button
@@ -826,7 +826,7 @@ export default function DeploymentFixConsole({
                         </div>
                       ) : (
                         <div className="p-8 text-center text-xs text-muted-foreground">
-                          Visual Copy Edit is active for HTML pages. For CSS and JS files, use the Code Editor or AI Model Edit.
+                          Visual Copy Edit is active for HTML pages. For CSS and JS files, use the Code Editor or Synthesis Engine Edit.
                         </div>
                       )}
                     </div>
@@ -838,16 +838,16 @@ export default function DeploymentFixConsole({
                       <div className="dfc-ai-edit-header">
                         <div className="flex items-center gap-2">
                           <Bot className="w-4 h-4 text-indigo-500" />
-                          <span className="font-bold text-sm text-foreground">AI Website Copywriter &amp; Architect</span>
+                          <span className="font-bold text-sm text-foreground">Automated Website Copywriter &amp; Architect</span>
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          Choose an AI model and describe any copywriting, design, or feature changes in natural language.
+                          Choose an automation engine and describe any copywriting, design, or feature changes in natural language.
                         </p>
                       </div>
 
                       {/* AI Model Selector */}
                       <div className="space-y-1.5 mt-3">
-                        <label className="dfc-input-label">Select AI Model Engine</label>
+                        <label className="dfc-input-label">Select Automation Engine</label>
                         <select
                           value={selectedModel}
                           onChange={(e) => setSelectedModel(e.target.value)}
@@ -883,7 +883,7 @@ export default function DeploymentFixConsole({
                             onClick={() => handleRunAiEdit()}
                             disabled={!aiPromptInput.trim() || isAiGenerating}
                             className="dfc-ai-submit-btn"
-                            title="Submit prompt to AI model"
+                            title="Submit directive to engine"
                           >
                             {isAiGenerating ? (
                               <Loader2 className="w-4 h-4 animate-spin" />
@@ -894,10 +894,10 @@ export default function DeploymentFixConsole({
                         </div>
                       </div>
 
-                      {/* 1-Click Instant AI Transformations */}
+                      {/* 1-Click Instant Transformations */}
                       <div className="mt-4 space-y-2">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">
-                          ⚡ 1-Click AI Transformations:
+                          ⚡ 1-Click Transformations:
                         </span>
                         <div className="flex flex-col gap-1.5">
                           {QUICK_AI_PROMPTS.map((item, idx) => (

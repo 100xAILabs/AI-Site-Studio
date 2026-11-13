@@ -590,9 +590,14 @@ class AIService:
                         except Exception:
                             err_msg = response.text
                         logger.warning(f"{provider_label} API ({model_name}) returned status {response.status_code}: {err_msg}")
-                        if (response.status_code in (413, 429)) and "groq" in provider_label.lower() and attempt == 0:
+                        if (response.status_code in (404, 413, 429)) and "groq" in provider_label.lower() and attempt == 0:
+                            if response.status_code == 404 or "does not exist" in str(err_msg).lower():
+                                alt_groq = "openai/gpt-oss-120b" if payload.get("model") != "openai/gpt-oss-120b" else "openai/gpt-oss-20b"
+                                safe_print(f"   ⚠️ [AI Service] Groq model '{payload.get('model')}' not found; falling back to active Groq model ({alt_groq})...")
+                                payload["model"] = alt_groq
+                                continue
                             if response.status_code == 413 or "tpm" in str(err_msg).lower():
-                                alt_groq = "llama-3.1-8b-instant" if "70b" in str(payload.get("model", "")) else "llama-3.3-70b-versatile"
+                                alt_groq = "openai/gpt-oss-20b" if "120b" in str(payload.get("model", "")) else "openai/gpt-oss-120b"
                                 safe_print(f"   ⚠️ [AI Service] Groq {payload.get('model')} hit token/TPM limit; falling back to high-capacity Groq model ({alt_groq})...")
                                 payload["model"] = alt_groq
                                 continue

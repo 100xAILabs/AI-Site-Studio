@@ -4,14 +4,17 @@ AI routes — content generation, SEO, color palettes, template recommendations.
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.request_limits import enforce_user_limit
 from app.models.user import User
 from app.services.ai_service import ai_service
+from app.services.entitlement_service import EntitlementService
 
 router = APIRouter()
 
@@ -44,14 +47,27 @@ class RecommendRequest(BaseModel):
 async def generate_content(
     request: ContentGenerateRequest,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Generate website content for a business using GPT."""
+    """Generate website content for a business using AI."""
+    ent_svc = EntitlementService(db)
+    can_op, reason, cost = await ent_svc.check_ai_generation_entitlement(current_user, "content_generation")
+    if not can_op:
+        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=reason)
+
     try:
         result = await ai_service.generate_business_content(
             business_name=request.business_name,
             industry=request.industry,
             template_type=request.template_type,
             additional_context=request.additional_context,
+        )
+        await ent_svc.deduct_ai_credits(
+            user=current_user,
+            operation="content_generation",
+            provider="gemini",
+            model_name="gemini-1.5-flash",
+            metadata={"business": request.business_name},
         )
         return result
     except (RuntimeError, ValueError) as e:
@@ -64,15 +80,29 @@ async def generate_content(
 async def generate_seo(
     request: SEORequest,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Generate SEO meta tags and keywords."""
+    ent_svc = EntitlementService(db)
+    can_op, reason, cost = await ent_svc.check_ai_generation_entitlement(current_user, "seo_generation")
+    if not can_op:
+        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=reason)
+
     try:
-        return await ai_service.generate_seo(
+        res = await ai_service.generate_seo(
             business_name=request.business_name,
             industry=request.industry,
             services=request.services,
             location=request.location,
         )
+        await ent_svc.deduct_ai_credits(
+            user=current_user,
+            operation="seo_generation",
+            provider="gemini",
+            model_name="gemini-1.5-flash",
+            metadata={"business": request.business_name},
+        )
+        return res
     except (RuntimeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -83,13 +113,26 @@ async def generate_seo(
 async def generate_color_palette(
     request: ColorPaletteRequest,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Generate a color palette for a business."""
+    ent_svc = EntitlementService(db)
+    can_op, reason, cost = await ent_svc.check_ai_generation_entitlement(current_user, "color_palette")
+    if not can_op:
+        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=reason)
+
     try:
-        return await ai_service.generate_color_palette(
+        res = await ai_service.generate_color_palette(
             industry=request.industry,
             mood=request.mood,
         )
+        await ent_svc.deduct_ai_credits(
+            user=current_user,
+            operation="color_palette",
+            provider="gemini",
+            model_name="gemini-1.5-flash",
+        )
+        return res
     except (RuntimeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -121,12 +164,25 @@ class ChatRequest(BaseModel):
 async def chat_assistant(
     request: ChatRequest,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Chat with the AI Site Studio assistant."""
     await enforce_user_limit(str(current_user.id), "ai-chat")
+    ent_svc = EntitlementService(db)
+    can_op, reason, cost = await ent_svc.check_ai_generation_entitlement(current_user, "conversational_edit")
+    if not can_op:
+        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=reason)
+
     try:
         res = await ai_service.chat_with_assistant(
             message=request.message,
+        )
+        await ent_svc.deduct_ai_credits(
+            user=current_user,
+            operation="conversational_edit",
+            provider="gemini",
+            model_name="gemini-1.5-flash",
+            metadata={"message_len": len(request.message)},
         )
         
         # Generate audio for the reply in the same request to optimize latency

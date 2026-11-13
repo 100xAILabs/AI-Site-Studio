@@ -8,7 +8,13 @@ import { ThemeProvider } from 'next-themes'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <ThemeProvider attribute="class" defaultTheme="dark" forcedTheme="dark" enableSystem={false} disableTransitionOnChange>
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="system"
+      enableSystem={true}
+      storageKey="site-studio-theme"
+      disableTransitionOnChange={false}
+    >
       <AppAuthProvider>
         <Providers>
           <App />

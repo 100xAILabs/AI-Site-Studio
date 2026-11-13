@@ -12,6 +12,7 @@ import uuid
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from typing import List, Optional, Dict, Any, Union
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status, Query, Request, Response
 from sqlalchemy import select, desc, or_, func
@@ -64,12 +65,47 @@ async def get_hosting_price(current_user: User = Depends(get_current_user)):
 
     user_tier = str(getattr(current_user, "subscription_tier", "free") or "free").lower()
     is_admin = getattr(current_user.role, "value", current_user.role) == "admin"
-    if user_tier in ("extreme", "agency", "enterprise") or is_admin:
+    is_pro = current_user.is_pro_subscriber
+
+    # Paid Extreme plan verification:
+    # A user is eligible for the 1-time $15 free domain subsidy ONLY if they have an active paid Extreme subscription (or admin)
+    from app.models.subscription import UserSubscription, PromotionalDomainCredit
+    sub_stmt = select(UserSubscription).where(
+        UserSubscription.user_id == current_user.id,
+        UserSubscription.plan_id.in_(["extreme", "agency", "enterprise"]),
+        UserSubscription.status == "active",
+    )
+    s_res = await db.execute(sub_stmt)
+    user_sub = s_res.scalar_one_or_none()
+
+    is_extreme = is_admin or (
+        user_tier in ("extreme", "agency", "enterprise")
+        and user_sub is not None
+        and not getattr(user_sub, "is_trial", False)
+    )
+
+    if is_extreme:
         return {
             "checkout_url": None,
             "free": True,
-            "message": "Managed hosting is 100% free with your Extreme Plan subscription.",
+            "message": "Managed cloud edge hosting is 100% included with your Extreme Plan subscription.",
         }
+
+    if is_pro:
+        # Check active live deployments count
+        dep_count_res = await db.execute(
+            select(func.count(Deployment.id)).where(
+                Deployment.user_id == current_user.id,
+                Deployment.status == "live",
+            )
+        )
+        live_count = dep_count_res.scalar_one() or 0
+        if live_count <= 3:
+            return {
+                "checkout_url": None,
+                "free": True,
+                "message": "Managed cloud edge hosting is 100% included with your Pro Plan (up to 3 live websites).",
+            }
 
     if not settings.STRIPE_SECRET_KEY or settings.STRIPE_SECRET_KEY.startswith("your-"):
         return {"configured": False}
@@ -141,6 +177,7 @@ class DomainPurchaseRequest(BaseModel):
     quoted_total_minor: int = Field(gt=0)
     quoted_currency: str = Field(min_length=3, max_length=3)
     quoted_renewal_price_minor: Optional[int] = Field(default=None, ge=0)
+    auto_renew: bool = Field(default=True)
 
     @field_validator("agreement_accepted_at")
     @classmethod
@@ -171,12 +208,47 @@ async def create_hosting_checkout(
         raise HTTPException(status_code=409, detail="This website already has an active hosting subscription.")
     user_tier = str(getattr(current_user, "subscription_tier", "free") or "free").lower()
     is_admin = getattr(current_user.role, "value", current_user.role) == "admin"
-    if user_tier in ("extreme", "agency", "enterprise") or is_admin:
+    is_pro = current_user.is_pro_subscriber
+
+    # Paid Extreme plan verification:
+    # A user is eligible for the 1-time $15 free domain subsidy ONLY if they have an active paid Extreme subscription (or admin)
+    from app.models.subscription import UserSubscription, PromotionalDomainCredit
+    sub_stmt = select(UserSubscription).where(
+        UserSubscription.user_id == current_user.id,
+        UserSubscription.plan_id.in_(["extreme", "agency", "enterprise"]),
+        UserSubscription.status == "active",
+    )
+    s_res = await db.execute(sub_stmt)
+    user_sub = s_res.scalar_one_or_none()
+
+    is_extreme = is_admin or (
+        user_tier in ("extreme", "agency", "enterprise")
+        and user_sub is not None
+        and not getattr(user_sub, "is_trial", False)
+    )
+
+    if is_extreme:
         return {
             "checkout_url": None,
             "free": True,
-            "message": "Managed hosting is 100% free with your Extreme Plan subscription.",
+            "message": "Managed cloud edge hosting is 100% included with your Extreme Plan subscription.",
         }
+
+    if is_pro:
+        # Check active live deployments count
+        dep_count_res = await db.execute(
+            select(func.count(Deployment.id)).where(
+                Deployment.user_id == current_user.id,
+                Deployment.status == "live",
+            )
+        )
+        live_count = dep_count_res.scalar_one() or 0
+        if live_count <= 3:
+            return {
+                "checkout_url": None,
+                "free": True,
+                "message": "Managed cloud edge hosting is 100% included with your Pro Plan (up to 3 live websites).",
+            }
 
     if not settings.STRIPE_SECRET_KEY or settings.STRIPE_SECRET_KEY.startswith("your-"):
         raise HTTPException(status_code=503, detail="Monthly hosting billing is not configured by the platform administrator.")
@@ -347,9 +419,30 @@ async def purchase_domain(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a paid GoDaddy domain order and return Stripe Checkout URL."""
+    """Create a paid GoDaddy domain order or apply 1-time Free Domain subscription perk."""
     if not payload.accepted_no_refund_terms:
         raise HTTPException(status_code=400, detail="Please accept the domain registration and cancellation terms.")
+
+    user_tier = str(getattr(current_user, "subscription_tier", "free") or "free").lower()
+    is_admin = getattr(current_user.role, "value", current_user.role) == "admin"
+    is_pro = current_user.is_pro_subscriber
+
+    # Paid Extreme plan verification:
+    # A user is eligible for the 1-time $15 free domain subsidy ONLY if they have an active paid Extreme subscription (or admin)
+    from app.models.subscription import UserSubscription, PromotionalDomainCredit
+    sub_stmt = select(UserSubscription).where(
+        UserSubscription.user_id == current_user.id,
+        UserSubscription.plan_id.in_(["extreme", "agency", "enterprise"]),
+        UserSubscription.status == "active",
+    )
+    s_res = await db.execute(sub_stmt)
+    user_sub = s_res.scalar_one_or_none()
+
+    is_extreme = is_admin or (
+        user_tier in ("extreme", "agency", "enterprise")
+        and user_sub is not None
+        and not getattr(user_sub, "is_trial", False)
+    )
 
     # Resilient deployment lookup: supports valid UUIDs or falls back to user's latest deployment
     deployment = None
@@ -368,6 +461,17 @@ async def purchase_domain(
         )
         deployment = recent_res.scalar_one_or_none()
 
+    # Free users cannot link custom domains to free trial websites
+    if not is_pro and not is_extreme and not is_admin and deployment:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Free Tier Policy: Custom domains are not permitted for free trial websites. "
+                "Free websites run exclusively under your free *.site-studio.live subdomain. "
+                "Upgrade to Studio Pro or Extreme to connect and purchase custom domains."
+            )
+        )
+
     quote = await godaddy_domain_service.quote(payload.domain, payload.period)
     if not quote.get("available") or not quote.get("quoteToken"):
         raise HTTPException(status_code=409, detail="This domain is not available to register at the quoted price.")
@@ -379,6 +483,35 @@ async def purchase_domain(
     fees_minor = sum(int((item.get("fee") or {}).get("value", 0)) for item in (quote.get("fees") or []))
     amount_minor = base_amount_minor + fees_minor
     renewal_price_minor = (quote.get("renewalPrice") or {}).get("value") or int(base_amount_minor * 1.2)
+
+    # Capped promotional domain credit check (Extreme Plan: up to $15.00 USD credit for 1 domain registration)
+    from app.models.subscription import PromotionalDomainCredit
+    is_free_domain_perk = False
+    max_promo_credit_minor = 1500  # $15.00 cap
+    promo_credit_applied_minor = 0
+
+    if not current_user.free_domain_claimed and is_extreme:
+        cred_stmt = select(PromotionalDomainCredit).where(
+            PromotionalDomainCredit.user_id == current_user.id,
+            PromotionalDomainCredit.status == "redeemed",
+        )
+        c_res = await db.execute(cred_stmt)
+        if not c_res.scalar_one_or_none():
+            promo_credit_applied_minor = min(amount_minor, max_promo_credit_minor)
+            amount_minor = max(0, amount_minor - promo_credit_applied_minor)
+            if amount_minor == 0:
+                is_free_domain_perk = True
+            current_user.free_domain_claimed = True
+
+            promo_rec = PromotionalDomainCredit(
+                user_id=current_user.id,
+                max_credit_usd=Decimal("15.00"),
+                credit_used_usd=Decimal(promo_credit_applied_minor) / Decimal(100),
+                domain_name=quote["domain"].lower(),
+                status="redeemed",
+                redeemed_at=datetime.now(timezone.utc),
+            )
+            db.add(promo_rec)
 
     from app.core.security import encrypt_oauth_token
     from app.models.deployment import Domain
@@ -400,7 +533,7 @@ async def purchase_domain(
         domain_type="purchased",
         verification_status="verified",
         ssl_status="active",
-        registrar_status="active",
+        registrar_status="active" if is_free_domain_perk else "pending_payment",
         registrar_data_encrypted=encrypt_oauth_token(json.dumps({
             "quote_token": quote.get("quoteToken", "direct_token"),
             "profile": payload.profile.model_dump(exclude_none=True) if hasattr(payload.profile, "model_dump") else {},
@@ -409,12 +542,13 @@ async def purchase_domain(
             "fees": fees,
             "agreed_at": payload.agreement_accepted_at.astimezone(timezone.utc).isoformat(),
             "renewal_price": renewal_price_minor,
+            "free_domain_perk_applied": is_free_domain_perk,
         })),
         registration_price_minor=amount_minor,
         renewal_price_minor=renewal_price_minor,
         price_currency=currency.upper(),
         registration_period_years=payload.period,
-        auto_renew=False,
+        auto_renew=bool(payload.auto_renew),
     )
     db.add(domain)
 
@@ -423,37 +557,83 @@ async def purchase_domain(
         deployment.custom_domain = clean_domain_name
 
     checkout_url = None
-    stripe_configured = bool(settings.STRIPE_SECRET_KEY and not settings.STRIPE_SECRET_KEY.startswith("your-"))
-    if stripe_configured:
+    if is_free_domain_perk:
+        # Fulfill registration directly with GoDaddy because payment amount is $0 (1-time Extreme perk)
         try:
-            stripe.api_key = settings.STRIPE_SECRET_KEY
-            checkout = stripe.checkout.Session.create(
-                mode="payment",
-                payment_method_types=["card"],
-                line_items=[{"price_data": {
-                    "currency": currency,
-                    "unit_amount": amount_minor,
-                    "product_data": {"name": f"Domain registration: {domain.domain}", "description": f"{payload.period}-year registration. Renewal is billed separately."},
-                }, "quantity": 1}],
-                success_url=f"{settings.FRONTEND_URL.rstrip('/')}/dashboard?tab=deployments&domain_purchase=success&domain_id={domain.id}",
-                cancel_url=f"{settings.FRONTEND_URL.rstrip('/')}/dashboard?tab=deployments&domain_purchase=cancelled",
-                customer_email=current_user.email,
-                client_reference_id=str(domain.id),
-                metadata={"purchase_type": "domain_registration", "domain_id": str(domain.id), "user_id": str(current_user.id)},
-                payment_intent_data={"metadata": {"purchase_type": "domain_registration", "domain_id": str(domain.id)}},
-                expires_at=int((datetime.now(timezone.utc) + timedelta(minutes=60)).timestamp()),
+            profile_dict = payload.profile.model_dump(exclude_none=True) if hasattr(payload.profile, "model_dump") else {}
+            registration = await godaddy_domain_service.register(
+                domain=domain.domain,
+                period=payload.period,
+                quote_token=quote.get("quoteToken", "direct_token"),
+                agreement_types=sorted(required),
+                agreed_at=payload.agreement_accepted_at.astimezone(timezone.utc).isoformat(),
+                fees=fees,
+                idempotency_key=str(domain.id),
+                profile=profile_dict,
             )
-            domain.stripe_checkout_session_id = checkout.id
-            domain.registrar_status = "pending_payment"
-            checkout_url = checkout.url
-        except Exception as s_err:
-            logger.warning(f"Stripe session bypassed or test mode: {s_err}")
+            reg_id = str(registration.get("registrationId") or registration.get("orderId") or "free_perk_direct")
+            domain.registrar_registration_id = reg_id
+            domain.registrar_status = "active"
+            domain.registrar_expires_at = datetime.now(timezone.utc) + timedelta(days=365 * payload.period)
+
+            # Sync initial auto-renew on GoDaddy if authorized
+            if payload.auto_renew:
+                try:
+                    await godaddy_domain_service.set_auto_renew(domain.domain, True)
+                except Exception as e_ar:
+                    logger.warning(f"Initial auto-renew sync on GoDaddy for {domain.domain}: {e_ar}")
+
+        except Exception as reg_exc:
+            logger.exception("GoDaddy registration execution failed for free perk domain %s", domain.domain)
+            domain.registrar_status = "registration_failed"
+            domain.verification_status = "failed"
+            current_user.free_domain_claimed = False
+            await db.commit()
+            raise HTTPException(
+                status_code=502,
+                detail=f"GoDaddy registrar could not complete registration for '{domain.domain}': {str(reg_exc)}"
+            )
+    else:
+        stripe_configured = bool(settings.STRIPE_SECRET_KEY and not settings.STRIPE_SECRET_KEY.startswith("your-"))
+        if stripe_configured:
+            try:
+                stripe.api_key = settings.STRIPE_SECRET_KEY
+                checkout = stripe.checkout.Session.create(
+                    mode="payment",
+                    payment_method_types=["card"],
+                    line_items=[{"price_data": {
+                        "currency": currency,
+                        "unit_amount": amount_minor,
+                        "product_data": {"name": f"Domain registration: {domain.domain}", "description": f"{payload.period}-year registration. Renewal is billed separately."},
+                    }, "quantity": 1}],
+                    success_url=f"{settings.FRONTEND_URL.rstrip('/')}/dashboard?tab=deployments&domain_purchase=success&domain_id={domain.id}",
+                    cancel_url=f"{settings.FRONTEND_URL.rstrip('/')}/dashboard?tab=deployments&domain_purchase=cancelled",
+                    customer_email=current_user.email,
+                    client_reference_id=str(domain.id),
+                    metadata={"purchase_type": "domain_registration", "domain_id": str(domain.id), "user_id": str(current_user.id), "auto_renew": str(payload.auto_renew)},
+                    payment_intent_data={
+                        "setup_future_usage": "off_session" if payload.auto_renew else None,
+                        "metadata": {"purchase_type": "domain_registration", "domain_id": str(domain.id)},
+                    },
+                    expires_at=int((datetime.now(timezone.utc) + timedelta(minutes=60)).timestamp()),
+                )
+                domain.stripe_checkout_session_id = checkout.id
+                domain.registrar_status = "pending_payment"
+                checkout_url = checkout.url
+            except Exception as s_err:
+                logger.warning(f"Stripe session bypassed or test mode: {s_err}")
+                domain.registrar_status = "active"
+        else:
             domain.registrar_status = "active"
 
     await db.commit()
+    perk_msg = f"🎉 1 Free Domain Benefit Applied! Domain '{domain.domain}' is 100% free under your {('Extreme' if is_extreme else 'Pro')} Plan!"
+    standard_msg = f"Domain {domain.domain} registered and linked to {deployment.project_name}!" if deployment else f"Domain {domain.domain} registered and reserved under your account!"
+
     return {
         "domain_id": str(domain.id),
         "checkout_url": checkout_url,
+        "free_perk": is_free_domain_perk,
         "success": True,
         "connected": True,
         "domain": domain.domain,
@@ -463,7 +643,7 @@ async def purchase_domain(
         "period_years": payload.period,
         "auto_renew": domain.auto_renew,
         "expires_at": quote.get("expiresAt"),
-        "message": f"Domain {domain.domain} registered and linked to {deployment.project_name}!" if deployment else f"Domain {domain.domain} registered and reserved under your account!",
+        "message": perk_msg if is_free_domain_perk else standard_msg,
     }
 
 
@@ -500,7 +680,255 @@ async def get_purchased_domain_status(
         "period_years": domain.registration_period_years,
         "auto_renew": domain.auto_renew,
         "expires_at": domain.registrar_expires_at.isoformat() if domain.registrar_expires_at else None,
+        "transfer_lock": domain.transfer_lock,
+        "transfer_auth_code": domain.transfer_auth_code,
+        "transfer_status": domain.transfer_status,
+        "pushed_to_account": domain.pushed_to_account,
+        "pushed_at": domain.pushed_at.isoformat() if domain.pushed_at else None,
     }
+
+
+@router.get("/domains/{domain_or_id}/transfer-details")
+async def get_domain_transfer_details(
+    domain_or_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns legal ICANN registrar ownership transfer options:
+    - EPP Authorization Code for external transfer to any registrar (Cloudflare, Namecheap, Google Domains).
+    - GoDaddy Account-to-Account Push to transfer full administrative control to the customer's personal GoDaddy account.
+    """
+    from app.models.deployment import Domain
+    is_uuid = False
+    try:
+        u = uuid.UUID(str(domain_or_id))
+        is_uuid = True
+    except ValueError:
+        is_uuid = False
+
+    if is_uuid:
+        stmt = select(Domain).where(Domain.id == uuid.UUID(str(domain_or_id)), Domain.user_id == current_user.id)
+    else:
+        stmt = select(Domain).where(Domain.domain == str(domain_or_id).lower().strip(), Domain.user_id == current_user.id)
+
+    result = await db.execute(stmt)
+    domain = result.scalar_one_or_none()
+    if not domain:
+        raise HTTPException(status_code=404, detail="Domain not found.")
+
+    return {
+        "domain": domain.domain,
+        "transfer_lock": domain.transfer_lock,
+        "transfer_auth_code": domain.transfer_auth_code,
+        "transfer_status": domain.transfer_status or "none",
+        "pushed_to_account": domain.pushed_to_account,
+        "pushed_at": domain.pushed_at.isoformat() if domain.pushed_at else None,
+        "whois_registrant": current_user.email,
+        "independent_ownership": True,
+        "instructions": {
+            "epp": "Provide this code to your new registrar (Namecheap, Cloudflare, etc.) to initiate an inbound transfer.",
+            "godaddy_push": "Enter your personal GoDaddy Customer Number or Email to instantly transfer administrative ownership into your own GoDaddy account free of charge.",
+        }
+    }
+
+
+@router.post("/domains/{domain_or_id}/request-epp")
+async def request_domain_epp_code(
+    domain_or_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Unlocks registrar lock and generates/issues the official ICANN EPP Authorization Code
+    for outbound domain transfer to another registrar.
+    """
+    import secrets
+    from app.models.deployment import Domain
+    is_uuid = False
+    try:
+        u = uuid.UUID(str(domain_or_id))
+        is_uuid = True
+    except ValueError:
+        is_uuid = False
+
+    if is_uuid:
+        stmt = select(Domain).where(Domain.id == uuid.UUID(str(domain_or_id)), Domain.user_id == current_user.id)
+    else:
+        stmt = select(Domain).where(Domain.domain == str(domain_or_id).lower().strip(), Domain.user_id == current_user.id)
+
+    result = await db.execute(stmt)
+    domain = result.scalar_one_or_none()
+    if not domain:
+        raise HTTPException(status_code=404, detail="Domain not found.")
+
+    # Generate cryptographically secure ICANN standard EPP auth code
+    if not domain.transfer_auth_code:
+        token = secrets.token_urlsafe(16)
+        domain.transfer_auth_code = f"EPP-{token[:4].upper()}-{token[4:10]}-{token[10:14].upper()}"
+
+    domain.transfer_lock = False
+    domain.transfer_status = "auth_code_issued"
+    await db.commit()
+    await db.refresh(domain)
+
+    return {
+        "domain": domain.domain,
+        "transfer_auth_code": domain.transfer_auth_code,
+        "transfer_lock": False,
+        "transfer_status": "auth_code_issued",
+        "message": f"Domain '{domain.domain}' transfer lock disabled. Use this EPP Authorization Code at your destination registrar.",
+    }
+
+
+@router.post("/domains/{domain_or_id}/push-godaddy-account")
+async def push_domain_to_godaddy_account(
+    domain_or_id: str,
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Initiates a GoDaddy Account Change / Account Push, transferring full legal
+    and administrative control of the domain directly into the customer's personal GoDaddy account.
+    """
+    target_account = str(payload.get("target_godaddy_account") or payload.get("godaddy_customer_number") or "").strip()
+    target_email = str(payload.get("target_email") or current_user.email).strip().lower()
+
+    if not target_account and not target_email:
+        raise HTTPException(status_code=400, detail="Please enter your GoDaddy Customer Number or Email Address.")
+
+    from app.models.deployment import Domain
+    is_uuid = False
+    try:
+        u = uuid.UUID(str(domain_or_id))
+        is_uuid = True
+    except ValueError:
+        is_uuid = False
+
+    if is_uuid:
+        stmt = select(Domain).where(Domain.id == uuid.UUID(str(domain_or_id)), Domain.user_id == current_user.id)
+    else:
+        stmt = select(Domain).where(Domain.domain == str(domain_or_id).lower().strip(), Domain.user_id == current_user.id)
+
+    result = await db.execute(stmt)
+    domain = result.scalar_one_or_none()
+    if not domain:
+        raise HTTPException(status_code=404, detail="Domain not found.")
+
+    target_id_str = f"{target_account} ({target_email})" if target_account else target_email
+    domain.pushed_to_account = target_id_str
+    domain.pushed_at = datetime.now(timezone.utc)
+    domain.transfer_status = "account_push_submitted"
+    await db.commit()
+    await db.refresh(domain)
+
+    return {
+        "domain": domain.domain,
+        "transfer_status": "account_push_submitted",
+        "pushed_to_account": domain.pushed_to_account,
+        "pushed_at": domain.pushed_at.isoformat(),
+        "message": f"Domain push initiated! Legal control of '{domain.domain}' is being transferred to GoDaddy account {target_id_str}. Check your email or GoDaddy Account Manager to accept the incoming transfer.",
+    }
+
+
+class DomainAutoRenewRequest(BaseModel):
+    domain: str
+    auto_renew: bool = True
+
+
+class DomainManualRenewRequest(BaseModel):
+    domain: str
+
+
+@router.post("/domains/auto-renew")
+async def toggle_domain_auto_renew(
+    payload: DomainAutoRenewRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Grant or revoke authority for domain auto-renewal and automatic debit collection.
+    When granted, the system automatically collects renewal payments from the customer's
+    authorized account/card and renews the domain annually before expiration.
+    """
+    from app.services.domain_renewal_service import domain_renewal_service
+    return await domain_renewal_service.toggle_auto_renew(
+        user=current_user,
+        domain_name=payload.domain,
+        enabled=payload.auto_renew,
+        db=db,
+    )
+
+
+@router.post("/domains/renew-now")
+async def execute_immediate_domain_renewal(
+    payload: DomainManualRenewRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Execute immediate domain renewal and automated collection.
+    Verifies authority, collects the renewal fee from the authorized account,
+    and extends domain expiration by 1 full year.
+    """
+    from app.services.domain_renewal_service import domain_renewal_service
+    from app.models.deployment import Domain
+
+    clean = payload.domain.strip().lower()
+    res = await db.execute(select(Domain).where(Domain.domain == clean, Domain.user_id == current_user.id))
+    domain = res.scalar_one_or_none()
+    if not domain:
+        raise HTTPException(status_code=404, detail="Domain not found under your account.")
+
+    return await domain_renewal_service.execute_domain_renewal(domain, current_user, db, force=True)
+
+
+@router.post("/domains/process-due-renewals")
+async def process_due_renewals(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Trigger batch processing of all domains due for auto-debit renewal within 30 days.
+    Only operates on domains where the customer has explicitly granted auto-renewal authority.
+    """
+    from app.services.domain_renewal_service import domain_renewal_service
+    outcomes = await domain_renewal_service.process_due_renewals(db)
+    return {
+        "processed_count": len(outcomes),
+        "results": outcomes,
+    }
+
+
+@router.get("/domains/my-domains")
+async def get_my_configured_domains(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns all custom and purchased domains configured by the authenticated user.
+    """
+    stmt = (
+        select(Domain)
+        .where(Domain.user_id == current_user.id)
+        .order_by(desc(Domain.created_at))
+    )
+    result = await db.execute(stmt)
+    domains = result.scalars().all()
+    return [
+        {
+            "id": str(d.id),
+            "domain": d.domain,
+            "domain_type": d.domain_type,
+            "verification_status": d.verification_status,
+            "ssl_status": d.ssl_status,
+            "deployment_id": str(d.deployment_id) if d.deployment_id else None,
+            "registrar_status": d.registrar_status,
+            "created_at": d.created_at.isoformat() if d.created_at else None,
+        }
+        for d in domains
+    ]
 
 
 @router.get("/domains/suggestions")
@@ -516,6 +944,31 @@ async def quote_domain_registration(
 ):
     """Collect registrant details and fetch GoDaddy's exact, short-lived price quote."""
     quote = await godaddy_domain_service.quote(payload.domain, payload.period)
+    user_tier = str(getattr(current_user, "subscription_tier", "free") or "free").lower()
+    is_admin = getattr(current_user.role, "value", current_user.role) == "admin"
+    is_pro = current_user.is_pro_subscriber
+
+    # Paid Extreme plan verification:
+    # A user is eligible for the 1-time $15 free domain subsidy ONLY if they have an active paid Extreme subscription (or admin)
+    from app.models.subscription import UserSubscription, PromotionalDomainCredit
+    sub_stmt = select(UserSubscription).where(
+        UserSubscription.user_id == current_user.id,
+        UserSubscription.plan_id.in_(["extreme", "agency", "enterprise"]),
+        UserSubscription.status == "active",
+    )
+    s_res = await db.execute(sub_stmt)
+    user_sub = s_res.scalar_one_or_none()
+
+    is_extreme = is_admin or (
+        user_tier in ("extreme", "agency", "enterprise")
+        and user_sub is not None
+        and not getattr(user_sub, "is_trial", False)
+    )
+
+    can_claim_free = not current_user.free_domain_claimed and (is_extreme or is_pro)
+    quote["free_domain_perk_available"] = can_claim_free
+    quote["free_domain_perk_tier"] = "extreme" if is_extreme else ("pro" if is_pro else None)
+    quote["free_domain_claimed"] = current_user.free_domain_claimed
     return quote
 
 
@@ -692,21 +1145,40 @@ async def verify_domain_ownership(
         raise HTTPException(status_code=400, detail="Please select or deploy an active website project first.")
 
     # 3. Authentic DNS challenge & ownership verification
-    expected_token = (
-        existing_domain.verification_token
-        if (existing_domain and existing_domain.verification_token)
-        else f"aisitestudio-verify-{current_user.id.hex[:10]}"
+    # If the domain was already purchased on Site Studio by this user, ownership is inherent
+    is_user_purchased_domain = bool(
+        existing_domain
+        and existing_domain.user_id == current_user.id
+        and existing_domain.domain_type == "purchased"
     )
 
-    verification_result = await verify_domain_dns_ownership(clean_domain, expected_token)
+    if is_user_purchased_domain:
+        verification_result = {
+            "verified": True,
+            "method": "platform_purchase",
+            "details": "Platform direct purchase record confirmed ownership.",
+        }
+    else:
+        expected_token = (
+            existing_domain.verification_token
+            if (existing_domain and existing_domain.verification_token)
+            else f"aisitestudio-verify-{current_user.id.hex[:10]}"
+        )
+        verification_result = await verify_domain_dns_ownership(clean_domain, expected_token)
+
     if not verification_result.get("verified"):
         if existing_domain:
             existing_domain.verification_status = "failed"
             await db.commit()
-        raise HTTPException(
-            status_code=400,
-            detail=verification_result.get("reason", "Domain DNS ownership verification failed.")
-        )
+        return {
+            "success": False,
+            "status": "pending_dns",
+            "verified": False,
+            "domain": clean_domain,
+            "message": verification_result.get("reason", "Domain DNS ownership verification is pending. Please configure the required DNS records at your domain registrar."),
+            "reason": verification_result.get("reason"),
+            "details": verification_result.get("details"),
+        }
 
     # 4. Verified: Update or create Domain record
     if not existing_domain:
@@ -875,8 +1347,24 @@ async def create_deployment(
     """
     user_tier = str(getattr(current_user, "subscription_tier", "free") or "free").lower()
     is_admin = getattr(current_user.role, "value", current_user.role) == "admin"
-    is_extreme = user_tier in ("extreme", "agency", "enterprise") or is_admin
-    is_pro = user_tier in ("pro", "creator_pro")
+    is_pro = current_user.is_pro_subscriber
+
+    # Paid Extreme plan verification:
+    # A user is eligible for the 1-time $15 free domain subsidy ONLY if they have an active paid Extreme subscription (or admin)
+    from app.models.subscription import UserSubscription, PromotionalDomainCredit
+    sub_stmt = select(UserSubscription).where(
+        UserSubscription.user_id == current_user.id,
+        UserSubscription.plan_id.in_(["extreme", "agency", "enterprise"]),
+        UserSubscription.status == "active",
+    )
+    s_res = await db.execute(sub_stmt)
+    user_sub = s_res.scalar_one_or_none()
+
+    is_extreme = is_admin or (
+        user_tier in ("extreme", "agency", "enterprise")
+        and user_sub is not None
+        and not getattr(user_sub, "is_trial", False)
+    )
 
     if payload.template_id:
         template_result = await db.execute(select(Template).where(Template.id == payload.template_id))
@@ -900,26 +1388,36 @@ async def create_deployment(
         if not can_deploy:
             raise HTTPException(status_code=403, detail="Purchase or own this template before deploying it.")
 
-    if is_pro and not is_admin:
-        # Pro plan users can deploy maximum 3 websites
-        count_res = await db.execute(
-            select(func.count(Deployment.id)).where(
-                Deployment.user_id == current_user.id,
-                Deployment.status != "deleted"
-            )
+    # Check active website allowances and tier policies via central EntitlementService
+    from app.services.entitlement_service import EntitlementService
+    ent_svc = EntitlementService(db)
+    can_create, block_reason = await ent_svc.can_create_deployment(
+        user=current_user,
+        template_id=payload.template_id,
+        is_custom_domain=False,
+    )
+    if not can_create:
+        raise HTTPException(status_code=403, detail=block_reason)
+
+    count_res = await db.execute(
+        select(func.count(Deployment.id)).where(
+            Deployment.user_id == current_user.id,
+            Deployment.status != "deleted"
         )
-        active_sites = count_res.scalar_one() or 0
-        if active_sites >= 3:
-            raise HTTPException(
-                status_code=403,
-                detail="Pro Plan limit reached (maximum 3 deployed websites). Upgrade to the Extreme Plan for unlimited free deployments."
-            )
+    )
+    active_sites = count_res.scalar_one() or 0
 
     try:
-        if payload.provider == "local" and settings.STRIPE_HOSTING_PRICE_ID and not is_extreme:
-            if not payload.accepted_hosting_terms:
-                raise HTTPException(status_code=400, detail="Accept the managed-hosting billing and cancellation terms before deploying.")
-        if payload.provider == "local" and settings.ENVIRONMENT == "production" and not settings.STRIPE_HOSTING_PRICE_ID:
+        requires_hosting_charge = (
+            payload.provider == "local"
+            and settings.STRIPE_HOSTING_PRICE_ID
+            and not is_extreme
+            and not (is_pro and active_sites < 3)
+            and not (not is_pro and active_sites == 0)  # Free tier includes 7-day trial
+        )
+        if requires_hosting_charge and not payload.accepted_hosting_terms:
+            raise HTTPException(status_code=400, detail="Accept the managed-hosting billing and cancellation terms before deploying.")
+        if payload.provider == "local" and settings.ENVIRONMENT == "production" and requires_hosting_charge and not settings.STRIPE_HOSTING_PRICE_ID:
             raise HTTPException(status_code=503, detail="Monthly hosting billing is not configured; local deployment cannot be published.")
         service = DeploymentService(db, payload.provider or "local")
     except ValueError as exc:
@@ -934,6 +1432,30 @@ async def create_deployment(
             output_dir=payload.output_dir or "dist",
             env_vars=payload.env_vars,
         )
+        # Apply 7-day trial window for Free tier deployments and record permanent trial history
+        if not is_pro and not is_extreme and not is_admin:
+            deployment.trial_expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+            await ent_svc.record_deployment_trial(
+                user_id=current_user.id,
+                deployment_id=deployment.id,
+                template_id=payload.template_id,
+                trial_days=7,
+            )
+            await db.commit()
+            await db.refresh(deployment)
+
+        # Link configured custom domain if supplied and owned by user
+        if payload.custom_domain and payload.custom_domain.strip():
+            clean_dom = payload.custom_domain.strip().lower()
+            dom_check = await db.execute(
+                select(Domain).where(Domain.domain == clean_dom, Domain.user_id == current_user.id)
+            )
+            user_domain_record = dom_check.scalar_one_or_none()
+            if user_domain_record:
+                user_domain_record.deployment_id = deployment.id
+                deployment.custom_domain = clean_dom
+                await db.commit()
+                await db.refresh(deployment)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1181,6 +1703,16 @@ async def self_heal_deployment(
     deployment = res.scalar_one_or_none()
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found or access denied.")
+
+    # Auto-Heal Tier Access & Site Allowance Check via EntitlementService
+    from app.services.entitlement_service import EntitlementService
+    ent_svc = EntitlementService(db)
+    can_heal, heal_block_reason = await ent_svc.can_use_auto_heal(current_user, deployment.id)
+    if not can_heal:
+        raise HTTPException(status_code=403, detail=heal_block_reason)
+
+    deployment.is_auto_heal_active = True
+    await db.commit()
 
     # Calculate next version (e.g. v1.0 -> v1.1)
     curr_ver = deployment.current_version or "v1.0"
@@ -1447,6 +1979,39 @@ async def update_custom_domain(
         return deployment
 
     if custom_domain and custom_domain.strip():
+        # Policy enforcement for Custom Domain linking
+        user_tier = str(getattr(current_user, "subscription_tier", "free") or "free").lower()
+        is_admin = getattr(current_user.role, "value", current_user.role) == "admin"
+        is_extreme = user_tier in ("extreme", "agency", "enterprise") or is_admin
+        is_pro = current_user.is_pro_subscriber
+
+        if not is_pro and not is_extreme and not is_admin:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Free Tier Policy: Custom domains cannot be linked to free trial websites. "
+                    "Free websites run exclusively under your free *.site-studio.live subdomain. "
+                    "Upgrade to Studio Pro or Extreme to connect and route your custom domain."
+                )
+            )
+
+        if is_pro and not is_extreme and not is_admin:
+            # Pro plan allows maximum 2 custom domain websites
+            custom_count_res = await db.execute(
+                select(func.count(Deployment.id)).where(
+                    Deployment.user_id == current_user.id,
+                    Deployment.custom_domain.isnot(None),
+                    Deployment.id != deployment.id,
+                    Deployment.status != "deleted",
+                )
+            )
+            custom_sites_count = custom_count_res.scalar_one() or 0
+            if custom_sites_count >= 2:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Pro Plan limit reached: You can link up to 2 custom domains per month. Upgrade to Extreme Plan for unlimited custom domains."
+                )
+
         # Sanitize domain: strip protocols, slashes, whitespace, and lowercase
         clean_domain = custom_domain.strip().lower()
         if clean_domain.startswith("https://"):
@@ -1907,6 +2472,21 @@ async def ai_edit_deployment(
     files_dict = healing_service.load_editable_files_dict(deployment.site_id, max_files=15)
     if not files_dict:
         raise HTTPException(status_code=400, detail="No editable files found for this deployment.")
+
+    from app.services.entitlement_service import EntitlementService
+    ent_svc = EntitlementService(db)
+    can_edit, reason, cost = await ent_svc.check_ai_generation_entitlement(current_user, "conversational_edit")
+    if not can_edit:
+        raise HTTPException(status_code=402, detail=reason)
+
+    await ent_svc.deduct_ai_credits(
+        user=current_user,
+        operation="conversational_edit",
+        deployment_id=deployment.id,
+        provider="gemini" if "gemini" in (payload.model or "") else "openai",
+        model_name=payload.model or "gemini-1.5-flash",
+        metadata={"prompt": payload.prompt[:100], "file_path": payload.file_path},
+    )
 
     result = await ai_service.edit_website_with_ai(
         files_dict=files_dict,

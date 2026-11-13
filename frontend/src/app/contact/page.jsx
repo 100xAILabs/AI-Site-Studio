@@ -125,7 +125,7 @@ export default function ContactPage() {
                 </div>
                 <div className="contact-card-info">
                   <h3 className="contact-card-title">Live Concierge</h3>
-                  <p className="contact-card-desc">Instant 24/7 AI & Team Support</p>
+                  <p className="contact-card-desc">Instant 24/7 Automated & Team Support</p>
                 </div>
               </div>
 

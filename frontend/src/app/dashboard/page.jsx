@@ -84,6 +84,9 @@ import {
   AlertCircle,
   PanelLeftClose,
   PanelLeftOpen,
+  Crown,
+  Layers,
+  Send,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { api } from "@/lib/api";
@@ -96,13 +99,14 @@ import AdminIncidentsCenter from "@/components/dashboard/AdminIncidentsCenter";
 import ReportIssueModal from "@/components/dashboard/ReportIssueModal";
 import DownloadWarningModal from "@/components/modals/DownloadWarningModal";
 import DeploymentFixConsole from "@/components/dashboard/DeploymentFixConsole";
+import ThemeToggle from "@/components/layout/ThemeToggle";
 import "./Page.css";
 
 // Env-aware API base — reads VITE_API_URL from .env, falls back to localhost for development
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api/v1";
 const BACKEND_BASE = API_BASE.replace(/\/api\/v1\/?$/, "");
 
-export const resolveMediaUrl = (url) => {
+const resolveMediaUrl = (url) => {
   if (!url || typeof url !== "string") return "";
   if (url.includes("localhost:8000/api/v1/files") || url.includes("127.0.0.1:8000/api/v1/files")) {
     return url.replace(/^https?:\/\/(localhost|127\.0\.0\.1):8000\/api\/v1\/files/, `${BACKEND_BASE}/api/v1/files`);
@@ -246,7 +250,7 @@ function Dashboard() {
       const next = !prev;
       try {
         localStorage.setItem("aisitestudio_sidebar_hidden", String(next));
-      } catch {}
+      } catch { }
       return next;
     });
   };
@@ -611,6 +615,8 @@ function Dashboard() {
   const [isConsoleStreamPaused, setIsConsoleStreamPaused] = useState(false);
   const [isAutoFixingFromConsole, setIsAutoFixingFromConsole] = useState(false);
   const [copyLogsFeedback, setCopyLogsFeedback] = useState(false);
+  const [deploymentSearchQuery, setDeploymentSearchQuery] = useState("");
+  const [deploymentStatusFilter, setDeploymentStatusFilter] = useState("all");
 
   // Wizard form state
   const [deployProjectName, setDeployProjectName] = useState("");
@@ -752,6 +758,61 @@ function Dashboard() {
 
   const isSeller = user?.role === "seller" || user?.role === "SELLER";
   const isAdmin = user?.role === "admin" || user?.role === "super_admin" || user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
+
+  // Domain Transfer & Registrar Ownership Modal States
+  const [transferModalDomain, setTransferModalDomain] = useState(null);
+  const [transferDetails, setTransferDetails] = useState(null);
+  const [transferLoading, setTransferLoading] = useState(false);
+  const [transferPushAccount, setTransferPushAccount] = useState("");
+  const [transferActionLoading, setTransferActionLoading] = useState(false);
+
+  const openDomainTransferModal = async (domainName) => {
+    setTransferModalDomain(domainName);
+    setTransferLoading(true);
+    try {
+      const data = await api.get(`/deployments/domains/${encodeURIComponent(domainName)}/transfer-details`, authToken ?? undefined);
+      setTransferDetails(data);
+    } catch (err) {
+      toast.error("Failed to load registrar transfer details: " + err.message);
+    } finally {
+      setTransferLoading(false);
+    }
+  };
+
+  const handleRequestEPP = async () => {
+    if (!transferModalDomain) return;
+    setTransferActionLoading(true);
+    try {
+      const res = await api.post(`/deployments/domains/${encodeURIComponent(transferModalDomain)}/request-epp`, {}, authToken ?? undefined);
+      setTransferDetails(prev => ({ ...prev, transfer_auth_code: res.transfer_auth_code, transfer_lock: false, transfer_status: res.transfer_status }));
+      toast.success("EPP Code generated and registry lock disabled!");
+    } catch (err) {
+      toast.error("Could not request EPP code: " + err.message);
+    } finally {
+      setTransferActionLoading(false);
+    }
+  };
+
+  const handlePushGoDaddy = async () => {
+    if (!transferModalDomain || !transferPushAccount.trim()) {
+      toast.error("Please enter your GoDaddy Customer ID or Account Email.");
+      return;
+    }
+    setTransferActionLoading(true);
+    try {
+      const res = await api.post(
+        `/deployments/domains/${encodeURIComponent(transferModalDomain)}/push-godaddy-account`,
+        { target_godaddy_account: transferPushAccount.trim(), target_email: transferPushAccount.trim() },
+        authToken ?? undefined
+      );
+      setTransferDetails(prev => ({ ...prev, transfer_status: "account_push_submitted", pushed_to_account: res.pushed_to_account }));
+      toast.success(res.message || "GoDaddy Account Push initiated!");
+    } catch (err) {
+      toast.error("Could not push domain: " + err.message);
+    } finally {
+      setTransferActionLoading(false);
+    }
+  };
 
   const getReceiptUrl = (item) => {
     if (item.orderId && item.orderId !== "undefined") {
@@ -904,6 +965,40 @@ function Dashboard() {
     placeholderData: (prev) => prev,
   });
 
+  // Fetch Active User Subscription & Entitlements
+  const { data: userSubData, isLoading: userSubLoading, refetch: refetchUserSub } = useQuery({
+    queryKey: ["user-subscription"],
+    queryFn: () => api.get("/subscriptions/my-subscription", authToken ?? undefined),
+    enabled: !!authToken,
+    staleTime: 1000 * 60 * 2,
+  });
+
+  // Fetch Usage Ledger
+  const { data: usageData, isLoading: usageLoading } = useQuery({
+    queryKey: ["subscription-usage"],
+    queryFn: () => api.get("/subscriptions/usage", authToken ?? undefined),
+    enabled: !!authToken,
+    staleTime: 1000 * 60 * 2,
+  });
+
+  const cancelSubscriptionMutation = useMutation({
+    mutationFn: () => api.post("/subscriptions/cancel", {}, authToken ?? undefined),
+    onSuccess: (res) => {
+      alert(res?.message || "Subscription scheduled for cancellation at the end of the billing period.");
+      refetchUserSub();
+    },
+    onError: (err) => alert(err?.message || "Failed to cancel subscription"),
+  });
+
+  const reactivateSubscriptionMutation = useMutation({
+    mutationFn: () => api.post("/subscriptions/reactivate", {}, authToken ?? undefined),
+    onSuccess: (res) => {
+      alert(res?.message || "Subscription reactivated successfully!");
+      refetchUserSub();
+    },
+    onError: (err) => alert(err?.message || "Failed to reactivate subscription"),
+  });
+
   // Fetch Wishlist Items
   const { data: wishlist = [], isLoading: wishlistLoading } = useQuery({
     queryKey: ["wishlist"],
@@ -1040,6 +1135,20 @@ function Dashboard() {
     }
   });
 
+  // Toggle Domain Auto-Renewal Authority Mutation
+  const toggleAutoRenewMutation = useMutation({
+    mutationFn: ({ domain, autoRenew }) =>
+      api.post(`/deployments/domains/auto-renew`, { domain, auto_renew: autoRenew }, authToken ?? undefined),
+    onSuccess: (res) => {
+      qc.invalidateQueries(["deployments"]);
+      refetchDeployments();
+      alert(res.message || "Domain auto-renewal authority updated successfully!");
+    },
+    onError: (err) => {
+      alert("Failed to update auto-renewal authority: " + (err.message || "Error"));
+    }
+  });
+
   const handleVerifyDomain = async (deploymentId) => {
     setVerifyingDomainId(deploymentId);
     try {
@@ -1111,6 +1220,33 @@ function Dashboard() {
     if (!deploymentsData || deploymentsData.length === 0) return null;
     return deploymentsData.find((d) => d.id === connectSelectedDeploymentId) || deploymentsData[0];
   }, [deploymentsData, connectSelectedDeploymentId]);
+
+  // Filtered deployments for dashboard search & status filters
+  const filteredDeployments = useMemo(() => {
+    if (!deploymentsData || !Array.isArray(deploymentsData)) return [];
+    return deploymentsData.filter((deploy) => {
+      if (deploymentStatusFilter !== "all") {
+        const isLive = deploy.status === "live" || deploy.status === "success";
+        const isBuilding = deploy.status === "building" || deploy.status === "queued" || deploy.status === "deploying";
+        const isSuspended = deploy.status === "suspended" || deploy.is_suspended;
+        const isFailed = deploy.status === "failed";
+
+        if (deploymentStatusFilter === "live" && !isLive) return false;
+        if (deploymentStatusFilter === "building" && !isBuilding) return false;
+        if (deploymentStatusFilter === "suspended" && !isSuspended) return false;
+        if (deploymentStatusFilter === "failed" && !isFailed) return false;
+      }
+
+      if (!deploymentSearchQuery.trim()) return true;
+      const q = deploymentSearchQuery.toLowerCase().trim();
+      const nameMatch = (deploy.project_name || "").toLowerCase().includes(q);
+      const siteIdMatch = (deploy.site_id || "").toLowerCase().includes(q);
+      const domainMatch = (deploy.custom_domain || "").toLowerCase().includes(q);
+      const subMatch = (deploy.subdomain || "").toLowerCase().includes(q);
+      const provMatch = (deploy.provider || "").toLowerCase().includes(q);
+      return nameMatch || siteIdMatch || domainMatch || subMatch || provMatch;
+    });
+  }, [deploymentsData, deploymentSearchQuery, deploymentStatusFilter]);
 
   const handleSelectTargetDeployment = (dep) => {
     if (!dep) return;
@@ -1317,9 +1453,9 @@ function Dashboard() {
     .filter(t => isStudioProjectItem(t))
     .map(t => ({
       id: t.id,
-      title: t.title || "AI Studio Project",
+      title: t.title || "Studio Project",
       framework: t.framework || "HTML",
-      source: "AI Studio Project",
+      source: "Studio Project",
       category: "studio"
     }));
 
@@ -2327,8 +2463,8 @@ function Dashboard() {
       const rawSalePrice = salePrice ? Number(salePrice) : null;
       const finalOriginalPrice = rawSalePrice
         ? (priceCurrency && priceCurrency.toUpperCase() !== "USD"
-            ? Number(convertToUSD(rawSalePrice, priceCurrency, rates))
-            : rawSalePrice)
+          ? Number(convertToUSD(rawSalePrice, priceCurrency, rates))
+          : rawSalePrice)
         : null;
 
       const payload = {
@@ -2544,7 +2680,7 @@ function Dashboard() {
                 <p className="mt-desc">
                   {templatesSubTab === "purchased" ? (
                     <>
-                      Manage your purchased templates, redesign with AI Studio, and launch live websites.
+                      Manage your purchased templates, redesign with Studio, and launch live websites.
                       {hiddenPurchasedTemplates.length > 0 && (
                         <button
                           type="button"
@@ -2562,7 +2698,7 @@ function Dashboard() {
                       </div>
                     </>
                   ) : templatesSubTab === "customized" ? (
-                    "Your customized template files and personal drafts modified in AI Site Studio. Open them in the Studio, download source, or preview live."
+                    "Your customized template files and personal drafts modified in Site Studio. Open them in the Studio, download source, or preview live."
                   ) : (
                     "Manage your creator catalog, track downloads, and update listings."
                   )}
@@ -2736,178 +2872,178 @@ function Dashboard() {
                 const isExtended = isUserPro || String(item.license_type || "").toLowerCase() === "extended";
 
                 return (
-                <div key={item.id} className="db-template-card group">
-                  {/* Thumbnail Header */}
-                  <div className="db-template-thumb">
-                    {item.thumbnail_url ? (
-                      <img
-                        src={item.thumbnail_url}
-                        alt={item.title || "Template"}
-                        className="db-template-img"
-                        onError={(e) => {
-                          e.target.style.display = "none";
-                          if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = "flex";
+                  <div key={item.id} className="db-template-card group">
+                    {/* Thumbnail Header */}
+                    <div className="db-template-thumb">
+                      {item.thumbnail_url ? (
+                        <img
+                          src={item.thumbnail_url}
+                          alt={item.title || "Template"}
+                          className="db-template-img"
+                          onError={(e) => {
+                            e.target.style.display = "none";
+                            if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = "flex";
+                          }}
+                        />
+                      ) : null}
+                      <div
+                        className="w-full h-full absolute inset-0 flex items-center justify-center"
+                        style={{
+                          display: item.thumbnail_url ? "none" : "flex",
+                          background: "linear-gradient(135deg, hsla(var(--primary)/0.15) 0%, hsla(var(--secondary)/0.15) 100%)",
                         }}
-                      />
-                    ) : null}
-                    <div
-                      className="w-full h-full absolute inset-0 flex items-center justify-center"
-                      style={{
-                        display: item.thumbnail_url ? "none" : "flex",
-                        background: "linear-gradient(135deg, hsla(var(--primary)/0.15) 0%, hsla(var(--secondary)/0.15) 100%)",
-                      }}
-                    >
-                      <span style={{ fontSize: "2rem" }}>🎨</span>
-                    </div>
-
-                    {/* Top-Left Floating Badges */}
-                    <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
-                      <span className="px-2 py-0.5 bg-emerald-500 text-white text-[9px] font-black uppercase tracking-wider rounded-full shadow-sm">
-                        Purchased
-                      </span>
-                      <span className="px-1.5 py-0.5 bg-black/60 backdrop-blur-md text-white text-[9px] font-bold uppercase tracking-wider rounded-full border border-white/10">
-                        {item.license_type || "Standard"}
-                      </span>
-                    </div>
-
-                    {/* Top-Right Framework Badge & Hide Action */}
-                    <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
-                      <span className="px-2 py-0.5 bg-black/60 backdrop-blur-md text-white text-[9px] font-mono font-bold uppercase rounded-md border border-white/10">
-                        {item.framework || "HTML"}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleHidePurchasedTemplate(item.template_id || item.id);
-                        }}
-                        className="w-5 h-5 rounded-md bg-black/60 hover:bg-rose-600/80 backdrop-blur-md text-white/70 hover:text-white flex items-center justify-center border border-white/10 transition-colors cursor-pointer"
-                        title="Remove from list"
                       >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Card Content Body */}
-                  <div className="db-template-body">
-                    {/* Title & Description with comfortable spacing */}
-                    <div className="db-template-header-text">
-                      <h4 className="db-template-title" title={item.title}>
-                        {item.title || "Template Package"}
-                      </h4>
-                      <p className="db-template-desc">
-                        {item.short_description || "Modern & responsive purchased template."}
-                      </p>
-                    </div>
-
-                    {/* Pricing & Metadata Strip */}
-                    <div className="db-template-meta-row">
-                      <div>
-                        <span className="text-[11px] text-muted-foreground">Price Paid: </span>
-                        <span className="font-extrabold text-foreground">{formatPrice(item.price || 0)}</span>
+                        <span style={{ fontSize: "2rem" }}>🎨</span>
                       </div>
-                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                        {isExtended ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" title="Zero watermark white-label export with lifetime downloads">
-                            ✦ Full Access (Clean)
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#c89666]/15 text-[#dfb180] border border-[#c89666]/30 flex items-center gap-1" title="Standard Edition with lifetime downloads">
-                            <span>✦ Lifetime Access</span>
-                          </span>
-                        )}
-                        <span className="text-[10px] font-medium text-muted-foreground">
-                          {item.seller_name ? `by ${item.seller_name}` : "Verified"}
+
+                      {/* Top-Left Floating Badges */}
+                      <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                        <span className="px-2 py-0.5 bg-emerald-500 text-white text-[9px] font-black uppercase tracking-wider rounded-full shadow-sm">
+                          Purchased
+                        </span>
+                        <span className="px-1.5 py-0.5 bg-black/60 backdrop-blur-md text-white text-[9px] font-bold uppercase tracking-wider rounded-full border border-white/10">
+                          {item.license_type || "Standard"}
                         </span>
                       </div>
-                    </div>
 
-                    {/* Action Buttons Hub with Generous Gap */}
-                    <div className="db-template-actions-box">
-                      {/* Primary AI Studio Action */}
-                      <Link
-                        href={`/preview?templateId=${item.template_id || item.id}`}
-                        className="db-btn-ai-studio"
-                      >
-                        <Sparkles className="w-3.5 h-3.5 text-white" />
-                        <span style={{ color: "#ffffff" }}>Redesign in AI Studio</span>
-                      </Link>
-
-                      {/* Action Grid (2x2) with comfortable spacing */}
-                      <div className="db-template-btn-grid">
+                      {/* Top-Right Framework Badge & Hide Action */}
+                      <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
+                        <span className="px-2 py-0.5 bg-black/60 backdrop-blur-md text-white text-[9px] font-mono font-bold uppercase rounded-md border border-white/10">
+                          {item.framework || "HTML"}
+                        </span>
                         <button
                           type="button"
-                          onClick={() => {
-                            setDeployTemplateId(item.template_id || item.id);
-                            setDeployProjectName(item.title || "My Website");
-                            setIsDeployModalOpen(true);
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleHidePurchasedTemplate(item.template_id || item.id);
                           }}
-                          className="db-btn-publish"
-                          title="Publish / Launch to Domain"
+                          className="w-5 h-5 rounded-md bg-black/60 hover:bg-rose-600/80 backdrop-blur-md text-white/70 hover:text-white flex items-center justify-center border border-white/10 transition-colors cursor-pointer"
+                          title="Remove from list"
                         >
-                          <Zap className="w-3 h-3 text-white" />
-                          <span style={{ color: "#ffffff" }}>Publish</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            requestDownloadWithWarning(item, "zip");
-                          }}
-                          className="db-btn-secondary"
-                          title="Download Source Code ZIP (Lifetime Access)"
-                        >
-                          <Download className="w-3.5 h-3.5 text-primary" />
-                          <span>Source</span>
-                        </button>
-
-                        <a
-                          href={item.preview_url || `${API_BASE}/preview/live/${item.template_id || item.id}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="db-btn-secondary"
-                          title="Live Demo Preview"
-                        >
-                          <Globe className="w-3.5 h-3.5 text-[#dfb180]" />
-                          <span>Demo</span>
-                        </a>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setReviewTemplateId(item.template_id || item.id);
-                            setReviewTemplateTitle(item.title || "Template Package");
-                            setReviewRating(5);
-                            setReviewTitle("");
-                            setReviewBody("");
-                            setReviewModalOpen(true);
-                          }}
-                          className="db-btn-review"
-                          title="Rate & Review Template"
-                        >
-                          <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-                          <span>Review</span>
+                          <X className="w-3 h-3" />
                         </button>
                       </div>
+                    </div>
 
-                      {/* Official Receipt Footer Link */}
-                      <div className="text-center">
-                        <a
-                          href={getReceiptUrl(item)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="db-template-receipt-link"
+                    {/* Card Content Body */}
+                    <div className="db-template-body">
+                      {/* Title & Description with comfortable spacing */}
+                      <div className="db-template-header-text">
+                        <h4 className="db-template-title" title={item.title}>
+                          {item.title || "Template Package"}
+                        </h4>
+                        <p className="db-template-desc">
+                          {item.short_description || "Modern & responsive purchased template."}
+                        </p>
+                      </div>
+
+                      {/* Pricing & Metadata Strip */}
+                      <div className="db-template-meta-row">
+                        <div>
+                          <span className="text-[11px] text-muted-foreground">Price Paid: </span>
+                          <span className="font-extrabold text-foreground">{formatPrice(item.price || 0)}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                          {isExtended ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" title="Zero watermark white-label export with lifetime downloads">
+                              ✦ Full Access (Clean)
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#c89666]/15 text-[#dfb180] border border-[#c89666]/30 flex items-center gap-1" title="Standard Edition with lifetime downloads">
+                              <span>✦ Lifetime Access</span>
+                            </span>
+                          )}
+                          <span className="text-[10px] font-medium text-muted-foreground">
+                            {item.seller_name ? `by ${item.seller_name}` : "Verified"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Action Buttons Hub with Generous Gap */}
+                      <div className="db-template-actions-box">
+                        {/* Primary AI Studio Action */}
+                        <Link
+                          href={`/preview?templateId=${item.template_id || item.id}`}
+                          className="db-btn-ai-studio"
                         >
-                          <FileText className="w-3 h-3 text-muted-foreground" />
-                          <span>View Official Invoice Receipt</span>
-                        </a>
+                          <Sparkles className="w-3.5 h-3.5 text-white" />
+                          <span style={{ color: "#ffffff" }}>Redesign in Studio</span>
+                        </Link>
+
+                        {/* Action Grid (2x2) with comfortable spacing */}
+                        <div className="db-template-btn-grid">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDeployTemplateId(item.template_id || item.id);
+                              setDeployProjectName(item.title || "My Website");
+                              setIsDeployModalOpen(true);
+                            }}
+                            className="db-btn-publish"
+                            title="Publish / Launch to Domain"
+                          >
+                            <Zap className="w-3 h-3 text-white" />
+                            <span style={{ color: "#ffffff" }}>Publish</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              requestDownloadWithWarning(item, "zip");
+                            }}
+                            className="db-btn-secondary"
+                            title="Download Source Code ZIP (Lifetime Access)"
+                          >
+                            <Download className="w-3.5 h-3.5 text-primary" />
+                            <span>Source</span>
+                          </button>
+
+                          <a
+                            href={item.preview_url || `${API_BASE}/preview/live/${item.template_id || item.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="db-btn-secondary"
+                            title="Live Demo Preview"
+                          >
+                            <Globe className="w-3.5 h-3.5 text-[#dfb180]" />
+                            <span>Demo</span>
+                          </a>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setReviewTemplateId(item.template_id || item.id);
+                              setReviewTemplateTitle(item.title || "Template Package");
+                              setReviewRating(5);
+                              setReviewTitle("");
+                              setReviewBody("");
+                              setReviewModalOpen(true);
+                            }}
+                            className="db-btn-review"
+                            title="Rate & Review Template"
+                          >
+                            <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+                            <span>Review</span>
+                          </button>
+                        </div>
+
+                        {/* Official Receipt Footer Link */}
+                        <div className="text-center">
+                          <a
+                            href={getReceiptUrl(item)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="db-template-receipt-link"
+                          >
+                            <FileText className="w-3 h-3 text-muted-foreground" />
+                            <span>View Official Invoice Receipt</span>
+                          </a>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
             </div>
           ) : (
             /* Table View for Purchased */
@@ -3002,7 +3138,7 @@ function Dashboard() {
               </div>
               <h4 className="mt-empty-title">No Customized Files Yet</h4>
               <p className="mt-empty-desc">
-                Pick any marketplace template or open the AI Studio to customize copy, layout, and colors. Your personal customized files will be saved privately here.
+                Pick any marketplace template or open the Studio to customize copy, layout, and colors. Your personal customized files will be saved privately here.
               </p>
               <Link
                 href="/marketplace"
@@ -3092,7 +3228,7 @@ function Dashboard() {
                           {item.title || "Customized Project"}
                         </h4>
                         <p className="db-template-desc">
-                          {item.short_description || item.description || "Personalized project edited in AI Studio."}
+                          {item.short_description || item.description || "Personalized project edited in Studio."}
                         </p>
                       </div>
 
@@ -3109,13 +3245,13 @@ function Dashboard() {
 
                       {/* Action Buttons Hub */}
                       <div className="db-template-actions-box">
-                        {/* Primary AI Studio Action */}
+                        {/* Primary Studio Action */}
                         <Link
                           href={`/preview?template=${item.id}`}
                           className="db-btn-ai-studio"
                         >
                           <Sparkles className="w-3.5 h-3.5 text-white" />
-                          <span style={{ color: "#ffffff" }}>Open in AI Studio</span>
+                          <span style={{ color: "#ffffff" }}>Open in Studio</span>
                         </Link>
 
                         {/* Action Grid */}
@@ -3433,7 +3569,7 @@ function Dashboard() {
                         className="db-btn-ai-studio"
                       >
                         <Sparkles className="w-3.5 h-3.5 text-white" />
-                        <span style={{ color: "#ffffff" }}>Redesign in AI Studio</span>
+                        <span style={{ color: "#ffffff" }}>Redesign in Studio</span>
                       </Link>
 
                       {/* Action Grid (Stats, Edit, Demo, Delete) */}
@@ -3859,7 +3995,7 @@ function Dashboard() {
                                 </div>
                                 <div>
                                   <h3 className="db-custom-header-title">Your Customized Files &amp; Projects ({customizedItems.length})</h3>
-                                  <p className="db-custom-header-sub">Private template drafts customized in AI Site Studio. Pick up right where you left off.</p>
+                                  <p className="db-custom-header-sub">Private template drafts customized in Site Studio. Pick up right where you left off.</p>
                                 </div>
                               </div>
                               <button
@@ -3899,7 +4035,7 @@ function Dashboard() {
                                         {item.title}
                                       </h4>
                                       <p className="db-custom-card-desc">
-                                        {item.short_description || item.description || "Custom website modified in AI Site Studio."}
+                                        {item.short_description || item.description || "Custom website modified in Site Studio."}
                                       </p>
                                     </div>
 
@@ -4015,6 +4151,136 @@ function Dashboard() {
                     </div>
                   </div>
 
+                  {/* Performance & Workspace Analytics Visualization */}
+                  <div className="p-6 rounded-2xl border border-border bg-card shadow-sm space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/60 pb-3">
+                      <div>
+                        <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+                          <BarChart3 className="w-4 h-4 text-primary" /> Workspace Analytics &amp; Health
+                        </h3>
+                        <p className="text-xs text-muted-foreground">
+                          Real-time computed ratios and resource utilization across your projects.
+                        </p>
+                      </div>
+                      <span className="text-[11px] font-semibold text-muted-foreground">
+                        Live Data · Zero Simulated Metrics
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+                      {/* 1. Deployment Reliability Ratio */}
+                      <div className="p-4 rounded-xl border border-border bg-muted/20 space-y-2">
+                        <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between">
+                          <span>Deployment Reliability</span>
+                          <Zap className="w-3.5 h-3.5 text-amber-500" />
+                        </div>
+                        <div className="text-2xl font-black font-mono text-foreground">
+                          {deploymentsData.length > 0
+                            ? `${Math.round(
+                                (deploymentsData.filter(d => ['success', 'deployed', 'live'].includes(d.status) || d.live_url || d.custom_domain).length /
+                                  deploymentsData.length) *
+                                  100
+                              )}%`
+                            : "N/A"}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          {deploymentsData.length > 0
+                            ? `${deploymentsData.filter(d => ['success', 'deployed', 'live'].includes(d.status) || d.live_url || d.custom_domain).length} of ${deploymentsData.length} builds active on Edge`
+                            : "No deployments yet"}
+                        </p>
+                      </div>
+
+                      {/* 2. Custom Domain Attachment */}
+                      <div className="p-4 rounded-xl border border-border bg-muted/20 space-y-2">
+                        <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between">
+                          <span>Custom Domains</span>
+                          <Globe className="w-3.5 h-3.5 text-blue-500" />
+                        </div>
+                        <div className="text-2xl font-black font-mono text-foreground">
+                          {deploymentsData.filter(d => Boolean(d.custom_domain)).length}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          Production custom hostnames connected
+                        </p>
+                      </div>
+
+                      {/* 3. Project Creation Volume */}
+                      <div className="p-4 rounded-xl border border-border bg-muted/20 space-y-2">
+                        <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between">
+                          <span>Active Workspaces</span>
+                          <Layers className="w-3.5 h-3.5 text-emerald-500" />
+                        </div>
+                        <div className="text-2xl font-black font-mono text-foreground">
+                          {getPurchasedItemsList(orders, hiddenPurchasedTemplates).length +
+                            getCustomizedItemsList(templateResponse).length}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          {getCustomizedItemsList(templateResponse).length} drafts · {getPurchasedItemsList(orders, hiddenPurchasedTemplates).length} library items
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Visual Proportional Distribution Bar */}
+                    {(() => {
+                      const pCount = getPurchasedItemsList(orders, hiddenPurchasedTemplates).length;
+                      const cCount = getCustomizedItemsList(templateResponse).length;
+                      const dCount = deploymentsData.length;
+                      const totalAssets = pCount + cCount + dCount;
+
+                      if (totalAssets === 0) return null;
+
+                      const pPct = Math.round((pCount / totalAssets) * 100);
+                      const cPct = Math.round((cCount / totalAssets) * 100);
+                      const dPct = 100 - pPct - cPct;
+
+                      return (
+                        <div className="space-y-1.5 pt-2">
+                          <div className="flex justify-between text-[11px] font-semibold text-muted-foreground">
+                            <span>Asset Composition</span>
+                            <span>{totalAssets} Total Assets</span>
+                          </div>
+                          <div className="h-2.5 w-full rounded-full bg-muted overflow-hidden flex">
+                            {pCount > 0 && (
+                              <div
+                                style={{ width: `${pPct}%` }}
+                                className="bg-primary transition-all duration-300"
+                                title={`Purchased Templates: ${pCount} (${pPct}%)`}
+                              />
+                            )}
+                            {cCount > 0 && (
+                              <div
+                                style={{ width: `${cPct}%` }}
+                                className="bg-amber-500 transition-all duration-300"
+                                title={`Customized Drafts: ${cCount} (${cPct}%)`}
+                              />
+                            )}
+                            {dCount > 0 && (
+                              <div
+                                style={{ width: `${dPct}%` }}
+                                className="bg-emerald-500 transition-all duration-300"
+                                title={`Deployments: ${dCount} (${dPct}%)`}
+                              />
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-4 text-[10px] text-muted-foreground pt-1">
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-primary" />
+                              Purchased ({pCount})
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-amber-500" />
+                              Customized Drafts ({cCount})
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                              Edge Deployments ({dCount})
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
                   {/* Recommendations */}
                   <div className="db-recommendations-section">
                     <h3 className="db-recommendations-title">Recommended for You</h3>
@@ -4097,7 +4363,7 @@ function Dashboard() {
                               </h2>
                             </div>
                             <p className="mt-desc">
-                              Manage projects generated with the AI Studio Creator. Open in Studio, deploy live, or download full source code.
+                              Manage projects generated with the Studio Creator. Open in Studio, deploy live, or download full source code.
                             </p>
                           </div>
                         </div>
@@ -4213,7 +4479,7 @@ function Dashboard() {
                           </div>
                           <h4 className="mt-empty-title">No Studio Projects Yet</h4>
                           <p className="mt-empty-desc">
-                            You haven't generated any projects with the AI Studio Creator yet. Use the Studio Creator to generate full-stack websites with AI.
+                            You haven't synthesized any projects with the Studio Creator yet. Use the Studio Creator to generate full-stack websites automatically.
                           </p>
                           <Link href="/studio" className="mt-empty-btn">
                             <Sparkles className="w-4 h-4" /> Open Studio Creator
@@ -4326,7 +4592,7 @@ function Dashboard() {
                                         className="db-btn-ai-studio"
                                       >
                                         <Sparkles className="w-3.5 h-3.5 text-white" />
-                                        <span style={{ color: "#ffffff" }}>Open in AI Studio</span>
+                                        <span style={{ color: "#ffffff" }}>Open in Studio</span>
                                       </Link>
                                     )}
 
@@ -4608,7 +4874,7 @@ function Dashboard() {
                                     <Link
                                       href={`/preview?template=${item.slug || item.id}`}
                                       className="db-btn-secondary"
-                                      title="Open in AI Studio"
+                                      title="Open in Studio"
                                     >
                                       <Sparkles className="w-3.5 h-3.5 text-[#dfb180]" />
                                       <span>Editor</span>
@@ -4743,834 +5009,451 @@ function Dashboard() {
 
               {/* === MY WEBSITES === */}
               {activeTab === "my-websites" && (
-                <div className="rounded-2xl border border-[#27272a] bg-[#0c0c0e] p-6 sm:p-8 space-y-8 shadow-2xl">
-                  {/* Top Bar / Header */}
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-[#27272a] pb-5">
+                <div className="rounded-xl border border-[#27272a] bg-[#0c0c0e] p-5 sm:p-6 space-y-6">
+                  {/* Top Bar */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#222226] pb-4">
                     <div>
-                      <h3 className="font-extrabold text-2xl text-white flex items-center gap-3">
-                        <Globe className="w-7 h-7 text-[#c89666]" />
-                        <span>Live Websites &amp; Custom Domains</span>
+                      <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                        <Globe className="w-5 h-5 text-[#c89666]" />
+                        <span>Websites &amp; Custom Domains</span>
                       </h3>
-                      <p className="text-xs sm:text-sm text-[#a8a29e] mt-1.5">
-                        Connect your existing domain with DNS ownership verification, or search and buy a brand new domain via GoDaddy live registry.
+                      <p className="text-xs text-[#a8a29e] mt-0.5">
+                        Link custom domains and manage DNS routing.
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs px-3.5 py-1.5 rounded-full bg-[#18181d] border border-[#33333a] text-[#dfb180] font-bold flex items-center gap-1.5 shadow-sm">
-                        <ShieldCheck className="w-3.5 h-3.5 text-[#c89666]" /> Free Automated SSL Included
+                      <span className="text-xs px-2.5 py-1 rounded bg-[#18181d] text-[#dfb180] border border-[#2e2e38] flex items-center gap-1.5 font-medium">
+                        <ShieldCheck className="w-3.5 h-3.5 text-[#c89666]" /> SSL Included
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDeployProjectName("");
+                          setDeployTemplateId("");
+                          setIsDeployModalOpen(true);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-[#c89666] hover:bg-[#dfb180] text-[#09090b] text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                        <span>New Site</span>
+                      </button>
                     </div>
                   </div>
 
-                  {/* === 2-PART SPLIT CONTAINER: LEFT & RIGHT === */}
+                  {/* Left & Right Grid */}
                   <div className="my-websites-split-grid">
-                    
-                    {/* ── PART 1 (LEFT SIDE): SELECT & ANALYZE WEBSITE ── */}
-                    <div className="rounded-2xl border border-[#27272a] bg-[#121216] p-5 sm:p-6 space-y-5 shadow-lg">
-                      <div className="flex items-center justify-between gap-2.5 border-b border-[#27272a] pb-3.5">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="w-9 h-9 rounded-xl bg-[#c89666]/15 border border-[#c89666]/35 text-[#c89666] flex items-center justify-center font-bold shrink-0">
-                            <Server className="w-4.5 h-4.5" />
-                          </div>
-                          <div className="min-w-0">
-                            <h4 className="font-extrabold text-sm text-white truncate">1. Select &amp; Analyze Website</h4>
-                            <p className="text-[11px] text-[#a8a29e] truncate">Inspect active sites &amp; select target for domain</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="whitespace-nowrap shrink-0 text-[10px] font-bold px-2.5 py-1 rounded bg-[#18181d] text-[#dfb180] border border-[#2e2e36]">
-                            {deploymentsData.length} Live Sites
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setDeployProjectName("");
-                              setDeployTemplateId("");
-                              setIsDeployModalOpen(true);
-                            }}
-                            className="whitespace-nowrap shrink-0 px-2.5 py-1 rounded-lg bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] text-[11px] font-black transition cursor-pointer shadow-xs inline-flex items-center gap-1"
-                            title="Deploy & Add New Website"
-                          >
-                            <Plus className="w-3.5 h-3.5 stroke-[3]" />
-                            <span>Add Website</span>
-                          </button>
-                        </div>
-                      </div>
 
-                      {/* Deployed Websites List / Cards */}
+                    {/* ── LEFT SIDE: WEBSITES & CONNECT DOMAIN ── */}
+                    <div className="space-y-5 min-w-0">
+
+                      {/* 1. Live Sites List */}
                       <div className="space-y-3">
+                        <div className="flex items-center justify-between pb-2 border-b border-[#222226]">
+                          <div className="flex items-center gap-2">
+                            <Server className="w-4 h-4 text-[#c89666]" />
+                            <span className="text-sm font-bold text-white">Live Sites</span>
+                            <span className="text-xs text-[#a8a29e]">({deploymentsData.length})</span>
+                          </div>
+                          <span className="text-[11px] text-[#71717a]">Click site to target</span>
+                        </div>
+
                         {deploymentsData.length === 0 ? (
-                          <div className="text-center py-10 rounded-xl border border-dashed border-[#27272a] text-[#a8a29e] text-xs space-y-3 bg-[#0d0d10]">
-                            <Globe className="w-8 h-8 mx-auto opacity-40 text-[#c89666]" />
-                            <div>
-                              <p className="font-bold text-white text-sm">No Active Websites Deployed</p>
-                              <p className="text-[11px] text-[#a8a29e] mt-1">Deploy a website template first to bind a custom domain.</p>
-                            </div>
+                          <div className="py-6 text-center text-xs text-[#a8a29e] border border-dashed border-[#222226] rounded-lg">
+                            <p>No active sites deployed.</p>
                             <button
                               type="button"
                               onClick={() => setIsDeployModalOpen(true)}
-                              className="px-4 py-2 rounded-xl bg-[#c89666] hover:bg-[#dfb180] text-[#09090b] text-xs font-black transition cursor-pointer shadow-md inline-flex items-center gap-1.5"
+                              className="mt-2 text-[#dfb180] hover:underline font-bold inline-flex items-center gap-1 cursor-pointer"
                             >
-                              <Sparkles className="w-3.5 h-3.5" /> Deploy Website
+                              <Plus className="w-3.5 h-3.5" /> Deploy a website
                             </button>
                           </div>
                         ) : (
-                          deploymentsData.map((d) => {
-                            const isSelected = (selectedTargetDeployment?.id === d.id) || (connectSelectedDeploymentId === d.id);
-                            const siteLiveUrl = d.live_url || `http://localhost:8000/sites/${d.site_id}/`;
-                            const hasCustomDomain = !!d.custom_domain;
+                          <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                            {deploymentsData.map((d) => {
+                              const isSelected = (selectedTargetDeployment?.id === d.id) || (connectSelectedDeploymentId === d.id);
+                              const siteLiveUrl = d.live_url || `http://localhost:8000/sites/${d.site_id}/`;
+                              return (
+                                <div
+                                  key={d.id}
+                                  onClick={() => handleSelectTargetDeployment(d)}
+                                  className={`p-3 rounded-lg border transition cursor-pointer flex items-center justify-between gap-3 ${isSelected
+                                      ? "border-[#c89666] bg-[#c89666]/10 text-white shadow-xs"
+                                      : "border-[#222226] bg-[#121216] hover:border-[#33333a] text-[#d4d4d8]"
+                                    }`}
+                                >
+                                  <div className="min-w-0 flex items-center gap-2.5">
+                                    <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 ${isSelected ? "border-[#c89666] bg-[#c89666]" : "border-[#52525b]"
+                                      }`}>
+                                      {isSelected && <Check className="w-2.5 h-2.5 text-[#09090b] stroke-[3]" />}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs font-bold text-white truncate">{d.project_name || "Untitled"}</span>
+                                        <span className="text-[10px] font-mono text-[#a8a29e]">{d.site_id}</span>
+                                      </div>
+                                      <div className="flex items-center gap-2 mt-0.5 text-[11px]">
+                                        <a
+                                          href={siteLiveUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          onClick={(e) => e.stopPropagation()}
+                                          style={{ color: "#dfb180" }}
+                                          className="site-live-link font-mono hover:underline inline-flex items-center gap-1 truncate"
+                                        >
+                                          <ExternalLink className="w-2.5 h-2.5 text-[#c89666]" /> Live URL
+                                        </a>
+                                        {d.custom_domain && (
+                                          <span className="text-emerald-400 font-mono text-[10px]">&bull; {d.custom_domain}</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <span className={`text-[11px] font-bold shrink-0 ${isSelected ? "text-[#dfb180]" : "text-[#71717a]"}`}>
+                                    {isSelected ? "Target ✓" : "Select"}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 2. Connect Existing Domain via DNS */}
+                      <div className="space-y-3 pt-3 border-t border-[#222226]">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <ShieldCheck className="w-4 h-4 text-[#c89666]" />
+                            <span className="text-sm font-bold text-white">Connect Domain</span>
+                          </div>
+                          <span className="text-[11px] text-[#71717a]">
+                            Target: <strong className="text-white">{selectedTargetDeployment?.project_name || "None"}</strong>
+                          </span>
+                        </div>
+
+                        <form onSubmit={handleVerifyOwnershipAndConnect} className="space-y-2.5">
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              required
+                              placeholder="yourdomain.com"
+                              value={connectDomainName}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setConnectDomainName(val);
+                                setOwnershipMessage(null);
+                                handleCheckDomainChallenge(val);
+                              }}
+                              className="flex-1 px-3 py-2 rounded-lg bg-[#09090b] border border-[#27272a] text-white font-mono text-xs outline-none focus:border-[#c89666]"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleCheckDomainChallenge(connectDomainName)}
+                              disabled={challengeLoading || !connectDomainName}
+                              className="px-3.5 py-2 rounded-lg bg-[#222228] hover:bg-[#2c2c34] text-white text-xs font-semibold border border-[#383842] shrink-0 disabled:opacity-50 cursor-pointer"
+                            >
+                              {challengeLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Check DNS"}
+                            </button>
+                          </div>
+
+                          {ownershipMessage && (
+                            <div className={`p-2.5 rounded-lg text-xs flex items-start gap-2 ${ownershipMessage.type === "success"
+                                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                : ownershipMessage.type === "warning"
+                                  ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                                  : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                              }`}>
+                              {ownershipMessage.type === "success" ? (
+                                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                              ) : (
+                                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                              )}
+                              <span>{ownershipMessage.text}</span>
+                            </div>
+                          )}
+
+                          {domainChallengeData && !domainChallengeData.is_protected && (
+                            <div className="space-y-2 pt-1">
+                              {/* DNS Table */}
+                              <div className="overflow-x-auto rounded border border-[#222226]">
+                                <table className="w-full text-[11px] font-mono">
+                                  <thead>
+                                    <tr className="text-[#a8a29e] bg-[#121216] border-b border-[#222226] text-left">
+                                      <th className="py-1.5 px-2.5 font-sans font-semibold">Type</th>
+                                      <th className="py-1.5 px-2.5 font-sans font-semibold">Host</th>
+                                      <th className="py-1.5 px-2.5 font-sans font-semibold">Value</th>
+                                      <th className="py-1.5 px-2.5 text-right font-sans font-semibold">Copy</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-[#222226]">
+                                    <tr>
+                                      <td className="py-2 px-2.5 text-[#dfb180] font-bold">TXT</td>
+                                      <td className="py-2 px-2.5 text-white truncate max-w-[80px]">{domainChallengeData.txt_host || "_studio-challenge"}</td>
+                                      <td className="py-2 px-2.5 text-[#a8a29e] truncate max-w-[130px]" title={domainChallengeData.txt_value}>{domainChallengeData.txt_value}</td>
+                                      <td className="py-2 px-2.5 text-right">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCopyDnsText(domainChallengeData.txt_value, "txt_value")}
+                                          className="text-[#a8a29e] hover:text-white p-0.5 cursor-pointer"
+                                        >
+                                          {copiedDnsKey === "txt_value" ? <Check className="w-3 h-3 text-emerald-400 inline" /> : <Copy className="w-3 h-3 inline" />}
+                                        </button>
+                                      </td>
+                                    </tr>
+                                    <tr>
+                                      <td className="py-2 px-2.5 text-emerald-400 font-bold">A</td>
+                                      <td className="py-2 px-2.5 text-white">@</td>
+                                      <td className="py-2 px-2.5 text-[#a8a29e]">{domainChallengeData.a_value || "149.28.243.12"}</td>
+                                      <td className="py-2 px-2.5 text-right">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCopyDnsText(domainChallengeData.a_value || "149.28.243.12", "a_value")}
+                                          className="text-[#a8a29e] hover:text-white p-0.5 cursor-pointer"
+                                        >
+                                          {copiedDnsKey === "a_value" ? <Check className="w-3 h-3 text-emerald-400 inline" /> : <Copy className="w-3 h-3 inline" />}
+                                        </button>
+                                      </td>
+                                    </tr>
+                                    <tr>
+                                      <td className="py-2 px-2.5 text-sky-400 font-bold">CNAME</td>
+                                      <td className="py-2 px-2.5 text-white">www</td>
+                                      <td className="py-2 px-2.5 text-[#a8a29e]">{domainChallengeData.cname_value || "site-studio.live"}</td>
+                                      <td className="py-2 px-2.5 text-right">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCopyDnsText(domainChallengeData.cname_value || "site-studio.live", "cname_value")}
+                                          className="text-[#a8a29e] hover:text-white p-0.5 cursor-pointer"
+                                        >
+                                          {copiedDnsKey === "cname_value" ? <Check className="w-3 h-3 text-emerald-400 inline" /> : <Copy className="w-3 h-3 inline" />}
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </div>
+
+                              <div className="flex items-center justify-between text-[11px] pt-1">
+                                <span className="text-[#71717a]">Point records to Studio Edge</span>
+                                <button
+                                  type="button"
+                                  onClick={handleCopyAllDnsRecords}
+                                  className="text-[#dfb180] hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                                >
+                                  <Copy className="w-3 h-3" />
+                                  <span>{copiedDnsKey === "all_records" ? "Copied!" : "Copy all records"}</span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          <button
+                            type="submit"
+                            disabled={verifyingOwnershipLoading || !connectDomainName}
+                            className="w-full py-2 rounded-lg bg-[#c89666] hover:bg-[#dfb180] disabled:opacity-50 text-[#09090b] font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            {verifyingOwnershipLoading ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                            )}
+                            <span>Verify &amp; Link Domain</span>
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+
+                    {/* ── RIGHT SIDE: BUY ON GODADDY ── */}
+                    <div className="space-y-4 min-w-0">
+                      <div className="flex items-center justify-between pb-2 border-b border-[#222226]">
+                        <div className="flex items-center gap-2">
+                          <ShoppingCart className="w-4 h-4 text-[#c89666]" />
+                          <span className="text-sm font-bold text-white">Buy Domain</span>
+                        </div>
+                        <span className="text-[11px] text-[#71717a]">
+                          Target: <strong className="text-white">{selectedTargetDeployment?.project_name || "Select site"}</strong>
+                        </span>
+                      </div>
+
+                      {/* Search */}
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Search className="w-3.5 h-3.5 text-[#71717a] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <input
+                            type="text"
+                            placeholder="Search name (e.g. mystudio.com)"
+                            value={godaddySearchQuery}
+                            onChange={(e) => setGodaddySearchQuery(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleSearchGoDaddy(godaddySearchQuery);
+                              }
+                            }}
+                            className="w-full pl-8 pr-3 py-2 rounded-lg bg-[#09090b] border border-[#27272a] text-white text-xs font-mono outline-none focus:border-[#c89666]"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleSearchGoDaddy(godaddySearchQuery)}
+                          disabled={godaddySearching || !godaddySearchQuery}
+                          className="px-3.5 py-2 rounded-lg bg-[#c89666] hover:bg-[#dfb180] text-[#09090b] text-xs font-bold shrink-0 disabled:opacity-50 transition cursor-pointer"
+                        >
+                          {godaddySearching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Search"}
+                        </button>
+                      </div>
+
+                      {/* Results List */}
+                      <div className="space-y-1.5 max-h-[320px] overflow-y-auto pr-1">
+                        {godaddySearchResults.length === 0 ? (
+                          <div className="py-8 text-center text-xs text-[#71717a] border border-dashed border-[#222226] rounded-lg">
+                            Search a domain above to check GoDaddy registry.
+                          </div>
+                        ) : (
+                          godaddySearchResults.map((sug, idx) => {
+                            const domName = sug.domain || sug.name;
+                            const isAvail = sug.available === true;
+                            const priceVal = sug.price?.value ? (sug.price.value / 100).toFixed(2) : (sug.price || "10.99");
+                            const targetDep = selectedTargetDeployment?.id || connectSelectedDeploymentId || (deploymentsData.length > 0 ? deploymentsData[0].id : "");
 
                             return (
                               <div
-                                key={d.id}
-                                onClick={() => handleSelectTargetDeployment(d)}
-                                className={`p-4 rounded-xl border transition-all cursor-pointer space-y-3 ${
-                                  isSelected
-                                    ? "border-2 border-[#c89666] bg-gradient-to-b from-[#181820] to-[#141418] shadow-lg shadow-[#c89666]/10"
-                                    : "border-[#27272a] bg-[#16161b] hover:bg-[#1a1a21] hover:border-[#3f3f46]"
-                                }`}
+                                key={idx}
+                                className="py-2.5 px-3 rounded-lg bg-[#121216] border border-[#222226] hover:border-[#33333a] flex items-center justify-between gap-2"
                               >
-                                {/* Top Header Row */}
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="flex items-center gap-2.5 min-w-0">
-                                    <div
-                                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition ${
-                                        isSelected
-                                          ? "border-[#c89666] bg-[#c89666] text-[#09090b]"
-                                          : "border-[#52525b] bg-[#09090b]"
-                                      }`}
-                                    >
-                                      {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
-                                    </div>
-                                    <span className="font-bold text-sm text-white truncate" title={d.project_name}>
-                                      {d.project_name || "Untitled Project"}
-                                    </span>
-                                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#1f1f26] text-[#dfb180] border border-[#2e2e38] shrink-0">
-                                      {d.site_id || "DEPLOYED"}
-                                    </span>
-                                  </div>
-
-                                  <div className="flex items-center gap-1.5 shrink-0">
-                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Live
-                                    </span>
-                                    {isSelected && (
-                                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#c89666]/20 text-[#dfb180] border border-[#c89666]/40">
-                                        Target
-                                      </span>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-mono text-xs font-bold text-white truncate">{domName}</span>
+                                    {isAvail ? (
+                                      <span className="text-[10px] text-emerald-400 font-semibold">Available</span>
+                                    ) : (
+                                      <span className="text-[10px] text-rose-400 font-semibold">Taken</span>
                                     )}
                                   </div>
+                                  <span className="text-[11px] text-[#a8a29e]">${priceVal}/yr</span>
                                 </div>
-
-                                {/* URL / Routing Row */}
-                                <div className="flex items-center justify-between text-xs gap-2 pt-1 border-t border-[#222226]">
-                                  <a
-                                    href={siteLiveUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    onClick={(e) => e.stopPropagation()}
-                                    style={{ color: "#dfb180", textDecoration: "none" }}
-                                    className="site-live-link font-mono text-[11px] hover:underline flex items-center gap-1.5 truncate"
-                                    title={siteLiveUrl}
-                                  >
-                                    <ExternalLink className="w-3 h-3 shrink-0 text-[#c89666]" />
-                                    <span className="truncate" style={{ color: "#dfb180" }}>{siteLiveUrl}</span>
-                                  </a>
-                                  <span className="text-[10px] text-[#71717a] shrink-0">
-                                    Studio Edge &bull; Healthy
-                                  </span>
-                                </div>
-
-                                {/* Custom Domain Status & Action */}
-                                <div className="flex items-center justify-between text-xs pt-1">
-                                  {hasCustomDomain ? (
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1 truncate" title={d.custom_domain}>
-                                        <Globe className="w-3.5 h-3.5 shrink-0" /> {d.custom_domain}
-                                      </span>
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (confirm(`Disconnect custom domain "${d.custom_domain}" from ${d.project_name}?`)) {
-                                            unlinkDomainMutation.mutate(d.id);
-                                          }
-                                        }}
-                                        disabled={unlinkDomainMutation.isPending}
-                                        className="text-[10px] font-bold text-rose-400 hover:text-rose-300 hover:underline px-1.5 py-0.5 rounded bg-rose-500/10 border border-rose-500/20 shrink-0 cursor-pointer"
-                                        title="Disconnect custom domain"
-                                      >
-                                        Disconnect
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <span className="text-[11px] text-[#a8a29e] flex items-center gap-1 truncate">
-                                      <AlertCircle className="w-3.5 h-3.5 text-[#c89666] shrink-0" /> No Custom Domain Linked
-                                    </span>
-                                  )}
-
+                                {isAvail ? (
                                   <button
                                     type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleSelectTargetDeployment(d);
+                                    onClick={() => {
+                                      navigate(`/domains/buy?domain=${encodeURIComponent(domName)}&deployment_id=${targetDep}&price=${encodeURIComponent(priceVal)}&from=${encodeURIComponent("/dashboard?tab=my-websites")}`);
                                     }}
-                                    className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 ${
-                                      isSelected
-                                        ? "bg-[#c89666] text-[#09090b] shadow-xs"
-                                        : "bg-[#222228] hover:bg-[#2c2c34] text-white border border-[#383842]"
-                                    }`}
+                                    className="px-3 py-1 rounded bg-[#c89666] hover:bg-[#dfb180] text-[#09090b] text-xs font-bold transition cursor-pointer"
                                   >
-                                    {isSelected ? "✓ Selected Target" : "Select Website →"}
+                                    Buy
                                   </button>
-                                </div>
+                                ) : (
+                                  <span className="text-[11px] text-[#52525b]">Unavailable</span>
+                                )}
                               </div>
                             );
                           })
                         )}
                       </div>
 
-                      {/* Collapsible: Connect Self-Owned Domain (DNS Verification) */}
-                      <div className="pt-2 border-t border-[#27272a]">
-                        <button
-                          type="button"
-                          onClick={() => setShowDnsConnectModal((prev) => !prev)}
-                          className="w-full p-3 rounded-xl bg-[#16161b] hover:bg-[#1c1c22] border border-[#27272a] text-xs font-bold text-white flex items-center justify-between transition cursor-pointer"
-                        >
-                          <span className="flex items-center gap-2">
-                            <ShieldCheck className="w-4 h-4 text-[#c89666]" />
-                            <span>Already Own a Domain? Connect with DNS Verification</span>
-                          </span>
-                          <ChevronDown className={`w-4 h-4 text-[#a8a29e] transition-transform duration-200 ${showDnsConnectModal ? "rotate-180" : ""}`} />
-                        </button>
-
-                        {showDnsConnectModal && (
-                          <div className="mt-3 p-4 rounded-xl bg-[#0e0e12] border border-[#27272a] space-y-4">
-                            <form onSubmit={handleVerifyOwnershipAndConnect} className="space-y-3.5">
-                              <div className="space-y-1.5">
-                                <label className="text-xs font-bold text-white flex items-center justify-between">
-                                  <span>Domain Name You Own *</span>
-                                  <span className="text-[10px] text-[#a8a29e]">Connecting to: <strong className="text-white">{selectedTargetDeployment?.project_name || "Selected Site"}</strong></span>
-                                </label>
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    type="text"
-                                    required
-                                    placeholder="e.g. mycompany.com or app.mybrand.com"
-                                    value={connectDomainName}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      setConnectDomainName(val);
-                                      setOwnershipMessage(null);
-                                      handleCheckDomainChallenge(val);
-                                    }}
-                                    className="flex-1 px-3.5 py-2.5 rounded-xl bg-[#09090b] border border-[#2e2e33] text-white font-mono text-xs outline-none focus:border-[#c89666] focus:ring-1 focus:ring-[#c89666] transition placeholder-[#52525b]"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCheckDomainChallenge(connectDomainName)}
-                                    disabled={challengeLoading || !connectDomainName}
-                                    className="px-4 py-2.5 rounded-xl bg-[#222228] hover:bg-[#2c2c34] text-white text-xs font-bold shrink-0 disabled:opacity-50 cursor-pointer transition border border-[#383842]"
-                                  >
-                                    {challengeLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Check"}
-                                  </button>
-                                </div>
-                              </div>
-
-                              {ownershipMessage && (
-                                <div className={`p-3 rounded-xl text-xs font-medium flex items-start gap-2.5 ${
-                                  ownershipMessage.type === "success"
-                                    ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-400"
-                                    : ownershipMessage.type === "warning"
-                                    ? "bg-amber-500/10 border border-amber-500/30 text-amber-400"
-                                    : "bg-rose-500/10 border border-rose-500/30 text-rose-400"
-                                }`}>
-                                  {ownershipMessage.type === "success" ? (
-                                    <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
-                                  ) : (
-                                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                                  )}
-                                  <span className="leading-relaxed">{ownershipMessage.text}</span>
-                                </div>
-                              )}
-
-                              {/* DNS Ownership Verification & Registrar Instructions */}
-                              {domainChallengeData && !domainChallengeData.is_protected && (
-                                <div className="p-4 rounded-xl bg-[#141418] border border-[#27272a] space-y-4 text-xs">
-                                  {/* Domain Status Header */}
-                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-[#222226]">
-                                    <div className="min-w-0">
-                                      <div className="flex items-center gap-2">
-                                        <Globe className="w-4 h-4 text-[#c89666] shrink-0" />
-                                        <span className="font-extrabold text-white text-sm font-mono truncate">
-                                          {domainChallengeData.domain || connectDomainName}
-                                        </span>
-                                      </div>
-                                      <p className="text-[11px] text-[#a8a29e] mt-0.5">
-                                        Enter these DNS records in your domain registrar control panel to route traffic to Studio Edge.
-                                      </p>
-                                    </div>
-                                    <div className="flex items-center gap-2 shrink-0">
-                                      {domainChallengeData.is_verified ? (
-                                        <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold flex items-center gap-1">
-                                          <CheckCircle2 className="w-3 h-3" /> DNS Verified
-                                        </span>
-                                      ) : (
-                                        <span className="px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 text-[10px] font-bold flex items-center gap-1">
-                                          <Clock className="w-3 h-3" /> Setup Required
-                                        </span>
-                                      )}
-                                      <button
-                                        type="button"
-                                        onClick={handleCopyAllDnsRecords}
-                                        className="px-2.5 py-1 rounded-lg bg-[#222228] hover:bg-[#2c2c34] text-[#dfb180] border border-[#383842] text-[10px] font-bold flex items-center gap-1 transition cursor-pointer"
-                                        title="Copy formatted summary of all records"
-                                      >
-                                        <Copy className="w-3 h-3" />
-                                        <span>{copiedDnsKey === "all_records" ? "Copied All!" : "Copy All Records"}</span>
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  {/* Registrar Guidance Tabs */}
-                                  <div className="space-y-2">
-                                    <span className="text-[10px] font-bold text-[#a8a29e] uppercase tracking-wider">
-                                      Select Your Domain Registrar For Exact Steps:
-                                    </span>
-                                    <div className="flex flex-wrap gap-1.5">
-                                      {[
-                                        { id: "godaddy", name: "GoDaddy" },
-                                        { id: "cloudflare", name: "Cloudflare" },
-                                        { id: "namecheap", name: "Namecheap" },
-                                        { id: "hostinger", name: "Hostinger" },
-                                        { id: "generic", name: "Other Registrars" },
-                                      ].map((prov) => (
-                                        <button
-                                          key={prov.id}
-                                          type="button"
-                                          onClick={() => setSelectedDnsProvider(prov.id)}
-                                          className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer border ${
-                                            selectedDnsProvider === prov.id
-                                              ? "bg-[#c89666]/20 border-[#c89666] text-[#dfb180]"
-                                              : "bg-[#09090b] border-[#27272a] text-[#a8a29e] hover:text-white hover:border-[#383842]"
-                                          }`}
-                                        >
-                                          {prov.name}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  </div>
-
-                                  {/* Step-by-Step Instructions Box */}
-                                  <div className="p-3 rounded-lg bg-[#09090b] border border-[#222226] space-y-1.5 text-[11px] leading-relaxed text-[#d4d4d8]">
-                                    {selectedDnsProvider === "godaddy" && (
-                                      <div className="space-y-1">
-                                        <p><strong className="text-white">1.</strong> Go to <strong className="text-[#dfb180]">GoDaddy Domain Portfolio</strong> and click on <code className="text-[#dfb180]">{domainChallengeData.domain}</code>.</p>
-                                        <p><strong className="text-white">2.</strong> Select <strong className="text-white">DNS</strong> (or Manage DNS) to view zone records.</p>
-                                        <p><strong className="text-white">3.</strong> Click <strong className="text-white">Add New Record</strong> and add the <strong className="text-[#c89666]">TXT record</strong> below for ownership verification.</p>
-                                        <p><strong className="text-white">4.</strong> Click <strong className="text-white">Add New Record</strong> and add the <strong className="text-emerald-400">A record</strong> below pointing to <code className="text-emerald-400">149.28.243.12</code>.</p>
-                                        <p><strong className="text-white">5.</strong> Save records, wait 60 seconds for DNS propagation, then click <strong className="text-[#dfb180]">Verify Ownership &amp; Connect</strong> below.</p>
-                                      </div>
-                                    )}
-                                    {selectedDnsProvider === "cloudflare" && (
-                                      <div className="space-y-1">
-                                        <p><strong className="text-white">1.</strong> Open your <strong className="text-[#dfb180]">Cloudflare Dashboard</strong> and select your domain zone.</p>
-                                        <p><strong className="text-white">2.</strong> Click <strong className="text-white">DNS &gt; Records</strong> in the left sidebar menu.</p>
-                                        <p><strong className="text-white">3.</strong> Add a <strong className="text-[#c89666]">TXT record</strong> with Name <code className="text-[#dfb180]">_studio-challenge</code> and paste the challenge token.</p>
-                                        <p><strong className="text-white">4.</strong> Add an <strong className="text-emerald-400">A record</strong> with Name <code className="text-white">@</code> pointing to <code className="text-emerald-400">149.28.243.12</code> (Set Proxy to DNS only / Grey cloud for initial verification).</p>
-                                        <p><strong className="text-white">5.</strong> Click <strong className="text-white">Save</strong> and click Verify below.</p>
-                                      </div>
-                                    )}
-                                    {selectedDnsProvider === "namecheap" && (
-                                      <div className="space-y-1">
-                                        <p><strong className="text-white">1.</strong> In Namecheap, open <strong className="text-[#dfb180]">Domain List</strong> and click <strong className="text-white">Manage</strong>.</p>
-                                        <p><strong className="text-white">2.</strong> Click on the <strong className="text-white">Advanced DNS</strong> tab at the top.</p>
-                                        <p><strong className="text-white">3.</strong> In Host Records, click <strong className="text-white">Add New Record</strong> &gt; Select <strong className="text-[#c89666]">TXT Record</strong> with Host <code className="text-[#dfb180]">_studio-challenge</code>.</p>
-                                        <p><strong className="text-white">4.</strong> Click <strong className="text-white">Add New Record</strong> &gt; Select <strong className="text-emerald-400">A Record</strong> with Host <code className="text-white">@</code> pointing to <code className="text-emerald-400">149.28.243.12</code>.</p>
-                                        <p><strong className="text-white">5.</strong> Click the green checkmark to save all changes.</p>
-                                      </div>
-                                    )}
-                                    {selectedDnsProvider === "hostinger" && (
-                                      <div className="space-y-1">
-                                        <p><strong className="text-white">1.</strong> Open Hostinger <strong className="text-[#dfb180]">hPanel</strong> &gt; <strong className="text-white">Domains</strong> &gt; select your domain.</p>
-                                        <p><strong className="text-white">2.</strong> Select <strong className="text-white">DNS / Nameservers</strong> from the left menu.</p>
-                                        <p><strong className="text-white">3.</strong> Under <strong className="text-white">Manage DNS records</strong>, create a <strong className="text-[#c89666]">TXT Record</strong> (Name: <code className="text-[#dfb180]">_studio-challenge</code>, Value: Challenge Token).</p>
-                                        <p><strong className="text-white">4.</strong> Add or edit the <strong className="text-emerald-400">A Record</strong> for <code className="text-white">@</code> pointing to <code className="text-emerald-400">149.28.243.12</code>.</p>
-                                        <p><strong className="text-white">5.</strong> Click <strong className="text-white">Add Record</strong> and return here to verify.</p>
-                                      </div>
-                                    )}
-                                    {selectedDnsProvider === "generic" && (
-                                      <div className="space-y-1">
-                                        <p><strong className="text-white">1.</strong> Log in to where you registered your domain (Google Domains, Squarespace, Porkbun, etc.).</p>
-                                        <p><strong className="text-white">2.</strong> Navigate to the <strong className="text-white">DNS Management / Zone Editor</strong> section.</p>
-                                        <p><strong className="text-white">3.</strong> Add the <strong className="text-[#c89666]">TXT record</strong> (for ownership proof) and <strong className="text-emerald-400">A record</strong> (for routing) listed below.</p>
-                                        <p><strong className="text-white">4.</strong> Save changes and click <strong className="text-[#dfb180]">Verify Ownership &amp; Connect</strong> below.</p>
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  {/* Required Records List */}
-                                  <div className="space-y-2">
-                                    <span className="font-bold text-white text-[10px] uppercase tracking-wider flex items-center gap-1.5">
-                                      <ShieldCheck className="w-3.5 h-3.5 text-[#c89666]" /> Required DNS Records To Add
-                                    </span>
-
-                                    {/* 1. TXT Verification Record */}
-                                    <div className="p-3 rounded-lg bg-[#09090b] border border-[#27272a] space-y-2">
-                                      <div className="flex items-center justify-between gap-2">
-                                        <div className="flex items-center gap-2">
-                                          <span className="px-2 py-0.5 rounded bg-[#c89666]/15 border border-[#c89666]/40 text-[#dfb180] font-mono font-bold text-[10px]">
-                                            TXT
-                                          </span>
-                                          <span className="text-xs font-bold text-white">Ownership Proof (Required)</span>
-                                        </div>
-                                        <span className="text-[10px] font-mono text-[#a8a29e]">TTL: 300 (or Default)</span>
-                                      </div>
-
-                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono">
-                                        <div className="p-2 rounded bg-[#121216] border border-[#222226] flex items-center justify-between gap-2">
-                                          <div className="truncate">
-                                            <span className="text-[#71717a] text-[10px] block font-sans">Host / Name</span>
-                                            <span className="text-white font-bold">{domainChallengeData.txt_host || "_studio-challenge"}</span>
-                                          </div>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleCopyDnsText(domainChallengeData.txt_host || "_studio-challenge", "txt_host")}
-                                            className="p-1 hover:text-white text-[#a8a29e] shrink-0"
-                                            title="Copy Host"
-                                          >
-                                            {copiedDnsKey === "txt_host" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                                          </button>
-                                        </div>
-
-                                        <div className="p-2 rounded bg-[#121216] border border-[#222226] flex items-center justify-between gap-2">
-                                          <div className="truncate">
-                                            <span className="text-[#71717a] text-[10px] block font-sans">Value / Content</span>
-                                            <span className="text-[#dfb180] font-bold truncate block">{domainChallengeData.txt_value}</span>
-                                          </div>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleCopyDnsText(domainChallengeData.txt_value, "txt_value")}
-                                            className="p-1 hover:text-white text-[#a8a29e] shrink-0"
-                                            title="Copy Token Value"
-                                          >
-                                            {copiedDnsKey === "txt_value" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
-
-                                    {/* 2. A Apex Routing Record */}
-                                    <div className="p-3 rounded-lg bg-[#09090b] border border-[#27272a] space-y-2">
-                                      <div className="flex items-center justify-between gap-2">
-                                        <div className="flex items-center gap-2">
-                                          <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 font-mono font-bold text-[10px]">
-                                            A
-                                          </span>
-                                          <span className="text-xs font-bold text-white">Apex Routing (Points to Studio Edge)</span>
-                                        </div>
-                                        <span className="text-[10px] font-mono text-[#a8a29e]">TTL: 300 (or Default)</span>
-                                      </div>
-
-                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono">
-                                        <div className="p-2 rounded bg-[#121216] border border-[#222226] flex items-center justify-between gap-2">
-                                          <div className="truncate">
-                                            <span className="text-[#71717a] text-[10px] block font-sans">Host / Name</span>
-                                            <span className="text-white font-bold">{domainChallengeData.a_host || "@"}</span>
-                                          </div>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleCopyDnsText(domainChallengeData.a_host || "@", "a_host")}
-                                            className="p-1 hover:text-white text-[#a8a29e] shrink-0"
-                                            title="Copy Host"
-                                          >
-                                            {copiedDnsKey === "a_host" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                                          </button>
-                                        </div>
-
-                                        <div className="p-2 rounded bg-[#121216] border border-[#222226] flex items-center justify-between gap-2">
-                                          <div className="truncate">
-                                            <span className="text-[#71717a] text-[10px] block font-sans">Points to IP</span>
-                                            <span className="text-emerald-400 font-bold block">{domainChallengeData.a_value || "149.28.243.12"}</span>
-                                          </div>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleCopyDnsText(domainChallengeData.a_value || "149.28.243.12", "a_value")}
-                                            className="p-1 hover:text-white text-[#a8a29e] shrink-0"
-                                            title="Copy IP Address"
-                                          >
-                                            {copiedDnsKey === "a_value" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
-
-                                    {/* 3. CNAME Subdomain Record */}
-                                    <div className="p-3 rounded-lg bg-[#09090b] border border-[#27272a] space-y-2">
-                                      <div className="flex items-center justify-between gap-2">
-                                        <div className="flex items-center gap-2">
-                                          <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-500/40 text-sky-400 font-mono font-bold text-[10px]">
-                                            CNAME
-                                          </span>
-                                          <span className="text-xs font-bold text-white">WWW Prefix Routing (Recommended)</span>
-                                        </div>
-                                        <span className="text-[10px] font-mono text-[#a8a29e]">TTL: 300 (or Default)</span>
-                                      </div>
-
-                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono">
-                                        <div className="p-2 rounded bg-[#121216] border border-[#222226] flex items-center justify-between gap-2">
-                                          <div className="truncate">
-                                            <span className="text-[#71717a] text-[10px] block font-sans">Host / Name</span>
-                                            <span className="text-white font-bold">{domainChallengeData.cname_host || "www"}</span>
-                                          </div>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleCopyDnsText(domainChallengeData.cname_host || "www", "cname_host")}
-                                            className="p-1 hover:text-white text-[#a8a29e] shrink-0"
-                                            title="Copy CNAME Host"
-                                          >
-                                            {copiedDnsKey === "cname_host" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                                          </button>
-                                        </div>
-
-                                        <div className="p-2 rounded bg-[#121216] border border-[#222226] flex items-center justify-between gap-2">
-                                          <div className="truncate">
-                                            <span className="text-[#71717a] text-[10px] block font-sans">Points to Target</span>
-                                            <span className="text-sky-300 font-bold block">{domainChallengeData.cname_value || "site-studio.live"}</span>
-                                          </div>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleCopyDnsText(domainChallengeData.cname_value || "site-studio.live", "cname_value")}
-                                            className="p-1 hover:text-white text-[#a8a29e] shrink-0"
-                                            title="Copy CNAME Target"
-                                          >
-                                            {copiedDnsKey === "cname_value" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  {/* Re-Check Button */}
-                                  <div className="pt-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleCheckDomainChallenge(connectDomainName)}
-                                      disabled={challengeLoading}
-                                      className="w-full py-2 rounded-xl bg-[#222228] hover:bg-[#2c2c34] text-[#dfb180] border border-[#383842] text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer"
-                                    >
-                                      {challengeLoading ? (
-                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                      ) : (
-                                        <RefreshCw className="w-3.5 h-3.5 text-[#c89666]" />
-                                      )}
-                                      <span>Check Live DNS Propagation</span>
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-
-                              <button
-                                type="submit"
-                                disabled={verifyingOwnershipLoading || !connectDomainName}
-                                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] disabled:opacity-50 text-[#09090b] font-black text-xs flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
-                              >
-                                {verifyingOwnershipLoading ? (
-                                  <>
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#09090b]" />
-                                    <span>Verifying Ownership...</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <ShieldCheck className="w-3.5 h-3.5 text-[#09090b]" />
-                                    <span>Verify Ownership &amp; Connect to {selectedTargetDeployment?.project_name || "Website"}</span>
-                                  </>
-                                )}
-                              </button>
-                            </form>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* ── PART 2 (RIGHT SIDE): SEARCH & BUY ON GODADDY ── */}
-                    <div className="rounded-2xl border border-[#27272a] bg-[#121216] p-5 sm:p-6 space-y-5 shadow-lg">
-                      <div className="flex items-center justify-between gap-2.5 border-b border-[#27272a] pb-3.5">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <div className="w-9 h-9 rounded-xl bg-[#c89666]/15 border border-[#c89666]/35 text-[#c89666] flex items-center justify-center font-bold shrink-0">
-                            <ShoppingCart className="w-4.5 h-4.5" />
-                          </div>
-                          <div className="min-w-0">
-                            <h4 className="font-extrabold text-sm text-white truncate">2. Search &amp; Buy on GoDaddy</h4>
-                            <p className="text-[11px] text-[#a8a29e] truncate">Live wholesale domain registry &amp; instant SSL</p>
-                          </div>
-                        </div>
-                        <span className="whitespace-nowrap shrink-0 text-[10px] font-bold px-2.5 py-1 rounded bg-[#18181d] text-[#dfb180] border border-[#2e2e36]">
-                          GoDaddy Live
-                        </span>
-                      </div>
-
-                      {/* Target Website Banner */}
-                      <div className="p-3.5 rounded-xl bg-[#141418] border border-[#c89666]/30 space-y-2.5 shadow-sm">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[10px] font-bold text-[#c89666] uppercase tracking-wider flex items-center gap-1.5 truncate">
-                            <Sparkles className="w-3.5 h-3.5 shrink-0 text-[#c89666]" /> Target Website For Purchased Domain:
-                          </span>
-                          <span className="whitespace-nowrap shrink-0 text-[10px] font-bold px-2.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                            Auto-Routing Ready
-                          </span>
-                        </div>
-
-                        <div className="flex items-center justify-between gap-3 pt-2 border-t border-[#222228]">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-sm font-extrabold text-white truncate" title={selectedTargetDeployment?.project_name}>
-                              {selectedTargetDeployment?.project_name || "Select a website on the left"}
-                            </span>
-                            {selectedTargetDeployment?.site_id && (
-                              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-[#09090b] text-[#dfb180] border border-[#2e2e38] shrink-0">
-                                {selectedTargetDeployment.site_id}
-                              </span>
-                            )}
-                          </div>
-
-                          {selectedTargetDeployment?.site_id && (
-                            <a
-                              href={selectedTargetDeployment.live_url || `http://localhost:8000/sites/${selectedTargetDeployment.site_id}/`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{ color: "#dfb180", textDecoration: "none" }}
-                              className="site-live-link text-[11px] font-mono hover:underline flex items-center gap-1.5 shrink-0"
-                              title="Open Live Website"
-                            >
-                              <ExternalLink className="w-3 h-3 text-[#c89666] shrink-0" />
-                              <span style={{ color: "#dfb180" }}>Live: http://localhost:8000/sites/{selectedTargetDeployment.site_id}/</span>
-                            </a>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* GoDaddy Search Box */}
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-white flex items-center justify-between">
-                          <span>Search Domain Name *</span>
-                          <span className="text-[10px] text-[#a8a29e] font-normal">Real-time GoDaddy registry</span>
-                        </label>
-                        <div className="flex items-center gap-2">
-                          <div className="relative flex-1">
-                            <Search className="w-4 h-4 text-[#a8a29e] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                            <input
-                              type="text"
-                              placeholder="e.g. nb-official.com or mystudio"
-                              value={godaddySearchQuery}
-                              onChange={(e) => setGodaddySearchQuery(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  handleSearchGoDaddy(godaddySearchQuery);
-                                }
-                              }}
-                              style={{ paddingLeft: "2.5rem" }}
-                              className="w-full pr-3.5 py-2.5 rounded-xl bg-[#09090b] border border-[#2e2e33] text-white font-mono text-xs outline-none focus:border-[#c89666] focus:ring-1 focus:ring-[#c89666] transition placeholder-[#71717a]"
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleSearchGoDaddy(godaddySearchQuery)}
-                            disabled={godaddySearching || !godaddySearchQuery}
-                            className="px-4 py-2.5 rounded-xl bg-[#c89666] hover:bg-[#dfb180] text-[#09090b] text-xs font-black shrink-0 disabled:opacity-50 cursor-pointer transition shadow-md flex items-center gap-1.5"
-                          >
-                            {godaddySearching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
-                            <span>Search</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Live GoDaddy Results List */}
-                      <div className="space-y-2.5">
-                        <div className="flex items-center justify-between text-xs font-bold text-[#a8a29e] pt-1">
-                          <span>Available GoDaddy Domains:</span>
-                          {godaddySearching && (
-                            <span className="text-[10px] text-[#dfb180] flex items-center gap-1 font-medium">
-                              <Loader2 className="w-3 h-3 animate-spin" /> Querying GoDaddy API...
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
-                          {godaddySearchResults.length === 0 ? (
-                            <div className="text-center py-8 rounded-xl border border-dashed border-[#27272a] text-[#a8a29e] text-xs space-y-1.5">
-                              <Search className="w-6 h-6 mx-auto opacity-40 text-[#c89666]" />
-                              <p>Type a domain keyword above and click <strong className="text-white">Search</strong> to query GoDaddy.</p>
-                            </div>
-                          ) : (
-                            godaddySearchResults.map((sug, idx) => {
-                              const domName = sug.domain || sug.name;
-                              const isAvail = sug.available === true;
-                              const priceVal = sug.price?.value ? (sug.price.value / 100).toFixed(2) : (sug.price || "10.99");
-                              const renewalVal = sug.renewalPrice?.value ? (sug.renewalPrice.value / 100).toFixed(2) : null;
-                              const targetDep = selectedTargetDeployment?.id || connectSelectedDeploymentId || (deploymentsData.length > 0 ? deploymentsData[0].id : "");
-
-                              return (
-                                <div
-                                  key={idx}
-                                  className={`p-3 rounded-xl border transition-all flex items-center justify-between gap-3 shadow-xs ${
-                                    isAvail
-                                      ? "border-[#27272a] bg-[#16161b] hover:bg-[#1a1a21] hover:border-[#c89666]/40"
-                                      : "border-[#202024] bg-[#101013] opacity-60"
-                                  }`}
-                                >
-                                  <div className="min-w-0">
-                                    <div className="flex items-center gap-2">
-                                      <span className="font-mono font-bold text-xs text-white truncate" title={domName}>
-                                        {domName}
-                                      </span>
-                                      {isAvail ? (
-                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                                          Available
-                                        </span>
-                                      ) : (
-                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                                          Taken
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="text-[11px] text-[#a8a29e] mt-1">
-                                      {isAvail ? (
-                                        <>
-                                          <strong className="text-white font-mono">${priceVal}</strong>/yr
-                                          {renewalVal && <span className="text-[10px] text-[#71717a] ml-1.5">&bull; Renews at ${renewalVal}/yr</span>}
-                                        </>
-                                      ) : (
-                                        <span className="text-[10px] text-rose-400/80">Already registered on the web</span>
-                                      )}
-                                    </div>
-                                  </div>
-
-                                  {/* Buy Domain Button */}
-                                  {isAvail ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        navigate(`/domains/buy?domain=${encodeURIComponent(domName)}&deployment_id=${targetDep}&price=${encodeURIComponent(priceVal)}&from=${encodeURIComponent("/dashboard?tab=my-websites")}`);
-                                      }}
-                                      className="px-4 py-2 rounded-xl bg-[#c89666] hover:bg-[#dfb180] text-[#09090b] text-xs font-black flex items-center gap-1.5 shrink-0 transition shadow-md cursor-pointer"
-                                    >
-                                      <ShoppingCart className="w-3.5 h-3.5" />
-                                      <span>Buy Domain &rarr;</span>
-                                    </button>
-                                  ) : (
-                                    <span className="px-3 py-1 rounded-lg bg-[#1a1a1f] text-[#71717a] text-xs font-semibold shrink-0 cursor-not-allowed border border-[#27272a]">
-                                      Unavailable
-                                    </span>
-                                  )}
-                                </div>
-                              );
-                            })
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="p-3.5 rounded-xl bg-[#16161b] border border-[#27272a] text-[11px] text-[#a8a29e] flex items-center gap-2.5">
-                        <Info className="w-4 h-4 text-[#c89666] shrink-0" />
-                        <span>
-                          Purchased domains automatically link to{" "}
-                          <strong className="text-white">{selectedTargetDeployment?.project_name || "your target website"}</strong> with instant SSL certificate activation.
-                        </span>
-                      </div>
+                      <p className="text-[11px] text-[#71717a] pt-1">
+                        Domains link automatically to your target site with instant SSL.
+                      </p>
                     </div>
                   </div>
 
-                  {/* === SECTION 3: MAPPED CUSTOM DOMAINS TABLE === */}
-                  <div className="space-y-4 pt-5 border-t border-[#27272a]">
+                  {/* ── BOTTOM: MAPPED DOMAINS ── */}
+                  <div className="pt-4 border-t border-[#222226] space-y-3">
                     <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="font-extrabold text-base text-white flex items-center gap-2">
-                          <Server className="w-4 h-4 text-[#c89666]" />
-                          <span>Currently Mapped Custom Domains ({deploymentsData.filter(d => d.custom_domain).length})</span>
-                        </h4>
-                        <p className="text-xs text-[#a8a29e]">All active brand domains mapped to your websites</p>
+                      <div className="flex items-center gap-2">
+                        <Globe className="w-4 h-4 text-[#c89666]" />
+                        <span className="text-sm font-bold text-white">Mapped Domains</span>
+                        <span className="text-xs text-[#a8a29e]">({deploymentsData.filter(d => d.custom_domain).length})</span>
                       </div>
                     </div>
 
                     {deploymentsData.filter(d => d.custom_domain).length === 0 ? (
-                      <div className="text-center py-10 rounded-xl border border-dashed border-[#27272a] text-[#a8a29e] text-xs space-y-2 bg-[#121216]/50">
-                        <Globe className="w-8 h-8 mx-auto opacity-50 text-[#c89666]" />
-                        <p className="font-bold text-white text-sm">No custom domains mapped yet</p>
-                        <p className="text-[11px] max-w-sm mx-auto text-[#a8a29e]">
-                          Use the left form to connect a domain you own, or search GoDaddy on the right to register a new one.
-                        </p>
+                      <div className="py-4 text-center text-xs text-[#71717a]">
+                        No custom domains linked yet.
                       </div>
                     ) : (
-                      <div className="overflow-x-auto rounded-xl border border-[#27272a] bg-[#121216]">
-                        <table className="w-full text-left text-sm">
+                      <div className="overflow-x-auto rounded border border-[#222226]">
+                        <table className="w-full text-left text-xs">
                           <thead>
-                            <tr className="border-b border-[#27272a] text-[11px] font-bold text-[#a8a29e] uppercase bg-[#18181d]">
-                              <th className="py-3 px-4">Custom Domain</th>
-                              <th className="py-3 px-4">Linked Website Project</th>
-                              <th className="py-3 px-4">Ownership &amp; SSL</th>
-                              <th className="py-3 px-4">Status</th>
-                              <th className="py-3 px-4 text-right">Actions</th>
+                            <tr className="border-b border-[#222226] bg-[#121216] text-[11px] text-[#a8a29e]">
+                              <th className="py-2 px-3 font-semibold">Domain</th>
+                              <th className="py-2 px-3 font-semibold">Site</th>
+                              <th className="py-2 px-3 font-semibold">SSL</th>
+                              <th className="py-2 px-3 font-semibold">Auto-Renewal</th>
+                              <th className="py-2 px-3 text-right font-semibold">Actions</th>
                             </tr>
                           </thead>
-                          <tbody>
-                            {deploymentsData.filter(d => d.custom_domain).map((deploy) => {
-                              const livePreviewUrl = deploy.live_url;
-                              return (
-                                <tr key={deploy.id} className="border-b border-[#222226] hover:bg-[#1a1a21] transition-colors text-xs">
-                                  <td className="py-3.5 px-4">
-                                    <a
-                                      href={livePreviewUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      style={{ color: "#dfb180", textDecoration: "none" }}
-                                      className="site-live-link font-bold font-mono text-[#dfb180] hover:text-[#f5d0a9] hover:underline flex items-center gap-1.5"
+                          <tbody className="divide-y divide-[#222226]">
+                            {deploymentsData.filter(d => d.custom_domain).map((deploy) => (
+                              <tr key={deploy.id} className="hover:bg-[#16161b]">
+                                <td className="py-2.5 px-3 font-mono font-bold text-[#dfb180]">
+                                  <a
+                                    href={deploy.live_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{ color: "#dfb180" }}
+                                    className="site-live-link hover:underline inline-flex items-center gap-1"
+                                  >
+                                    {deploy.custom_domain}
+                                    <ExternalLink className="w-2.5 h-2.5 text-[#a8a29e]" />
+                                  </a>
+                                </td>
+                                <td className="py-2.5 px-3 text-white truncate max-w-[150px]">{deploy.project_name}</td>
+                                <td className="py-2.5 px-3">
+                                  <span className="text-[10px] text-emerald-400 flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3" /> Active
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const nextState = !deploy.auto_renew;
+                                      toggleAutoRenewMutation.mutate({ domain: deploy.custom_domain, autoRenew: nextState });
+                                    }}
+                                    disabled={toggleAutoRenewMutation.isPending}
+                                    className={`px-2 py-0.5 rounded text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer transition border ${deploy.auto_renew
+                                        ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25"
+                                        : "bg-[#1c1c24] border-[#383842] text-[#a8a29e] hover:text-white"
+                                      }`}
+                                    title={deploy.auto_renew ? "Auto-renewal authorized. Click to revoke authority." : "Click to authorize automatic annual renewal debit."}
+                                  >
+                                    {deploy.auto_renew ? (
+                                      <>
+                                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                                        <span>Auto: ON</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <span className="w-1.5 h-1.5 rounded-full bg-[#71717a]" />
+                                        <span>Auto: OFF</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </td>
+                                <td className="py-2.5 px-3 text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => openDomainTransferModal(deploy.custom_domain)}
+                                      className="text-[11px] text-[#dfb180] hover:underline cursor-pointer"
                                     >
-                                      <Globe className="w-3.5 h-3.5 text-[#c89666]" />
-                                      <span style={{ color: "#dfb180" }}>{deploy.custom_domain}</span>
-                                      <ExternalLink className="w-3 h-3 text-[#a8a29e]" />
-                                    </a>
-                                  </td>
-                                  <td className="py-3.5 px-4 font-semibold text-white">
-                                    {deploy.project_name}
-                                    <span className="text-[10px] text-[#a8a29e] block font-mono">{deploy.subdomain}.site-studio.live</span>
-                                  </td>
-                                  <td className="py-3.5 px-4">
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                                      <CheckCircle2 className="w-3 h-3" /> Ownership Verified &bull; SSL Active
-                                    </span>
-                                  </td>
-                                  <td className="py-3.5 px-4">
-                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-bold bg-[#c89666]/15 text-[#dfb180] border border-[#c89666]/35">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Live
-                                    </span>
-                                  </td>
-                                  <td className="py-3.5 px-4 text-right">
-                                    <div className="flex items-center justify-end gap-2">
-                                      <a
-                                        href={livePreviewUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="px-3 py-1.5 rounded-lg bg-[#222228] hover:bg-[#2c2c34] text-white text-xs font-bold border border-[#383842] flex items-center gap-1 transition"
-                                      >
-                                        <ExternalLink className="w-3 h-3 text-[#a8a29e]" /> Visit
-                                      </a>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          if (confirm(`Are you sure you want to unlink the custom domain "${deploy.custom_domain}" from this website?`)) {
-                                            unlinkDomainMutation.mutate(deploy.id);
-                                          }
-                                        }}
-                                        disabled={unlinkDomainMutation.isPending}
-                                        className="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-bold border border-rose-500/30 transition cursor-pointer"
-                                      >
-                                        Unlink
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })}
+                                      Transfer
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (confirm(`Unlink ${deploy.custom_domain}?`)) {
+                                          unlinkDomainMutation.mutate(deploy.id);
+                                        }
+                                      }}
+                                      className="text-[11px] text-rose-400 hover:underline cursor-pointer"
+                                    >
+                                      Unlink
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
                           </tbody>
                         </table>
                       </div>
@@ -5578,46 +5461,50 @@ function Dashboard() {
                   </div>
                 </div>
               )}
-
               {/* === DEPLOYMENTS === */}
               {activeTab === "deployments" && (
-                <div className="glass-premium p-8 space-y-6">
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div className="rounded-2xl border border-[#27272a] bg-[#0c0c0e] p-6 sm:p-8 space-y-6 shadow-2xl">
+                  {/* Top Header */}
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-[#222226] pb-5">
                     <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-lg text-foreground">Deployments</h3>
-                        <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-semibold border border-emerald-500/30 uppercase tracking-wider flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                          Local hosting + Vercel
+                      <div className="flex items-center gap-2.5">
+                        <h3 className="font-extrabold text-2xl text-white">Deployments</h3>
+                        <span className="text-xs bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full font-bold border border-emerald-500/40 uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                          Studio Edge CDN
                         </span>
                       </div>
-                      <p className="text-sm text-muted-foreground">Build static sites on this server or publish them to a configured Vercel account.</p>
+                      <p className="text-xs sm:text-sm text-[#a8a29e] mt-1.5">
+                        Deploy and manage production static sites on high-speed Studio Edge CDN with automatic SSL.
+                      </p>
                     </div>
                     <div className="flex items-center gap-2.5">
                       <Link
                         to="/studio/deploy"
-                        className="btn-primary inline-flex items-center gap-1.5"
+                        className="px-4 py-2.5 rounded-xl bg-[#c89666] hover:bg-[#dfb180] text-[#09090b] font-black text-xs transition cursor-pointer shadow-md inline-flex items-center gap-1.5"
                         title="Open Cloud Deployer Studio"
                       >
-                        <Plus className="w-4 h-4" /> Deploy a Project
+                        <Plus className="w-4 h-4 stroke-[3]" />
+                        <span>Deploy a Project</span>
                       </Link>
                     </div>
                   </div>
 
                   {deploymentsLoading && (!deploymentsData || deploymentsData.length === 0) ? (
                     <div className="text-center py-12">
-                      <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
-                      <p className="text-xs text-muted-foreground mt-2">Loading deployments...</p>
+                      <Loader2 className="w-8 h-8 animate-spin mx-auto text-[#dfb180]" />
+                      <p className="text-xs text-[#a8a29e] mt-2 font-medium">Loading deployments...</p>
                     </div>
                   ) : deploymentsData.length === 0 ? (
-                    <div className="text-center py-12 text-muted-foreground border border-dashed border-border/40 rounded-xl bg-card/5">
-                      <Zap className="w-8 h-8 text-primary mx-auto mb-3 opacity-60" />
-                      <p className="text-sm font-semibold text-foreground">No active deployments</p>
-                      <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
-                        Connect a project template to start building and hosting.
+                    <div className="text-center py-12 text-[#a8a29e] border border-dashed border-[#27272a] rounded-2xl bg-[#121217]">
+                      <Zap className="w-10 h-10 text-[#c89666] mx-auto mb-3 opacity-70" />
+                      <p className="text-base font-bold text-white">No active deployments</p>
+                      <p className="text-xs text-[#a8a29e] mt-1 max-w-md mx-auto">
+                        Connect a project template to start building and hosting live websites.
                       </p>
                       <div className="flex items-center justify-center gap-3 mt-4">
                         <button
+                          type="button"
                           onClick={() => {
                             const available = [...sellerTemplatesList];
                             if (available.length > 0) {
@@ -5629,159 +5516,237 @@ function Dashboard() {
                             }
                             setIsDeployModalOpen(true);
                           }}
-                          className="btn-secondary"
+                          className="px-4 py-2 rounded-xl bg-[#c89666] hover:bg-[#dfb180] text-[#09090b] font-bold text-xs transition shadow-md cursor-pointer"
                         >
                           Create Project Deployment
                         </button>
                       </div>
                     </div>
                   ) : (
-                    <div className="flex flex-col gap-4">
-                      {deploymentsData.map((deploy) => {
-                        const isLive = deploy.status === "live" || deploy.status === "success";
-                        const isBuilding = deploy.status === "building" || deploy.status === "queued" || deploy.status === "deploying";
-                        const isSuspended = deploy.status === "suspended" || deploy.is_suspended;
-                        const isFailed = deploy.status === "failed";
-                        const deployDetailsUrl = `/deployments/${encodeURIComponent(deploy.id)}`;
-                        const deployPageUrl = `/studio/deploy?deployment=${encodeURIComponent(deploy.id)}${deploy.template_id ? `&template=${encodeURIComponent(deploy.template_id)}` : ""}&name=${encodeURIComponent(deploy.project_name)}`;
+                    <div className="space-y-5">
+                      {/* Search Bar & Status Filters */}
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-3 rounded-xl bg-[#121217] border border-[#222228]">
+                        <div className="relative flex-1">
+                          <Search className="w-4 h-4 text-[#a8a29e] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <input
+                            type="text"
+                            placeholder="Search deployments by project name, site ID, domain..."
+                            value={deploymentSearchQuery}
+                            onChange={(e) => setDeploymentSearchQuery(e.target.value)}
+                            className="w-full pl-9 pr-8 py-2 rounded-lg bg-[#09090b] border border-[#27272f] text-white text-xs outline-none focus:border-[#c89666] transition placeholder-[#71717a]"
+                          />
+                          {deploymentSearchQuery && (
+                            <button
+                              type="button"
+                              onClick={() => setDeploymentSearchQuery("")}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#71717a] hover:text-white p-0.5 text-xs font-bold cursor-pointer"
+                              title="Clear search"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
 
-                        return (
-                          <div
-                            key={deploy.id}
-                            className="glass-premium border border-border/60 hover:border-[#c89666]/30 rounded-2xl p-5 shadow-lg transition-all overflow-hidden"
+                        {/* Filter Status Pills */}
+                        <div className="flex items-center gap-1.5 shrink-0 overflow-x-auto pb-1 sm:pb-0">
+                          {[
+                            { id: "all", label: `All (${deploymentsData.length})` },
+                            { id: "live", label: `Live (${deploymentsData.filter(d => d.status === "live" || d.status === "success").length})` },
+                            { id: "building", label: "Building" },
+                            { id: "suspended", label: "Suspended" },
+                          ].map((tab) => (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              onClick={() => setDeploymentStatusFilter(tab.id)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer border ${deploymentStatusFilter === tab.id
+                                  ? "bg-[#c89666] text-[#09090b] font-bold border-[#c89666] shadow-xs"
+                                  : "bg-[#181820] text-[#a8a29e] hover:text-white border-[#27272f]"
+                                }`}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {filteredDeployments.length === 0 ? (
+                        <div className="py-12 text-center text-xs text-[#a8a29e] border border-dashed border-[#27272a] rounded-xl bg-[#121217]">
+                          <Search className="w-8 h-8 text-[#c89666] mx-auto mb-2 opacity-50" />
+                          <p className="font-bold text-white text-sm">No matching deployments found</p>
+                          <p className="text-[11px] text-[#71717a] mt-1">Try adjusting your search query or clear the filter.</p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDeploymentSearchQuery("");
+                              setDeploymentStatusFilter("all");
+                            }}
+                            className="mt-3 px-3 py-1.5 rounded-lg bg-[#222228] hover:bg-[#2c2c34] text-[#dfb180] text-xs font-bold border border-[#383842] inline-flex items-center gap-1 cursor-pointer"
                           >
-                            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                              {/* Left: Visual Deployment Icon + Project Details & Badges */}
-                              <div className="flex items-start sm:items-center gap-3.5 min-w-0 flex-1">
-                                {/* Visual Deployment Icon */}
-                                <div className="w-12 h-12 rounded-xl bg-[#c89666]/15 border border-[#c89666]/30 flex items-center justify-center relative shadow-xs flex-shrink-0">
-                                  {isBuilding ? (
-                                    <Loader2 className="w-5 h-5 text-amber-400 animate-spin" />
-                                  ) : isLive ? (
-                                    <>
-                                      <Rocket className="w-5 h-5 text-[#dfb180]" />
-                                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse absolute -top-1 -right-1 border-2 border-slate-900" title="Live" />
-                                    </>
-                                  ) : isSuspended ? (
-                                    <Pause className="w-5 h-5 text-amber-400" />
-                                  ) : (
-                                    <AlertTriangle className="w-5 h-5 text-rose-400" />
-                                  )}
-                                </div>
+                            Clear Filters
+                          </button>
+                        </div>
+                      ) : (
+                        /* Responsive 4-Column Grid Template Structure */
+                        <div className="deployments-cards-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                          {filteredDeployments.map((deploy) => {
+                            const isLive = deploy.status === "live" || deploy.status === "success";
+                            const isBuilding = deploy.status === "building" || deploy.status === "queued" || deploy.status === "deploying";
+                            const isSuspended = deploy.status === "suspended" || deploy.is_suspended;
+                            const isFailed = deploy.status === "failed";
+                            const deployDetailsUrl = `/deployments/${encodeURIComponent(deploy.id)}`;
+                            const deployPageUrl = `/studio/deploy?deployment=${encodeURIComponent(deploy.id)}${deploy.template_id ? `&template=${encodeURIComponent(deploy.template_id)}` : ""}&name=${encodeURIComponent(deploy.project_name)}`;
+                            const siteLiveUrl = deploy.live_url || (deploy.site_id ? `${BACKEND_BASE}/sites/${deploy.site_id}/` : "#");
+                            const displayDomain = deploy.custom_domain || (deploy.subdomain ? `${deploy.subdomain}.site-studio.live` : "Studio Preview");
 
-                                {/* Project Title & Polished Micro-Badges */}
-                                <div className="min-w-0 flex-1 space-y-1.5">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <Link
-                                      to={deployDetailsUrl}
-                                      className="text-left font-extrabold text-base sm:text-lg text-white hover:text-[#dfb180] transition-colors flex items-center gap-1.5 group cursor-pointer"
-                                      title="Click to view full website details, logs, users, framework, issues & blockers"
-                                    >
-                                      <span className="truncate max-w-[280px] sm:max-w-[420px]">{deploy.project_name}</span>
-                                      <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#dfb180] transition-colors opacity-70" />
-                                    </Link>
+                            return (
+                              <div
+                                key={deploy.id}
+                                className="deployment-card rounded-xl border border-[#2a2a35] bg-[#121217] hover:border-[#c89666]/60 transition-all p-4 shadow-lg flex flex-col justify-between group space-y-3.5"
+                              >
+                                {/* Card Top: Icon, Project Name, Status */}
+                                <div className="space-y-3.5">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="flex items-center gap-3 min-w-0">
+                                      <div className="w-10 h-10 rounded-xl bg-[#c89666]/15 border border-[#c89666]/35 flex items-center justify-center shrink-0">
+                                        {isBuilding ? (
+                                          <Loader2 className="w-5 h-5 text-amber-400 animate-spin" />
+                                        ) : isLive ? (
+                                          <Rocket className="w-5 h-5 text-[#dfb180]" />
+                                        ) : isSuspended ? (
+                                          <Pause className="w-5 h-5 text-amber-400" />
+                                        ) : (
+                                          <AlertTriangle className="w-5 h-5 text-rose-400" />
+                                        )}
+                                      </div>
+                                      <div className="min-w-0">
+                                        <Link
+                                          to={deployDetailsUrl}
+                                          className="text-base font-extrabold text-white hover:text-[#dfb180] transition-colors truncate block"
+                                          title={deploy.project_name}
+                                        >
+                                          {deploy.project_name}
+                                        </Link>
+                                        <span className="text-[11px] font-mono text-[#a8a29e] font-semibold">
+                                          {deploy.site_id || `SITE-${deploy.id.slice(0, 6).toUpperCase()}`}
+                                        </span>
+                                      </div>
+                                    </div>
 
                                     {/* Status Badge */}
-                                    <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold flex items-center gap-1.5 border ${isLive
-                                      ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                                      : isBuilding
-                                        ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
-                                        : isSuspended
-                                          ? "bg-slate-500/15 text-slate-300 border-slate-500/30"
-                                          : "bg-rose-500/15 text-rose-400 border-rose-500/30"
+                                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold shrink-0 flex items-center gap-1.5 border ${isLive
+                                        ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                                        : isBuilding
+                                          ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                                          : isSuspended
+                                            ? "bg-slate-700/40 text-slate-200 border-slate-600/40"
+                                            : "bg-rose-500/20 text-rose-300 border-rose-500/40"
                                       }`}>
                                       {isBuilding && <Loader2 className="w-3 h-3 animate-spin" />}
-                                      {isLive && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
-                                      {isBuilding ? "Building" : isLive ? "● LIVE" : isSuspended ? "Suspended" : "Failed"}
+                                      {isLive && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />}
+                                      <span>{isBuilding ? "Building" : isLive ? "● LIVE" : isSuspended ? "Suspended" : "Failed"}</span>
                                     </span>
                                   </div>
 
-                                  {/* Micro-Badges with Uniform Sleek Styling */}
-                                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300 font-medium">
-                                    <span className="inline-flex items-center gap-1.5 bg-[#c89666]/15 text-[#dfb180] border border-[#c89666]/30 px-2 py-0.5 rounded-lg font-mono font-bold text-[11px]">
+                                  {/* Domain & Live Preview Row */}
+                                  <div className="p-2.5 rounded-lg bg-[#09090b] border border-[#27272f] flex items-center justify-between gap-2 text-xs">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <Globe className="w-4 h-4 text-[#c89666] shrink-0" />
+                                      <a
+                                        href={siteLiveUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        style={{ color: "#dfb180" }}
+                                        className="site-live-link font-mono text-xs font-bold hover:underline truncate"
+                                        title={displayDomain}
+                                      >
+                                        {displayDomain}
+                                      </a>
+                                    </div>
+                                    <ExternalLink className="w-3.5 h-3.5 text-[#a8a29e] shrink-0" />
+                                  </div>
+
+                                  {/* Visible Metadata Chips (High Contrast) */}
+                                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                                    <span className="inline-flex items-center gap-1 bg-[#1c1c24] text-[#dfb180] border border-[#c89666]/35 px-2 py-0.5 rounded font-mono font-bold text-[11px]">
                                       <Tag className="w-3 h-3 text-[#dfb180]" />
                                       {deploy.site_id || `SITE-${deploy.id.slice(0, 6).toUpperCase()}`}
                                     </span>
-                                    <span className="inline-flex items-center gap-1 bg-white/5 text-slate-300 border border-white/10 px-1.5 py-0.5 rounded-lg font-mono font-bold text-[11px]">
+                                    <span className="inline-flex items-center gap-1 bg-[#1c1c24] text-white border border-[#33333f] px-2 py-0.5 rounded font-mono font-bold text-[11px]">
                                       {deploy.current_version || "v1.0"}
                                     </span>
-                                    <span className="inline-flex items-center gap-1.5 bg-white/5 text-slate-300 border border-white/10 px-2.5 py-0.5 rounded-lg text-xs font-semibold">
-                                      <Server className="w-3.5 h-3.5 text-[#dfb180]" />
+                                    <span className="inline-flex items-center gap-1 bg-[#1c1c24] text-[#e4e4e7] border border-[#33333f] px-2 py-0.5 rounded text-[11px] font-semibold">
+                                      <Server className="w-3 h-3 text-[#dfb180]" />
                                       {deploy.provider === "vercel" ? "Vercel Cloud" : "Studio Edge CDN"}
                                     </span>
-                                    <span className="inline-flex items-center gap-1.5 bg-white/5 text-slate-300 border border-white/10 px-2.5 py-0.5 rounded-lg text-xs font-mono truncate max-w-[200px] sm:max-w-[280px]">
-                                      <Globe className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                                      <span className="truncate" title={deploy.custom_domain || deploy.subdomain}>
-                                        {deploy.custom_domain || deploy.subdomain}
-                                      </span>
-                                    </span>
-                                    <span className="inline-flex items-center gap-1.5 bg-white/5 text-slate-400 border border-white/10 px-2 py-0.5 rounded-lg text-xs">
-                                      <Clock className="w-3.5 h-3.5 text-slate-400" />
+                                    <span className="inline-flex items-center gap-1 bg-[#1c1c24] text-[#d4d4d8] border border-[#33333f] px-2 py-0.5 rounded text-[11px] font-medium">
+                                      <Clock className="w-3 h-3 text-[#a8a29e]" />
                                       {new Date(deploy.updated_at || deploy.created_at).toLocaleDateString()}
                                     </span>
                                   </div>
                                 </div>
-                              </div>
 
-                              {/* Right: Modern Action Buttons */}
-                              <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0 pt-3 lg:pt-0 border-t lg:border-t-0 border-border/20">
-                                {isLive && (
-                                  <a
-                                    href={deploy.live_url || (deploy.site_id ? `${BACKEND_BASE}/sites/${deploy.site_id}/` : "#")}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="px-3.5 py-2 rounded-xl bg-[#c89666]/15 hover:bg-[#c89666]/25 border border-[#c89666]/35 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
-                                    title="Open live website in a new tab"
+                                {/* Card Bottom: 2x2 Action Buttons Grid */}
+                                <div className="pt-3.5 border-t border-[#222228] grid grid-cols-2 gap-2 text-xs">
+                                  {isLive ? (
+                                    <a
+                                      href={siteLiveUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="px-2.5 py-2 rounded-lg bg-[#c89666] hover:bg-[#dfb180] text-[#09090b] font-black text-xs flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer"
+                                      title="Open live website in a new tab"
+                                    >
+                                      <ExternalLink className="w-3.5 h-3.5 stroke-[2.5]" />
+                                      <span>Visit Site</span>
+                                    </a>
+                                  ) : (
+                                    <div className="px-2.5 py-2 rounded-lg bg-[#16161c] text-[#71717a] text-xs font-bold flex items-center justify-center">
+                                      Offline
+                                    </div>
+                                  )}
+
+                                  <Link
+                                    to={deployDetailsUrl}
+                                    className="px-2.5 py-2 rounded-lg bg-[#1e1e26] hover:bg-[#282834] text-white border border-[#383846] font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                                    title="View full health, metrics & details"
                                   >
-                                    <ExternalLink className="w-3.5 h-3.5 text-[#c89666]" />
-                                    <span>Visit Site</span>
-                                  </a>
-                                )}
+                                    <Activity className="w-3.5 h-3.5 text-[#dfb180]" />
+                                    <span>Details</span>
+                                  </Link>
 
-                                {/* Full Details & Health Page Button */}
-                                <Link
-                                  to={deployDetailsUrl}
-                                  className="px-3.5 py-2 rounded-xl bg-[#c89666]/15 hover:bg-[#c89666]/15 text-[#dfb180] border border-[#c89666]/30 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
-                                  title="View full website details, logs, users, framework, issues & blockers"
-                                >
-                                  <Activity className="w-3.5 h-3.5 text-[#dfb180]" />
-                                  <span>Details &amp; Health</span>
-                                </Link>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedDeployment(deploy);
+                                      setActiveConsoleLogs(deploy.logs || "");
+                                      setActiveConsoleStatus(deploy.status);
+                                      setIsConsoleOpen(true);
+                                    }}
+                                    className="px-2.5 py-2 rounded-lg bg-[#1e1e26] hover:bg-[#282834] text-white border border-[#383846] font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                                    title="Open live console logs"
+                                  >
+                                    <Terminal className="w-3.5 h-3.5 text-[#dfb180]" />
+                                    <span>Logs</span>
+                                  </button>
 
-                                {/* Dedicated Button Called LOGS */}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedDeployment(deploy);
-                                    setActiveConsoleLogs(deploy.logs || "");
-                                    setActiveConsoleStatus(deploy.status);
-                                    setIsConsoleOpen(true);
-                                  }}
-                                  className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 hover:border-white/20 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
-                                  title="Open full live logs console with all options"
-                                >
-                                  <Terminal className="w-3.5 h-3.5 text-[#dfb180]" />
-                                  <span>Logs</span>
-                                </button>
-
-                                {/* Direct Button to Open Deployment Page */}
-                                <Link
-                                  to={deployPageUrl}
-                                  className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 hover:border-white/20 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
-                                  title="Open deployment page"
-                                >
-                                  <Rocket className="w-3.5 h-3.5 text-[#dfb180]" />
-                                  <span>Deploy Page</span>
-                                </Link>
+                                  <Link
+                                    to={deployPageUrl}
+                                    className="px-2.5 py-2 rounded-lg bg-[#1e1e26] hover:bg-[#282834] text-white border border-[#383846] font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                                    title="Open in deploy studio"
+                                  >
+                                    <Rocket className="w-3.5 h-3.5 text-[#dfb180]" />
+                                    <span>Deploy Page</span>
+                                  </Link>
+                                </div>
                               </div>
-                            </div>
-                          </div>
-                        );
-                      })}                    </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
-
               {/* === WISHLIST === */}
               {activeTab === "wishlist" && (
                 <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
@@ -5895,7 +5860,7 @@ function Dashboard() {
                       </div>
                       <h3 className="font-extrabold text-2xl text-foreground">Billing & Payment Report</h3>
                       <p className="text-sm text-muted-foreground mt-1">
-                        Consolidated statement of all template licenses, recurring edge hosting subscriptions, and Gemini AI compute top-ups.
+                        Consolidated statement of all template licenses, recurring edge hosting subscriptions, and Studio compute top-ups.
                       </p>
                     </div>
 
@@ -5916,6 +5881,124 @@ function Dashboard() {
                         <Coins className="w-3.5 h-3.5" />
                         <span>Top Up Tokens</span>
                       </a>
+                    </div>
+                  </div>
+
+                  {/* Subscription & Entitlements Management Card */}
+                  <div className="glass border border-border/40 rounded-2xl p-6 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <Crown className="w-5 h-5 text-[#dfb180]" />
+                          <h4 className="font-bold text-lg text-foreground capitalize">
+                            {userSubData?.plan ? `${userSubData.plan} Tier` : `${user?.subscription_tier || "Free"} Tier`}
+                          </h4>
+                          <span className={cn(
+                            "px-2.5 py-0.5 rounded-full text-xs font-bold uppercase",
+                            userSubData?.status === "active"
+                              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
+                              : userSubData?.status === "canceled"
+                                ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
+                                : "bg-muted text-muted-foreground border border-border"
+                          )}>
+                            {userSubData?.status || "Active"}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {userSubData?.cancel_at_period_end
+                            ? `Scheduled to cancel on ${userSubData.current_period_end ? new Date(userSubData.current_period_end).toLocaleDateString() : "period end"}. You will retain full access until then.`
+                            : userSubData?.current_period_end
+                              ? `Renews on ${new Date(userSubData.current_period_end).toLocaleDateString()} via ${userSubData.billing_provider || "payment gateway"}.`
+                              : "Free Starter Tier · Upgrade to unlock custom domains, included hosted sites, and continuous Auto-Heal."}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {userSubData?.plan && userSubData.plan !== "free" ? (
+                          userSubData.cancel_at_period_end ? (
+                            <button
+                              type="button"
+                              onClick={() => reactivateSubscriptionMutation.mutate()}
+                              disabled={reactivateSubscriptionMutation.isPending}
+                              className="px-3.5 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-xl text-xs font-bold border border-emerald-500/30 transition-colors cursor-pointer"
+                            >
+                              {reactivateSubscriptionMutation.isPending ? "Reactivating..." : "Reactivate Subscription"}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (confirm("Are you sure you want to cancel your subscription at the end of the current billing cycle?")) {
+                                  cancelSubscriptionMutation.mutate();
+                                }
+                              }}
+                              disabled={cancelSubscriptionMutation.isPending}
+                              className="px-3.5 py-2 bg-muted/40 hover:bg-muted/70 text-muted-foreground hover:text-foreground rounded-xl text-xs font-semibold border border-border/50 transition-colors cursor-pointer"
+                            >
+                              {cancelSubscriptionMutation.isPending ? "Canceling..." : "Cancel at Period End"}
+                            </button>
+                          )
+                        ) : null}
+
+                        {(!userSubData?.plan || userSubData.plan === "free") ? (
+                          <a
+                            href="/subscribe?plan=pro"
+                            className="px-4 py-2 bg-gradient-to-r from-[#c89666] to-[#b5804f] text-[#09090b] text-xs font-bold rounded-xl shadow transition-all text-decoration-none"
+                          >
+                            Upgrade to Pro ($19/mo)
+                          </a>
+                        ) : userSubData.plan === "pro" ? (
+                          <a
+                            href="/subscribe?plan=extreme"
+                            className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-xs font-bold rounded-xl shadow transition-all text-decoration-none"
+                          >
+                            Upgrade to Extreme ($50/mo)
+                          </a>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {/* Entitlement Quotas Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-border/30">
+                      <div className="p-3 bg-muted/20 rounded-xl">
+                        <span className="text-[11px] text-muted-foreground uppercase font-semibold block">AI Generation Quota</span>
+                        <div className="text-base font-bold text-foreground mt-0.5">
+                          {userSubData?.available_credits ?? user?.ai_credits ?? 10} Credits
+                        </div>
+                        <span className="text-[10px] text-muted-foreground">
+                          {userSubData?.entitlements?.ai_credits_monthly
+                            ? `${userSubData.entitlements.ai_credits_monthly}/mo allowance`
+                            : "1 free generation trial"}
+                        </span>
+                      </div>
+
+                      <div className="p-3 bg-muted/20 rounded-xl">
+                        <span className="text-[11px] text-muted-foreground uppercase font-semibold block">Included Hosted Sites</span>
+                        <div className="text-base font-bold text-foreground mt-0.5">
+                          {userSubData?.active_hosted_count ?? 0} / {userSubData?.entitlements?.included_hosted_sites ?? 0}
+                        </div>
+                        <span className="text-[10px] text-muted-foreground">Included at $0 hosting charge</span>
+                      </div>
+
+                      <div className="p-3 bg-muted/20 rounded-xl">
+                        <span className="text-[11px] text-muted-foreground uppercase font-semibold block">Deployment Slots</span>
+                        <div className="text-base font-bold text-foreground mt-0.5">
+                          {userSubData?.active_deployments_count ?? 0} / {userSubData?.entitlements?.max_deployment_slots ?? 1}
+                        </div>
+                        <span className="text-[10px] text-muted-foreground">Active website versions</span>
+                      </div>
+
+                      <div className="p-3 bg-muted/20 rounded-xl">
+                        <span className="text-[11px] text-muted-foreground uppercase font-semibold block">Auto-Heal Sites</span>
+                        <div className="text-base font-bold text-foreground mt-0.5">
+                          {userSubData?.auto_heal_sites_count ?? 0} / {userSubData?.entitlements?.auto_heal_sites ?? 0}
+                        </div>
+                        <span className="text-[10px] text-muted-foreground">
+                          {userSubData?.entitlements?.max_auto_heal_repairs_per_month
+                            ? `Max ${userSubData.entitlements.max_auto_heal_repairs_per_month} repairs/mo`
+                            : "Disabled on Free tier"}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -5947,7 +6030,7 @@ function Dashboard() {
 
                     <div className="glass border border-border/40 rounded-xl p-5">
                       <div className="flex items-center justify-between text-muted-foreground mb-2">
-                        <span className="text-xs font-semibold uppercase tracking-wider">Available Gemini Tokens</span>
+                        <span className="text-xs font-semibold uppercase tracking-wider">Available Compute Tokens</span>
                         <Coins className="w-4 h-4 text-emerald-400" />
                       </div>
                       <div className="text-2xl font-black text-emerald-400">
@@ -6068,7 +6151,7 @@ function Dashboard() {
                                     <div className="flex items-center gap-1.5">
                                       {isTokenPack ? (
                                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#c89666]/15 text-[#dfb180] border border-[#c89666]/30 inline-flex items-center gap-1">
-                                          <Coins className="w-2.5 h-2.5" /> AI Compute
+                                          <Coins className="w-2.5 h-2.5" /> Compute Tokens
                                         </span>
                                       ) : (
                                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30">
@@ -8422,9 +8505,8 @@ function Dashboard() {
                                   {formatPrice(ord.total * 0.20)}
                                 </td>
                                 <td className="py-3">
-                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                    isPaid ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20" : "bg-amber-500/10 text-amber-500 border border-amber-500/20"
-                                  }`}>
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isPaid ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20" : "bg-amber-500/10 text-amber-500 border border-amber-500/20"
+                                    }`}>
                                     {isPaid ? "PAID" : String(ord.status).toUpperCase()}
                                   </span>
                                 </td>
@@ -8639,6 +8721,22 @@ function Dashboard() {
                         />
                       </div>
 
+                      {/* Theme & Appearance Preference */}
+                      <div className="p-5 rounded-2xl border border-border bg-card shadow-xs space-y-3 mb-6 mt-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 shadow-sm text-primary">
+                              <Palette className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-extrabold text-foreground">Theme &amp; Appearance</h4>
+                              <p className="text-xs text-muted-foreground font-medium">Switch between Light, Dark, or System theme with seamless persistence.</p>
+                            </div>
+                          </div>
+                          <ThemeToggle variant="pill" />
+                        </div>
+                      </div>
+
                       {/* Location & Viewing Currency Preferences */}
                       <div className="p-5 rounded-2xl border-2 border-[#c89666]/30 dark:border-[#c89666]/30 bg-[#c89666]/15 dark:bg-[#c89666]/15 space-y-4 mb-6 mt-4 shadow-sm">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#c89666]/30 dark:border-[#c89666]/30 pb-4">
@@ -8748,7 +8846,7 @@ function Dashboard() {
                           <h3 className="font-extrabold text-xl text-white">Deploy &amp; Publish Website</h3>
                           <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2.5 py-0.5 rounded-full font-extrabold border border-emerald-500/30 uppercase tracking-wider inline-flex items-center gap-1.5 mt-0.5">
                             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                            AI Studio Cloud Edge
+                            Studio Cloud Edge
                           </span>
                         </div>
                       </div>
@@ -8825,12 +8923,12 @@ function Dashboard() {
                           className="modal-select-solid"
                           required
                         >
-                          {/* AI Studio & Custom Draft Projects */}
+                          {/* Studio & Custom Draft Projects */}
                           {studioList.length > 0 && (
-                            <optgroup label="✨ AI Studio &amp; Custom Projects" style={{ backgroundColor: "#121216", color: "#dfb180" }}>
+                            <optgroup label="✨ Studio &amp; Custom Projects" style={{ backgroundColor: "#121216", color: "#dfb180" }}>
                               {studioList.map(t => (
                                 <option key={t.id} value={t.id} style={{ backgroundColor: "#09090b", color: "#ffffff" }}>
-                                  {t.title} ({t.framework || "HTML"}) — [AI Studio Project]
+                                  {t.title} ({t.framework || "HTML"}) — [Studio Project]
                                 </option>
                               ))}
                             </optgroup>
@@ -8867,31 +8965,12 @@ function Dashboard() {
                         {availableTemplatesForDeployment.length === 0 && (
                           <div className="p-3 bg-[#18181d] border border-[#33333a] rounded-xl flex items-center justify-between text-xs text-[#dfb180]">
                             <span>You have not downloaded any templates yet.</span>
-                            <Link href="/marketplace" className="px-3 py-1.5 bg-[#c89666] hover:bg-[#dfb180] text-[#09090b] font-black rounded-lg text-[11px] text-decoration-none shadow-sm">
+                            <Link to="/marketplace" className="px-3 py-1.5 bg-[#c89666] hover:bg-[#dfb180] text-[#09090b] font-black rounded-lg text-[11px] text-decoration-none shadow-sm">
                               Browse Marketplace
                             </Link>
                           </div>
                         )}
                       </div>
-
-                      {deployProvider === "local" && (
-                        <div className="p-4 bg-[#16161b] border border-[#27272a] rounded-2xl space-y-3">
-                          <div className="text-xs font-bold text-[#dfb180] uppercase tracking-wider">Managed hosting subscription</div>
-                          {hostingPrice?.configured ? (
-                            <>
-                              <p className="text-sm text-white font-semibold">
-                                {hostingPrice.currency} {(Number(hostingPrice.amount_minor || 0) / 100).toFixed(2)} every {hostingPrice.interval_count > 1 ? `${hostingPrice.interval_count} ` : ""}{hostingPrice.interval || "month"}.
-                              </p>
-                              <label className="flex items-start gap-2 text-xs text-[#d4d4d8] leading-relaxed cursor-pointer">
-                                <input type="checkbox" required checked={acceptedHostingTerms} onChange={(e) => setAcceptedHostingTerms(e.target.checked)} className="mt-0.5 accent-[#c89666]" />
-                                <span>I authorize recurring hosting charges until I cancel. If payment remains unpaid after Stripe's configured retry period, hosting will be suspended. Cancelling takes effect at the end of the paid period; unused time is not refunded, subject to applicable law. Domain registration and renewals are separate and are not cancelled by stopping hosting.</span>
-                              </label>
-                            </>
-                          ) : (
-                            <p className="text-xs text-amber-400 leading-relaxed">Monthly billing is not configured yet. A platform administrator must set the Stripe hosting price before paid hosting can be activated.</p>
-                          )}
-                        </div>
-                      )}
 
                       <div className="space-y-1.5">
                         <label className="modal-label-solid" htmlFor="deployment-provider">Hosting provider</label>
@@ -9013,7 +9092,7 @@ function Dashboard() {
                       },
                       authToken ?? undefined
                     );
-                    alert(`⚡ AI Site Doctor healed the website successfully!\n${res.diagnosis || res.message || 'Patches deployed live.'}`);
+                    alert(`⚡ Auto-Heal healed the website successfully!\n${res.diagnosis || res.message || 'Patches deployed live.'}`);
                     refetchDeployments();
                   } catch (err) {
                     openCodeStudio(selectedDeployment);
@@ -9075,7 +9154,7 @@ function Dashboard() {
                             }}
                             className="text-slate-400 hover:text-white transition-colors bg-transparent border-none text-2xl leading-none cursor-pointer p-1"
                           >
-                            ×
+                            x
                           </button>
                         </div>
                       </div>
@@ -9315,7 +9394,7 @@ function Dashboard() {
                                 </>
                               ) : (
                                 <>
-                                  <Sparkles className="w-3.5 h-3.5" /> ⚡ Auto-Fix with AI Doctor
+                                  <Sparkles className="w-3.5 h-3.5" /> ⚡ Auto-Fix with Auto-Heal
                                 </>
                               )}
                             </button>
@@ -9465,6 +9544,157 @@ function Dashboard() {
                 </div>
               )}
 
+              {/* === DOMAIN OWNERSHIP, EPP TRANSFER & GODADDY PUSH MODAL === */}
+              {transferModalDomain && (
+                <div className="modal-backdrop">
+                  <div className="modal-content glass border border-[#2e2e38] p-6 rounded-2xl max-w-xl w-full space-y-5 bg-[#121216] text-[#fafafa] shadow-2xl">
+                    <div className="flex justify-between items-start border-b border-[#27272a] pb-3.5">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <ShieldCheck className="w-5 h-5 text-[#c89666]" />
+                          <h3 className="font-extrabold text-base text-white">Domain Ownership &amp; Registrar Control</h3>
+                        </div>
+                        <p className="text-xs text-[#a8a29e] mt-1">
+                          Target Domain: <span className="text-[#dfb180] font-mono font-bold">{transferModalDomain}</span>
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setTransferModalDomain(null);
+                          setTransferDetails(null);
+                          setTransferPushAccount("");
+                        }}
+                        className="text-[#a8a29e] hover:text-white transition-colors bg-transparent border-none text-2xl cursor-pointer leading-none"
+                      >
+                        &times;
+                      </button>
+                    </div>
+
+                    <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300 leading-relaxed">
+                      <strong>100% Independent Customer Ownership:</strong> All custom domains are registered with your legal contact profile under ICANN regulations. You are the legal owner and have full authority to move or manage this domain at any time.
+                    </div>
+
+                    {transferLoading ? (
+                      <div className="text-center py-8">
+                        <Loader2 className="w-6 h-6 animate-spin mx-auto text-[#c89666]" />
+                        <p className="text-xs text-[#a8a29e] mt-2">Loading registrar ownership details...</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {/* Option 1: EPP Authorization Code */}
+                        <div className="p-4 rounded-xl bg-[#18181f] border border-[#27272a] space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-white uppercase tracking-wider">Option 1: EPP Authorization Code (Transfer Out)</span>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#09090b] text-[#dfb180] border border-[#33333e]">
+                              {transferDetails?.transfer_status === "auth_code_issued" ? "Lock Disabled &bull; Code Ready" : "Locked"}
+                            </span>
+                          </div>
+                          <p className="text-xs text-[#a8a29e] leading-relaxed">
+                            Generate your ICANN EPP code to transfer this domain to another registrar (such as Cloudflare, Namecheap, Google Domains / Squarespace, or AWS Route53).
+                          </p>
+
+                          {transferDetails?.transfer_auth_code ? (
+                            <div className="space-y-2 pt-1">
+                              <label className="text-[11px] font-bold text-[#c89666] uppercase">Your EPP Authorization Code:</label>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  readOnly
+                                  value={transferDetails.transfer_auth_code}
+                                  className="w-full px-3 py-2 rounded-lg bg-[#09090b] border border-[#383844] font-mono text-sm text-[#dfb180] font-bold outline-none selection:bg-[#c89666]/40"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(transferDetails.transfer_auth_code);
+                                    toast.success("EPP Authorization Code copied to clipboard!");
+                                  }}
+                                  className="px-3 py-2 rounded-lg bg-[#c89666] hover:bg-[#dfb180] text-[#09090b] text-xs font-black shrink-0 transition cursor-pointer"
+                                >
+                                  Copy
+                                </button>
+                              </div>
+                              <span className="text-[11px] text-emerald-400 block font-medium">
+                                &check; Transfer lock has been lifted. Paste this code into your new registrar's transfer form.
+                              </span>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={handleRequestEPP}
+                              disabled={transferActionLoading}
+                              className="px-4 py-2 rounded-lg bg-[#272730] hover:bg-[#32323e] text-white text-xs font-bold border border-[#3a3a46] flex items-center gap-1.5 transition cursor-pointer"
+                            >
+                              {transferActionLoading ? (
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Send className="w-3.5 h-3.5 text-[#c89666]" />
+                              )}
+                              <span>Request EPP Authorization Code</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Option 2: GoDaddy Account Push */}
+                        <div className="p-4 rounded-xl bg-[#18181f] border border-[#27272a] space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-white uppercase tracking-wider">Option 2: Direct GoDaddy Account Push</span>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#09090b] text-emerald-400 border border-emerald-500/30">
+                              Instant &bull; Free
+                            </span>
+                          </div>
+                          <p className="text-xs text-[#a8a29e] leading-relaxed">
+                            Already have your own GoDaddy account? We will push the domain straight into your personal GoDaddy portal so you have direct access to its DNS records and renewal settings.
+                          </p>
+
+                          {transferDetails?.pushed_to_account ? (
+                            <div className="p-3 rounded-lg bg-[#09090b] border border-[#27272a] text-xs space-y-1">
+                              <span className="text-emerald-400 font-bold block">&check; Push Submitted</span>
+                              <span className="text-[#a8a29e]">Domain has been initiated for transfer to GoDaddy account: <strong className="text-white">{transferDetails.pushed_to_account}</strong></span>
+                              <p className="text-[11px] text-[#71717a] pt-1">Log into your GoDaddy account and check "Pending Account Changes" under Domain Management to accept the transfer.</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-2.5 pt-1">
+                              <label className="text-[11px] font-bold text-[#c89666] uppercase">Your GoDaddy Customer # or Account Email:</label>
+                              <div className="flex flex-col sm:flex-row items-center gap-2">
+                                <input
+                                  type="text"
+                                  placeholder="e.g. 12345678 or user@example.com"
+                                  value={transferPushAccount}
+                                  onChange={(e) => setTransferPushAccount(e.target.value)}
+                                  className="w-full px-3 py-2 rounded-lg bg-[#09090b] border border-[#383844] text-xs text-white outline-none focus:border-[#c89666]"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={handlePushGoDaddy}
+                                  disabled={transferActionLoading || !transferPushAccount.trim()}
+                                  className="w-full sm:w-auto px-4 py-2 rounded-lg bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] text-xs font-black shrink-0 transition disabled:opacity-50 cursor-pointer"
+                                >
+                                  {transferActionLoading ? "Initiating..." : "Push to GoDaddy"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex justify-end pt-3 border-t border-[#27272a]">
+                      <button
+                        onClick={() => {
+                          setTransferModalDomain(null);
+                          setTransferDetails(null);
+                          setTransferPushAccount("");
+                        }}
+                        className="px-5 py-2 rounded-xl bg-[#1c1c22] hover:bg-[#26262e] text-white text-xs font-bold border border-[#2e2e38] transition cursor-pointer"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* === EDIT & REDESIGN TEMPLATE MODAL === */}
               {editTemplateModalOpen && editingTemplate && (
                 <div className="modal-backdrop">
@@ -9490,7 +9720,7 @@ function Dashboard() {
                     <div className="p-3 bg-gradient-to-r from-primary/10 from-[#c89666] to-[#b5804f]/10 border border-primary/20 rounded-xl flex items-center justify-between gap-3">
                       <div>
                         <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                          <Sparkles className="w-4 h-4 text-primary" /> Visual AI Studio Canvas
+                          <Sparkles className="w-4 h-4 text-primary" /> Visual Studio Canvas
                         </div>
                         <p className="text-[11px] text-muted-foreground mt-0.5">Customize copywriting, colors, section layouts, and images live.</p>
                       </div>
@@ -9498,7 +9728,7 @@ function Dashboard() {
                         href={`/preview?templateId=${editingTemplate.id}`}
                         className="px-3.5 py-1.5 bg-primary text-white hover:bg-primary/95 text-xs font-bold rounded-xl transition-all shadow-md shadow-primary/20 shrink-0 text-decoration-none"
                       >
-                        Open AI Studio →
+                        Open Studio →
                       </Link>
                     </div>
 

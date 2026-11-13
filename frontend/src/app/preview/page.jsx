@@ -1609,7 +1609,7 @@ export default function PreviewPage() {
   const handleSaveManual = async (useAi = false) => {
     if (useAi) {
       setSavingWithAi(true);
-      setNotice("🤖 Scanning entire codebase with AI and saving changes...");
+      setNotice("⚡ Verifying codebase synthesis and saving changes...");
     } else {
       setSavingManual(true);
       setNotice("⚡ Fast-saving your changes directly...");
@@ -1674,7 +1674,7 @@ export default function PreviewPage() {
         setIframeKey((prev) => prev + 1);
         setShowSaveSuccess(true);
         if (useAi) {
-          setNotice("✓ AI Save complete: Entire codebase verified & saved to your private draft!");
+          setNotice("✓ Save complete: Entire codebase verified & saved to your private draft!");
         } else {
           setNotice("✓ Saved directly to your private project draft!");
         }
@@ -1977,11 +1977,11 @@ export default function PreviewPage() {
     setIsDebugging(true);
     try {
       const res = await api.post(`/preview/live/${targetId}/ai-debug`, {});
-      setNotice(res.message || "✓ AI Debugger analyzed and fixed syntax errors.");
+      setNotice(res.message || "✓ Autonomous Debugger analyzed and fixed syntax errors.");
       setViewMode("live");
       setIframeKey((prev) => prev + 1);
     } catch (err) {
-      alert("AI Debugger: " + (err.message || "Failed to debug project."));
+      alert("Auto Debugger: " + (err.message || "Failed to debug project."));
     } finally {
       setIsDebugging(false);
       setTimeout(() => setNotice(""), 6000);
@@ -2146,7 +2146,7 @@ export default function PreviewPage() {
                     const isExtreme = ["extreme", "agency", "enterprise"].includes(userTier);
                     const isAdmin = user?.role === "admin" || user?.role === "super_admin";
                     if (!isExtreme && !isAdmin) {
-                      if (window.confirm("The AI Prompt Editor is an exclusive feature of the Extreme Plan. It allows conversational AI code refactoring, full-stack generation, and automated multi-site healing. Would you like to view the Extreme Plan now?")) {
+                      if (window.confirm("The Smart Synthesis Editor is an exclusive feature of the Extreme Plan. It allows conversational code refactoring, full-stack generation, and automated multi-site healing. Would you like to view the Extreme Plan now?")) {
                         navigate("/pricing");
                       }
                       return;
@@ -2160,10 +2160,10 @@ export default function PreviewPage() {
                       ? "bg-[#c89666]/20 border-[#c89666]/50 text-[#dfb180] shadow-sm"
                       : "bg-card/80 hover:bg-[#c89666]/10 border-border hover:border-[#c89666]/40 text-muted-foreground hover:text-[#dfb180]"
                   )}
-                  title="Use AI to edit and change website code (Extreme Plan)"
+                  title="Automated Code Synthesis (Extreme Plan)"
                 >
                   <Sparkles className="w-3.5 h-3.5 text-[#dfb180]" />
-                  <span>{editorMode === "ai" ? "AI Editing Code" : "Use AI to Change Code"}</span>
+                  <span>{editorMode === "ai" ? "Synthesizing Code..." : "Automated Code Edit"}</span>
                   {!["extreme", "agency", "enterprise"].includes((user?.subscription_tier || "free").toLowerCase()) && !user?.is_admin && user?.role !== "admin" && (
                     <span className="text-[9px] uppercase px-1 py-0.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded font-black ml-0.5">Extreme</span>
                   )}
@@ -2254,7 +2254,7 @@ export default function PreviewPage() {
               onClick={() => handleFinalizeChanges(false)}
               disabled={savingManual || savingWithAi}
               className="sb-primary-gradient-btn"
-              title="Fast direct save: Saves your edits directly into files without calling AI (Instant)"
+              title="Fast direct save: Saves your edits directly into files instantly"
             >
               <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
               <span>{savingManual ? "Saving..." : "Save"}</span>
@@ -2265,10 +2265,10 @@ export default function PreviewPage() {
               onClick={() => handleFinalizeChanges(true)}
               disabled={savingManual || savingWithAi}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] text-xs font-bold shadow-lg shadow-black/40 transition-all border border-[#c89666]/30 cursor-pointer disabled:opacity-50"
-              title="AI Deep Save: Scans and refactors the entire codebase using AI to verify all references"
+              title="Deep Synthesis Save: Scans and verifies the entire codebase"
             >
               <Sparkles className={`w-3.5 h-3.5 text-amber-300 ${savingWithAi ? "animate-spin" : ""}`} />
-              <span>{savingWithAi ? "AI Scanning..." : "AI Save"}</span>
+              <span>{savingWithAi ? "Synthesizing..." : "Deep Save"}</span>
             </button>
 
             {hasUnfinalizedChanges && (
@@ -2966,10 +2966,10 @@ export default function PreviewPage() {
                       onClick={() => handleFinalizeChanges(true)}
                       disabled={savingManual || savingWithAi}
                       className="py-1 px-2 rounded-lg bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] font-bold text-[10px] flex items-center gap-1 shadow cursor-pointer border border-[#c89666]/30 transition-all disabled:opacity-50"
-                      title="AI deep save: Scans and refactors the entire codebase using AI to verify all references"
+                      title="Deep Synthesis Save: Scans and verifies the entire codebase"
                     >
                       <Sparkles className={`w-3 h-3 text-amber-300 ${savingWithAi ? "animate-spin" : ""}`} />
-                      <span>{savingWithAi ? "Scanning..." : "AI Save"}</span>
+                      <span>{savingWithAi ? "Synthesizing..." : "Deep Save"}</span>
                     </button>
                     <button
                       type="button"
@@ -3305,7 +3305,7 @@ export default function PreviewPage() {
                 <div className="p-2.5 px-3.5 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between gap-2 flex-shrink-0 animate-in fade-in">
                   <div className="flex items-center gap-1.5 min-w-0">
                     <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                    <span className="text-[11px] font-bold text-amber-400 truncate">Testing AI Changes</span>
+                    <span className="text-[11px] font-bold text-amber-400 truncate">Testing Synthesis Changes</span>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
@@ -3313,7 +3313,7 @@ export default function PreviewPage() {
                       onClick={() => handleFinalizeChanges(false)}
                       disabled={savingManual || savingWithAi}
                       className="py-1 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] flex items-center gap-1 shadow cursor-pointer transition-all disabled:opacity-50"
-                      title="Fast direct save: Saves your edits directly into files without invoking AI"
+                      title="Fast direct save: Saves your edits directly into files instantly"
                     >
                       <Check className="w-3 h-3" />
                       <span>{savingManual ? "Saving..." : "Save"}</span>
@@ -3323,10 +3323,10 @@ export default function PreviewPage() {
                       onClick={() => handleFinalizeChanges(true)}
                       disabled={savingManual || savingWithAi}
                       className="py-1 px-2.5 rounded-lg bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] font-bold text-[10px] flex items-center gap-1 shadow cursor-pointer border border-[#c89666]/30 transition-all disabled:opacity-50"
-                      title="AI deep save: Scans and refactors the entire codebase using AI to verify all references"
+                      title="Deep Synthesis Save: Scans and verifies the entire codebase"
                     >
                       <Sparkles className={`w-3 h-3 text-amber-300 ${savingWithAi ? "animate-spin" : ""}`} />
-                      <span>{savingWithAi ? "Scanning..." : "AI Save"}</span>
+                      <span>{savingWithAi ? "Synthesizing..." : "Deep Save"}</span>
                     </button>
                     <button
                       type="button"
@@ -3444,7 +3444,7 @@ export default function PreviewPage() {
                 <div className="flex items-end gap-2 bg-background/90 border border-border/80 focus-within:border-[#c89666]/80 focus-within:ring-1 focus-within:ring-[#c89666]/30 rounded-2xl p-2 pl-3 shadow-inner transition-all">
                   <textarea
                     rows={1}
-                    placeholder="Ask AI to change anything..."
+                    placeholder="Describe changes to synthesize..."
                     value={aiInput}
                     onChange={(e) => {
                       setAiInput(e.target.value);
@@ -3724,7 +3724,7 @@ function renderDesignedOutputView(sectionId, props) {
           </div>
           <div className="pt-4 border-t border-border/50 text-[11px] text-muted-foreground flex items-center justify-between">
             <span>{props.copyright || `© ${new Date().getFullYear()} All rights reserved.`}</span>
-            <span className="text-pink-500 font-semibold">AI Site Studio</span>
+            <span className="text-primary font-semibold">Site Studio</span>
           </div>
         </footer>
       </div>

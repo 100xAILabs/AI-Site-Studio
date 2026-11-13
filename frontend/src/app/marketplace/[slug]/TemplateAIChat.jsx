@@ -33,7 +33,7 @@ export default function TemplateAIChat({ template }) {
     {
       id: "initial",
       sender: "assistant",
-      text: `Hello! I'm your AI Template Specialist for "${title}". Ask me anything about the code architecture, included pages (${pages}), framework customization, or live edge deployment.`,
+      text: `Hello! I'm your Template Specialist for "${title}". Ask me anything about the code architecture, included pages (${pages}), framework customization, or live edge deployment.`,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     },
   ]);
@@ -65,7 +65,7 @@ export default function TemplateAIChat({ template }) {
       return `"${title}" delivers complete, physically existing pages: ${pages}. In accordance with Site Studio architecture standards, every page listed physically exists in the source ZIP with relative links, fluid typography, and working drawer navigation.`;
     }
     if (p.includes("color") || p.includes("font") || p.includes("css") || p.includes("style")) {
-      return `Customizing colors and fonts in "${title}" (${framework}) is straightforward! Design tokens are declared in global CSS variables (e.g. \`--primary\`, \`--background\`, \`--foreground\`). You can also use our live canvas "AI Fill" feature to derive brand palettes automatically using Gemini AI.`;
+      return `Customizing colors and fonts in "${title}" (${framework}) is straightforward! Design tokens are declared in global CSS variables (e.g. \`--primary\`, \`--background\`, \`--foreground\`). You can also use our live canvas "Smart Fill" feature to derive brand palettes automatically with built-in styling automation.`;
     }
     if (p.includes("form") || p.includes("api") || p.includes("contact") || p.includes("backend")) {
       return `Yes! Fullstack and standalone packages include working REST endpoints: \`POST /api/contact\` for message submissions, \`POST /api/leads\`, and \`GET /api/health\`, backed by local SQLite persistence and CORS middleware. Frontend forms submit asynchronously with zero page reload.`;
@@ -171,7 +171,7 @@ export default function TemplateAIChat({ template }) {
           </div>
           <div>
             <h4 className="text-sm font-bold text-white flex items-center gap-2">
-              <span>Chat with Template AI Specialist</span>
+              <span>Chat with Template Specialist</span>
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             </h4>
             <span className="text-[11px] text-muted-foreground block">
@@ -181,7 +181,7 @@ export default function TemplateAIChat({ template }) {
         </div>
 
         <span className="text-[10px] font-mono font-bold text-[#dfb180] bg-[#c89666]/15 px-2 py-0.5 rounded-full border border-[#c89666]/30">
-          Gemini 1.5 Powered
+          Studio Automation
         </span>
       </div>
 

@@ -6,12 +6,13 @@
    HOME STUDIO PAGE — DARK OBSIDIAN & NEON VIOLET THEME
    ======================================================== */
 .home-studio-page {
-  background-color: #09090b !important;
-  color: #f8fafc !important;
+  background-color: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
   min-height: 100vh;
   width: 100%;
   position: relative;
   overflow-x: hidden;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 .home-studio-main {
@@ -22,15 +23,15 @@
 
 /* Sections on HomePage */
 .home-studio-page .section {
-  background-color: #09090b !important;
+  background-color: hsl(var(--background)) !important;
 }
 
 .home-studio-page .section-title {
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .home-studio-page .section-subtitle {
-  color: #94a3b8 !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 .home-studio-page .section-badge {
@@ -96,14 +97,14 @@
 
 /* CTA Banner */
 .home-studio-page .cta-section-wrapper {
-  background-color: #09090b !important;
+  background-color: hsl(var(--background)) !important;
   padding: 5rem 0 3rem !important;
 }
 
 .home-studio-page .cta-banner {
-  background: radial-gradient(circle at 50% 0%, rgba(212, 163, 115, 0.22) 0%, rgba(18, 18, 22, 0.95) 70%) !important;
-  border: 1px solid rgba(200, 150, 102, 0.35) !important;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(212, 163, 115, 0.2) !important;
+  background: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  box-shadow: var(--shadow-lg) !important;
   border-radius: 28px !important;
   padding: 60px 40px !important;
   display: flex !important;
@@ -113,7 +114,7 @@
 }
 
 .home-studio-page .cta-title {
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
   font-size: clamp(2rem, 4vw, 3.25rem) !important;
   font-weight: 800 !important;
   margin-bottom: 1rem !important;
@@ -127,27 +128,27 @@
   border-radius: 9999px !important;
   font-size: 0.95rem !important;
   font-weight: 600 !important;
-  color: #ffffff !important;
-  background: linear-gradient(135deg, #c89666 0%, #d4a373 50%, #c89666 100%) !important;
-  box-shadow: 0 4px 22px rgba(212, 163, 115, 0.5) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--primary) / 0.85) 100%) !important;
+  box-shadow: 0 4px 22px hsl(var(--primary) / 0.4) !important;
   text-decoration: none !important;
   transition: all 0.25s ease !important;
 }
 
 .home-studio-page .cta-btn-primary:hover {
   transform: translateY(-2px) !important;
-  box-shadow: 0 8px 30px rgba(212, 163, 115, 0.7) !important;
+  box-shadow: 0 8px 30px hsl(var(--primary) / 0.6) !important;
 }
 
 /* Footer */
 .home-studio-page .footer-wrap {
-  background-color: #09090b !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background-color: hsl(var(--card)) !important;
+  border-top: 1px solid hsl(var(--border)) !important;
   margin-top: 3rem !important;
 }
 
 .home-studio-page .footer-col-title {
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
   font-weight: 700 !important;
 }
 
@@ -302,12 +303,13 @@
    HOME STUDIO PAGE — DARK OBSIDIAN & NEON VIOLET THEME
    ======================================================== */
 .home-studio-page {
-  background-color: #09090b !important;
-  color: #f8fafc !important;
+  background-color: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
   min-height: 100vh;
   width: 100%;
   position: relative;
   overflow-x: hidden;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 .home-studio-main {
@@ -318,15 +320,15 @@
 
 /* Sections on HomePage */
 .home-studio-page .section {
-  background-color: #09090b !important;
+  background-color: hsl(var(--background)) !important;
 }
 
 .home-studio-page .section-title {
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .home-studio-page .section-subtitle {
-  color: #94a3b8 !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 .home-studio-page .section-badge {
@@ -392,14 +394,14 @@
 
 /* CTA Banner */
 .home-studio-page .cta-section-wrapper {
-  background-color: #09090b !important;
+  background-color: hsl(var(--background)) !important;
   padding: 5rem 0 3rem !important;
 }
 
 .home-studio-page .cta-banner {
-  background: radial-gradient(circle at 50% 0%, rgba(212, 163, 115, 0.22) 0%, rgba(18, 18, 22, 0.95) 70%) !important;
-  border: 1px solid rgba(200, 150, 102, 0.35) !important;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(212, 163, 115, 0.2) !important;
+  background: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  box-shadow: var(--shadow-lg) !important;
   border-radius: 28px !important;
   padding: 60px 40px !important;
   display: flex !important;
@@ -409,7 +411,7 @@
 }
 
 .home-studio-page .cta-title {
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
   font-size: clamp(2rem, 4vw, 3.25rem) !important;
   font-weight: 800 !important;
   margin-bottom: 1rem !important;
@@ -423,27 +425,27 @@
   border-radius: 9999px !important;
   font-size: 0.95rem !important;
   font-weight: 600 !important;
-  color: #ffffff !important;
-  background: linear-gradient(135deg, #c89666 0%, #d4a373 50%, #c89666 100%) !important;
-  box-shadow: 0 4px 22px rgba(212, 163, 115, 0.5) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--primary) / 0.85) 100%) !important;
+  box-shadow: 0 4px 22px hsl(var(--primary) / 0.4) !important;
   text-decoration: none !important;
   transition: all 0.25s ease !important;
 }
 
 .home-studio-page .cta-btn-primary:hover {
   transform: translateY(-2px) !important;
-  box-shadow: 0 8px 30px rgba(212, 163, 115, 0.7) !important;
+  box-shadow: 0 8px 30px hsl(var(--primary) / 0.6) !important;
 }
 
 /* Footer */
 .home-studio-page .footer-wrap {
-  background-color: #09090b !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background-color: hsl(var(--card)) !important;
+  border-top: 1px solid hsl(var(--border)) !important;
   margin-top: 3rem !important;
 }
 
 .home-studio-page .footer-col-title {
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
   font-weight: 700 !important;
 }
 

@@ -6,8 +6,8 @@
 .checkout-page {
   min-height: 100vh;
   width: 100%;
-  background-color: #09090b;
-  color: #fafafa;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
   padding-top: 5rem;
   padding-bottom: 4rem;
   position: relative;

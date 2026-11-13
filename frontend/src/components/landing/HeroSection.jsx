@@ -63,18 +63,18 @@ const STUDIO_CARD_FEATURES = [
     stepNum: "02",
     arrowLabel: "Create",
     title: "Create your own website as you thought",
-    subtitle: "Natural language prompt-to-site AI generation engine.",
+    subtitle: "Natural language prompt-to-site automated synthesis engine.",
     description:
-      "Describe your dream business in plain words. Our studio AI generates custom layouts, high-conversion marketing copy, responsive sections, and harmonic color schemes tailored to your vision.",
+      "Describe your dream business in plain words. Our studio automation generates custom layouts, high-conversion marketing copy, responsive sections, and harmonic color schemes tailored to your vision.",
     points: [
-      "AI semantic prompt matching & instant generation",
+      "Smart semantic prompt matching & instant generation",
       "Dynamic copywriting tailored to your exact industry",
       "Harmonic mood palettes generated on the fly",
     ],
-    ctaText: "Build Your Website with AI",
+    ctaText: "Build Your Website Automatically",
     ctaLink: "/get-started",
     icon: Sparkles,
-    badge: "AI Builder",
+    badge: "Studio Builder",
     accent: "#f472b6",
     glow: "rgba(244, 114, 182, 0.35)",
     bgGradient: "rgba(244, 114, 182, 0.12)",
@@ -131,10 +131,10 @@ const STUDIO_CARD_FEATURES = [
     title: "Edit & customize live",
     subtitle: "Interactive visual live canvas studio with hot reload.",
     description:
-      "Personalize every detail visually with zero code. Swap colors, rewrite headlines with AI fill, swap photos, adjust typography, and see your live changes reflected instantly inside our sandboxed canvas.",
+      "Personalize every detail visually with zero code. Swap colors, rewrite headlines with Smart Fill automation, swap photos, adjust typography, and see your live changes reflected instantly inside our sandboxed canvas.",
     points: [
       "Real-time interactive canvas with instant hot reload",
-      "AI Fill: 1-click rebrand with your company info",
+      "Smart Fill: 1-click rebrand with your company info",
       "Live mobile, tablet, and desktop preview simulator",
     ],
     ctaText: "Open Studio Canvas",
@@ -152,8 +152,8 @@ const STUDIO_CARD_FEATURES = [
 const FEATURE_BAR_ITEMS = [
   {
     icon: Zap,
-    title: "AI-Powered Builder",
-    desc: "Turn ideas into websites with AI assistance.",
+    title: "Automated Studio Builder",
+    desc: "Turn ideas into production websites with intelligent automation.",
   },
   {
     icon: LayoutGrid,
@@ -337,7 +337,7 @@ export default function HeroSection() {
                 <div className="card-face card-face-front">
                   <div className="front-image-wrap">
                     <img
-                      src="/landing/modern_villa.jpg"
+                      src="/landing/Hero.png"
                       alt="Site Studio Canvas"
                       className="canvas-clean-photo"
                       loading="lazy"
@@ -462,11 +462,8 @@ export default function HeroSection() {
                                       className="feat-cta-arrow-left"
                                       style={{ color: feat.accent }}
                                     />
-                                    {/* Big label */}
-                                    <span
-                                      className="feat-cta-label"
-                                      style={{ color: "#f8fafc" }}
-                                    >
+                                    {/* High-Contrast Bold Feature Label */}
+                                    <span className="feat-cta-label">
                                       {feat.arrowLabel}
                                     </span>
                                   </Link>

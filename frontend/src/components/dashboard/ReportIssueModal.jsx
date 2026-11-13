@@ -98,7 +98,7 @@ export default function ReportIssueModal({
         } else {
           setHealingResult({
             success: true,
-            diagnosis: "Report submitted and dispatched to Autonomous AI Site Doctor.",
+            diagnosis: "Report submitted and dispatched to Autonomous Auto-Heal Engine.",
             patch_summary: "Automated recovery routine executed.",
             patched_files: ["index.html"],
             live_url: deployment.live_url || `/sites/${deployment.site_id}/`,
@@ -162,7 +162,7 @@ export default function ReportIssueModal({
                 <span className="rim-site-badge">{siteId}</span>
               </div>
               <p className="rim-subtitle">
-                Diagnose site downtime, runtime bugs, or asset errors with instant AI auto-healing.
+                Diagnose site downtime, runtime bugs, or asset errors with instant automated self-healing.
               </p>
             </div>
           </div>
@@ -180,7 +180,7 @@ export default function ReportIssueModal({
                 <Sparkles className="w-6 h-6 text-indigo-500" />
               </div>
               <div>
-                <h4 className="rim-success-title">Website Auto-Healed by AI Site Doctor!</h4>
+                <h4 className="rim-success-title">Website Auto-Healed Successfully!</h4>
                 <p className="rim-success-subtitle">
                   Autonomous diagnosis completed, code patched, and zero-downtime hot reload verified.
                 </p>
@@ -190,7 +190,7 @@ export default function ReportIssueModal({
             <div className="rim-diagnosis-box">
               <div className="rim-diagnosis-title">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span>AI Diagnostic Report</span>
+                <span>Diagnostic Report</span>
               </div>
               <p className="rim-diagnosis-text">{healingResult.diagnosis}</p>
               {healingResult.root_cause && (
@@ -237,7 +237,7 @@ export default function ReportIssueModal({
             <div className="rim-loading-spinner-wrap">
               <Loader2 className="w-8 h-8 text-primary animate-spin" />
             </div>
-            <h4 className="rim-loading-title">Autonomous AI Site Doctor at Work</h4>
+            <h4 className="rim-loading-title">Autonomous Site Auto-Heal at Work</h4>
             <p className="rim-loading-desc">
               Analyzing failure patterns, inspecting deployment files, and applying zero-downtime hot patches.
             </p>
@@ -249,7 +249,7 @@ export default function ReportIssueModal({
               </div>
               <div className={`rim-step ${healingStage >= 2 ? "active" : ""}`}>
                 <div className="rim-step-dot" />
-                <span>2. AI Doctor diagnosing root cause across code files</span>
+                <span>2. Auto-Heal engine diagnosing root cause across code files</span>
               </div>
               <div className={`rim-step ${healingStage >= 3 ? "active" : ""}`}>
                 <div className="rim-step-dot" />
@@ -339,7 +339,7 @@ export default function ReportIssueModal({
               <div>
                 <div className="flex justify-between items-center mb-1">
                   <label className="rim-label mb-0">Console Errors / Stack Trace (Optional)</label>
-                  <span className="text-[11px] text-muted-foreground">Helps AI isolate the line of code</span>
+                  <span className="text-[11px] text-muted-foreground">Helps diagnostic scanner isolate the line of code</span>
                 </div>
                 <textarea
                   rows={2}
@@ -379,7 +379,7 @@ export default function ReportIssueModal({
                   </div>
                   <div className="flex items-center gap-1.5 text-xs font-bold text-foreground cursor-pointer">
                     <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>Fix immediately with AI Site Doctor</span>
+                    <span>Fix immediately with Autonomous Auto-Heal</span>
                   </div>
                 </label>
               </div>

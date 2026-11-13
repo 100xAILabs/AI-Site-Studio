@@ -24,84 +24,8 @@ import {
 import Navbar from "@/components/layout/Navbar";
 import { useAuthStore } from "@/store/authStore";
 import { api } from "@/lib/api";
+import { PLANS_LIST } from "@/lib/plans";
 import "./Page.css";
-
-const PLANS = [
-  {
-    id: "free",
-    badge: "Free Starter",
-    badgeType: "free",
-    name: "Free Tier",
-    description: "Explore templates, inspect code, and purchase credits only when you want to build or edit.",
-    monthlyPrice: 0,
-    annualPrice: 0,
-    tokensIncluded: 0,
-    deploymentsIncluded: 0,
-    features: [
-      { text: "1 Free Website Generation included (Build your first site 100% free)", highlight: true, icon: "gemini" },
-      { text: "Buy credits on-demand to create additional websites ($10 / 50 tokens)", highlight: true },
-      { text: "1 Watermarked template download only (One-time test)", highlight: false },
-      { text: "Option to buy templates clean without watermark", highlight: false },
-      { text: "Deploy live websites with hosting charges ($12/mo)", highlight: false },
-      { text: "Auto-heal (AI Site Doctor) is disabled", highlight: false },
-      { text: "Inspect template code & sandbox preview", highlight: false },
-    ],
-    cta: "Start Free",
-    ctaType: "outline",
-    href: "/marketplace",
-    popular: false,
-  },
-  {
-    id: "pro",
-    badge: "✦ Most Popular for Creators",
-    badgeType: "pro",
-    name: "Pro Plan",
-    description: "For creators who want clean downloads, live deployments, and autonomous site healing.",
-    monthlyPrice: 19,
-    annualPrice: 15,
-    tokensIncluded: 150,
-    deploymentsIncluded: 3,
-    features: [
-      { text: "Download templates without watermark", highlight: true },
-      { text: "150 Gemini AI Credits / month for template creation & edits", highlight: true, icon: "gemini" },
-      { text: "Discounted token packs (40% OFF compared to Free users)", highlight: true },
-      { text: "Deploy up to 3 live websites on high-speed edge", highlight: true },
-      { text: "Free editor access with up to 2 image replacements per template", highlight: false },
-      { text: "Auto-heal for 1 website (locked once registered, cannot change)", highlight: false },
-      { text: "Instant Studio subdomains (*.aisitestudio.com)", highlight: false },
-      { text: "Standard email & community support", highlight: false },
-    ],
-    cta: "Upgrade to Pro",
-    ctaType: "primary",
-    href: "/subscribe?plan=pro",
-    popular: true,
-  },
-  {
-    id: "extreme",
-    badge: "⚡ Extreme — Full Power",
-    badgeType: "agency",
-    name: "Extreme Plan",
-    description: "Total power: generate full-stack code without credit friction, free hosting deployments, and resell your templates.",
-    monthlyPrice: 50,
-    annualPrice: 40,
-    tokensIncluded: 1000,
-    deploymentsIncluded: 999,
-    features: [
-      { text: "Generate code without extra credit friction (1,000+ AI credits/mo)", highlight: true, icon: "gemini" },
-      { text: "Free deployment charges (Unlimited live hosting included)", highlight: true },
-      { text: "Resell your templates on the marketplace (platform fee applies)", highlight: true },
-      { text: "Unlimited image & asset changes multiple times", highlight: true },
-      { text: "AI Prompt Editor fully unlocked for conversational code edits", highlight: true },
-      { text: "Autonomous AI Site Doctor: Heal unlimited websites automatically", highlight: true },
-      { text: "Cheapest token top-ups (60% OFF lowest rates)", highlight: false },
-      { text: "White-label exports & zero watermark on all source code", highlight: false },
-    ],
-    cta: "Get Extreme Plan",
-    ctaType: "agency-btn",
-    href: "/subscribe?plan=extreme",
-    popular: false,
-  },
-];
 
 const TOKEN_PACKS = [
   {
@@ -113,7 +37,7 @@ const TOKEN_PACKS = [
     extremePrice: 4,
     badge: "Entry Pack",
     unitPrice: "$0.20 (Free) · $0.12 (Pro) · $0.08 (Extreme) / token",
-    description: "50 Gemini AI Credits for section fills, component generation, and template customizations.",
+    description: "50 Studio Automation Credits for section fills, component generation, and template customizations.",
     popular: false,
   },
   {
@@ -125,7 +49,7 @@ const TOKEN_PACKS = [
     extremePrice: 12,
     badge: "Save 40% on Pro · 60% on Extreme",
     unitPrice: "$0.15 (Free) · $0.09 (Pro) · $0.06 (Extreme) / token",
-    description: "200 Gemini AI Credits for multi-page builds, heavy copy revisions, and AI prompt edits.",
+    description: "200 Studio Automation Credits for multi-page builds, heavy copy revisions, and automated prompt edits.",
     popular: true,
   },
   {
@@ -137,31 +61,31 @@ const TOKEN_PACKS = [
     extremePrice: 24,
     badge: "Best Value Pack",
     unitPrice: "$0.12 (Free) · $0.07 (Pro) · $0.048 (Extreme) / token",
-    description: "500 Gemini AI Credits for continuous multi-site production, heavy coding, and fleet scaling.",
+    description: "500 Studio Automation Credits for continuous multi-site production, heavy coding, and fleet scaling.",
     popular: false,
   },
 ];
 
 const FAQS = [
   {
-    q: "How many tokens does a website typically consume?",
-    a: "On AI Site Studio, 1 active website consumes approximately 15 to 20 Gemini AI credits per month: ~5 credits for initial multi-page synthesis, ~5 credits for autonomous AI Site Doctor error & link healing, and ~5-10 credits for live AI Fill copywriting and brand customization. A Pro plan (150 credits/mo) comfortably powers 5 to 8 live websites.",
+    q: "How do monthly automation credits work?",
+    a: "Every month, Pro subscribers receive 150 Automation compute credits and Extreme subscribers receive 1,000 Automation compute credits. Operations consume credits predictably (e.g. 5 credits per automated site generation or full Auto-Heal repair, 1 credit per Smart Fill copy revision or SEO generation). If you need more, you can purchase top-up packs anytime at a 40% (Pro) or 60% (Extreme) discount.",
   },
   {
-    q: "What happens if I run out of monthly AI tokens?",
-    a: "Your deployed websites will continue serving traffic at 100% uptime with zero interruption! Only autonomous self-healing and AI Fill copy refinements will pause until your monthly quota renews or you grab an on-demand token top-up pack starting at just $5.",
+    q: "How does managed website hosting work across tiers?",
+    a: "Free users receive a 7-day trial deployment on our *.site-studio.live subdomain. Pro includes 1 active hosted website with custom domain connection (additional hosted sites are $12/month). Extreme includes 3 active hosted websites with custom domain connections (additional sites $12/month). All hosted websites receive global edge CDN delivery, automated TLS certificates, and DDoS shielding.",
   },
   {
-    q: "How does managed website hosting billing work?",
-    a: "Managed hosting is $12.00/month per live website on our High-speed Local Edge Tier, or included with our Pro (3 sites included) and Agency (unlimited sites) subscription plans. Every deployment receives sub-millisecond edge routing, DDoS shielding, and automated TLS 1.3 certificates.",
+    q: "How does autonomous Auto-Heal work?",
+    a: "Auto-Heal continuously monitors your live site for runtime errors, broken assets, and layout regressions, automatically generating verified repair patches. Pro users can register 1 live deployment for Auto-Heal (up to 10 automated repairs/month). Extreme users can register up to 3 live deployments (up to 30 automated repairs/month).",
   },
   {
-    q: "Where can I view my full payment history, invoices, and receipts?",
-    a: "You can view your complete payment report anytime under Dashboard > Billing & Payment Report. Every single charge generates an official, downloadable tax invoice with itemized VAT/GST breakdown and 256-bit transaction verification.",
+    q: "Can I use custom domains?",
+    a: "Yes! Pro plans allow you to connect your custom domain to your 1 included hosted website. Extreme plans allow custom domain connections for up to 3 included hosted websites, and annual Extreme subscribers receive a promotional domain credit up to $15 for their first year.",
   },
   {
     q: "What payment gateways are supported?",
-    a: "We support Stripe (international credit/debit cards, Apple Pay, Google Pay), Razorpay (domestic & international cards, NetBanking), and instant UPI QR payments with 12-digit bank reference verification.",
+    a: "We support Stripe (international credit/debit cards, Apple Pay, Google Pay) and Razorpay (cards, UPI, NetBanking). All subscription cycles, invoices, and credit balances are updated automatically via secure webhooks.",
   },
 ];
 
@@ -183,13 +107,13 @@ export default function PricingPage() {
 
   // Recommended plan logic
   let recommendedPlan = "Free Tier ($0)";
-  let recommendedReason = "Ideal for exploring templates, code inspections, and on-demand credit purchases.";
-  if (siteCount >= 2 && siteCount <= 3) {
-    recommendedPlan = "Pro Plan ($15/mo)";
-    recommendedReason = `Includes 150 monthly tokens + 3 live website deployments with 40% OFF token pack discounts!`;
+  let recommendedReason = "Ideal for exploring templates, code inspections, and trying 1 free website generation.";
+  if (siteCount >= 1 && siteCount <= 3) {
+    recommendedPlan = "Pro Plan ($19/mo or $190/yr)";
+    recommendedReason = `Includes 150 monthly automation credits, 1 hosted site, up to 3 deployment slots, and 1 Auto-Heal site (10 repairs/mo)!`;
   } else if (siteCount > 3) {
-    recommendedPlan = "Extreme Plan ($40/mo)";
-    recommendedReason = `Includes 1,000+ monthly tokens, free deployments, unlimited auto-heal, and template reselling.`;
+    recommendedPlan = "Extreme Plan ($50/mo or $500/yr)";
+    recommendedReason = `Includes 1,000 monthly automation credits, 3 hosted sites, up to 3 Auto-Heal sites (30 repairs/mo), and $15 domain credit!`;
   }
 
   // Handle Token Top-Up Purchase -> Takes user to checkout payment options
@@ -213,7 +137,7 @@ export default function PricingPage() {
               className="pricing-pill-badge"
             >
               <Sparkles className="w-4 h-4 text-[#dfb180]" />
-              <span>Transparent Gemini Compute Architecture</span>
+              <span>Transparent Automated Compute Architecture</span>
             </motion.div>
 
             <motion.h1
@@ -232,7 +156,7 @@ export default function PricingPage() {
               transition={{ duration: 0.45, delay: 0.16 }}
               className="pricing-hero-sub"
             >
-              Deploy production websites, personalize copy in real-time with Gemini AI Fill, and let autonomous AI Doctor heal errors with zero downtime.
+              Deploy production websites, personalize copy in real-time with Smart Fill, and let autonomous Auto-Heal resolve errors with zero downtime.
             </motion.p>
 
             {/* Billing Toggle Switch */}
@@ -262,8 +186,8 @@ export default function PricingPage() {
 
           {/* ── 2. Pricing Tiers Cards ── */}
           <div className="pricing-cards-grid">
-            {PLANS.map((plan, idx) => {
-              const price = billingCycle === "annual" ? plan.annualPrice : plan.monthlyPrice;
+            {PLANS_LIST.map((plan, idx) => {
+              const displayMonthlyPrice = billingCycle === "annual" ? (plan.annualEffectiveMonthly || plan.monthlyPrice) : plan.monthlyPrice;
               return (
                 <motion.div
                   key={plan.id}
@@ -274,7 +198,7 @@ export default function PricingPage() {
                 >
                   {plan.popular && (
                     <div className="pricing-featured-ribbon">
-                      ✦ Recommended for Most Studios
+                      ✦ Recommended for Most Creators
                     </div>
                   )}
 
@@ -291,13 +215,13 @@ export default function PricingPage() {
                       <div className="tier-price-row">
                         <span className="tier-currency">$</span>
                         <span className={`tier-amount ${plan.popular ? "highlight" : ""}`}>
-                          {price}
+                          {displayMonthlyPrice}
                         </span>
                         <span className="tier-period">/ month</span>
                       </div>
                       {billingCycle === "annual" && plan.monthlyPrice > 0 && (
                         <div className="tier-sub-billing">
-                          Billed annually (${price * 12}/year) · 2 months free
+                          Billed annually (${plan.annualPrice}/year) · 2 months free
                         </div>
                       )}
                     </div>
@@ -349,7 +273,7 @@ export default function PricingPage() {
               </div>
               <h2 className="estimator-title">Website Compute & Token Estimator</h2>
               <p className="estimator-sub">
-                How many tokens does a website get and consume? Check how Gemini AI tokens power initial website synthesis, autonomous AI Doctor healing, and live copy personalizations.
+                How many tokens does a website get and consume? Check how automation compute tokens power initial website synthesis, autonomous Auto-Heal, and live copy personalizations.
               </p>
             </div>
 
@@ -389,15 +313,15 @@ export default function PricingPage() {
                 </div>
               </div>
 
-              {/* Item 2: AI Doctor Auto-healing */}
+              {/* Item 2: Auto-healing */}
               <div className="calc-breakdown-card">
                 <div>
                   <div className="calc-icon-title">
                     <Activity className="w-4 h-4 text-emerald-400" />
-                    <span>AI Site Doctor Healing</span>
+                    <span>Autonomous Site Healing</span>
                   </div>
                   <p className="calc-card-desc">
-                    Autonomous error recovery, broken image 404 healing, CSS repairs, and health monitoring.
+                    Autonomous error recovery, broken image 404 healing, CSS repairs, and continuous health monitoring.
                   </p>
                 </div>
                 <div className="calc-val-box">
@@ -406,15 +330,15 @@ export default function PricingPage() {
                 </div>
               </div>
 
-              {/* Item 3: AI Fill Personalization */}
+              {/* Item 3: Smart Fill Personalization */}
               <div className="calc-breakdown-card">
                 <div>
                   <div className="calc-icon-title">
                     <Sparkles className="w-4 h-4 text-[#dfb180]" />
-                    <span>AI Fill Copy Refinements</span>
+                    <span>Smart Fill Copy Refinements</span>
                   </div>
                   <p className="calc-card-desc">
-                    Targeted domain copywriting, localized translations, color theme generation, and SEO tags.
+                    Targeted domain copywriting, localized translations, color theme generation, and automated SEO tags.
                   </p>
                 </div>
                 <div className="calc-val-box">
@@ -442,7 +366,7 @@ export default function PricingPage() {
             </div>
           </div>
 
-          {/* ── 4. On-Demand Gemini AI Token Packs (Top-Ups) ── */}
+          {/* ── 4. On-Demand Compute Token Packs (Top-Ups) ── */}
           <div className="token-packs-section">
             <div className="token-packs-header">
               <div className="pricing-pill-badge" style={{ margin: "0 auto 1rem auto" }}>
@@ -450,7 +374,7 @@ export default function PricingPage() {
                 <span>Pay-As-You-Go Credits</span>
               </div>
               <h2 className="estimator-title" style={{ fontSize: "1.85rem" }}>
-                Gemini AI Compute Token Packs
+                Studio Automation Token Packs
               </h2>
               <p className="estimator-sub">
                 Need extra compute power without upgrading your monthly subscription? Add credits instantly with 1-click token packs. Credits never expire.
@@ -520,7 +444,7 @@ export default function PricingPage() {
             <div className="report-cta-text">
               <h3>View Your Full Payment & Subscription Report</h3>
               <p>
-                Access all completed template transactions, recurring monthly hosting subscriptions, AI compute purchases, and official tax invoice receipts in one verified dashboard.
+                Access all completed template transactions, recurring monthly hosting subscriptions, automation compute purchases, and official tax invoice receipts in one verified dashboard.
               </p>
             </div>
 

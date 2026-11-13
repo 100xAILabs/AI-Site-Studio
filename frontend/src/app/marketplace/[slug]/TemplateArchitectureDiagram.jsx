@@ -78,24 +78,24 @@ export default function TemplateArchitectureDiagram({ template }) {
     },
     {
       id: 3,
-      title: "Gemini AI Fill Engine",
+      title: "Smart Fill Automation Engine",
       tag: "Semantic Personalization",
       icon: Sparkles,
       color: "#c084fc",
       accentBg: "rgba(223, 177, 128, 0.12)",
       borderColor: "rgba(223, 177, 128, 0.35)",
-      telemetry: "Model: Gemini 1.5 Flash",
+      telemetry: "Engine: Real-Time Synthesis",
       metrics: [
-        { label: "AI Copy Generation", val: "1 Credit / Section" },
+        { label: "Copy Generation", val: "1 Credit / Section" },
         { label: "Color Palette Harmonizer", val: "Active" },
         { label: "SEO Meta Derivation", val: "Domain-Specific" },
-        { label: "Contextual Refinement", val: "Zero Hallucination" },
+        { label: "Contextual Refinement", val: "Precision Mode" },
       ],
       description: "Live canvas personalization allows real-time rewriting of hero copy, value propositions, and branding without editing code manually.",
     },
     {
       id: 4,
-      title: "AI Site Doctor Self-Healing",
+      title: "Autonomous Site Self-Healing",
       tag: "Runtime Health Audit",
       icon: Activity,
       color: "#34d399",
@@ -132,7 +132,7 @@ export default function TemplateArchitectureDiagram({ template }) {
       </div>
 
       <p className="text-xs text-muted-foreground mb-6 leading-relaxed">
-        Trace how this website template executes from visitor client reflow through the Studio Edge CDN, physical source bundle, Gemini AI Fill engine, and autonomous error healing.
+        Trace how this website template executes from visitor client reflow through the Studio Edge CDN, physical source bundle, automated Smart Fill engine, and autonomous error healing.
       </p>
 
       {/* Animated Flow Nodes Ribbon */}

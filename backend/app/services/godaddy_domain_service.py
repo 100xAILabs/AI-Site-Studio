@@ -137,6 +137,7 @@ class GoDaddyDomainService:
             is_available = True
             live_price_val = None
             live_renewal_val = None
+            live_currency = "USD"
             try:
                 async with httpx.AsyncClient(timeout=3.0) as client:
                     avail_resp = await client.get(
@@ -147,8 +148,9 @@ class GoDaddyDomainService:
                     if avail_resp.status_code == 200:
                         avail_data = avail_resp.json()
                         is_available = bool(avail_data.get("available", False))
+                        live_currency = str(avail_data.get("currency") or "USD").upper()
                         if avail_data.get("price") is not None:
-                            # GoDaddy v1 returns micro-units (e.g. 12990000 = $12.99 = 1299 cents)
+                            # GoDaddy v1 returns micro-units (e.g. 12990000 = $12.99 = 1299 cents / paise)
                             raw_p = avail_data.get("price")
                             live_price_val = int(raw_p // 10000) if raw_p > 100000 else int(raw_p)
                         if avail_data.get("renewalPrice") is not None:
@@ -171,14 +173,16 @@ class GoDaddyDomainService:
             }
             price_val = live_price_val if live_price_val is not None else prices.get(tld, 1099)
             renewal_val = live_renewal_val if live_renewal_val is not None else int(price_val * 1.2)
+            icann_fee = 18 if live_currency == "USD" else 1500  # $0.18 USD or ₹15.00 INR (1500 paise)
+
             return {
                 "domain": clean_domain,
                 "available": is_available,
                 "period": period,
                 "quoteToken": f"qt_{clean_domain.replace('.', '_')}_{period}yr",
-                "price": {"currencyCode": "USD", "value": price_val * period},
-                "renewalPrice": {"currencyCode": "USD", "value": renewal_val},
-                "fees": [{"fee": {"currencyCode": "USD", "value": 18}, "type": "ICANN_FEE"}],
+                "price": {"currencyCode": live_currency, "value": price_val * period},
+                "renewalPrice": {"currencyCode": live_currency, "value": renewal_val},
+                "fees": [{"fee": {"currencyCode": live_currency, "value": icann_fee}, "type": "ICANN_FEE"}],
                 "requiredAgreements": [
                     {"agreementType": "DNRA", "url": "https://www.godaddy.com/legal/agreements/domain-name-registration-agreement"},
                     {"agreementType": "UTOS", "url": "https://www.godaddy.com/legal/agreements/universal-terms-of-service-agreement"},
@@ -347,8 +351,13 @@ class GoDaddyDomainService:
             response.raise_for_status()
         except HTTPException:
             raise
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                raise HTTPException(status_code=404, detail=f"Domain '{domain}' was not found in your GoDaddy registrar account.") from exc
+            error_detail = exc.response.text
+            raise HTTPException(status_code=502, detail=f"GoDaddy auto-renew update failed ({exc.response.status_code}): {error_detail}") from exc
         except httpx.HTTPError as exc:
-            raise HTTPException(status_code=502, detail="Domain registered; auto-renew setting is still pending.") from exc
+            raise HTTPException(status_code=502, detail=f"GoDaddy connection error while updating auto-renew for '{domain}'.") from exc
 
     async def upsert_dns(self, domain: str) -> None:
         """Point apex and www records at the configured Studio host, preserving unrelated DNS."""

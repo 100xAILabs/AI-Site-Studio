@@ -80,38 +80,40 @@ async def report_broken_website(
 
     auto_heal_result = None
     if payload.auto_heal_with_ai:
-        # Check subscription tier restrictions:
-        # Free: Auto-heal disabled
-        # Pro: Max 1 website (locked once registered)
-        # Extreme: Unlimited multi-site auto-healing
+        # Security & Abuse Prevention:
+        # Look up deployment owner
         owner_stmt = select(User).where(User.id == deployment.user_id)
         owner_res = await db.execute(owner_stmt)
         site_owner = owner_res.scalar_one_or_none()
-        effective_user = current_user or site_owner
-        tier = (effective_user.subscription_tier or "free").lower() if effective_user else "free"
-        is_admin = effective_user and (getattr(effective_user, "role", "") in ("admin", "super_admin") or getattr(effective_user, "is_admin", False))
 
-        can_heal = True
-        heal_block_reason = None
-        if not is_admin:
-            if tier == "free":
+        is_owner = current_user and current_user.id == deployment.user_id
+        is_admin = current_user and (getattr(current_user, "role", "") in ("admin", "super_admin") or getattr(current_user, "is_admin", False))
+
+        # Check duplicate incident suppression (within last 15 minutes)
+        fifteen_mins_ago = datetime.now(timezone.utc) - timedelta(minutes=15)
+        dup_stmt = select(SiteIncident).where(
+            SiteIncident.deployment_id == deployment.id,
+            SiteIncident.issue_type == payload.issue_type,
+            SiteIncident.id != incident.id,
+            SiteIncident.created_at >= fifteen_mins_ago,
+        )
+        dup_res = await db.execute(dup_stmt)
+        has_recent_duplicate = dup_res.scalar_one_or_none() is not None
+
+        # Check entitlement via central EntitlementService
+        from app.services.entitlement_service import EntitlementService
+        ent_svc = EntitlementService(db)
+        can_heal, heal_block_reason = await ent_svc.can_use_auto_heal(site_owner, deployment.id) if site_owner else (False, "Site owner not found.")
+
+        # If reporter is a public visitor (not owner/admin), require that owner explicitly enabled auto-heal on this site
+        if not is_owner and not is_admin:
+            if not getattr(deployment, "is_auto_heal_active", False):
                 can_heal = False
-                heal_block_reason = "Autonomous AI Site Doctor is disabled on the Free tier. Upgrade to the Pro Plan (1 website) or Extreme Plan (unlimited websites) to enable auto-healing."
-            elif tier == "pro":
-                past_stmt = (
-                    select(Deployment.site_id)
-                    .join(SiteIncident, SiteIncident.deployment_id == Deployment.id)
-                    .where(
-                        Deployment.user_id == (effective_user.id if effective_user else deployment.user_id),
-                        SiteIncident.resolved_by == "ai_site_doctor"
-                    )
-                    .distinct()
-                )
-                past_res = await db.execute(past_stmt)
-                healed_site_ids = [s for s in past_res.scalars().all() if s]
-                if healed_site_ids and (deployment.site_id not in healed_site_ids):
-                    can_heal = False
-                    heal_block_reason = f"Your Pro Plan includes AI auto-healing for 1 website only (locked to {healed_site_ids[0]}). Once registered, this cannot be changed. Upgrade to the Extreme Plan for unlimited multi-website auto-healing."
+                heal_block_reason = "Public visitor automated healing is paused. The website owner has not activated autonomous AI healing for this deployment."
+
+        if has_recent_duplicate:
+            can_heal = False
+            heal_block_reason = "Duplicate incident report suppressed. An identical issue was recently reported and queued."
 
         if not can_heal:
             auto_heal_result = {
@@ -124,11 +126,9 @@ async def report_broken_website(
                 auto_heal_result = await healing_service.auto_heal_deployment(
                     deployment=deployment,
                     incident=incident,
-                    issue_type=payload.issue_type,
-                    issue_description=payload.description,
-                    error_logs=payload.error_logs,
-                    page_url=payload.page_url,
                 )
+                if auto_heal_result.get("success") and site_owner:
+                    await ent_svc.record_auto_heal_execution(site_owner, deployment.id)
             except Exception as e:
                 auto_heal_result = {
                     "success": False,
