@@ -557,6 +557,42 @@ function Dashboard() {
   const [verifyingOwnershipLoading, setVerifyingOwnershipLoading] = useState(false);
   const [ownershipMessage, setOwnershipMessage] = useState(null);
   const [showDnsConnectModal, setShowDnsConnectModal] = useState(false);
+  const [selectedDnsProvider, setSelectedDnsProvider] = useState("godaddy");
+  const [copiedDnsKey, setCopiedDnsKey] = useState(null);
+
+  const handleCopyDnsText = (text, keyName) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedDnsKey(keyName);
+    setTimeout(() => setCopiedDnsKey(null), 2200);
+  };
+
+  const handleCopyAllDnsRecords = () => {
+    if (!domainChallengeData) return;
+    const txtVal = domainChallengeData.txt_value || `aisitestudio-verify-${user?.id?.slice(0, 8) || "auth"}`;
+    const aVal = domainChallengeData.a_value || "149.28.243.12";
+    const cnameVal = domainChallengeData.cname_value || "site-studio.live";
+    const summary = `DNS Configuration Records for ${domainChallengeData.domain || connectDomainName}:
+
+1. TXT Record (Ownership Verification):
+   Type: TXT
+   Host/Name: _studio-challenge
+   Value: ${txtVal}
+   TTL: 300 (or Default)
+
+2. A Record (Apex Routing):
+   Type: A
+   Host/Name: @
+   Value: ${aVal}
+   TTL: 300 (or Default)
+
+3. CNAME Record (Subdomain Routing):
+   Type: CNAME
+   Host/Name: www
+   Value: ${cnameVal}
+   TTL: 300 (or Default)`;
+    handleCopyDnsText(summary, "all_records");
+  };
 
   // Right Side: GoDaddy Search state
   const [godaddySearchQuery, setGodaddySearchQuery] = useState("");
@@ -1128,7 +1164,12 @@ function Dashboard() {
     try {
       const challenge = await api.post("/deployments/domains/challenge", { domain: clean }, authToken ?? undefined);
       setDomainChallengeData(challenge);
-      if (challenge?.is_claimed_by_other) {
+      if (challenge?.is_protected) {
+        setOwnershipMessage({
+          type: "error",
+          text: challenge.security_warning || `Security Block: '${clean}' is a protected global domain and cannot be linked.`
+        });
+      } else if (challenge?.is_claimed_by_other) {
         if (challenge?.other_verified) {
           setOwnershipMessage({
             type: "error",
@@ -1140,6 +1181,11 @@ function Dashboard() {
             text: `ℹ️ Another account previously attempted to link this domain without verification. You can claim it by verifying your DNS records below.`
           });
         }
+      } else if (challenge?.is_verified) {
+        setOwnershipMessage({
+          type: "success",
+          text: `✅ DNS Ownership Verified! All required DNS records are active in public DNS. Click "Verify Ownership & Connect" below to complete connection.`
+        });
       }
     } catch (err) {
       setOwnershipMessage({ type: "error", text: err.message || "Failed to inspect domain ownership." });
@@ -4948,52 +4994,281 @@ function Dashboard() {
                                 </div>
                               )}
 
-                              {/* DNS Ownership Verification Challenge Records */}
-                              <div className="p-3 rounded-lg bg-[#141418] border border-[#222226] space-y-2 text-xs">
-                                <span className="font-bold text-white text-[10px] uppercase tracking-wider flex items-center gap-1.5">
-                                  <ShieldCheck className="w-3 h-3 text-[#c89666]" /> Required DNS Records
-                                </span>
-                                <div className="space-y-1.5 font-mono text-[11px]">
-                                  <div className="p-2 rounded bg-[#09090b] border border-[#222226] flex items-center justify-between gap-2">
-                                    <div className="truncate">
-                                      <span className="text-[#a8a29e] mr-1 text-[10px]">TXT:</span>
-                                      <span className="text-white">{domainChallengeData?.txt_host || "_studio-challenge"}</span>
-                                      <span className="text-[#71717a] mx-1">&bull;</span>
-                                      <span className="text-[#dfb180] font-bold">{domainChallengeData?.txt_value || `aisitestudio-verify-${user?.id?.slice(0, 8) || "auth"}`}</span>
+                              {/* DNS Ownership Verification & Registrar Instructions */}
+                              {domainChallengeData && !domainChallengeData.is_protected && (
+                                <div className="p-4 rounded-xl bg-[#141418] border border-[#27272a] space-y-4 text-xs">
+                                  {/* Domain Status Header */}
+                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-[#222226]">
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <Globe className="w-4 h-4 text-[#c89666] shrink-0" />
+                                        <span className="font-extrabold text-white text-sm font-mono truncate">
+                                          {domainChallengeData.domain || connectDomainName}
+                                        </span>
+                                      </div>
+                                      <p className="text-[11px] text-[#a8a29e] mt-0.5">
+                                        Enter these DNS records in your domain registrar control panel to route traffic to Studio Edge.
+                                      </p>
                                     </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        navigator.clipboard.writeText(domainChallengeData?.txt_value || `aisitestudio-verify-${user?.id?.slice(0, 8) || "auth"}`);
-                                        alert("Copied TXT verification value");
-                                      }}
-                                      className="p-1 hover:text-white text-[#a8a29e]"
-                                      title="Copy"
-                                    >
-                                      <Copy className="w-3 h-3" />
-                                    </button>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      {domainChallengeData.is_verified ? (
+                                        <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold flex items-center gap-1">
+                                          <CheckCircle2 className="w-3 h-3" /> DNS Verified
+                                        </span>
+                                      ) : (
+                                        <span className="px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 text-[10px] font-bold flex items-center gap-1">
+                                          <Clock className="w-3 h-3" /> Setup Required
+                                        </span>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={handleCopyAllDnsRecords}
+                                        className="px-2.5 py-1 rounded-lg bg-[#222228] hover:bg-[#2c2c34] text-[#dfb180] border border-[#383842] text-[10px] font-bold flex items-center gap-1 transition cursor-pointer"
+                                        title="Copy formatted summary of all records"
+                                      >
+                                        <Copy className="w-3 h-3" />
+                                        <span>{copiedDnsKey === "all_records" ? "Copied All!" : "Copy All Records"}</span>
+                                      </button>
+                                    </div>
                                   </div>
-                                  <div className="p-2 rounded bg-[#09090b] border border-[#222226] flex items-center justify-between gap-2">
-                                    <div className="truncate">
-                                      <span className="text-[#a8a29e] mr-1 text-[10px]">A:</span>
-                                      <span className="text-white">@</span>
-                                      <span className="text-[#71717a] mx-1">&bull;</span>
-                                      <span className="text-emerald-400 font-bold">{domainChallengeData?.a_value || "149.28.243.12"}</span>
+
+                                  {/* Registrar Guidance Tabs */}
+                                  <div className="space-y-2">
+                                    <span className="text-[10px] font-bold text-[#a8a29e] uppercase tracking-wider">
+                                      Select Your Domain Registrar For Exact Steps:
+                                    </span>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {[
+                                        { id: "godaddy", name: "GoDaddy" },
+                                        { id: "cloudflare", name: "Cloudflare" },
+                                        { id: "namecheap", name: "Namecheap" },
+                                        { id: "hostinger", name: "Hostinger" },
+                                        { id: "generic", name: "Other Registrars" },
+                                      ].map((prov) => (
+                                        <button
+                                          key={prov.id}
+                                          type="button"
+                                          onClick={() => setSelectedDnsProvider(prov.id)}
+                                          className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer border ${
+                                            selectedDnsProvider === prov.id
+                                              ? "bg-[#c89666]/20 border-[#c89666] text-[#dfb180]"
+                                              : "bg-[#09090b] border-[#27272a] text-[#a8a29e] hover:text-white hover:border-[#383842]"
+                                          }`}
+                                        >
+                                          {prov.name}
+                                        </button>
+                                      ))}
                                     </div>
+                                  </div>
+
+                                  {/* Step-by-Step Instructions Box */}
+                                  <div className="p-3 rounded-lg bg-[#09090b] border border-[#222226] space-y-1.5 text-[11px] leading-relaxed text-[#d4d4d8]">
+                                    {selectedDnsProvider === "godaddy" && (
+                                      <div className="space-y-1">
+                                        <p><strong className="text-white">1.</strong> Go to <strong className="text-[#dfb180]">GoDaddy Domain Portfolio</strong> and click on <code className="text-[#dfb180]">{domainChallengeData.domain}</code>.</p>
+                                        <p><strong className="text-white">2.</strong> Select <strong className="text-white">DNS</strong> (or Manage DNS) to view zone records.</p>
+                                        <p><strong className="text-white">3.</strong> Click <strong className="text-white">Add New Record</strong> and add the <strong className="text-[#c89666]">TXT record</strong> below for ownership verification.</p>
+                                        <p><strong className="text-white">4.</strong> Click <strong className="text-white">Add New Record</strong> and add the <strong className="text-emerald-400">A record</strong> below pointing to <code className="text-emerald-400">149.28.243.12</code>.</p>
+                                        <p><strong className="text-white">5.</strong> Save records, wait 60 seconds for DNS propagation, then click <strong className="text-[#dfb180]">Verify Ownership &amp; Connect</strong> below.</p>
+                                      </div>
+                                    )}
+                                    {selectedDnsProvider === "cloudflare" && (
+                                      <div className="space-y-1">
+                                        <p><strong className="text-white">1.</strong> Open your <strong className="text-[#dfb180]">Cloudflare Dashboard</strong> and select your domain zone.</p>
+                                        <p><strong className="text-white">2.</strong> Click <strong className="text-white">DNS &gt; Records</strong> in the left sidebar menu.</p>
+                                        <p><strong className="text-white">3.</strong> Add a <strong className="text-[#c89666]">TXT record</strong> with Name <code className="text-[#dfb180]">_studio-challenge</code> and paste the challenge token.</p>
+                                        <p><strong className="text-white">4.</strong> Add an <strong className="text-emerald-400">A record</strong> with Name <code className="text-white">@</code> pointing to <code className="text-emerald-400">149.28.243.12</code> (Set Proxy to DNS only / Grey cloud for initial verification).</p>
+                                        <p><strong className="text-white">5.</strong> Click <strong className="text-white">Save</strong> and click Verify below.</p>
+                                      </div>
+                                    )}
+                                    {selectedDnsProvider === "namecheap" && (
+                                      <div className="space-y-1">
+                                        <p><strong className="text-white">1.</strong> In Namecheap, open <strong className="text-[#dfb180]">Domain List</strong> and click <strong className="text-white">Manage</strong>.</p>
+                                        <p><strong className="text-white">2.</strong> Click on the <strong className="text-white">Advanced DNS</strong> tab at the top.</p>
+                                        <p><strong className="text-white">3.</strong> In Host Records, click <strong className="text-white">Add New Record</strong> &gt; Select <strong className="text-[#c89666]">TXT Record</strong> with Host <code className="text-[#dfb180]">_studio-challenge</code>.</p>
+                                        <p><strong className="text-white">4.</strong> Click <strong className="text-white">Add New Record</strong> &gt; Select <strong className="text-emerald-400">A Record</strong> with Host <code className="text-white">@</code> pointing to <code className="text-emerald-400">149.28.243.12</code>.</p>
+                                        <p><strong className="text-white">5.</strong> Click the green checkmark to save all changes.</p>
+                                      </div>
+                                    )}
+                                    {selectedDnsProvider === "hostinger" && (
+                                      <div className="space-y-1">
+                                        <p><strong className="text-white">1.</strong> Open Hostinger <strong className="text-[#dfb180]">hPanel</strong> &gt; <strong className="text-white">Domains</strong> &gt; select your domain.</p>
+                                        <p><strong className="text-white">2.</strong> Select <strong className="text-white">DNS / Nameservers</strong> from the left menu.</p>
+                                        <p><strong className="text-white">3.</strong> Under <strong className="text-white">Manage DNS records</strong>, create a <strong className="text-[#c89666]">TXT Record</strong> (Name: <code className="text-[#dfb180]">_studio-challenge</code>, Value: Challenge Token).</p>
+                                        <p><strong className="text-white">4.</strong> Add or edit the <strong className="text-emerald-400">A Record</strong> for <code className="text-white">@</code> pointing to <code className="text-emerald-400">149.28.243.12</code>.</p>
+                                        <p><strong className="text-white">5.</strong> Click <strong className="text-white">Add Record</strong> and return here to verify.</p>
+                                      </div>
+                                    )}
+                                    {selectedDnsProvider === "generic" && (
+                                      <div className="space-y-1">
+                                        <p><strong className="text-white">1.</strong> Log in to where you registered your domain (Google Domains, Squarespace, Porkbun, etc.).</p>
+                                        <p><strong className="text-white">2.</strong> Navigate to the <strong className="text-white">DNS Management / Zone Editor</strong> section.</p>
+                                        <p><strong className="text-white">3.</strong> Add the <strong className="text-[#c89666]">TXT record</strong> (for ownership proof) and <strong className="text-emerald-400">A record</strong> (for routing) listed below.</p>
+                                        <p><strong className="text-white">4.</strong> Save changes and click <strong className="text-[#dfb180]">Verify Ownership &amp; Connect</strong> below.</p>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Required Records List */}
+                                  <div className="space-y-2">
+                                    <span className="font-bold text-white text-[10px] uppercase tracking-wider flex items-center gap-1.5">
+                                      <ShieldCheck className="w-3.5 h-3.5 text-[#c89666]" /> Required DNS Records To Add
+                                    </span>
+
+                                    {/* 1. TXT Verification Record */}
+                                    <div className="p-3 rounded-lg bg-[#09090b] border border-[#27272a] space-y-2">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2">
+                                          <span className="px-2 py-0.5 rounded bg-[#c89666]/15 border border-[#c89666]/40 text-[#dfb180] font-mono font-bold text-[10px]">
+                                            TXT
+                                          </span>
+                                          <span className="text-xs font-bold text-white">Ownership Proof (Required)</span>
+                                        </div>
+                                        <span className="text-[10px] font-mono text-[#a8a29e]">TTL: 300 (or Default)</span>
+                                      </div>
+
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono">
+                                        <div className="p-2 rounded bg-[#121216] border border-[#222226] flex items-center justify-between gap-2">
+                                          <div className="truncate">
+                                            <span className="text-[#71717a] text-[10px] block font-sans">Host / Name</span>
+                                            <span className="text-white font-bold">{domainChallengeData.txt_host || "_studio-challenge"}</span>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCopyDnsText(domainChallengeData.txt_host || "_studio-challenge", "txt_host")}
+                                            className="p-1 hover:text-white text-[#a8a29e] shrink-0"
+                                            title="Copy Host"
+                                          >
+                                            {copiedDnsKey === "txt_host" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                          </button>
+                                        </div>
+
+                                        <div className="p-2 rounded bg-[#121216] border border-[#222226] flex items-center justify-between gap-2">
+                                          <div className="truncate">
+                                            <span className="text-[#71717a] text-[10px] block font-sans">Value / Content</span>
+                                            <span className="text-[#dfb180] font-bold truncate block">{domainChallengeData.txt_value}</span>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCopyDnsText(domainChallengeData.txt_value, "txt_value")}
+                                            className="p-1 hover:text-white text-[#a8a29e] shrink-0"
+                                            title="Copy Token Value"
+                                          >
+                                            {copiedDnsKey === "txt_value" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* 2. A Apex Routing Record */}
+                                    <div className="p-3 rounded-lg bg-[#09090b] border border-[#27272a] space-y-2">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2">
+                                          <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 font-mono font-bold text-[10px]">
+                                            A
+                                          </span>
+                                          <span className="text-xs font-bold text-white">Apex Routing (Points to Studio Edge)</span>
+                                        </div>
+                                        <span className="text-[10px] font-mono text-[#a8a29e]">TTL: 300 (or Default)</span>
+                                      </div>
+
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono">
+                                        <div className="p-2 rounded bg-[#121216] border border-[#222226] flex items-center justify-between gap-2">
+                                          <div className="truncate">
+                                            <span className="text-[#71717a] text-[10px] block font-sans">Host / Name</span>
+                                            <span className="text-white font-bold">{domainChallengeData.a_host || "@"}</span>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCopyDnsText(domainChallengeData.a_host || "@", "a_host")}
+                                            className="p-1 hover:text-white text-[#a8a29e] shrink-0"
+                                            title="Copy Host"
+                                          >
+                                            {copiedDnsKey === "a_host" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                          </button>
+                                        </div>
+
+                                        <div className="p-2 rounded bg-[#121216] border border-[#222226] flex items-center justify-between gap-2">
+                                          <div className="truncate">
+                                            <span className="text-[#71717a] text-[10px] block font-sans">Points to IP</span>
+                                            <span className="text-emerald-400 font-bold block">{domainChallengeData.a_value || "149.28.243.12"}</span>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCopyDnsText(domainChallengeData.a_value || "149.28.243.12", "a_value")}
+                                            className="p-1 hover:text-white text-[#a8a29e] shrink-0"
+                                            title="Copy IP Address"
+                                          >
+                                            {copiedDnsKey === "a_value" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* 3. CNAME Subdomain Record */}
+                                    <div className="p-3 rounded-lg bg-[#09090b] border border-[#27272a] space-y-2">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2">
+                                          <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-500/40 text-sky-400 font-mono font-bold text-[10px]">
+                                            CNAME
+                                          </span>
+                                          <span className="text-xs font-bold text-white">WWW Prefix Routing (Recommended)</span>
+                                        </div>
+                                        <span className="text-[10px] font-mono text-[#a8a29e]">TTL: 300 (or Default)</span>
+                                      </div>
+
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono">
+                                        <div className="p-2 rounded bg-[#121216] border border-[#222226] flex items-center justify-between gap-2">
+                                          <div className="truncate">
+                                            <span className="text-[#71717a] text-[10px] block font-sans">Host / Name</span>
+                                            <span className="text-white font-bold">{domainChallengeData.cname_host || "www"}</span>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCopyDnsText(domainChallengeData.cname_host || "www", "cname_host")}
+                                            className="p-1 hover:text-white text-[#a8a29e] shrink-0"
+                                            title="Copy CNAME Host"
+                                          >
+                                            {copiedDnsKey === "cname_host" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                          </button>
+                                        </div>
+
+                                        <div className="p-2 rounded bg-[#121216] border border-[#222226] flex items-center justify-between gap-2">
+                                          <div className="truncate">
+                                            <span className="text-[#71717a] text-[10px] block font-sans">Points to Target</span>
+                                            <span className="text-sky-300 font-bold block">{domainChallengeData.cname_value || "site-studio.live"}</span>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCopyDnsText(domainChallengeData.cname_value || "site-studio.live", "cname_value")}
+                                            className="p-1 hover:text-white text-[#a8a29e] shrink-0"
+                                            title="Copy CNAME Target"
+                                          >
+                                            {copiedDnsKey === "cname_value" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Re-Check Button */}
+                                  <div className="pt-1">
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        navigator.clipboard.writeText(domainChallengeData?.a_value || "149.28.243.12");
-                                        alert("Copied A Record IP");
-                                      }}
-                                      className="p-1 hover:text-white text-[#a8a29e]"
-                                      title="Copy"
+                                      onClick={() => handleCheckDomainChallenge(connectDomainName)}
+                                      disabled={challengeLoading}
+                                      className="w-full py-2 rounded-xl bg-[#222228] hover:bg-[#2c2c34] text-[#dfb180] border border-[#383842] text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer"
                                     >
-                                      <Copy className="w-3 h-3" />
+                                      {challengeLoading ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      ) : (
+                                        <RefreshCw className="w-3.5 h-3.5 text-[#c89666]" />
+                                      )}
+                                      <span>Check Live DNS Propagation</span>
                                     </button>
                                   </div>
                                 </div>
-                              </div>
+                              )}
 
                               <button
                                 type="submit"

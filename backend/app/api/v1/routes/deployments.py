@@ -526,8 +526,9 @@ async def get_domain_challenge(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Returns DNS challenge tokens and instructions to verify domain ownership.
-    Checks whether this domain is already claimed/verified by another user.
+    Returns DNS challenge tokens, live DNS detection status, and comprehensive registrar
+    configuration instructions (TXT, A, CNAME) to verify domain ownership and route traffic.
+    Checks whether this domain is already claimed/verified, protected, or resolving.
     """
     raw = str(payload.get("domain", "")).strip().lower()
     clean_domain = raw.replace("https://", "").replace("http://", "").strip("/")
@@ -535,25 +536,111 @@ async def get_domain_challenge(
         raise HTTPException(status_code=400, detail="Please enter a valid domain name (e.g. 'mycompany.com').")
 
     from app.models.deployment import Domain
+    from app.services.dns_verification_service import (
+        PROTECTED_SYSTEM_DOMAINS,
+        verify_domain_dns_ownership,
+        query_public_dns_records,
+        EDGE_SERVER_IPS,
+    )
+
+    # 1. Check protected domains
+    is_protected = False
+    for protected in PROTECTED_SYSTEM_DOMAINS:
+        if clean_domain == protected or clean_domain.endswith(f".{protected}"):
+            is_protected = True
+            break
+
+    if is_protected:
+        return {
+            "domain": clean_domain,
+            "is_protected": True,
+            "security_warning": (
+                f"Security Block: '{clean_domain}' is a protected global domain and cannot be linked. "
+                "Please enter a custom domain that you personally own and manage."
+            ),
+            "status": "blocked",
+            "records": [],
+        }
+
+    # 2. Check if another user owns and already verified this domain
     dom_res = await db.execute(select(Domain).where(Domain.domain == clean_domain))
     existing_domain = dom_res.scalar_one_or_none()
 
     is_claimed_by_other = bool(existing_domain and existing_domain.user_id != current_user.id)
     other_verified = bool(is_claimed_by_other and existing_domain.verification_status == "verified")
 
-    token = existing_domain.verification_token if (existing_domain and existing_domain.verification_token) else f"aisitestudio-verify-{uuid.uuid4().hex[:10]}"
+    token = (
+        existing_domain.verification_token
+        if (existing_domain and existing_domain.verification_token)
+        else f"aisitestudio-verify-{current_user.id.hex[:10]}"
+    )
+
+    # 3. Live DNS check via DNS-over-HTTPS
+    check_result = await verify_domain_dns_ownership(clean_domain, token)
+    is_verified = bool(check_result.get("verified"))
+
+    # Fetch live A records to report what the domain currently points to
+    live_a_records = await query_public_dns_records(clean_domain, record_type="A")
+    live_txt_records = await query_public_dns_records(f"_studio-challenge.{clean_domain}", record_type="TXT")
+
+    txt_matched = any(token in t for t in live_txt_records)
+    a_matched = any(ip in EDGE_SERVER_IPS for ip in live_a_records)
+
+    records = [
+        {
+            "type": "TXT",
+            "purpose": "Domain Ownership Verification (Required)",
+            "host": "_studio-challenge",
+            "name": f"_studio-challenge.{clean_domain}",
+            "value": token,
+            "ttl": "300 (or Automatic)",
+            "status": "detected" if txt_matched else "pending",
+            "status_text": "Record Detected in DNS" if txt_matched else "Waiting for DNS Propagation",
+            "description": "Proves to Studio Edge that you hold registrar ownership rights for this domain.",
+        },
+        {
+            "type": "A",
+            "purpose": "Apex Root Routing (Points your domain to Studio Edge)",
+            "host": "@",
+            "name": clean_domain,
+            "value": "149.28.243.12",
+            "ttl": "300 (or Automatic)",
+            "status": "detected" if a_matched else "pending",
+            "status_text": "Points to Studio Edge (149.28.243.12)" if a_matched else (
+                f"Currently points to: {live_a_records[0]}" if live_a_records else "No A-records detected"
+            ),
+            "description": "Directs web traffic for your apex domain to the Studio Edge high-availability cluster.",
+        },
+        {
+            "type": "CNAME",
+            "purpose": "WWW Subdomain Routing (Recommended)",
+            "host": "www",
+            "name": f"www.{clean_domain}",
+            "value": "site-studio.live",
+            "ttl": "300 (or Automatic)",
+            "status": "recommended",
+            "status_text": "Recommended for www prefix",
+            "description": "Ensures visitors typing www.yourdomain.com route smoothly to your website.",
+        },
+    ]
 
     return {
         "domain": clean_domain,
+        "is_protected": False,
         "is_claimed_by_other": is_claimed_by_other,
         "other_verified": other_verified,
         "verification_token": token,
+        "is_verified": is_verified,
+        "verification_details": check_result.get("details"),
         "txt_host": "_studio-challenge",
         "txt_value": token,
         "a_host": "@",
         "a_value": "149.28.243.12",
         "cname_host": "www",
         "cname_value": "site-studio.live",
+        "records": records,
+        "live_a_records": live_a_records,
+        "live_txt_records": live_txt_records,
     }
 
 
