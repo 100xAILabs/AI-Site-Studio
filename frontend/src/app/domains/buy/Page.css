@@ -1,5 +1,5 @@
 /* ═════════════════════════════════════════════════════════════════════
-   DOMAIN PURCHASE & REGISTRATION CHECKOUT PAGE (MATTE OBSIDIAN & WHEAT)
+   DOMAIN PURCHASE & REGISTRATION CHECKOUT PAGE (DUAL-THEME)
    ═════════════════════════════════════════════════════════════════════ */
 
 .domain-buy-container {
@@ -10,6 +10,7 @@
   display: flex !important;
   flex-direction: column !important;
   gap: 1.5rem !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 /* Back Navigation Pill */
@@ -19,19 +20,20 @@
   gap: 0.5rem !important;
   font-size: 0.75rem !important;
   font-weight: 700 !important;
-  color: #dfb180 !important;
-  background-color: #141418 !important;
-  border: 1px solid #2a2a32 !important;
+  color: hsl(var(--primary)) !important;
+  background-color: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
   padding: 0.5rem 0.85rem !important;
   border-radius: 0.75rem !important;
   cursor: pointer !important;
   transition: all 0.2s ease !important;
+  box-shadow: var(--shadow-sm) !important;
 }
 
 .domain-back-btn:hover {
-  background-color: #1c1c22 !important;
-  color: #ffffff !important;
-  border-color: #3e3e48 !important;
+  background-color: hsl(var(--muted)) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: hsl(var(--primary) / 0.4) !important;
 }
 
 /* Back Icon Round Button in Header */
@@ -39,46 +41,47 @@
   width: 2.5rem !important;
   height: 2.5rem !important;
   border-radius: 0.75rem !important;
-  background-color: #141418 !important;
-  border: 1px solid #2a2a32 !important;
-  color: #dfb180 !important;
+  background-color: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  color: hsl(var(--primary)) !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   cursor: pointer !important;
   transition: all 0.2s ease !important;
   flex-shrink: 0 !important;
+  box-shadow: var(--shadow-sm) !important;
 }
 
 .domain-header-back-btn:hover {
-  background-color: #202028 !important;
-  border-color: #c89666 !important;
-  color: #ffffff !important;
+  background-color: hsl(var(--muted)) !important;
+  border-color: hsl(var(--primary)) !important;
+  color: hsl(var(--foreground)) !important;
   transform: translateX(-2px);
 }
 
 /* Card Surface */
 .domain-card {
-  background-color: #121216 !important;
-  border: 1px solid #27272a !important;
+  background-color: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
   border-radius: 1rem !important;
   padding: 1.5rem !important;
   display: flex !important;
   flex-direction: column !important;
   gap: 1rem !important;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
+  box-shadow: var(--shadow-sm) !important;
 }
 
 /* Target Website Banner */
 .domain-target-banner {
-  background: #141418 !important;
-  border: 1px solid rgba(200, 150, 102, 0.3) !important;
+  background: hsl(var(--muted) / 0.4) !important;
+  border: 1px solid hsl(var(--primary) / 0.3) !important;
   border-radius: 0.875rem !important;
   padding: 1rem 1.25rem !important;
   display: flex !important;
   flex-direction: column !important;
   gap: 0.75rem !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35) !important;
+  box-shadow: var(--shadow-sm) !important;
 }
 
 .domain-target-banner-header {
@@ -94,7 +97,7 @@
   justify-content: space-between !important;
   gap: 1rem !important;
   padding-top: 0.65rem !important;
-  border-top: 1px solid #222228 !important;
+  border-top: 1px solid hsl(var(--border)) !important;
 }
 
 /* Inclusions Grid */
@@ -116,10 +119,10 @@
   gap: 0.5rem !important;
   padding: 0.65rem 0.85rem !important;
   border-radius: 0.75rem !important;
-  background-color: #16161b !important;
-  border: 1px solid #27272a !important;
+  background-color: hsl(var(--muted) / 0.4) !important;
+  border: 1px solid hsl(var(--border)) !important;
   font-size: 0.75rem !important;
-  color: #d4d4d8 !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 /* 2-Column Responsive Form Grid */
@@ -144,29 +147,28 @@
   width: 100% !important;
   padding: 0.75rem 1rem !important;
   border-radius: 0.75rem !important;
-  background-color: #0e0e12 !important;
-  border: 1px solid #2e2e36 !important;
-  color: #ffffff !important;
+  background-color: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  color: hsl(var(--foreground)) !important;
   font-size: 0.875rem !important;
   outline: none !important;
   transition: all 0.2s ease !important;
 }
 
 .domain-input:focus {
-  border-color: #c89666 !important;
-  box-shadow: 0 0 0 2px rgba(200, 150, 102, 0.2) !important;
-  background-color: #121216 !important;
+  border-color: hsl(var(--primary)) !important;
+  box-shadow: 0 0 0 2px hsla(var(--primary) / 0.2) !important;
 }
 
 .domain-input::placeholder {
-  color: #71717a !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 .domain-label {
   display: block !important;
   font-size: 0.75rem !important;
   font-weight: 700 !important;
-  color: #d4d4d8 !important;
+  color: hsl(var(--foreground)) !important;
   margin-bottom: 0.4rem !important;
   letter-spacing: 0.025em !important;
 }
@@ -182,10 +184,10 @@
   flex-shrink: 0 !important;
   padding: 0.75rem 0.5rem !important;
   border-radius: 0.75rem !important;
-  background-color: #0e0e12 !important;
-  border: 1px solid #2e2e36 !important;
-  color: #dfb180 !important;
-  font-family: monospace !important;
+  background-color: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  color: hsl(var(--primary)) !important;
+  font-family: var(--font-mono, monospace) !important;
   font-weight: 700 !important;
   font-size: 0.875rem !important;
   text-align: center !important;
@@ -193,19 +195,18 @@
 }
 
 .domain-phone-code:focus {
-  border-color: #c89666 !important;
-  box-shadow: 0 0 0 2px rgba(200, 150, 102, 0.2) !important;
+  border-color: hsl(var(--primary)) !important;
+  box-shadow: 0 0 0 2px hsla(var(--primary) / 0.2) !important;
 }
 
 /* Suppress all browser purple visited link states */
 .domain-live-link,
 .domain-live-link:visited {
-  color: #dfb180 !important;
+  color: hsl(var(--primary)) !important;
   text-decoration: none !important;
 }
 
 .domain-live-link:hover {
-  color: #f5d0a9 !important;
+  color: hsl(var(--foreground)) !important;
   text-decoration: underline !important;
 }
-

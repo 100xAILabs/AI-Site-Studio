@@ -53,25 +53,38 @@ const AGENTS = [
 function formatSectionDisplay(sec) {
   if (!sec) return { title: "Section", desc: "" };
   if (typeof sec === "object") {
+    const rawTitle = sec.title || sec.name || sec.label || sec.heading || sec.id || "Section";
+    const rawDesc = sec.description || sec.summary || sec.purpose || "";
+    let cleanTitle = String(rawTitle).replace(/[_{}"[\]]/g, " ").replace(/\s+/g, " ").trim();
+    if (cleanTitle.includes("_") || (cleanTitle.includes("-") && !cleanTitle.includes(" "))) {
+      cleanTitle = cleanTitle.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    }
     return {
-      title: String(sec.title || sec.name || sec.label || sec.heading || sec.id || "Section"),
-      desc: String(sec.description || sec.summary || sec.purpose || ""),
+      title: cleanTitle || "Section",
+      desc: String(rawDesc).replace(/[{}"[\]]/g, " ").trim(),
     };
   }
-  const str = String(sec).trim();
+  let str = String(sec).trim();
+  str = str.replace(/^`+|`+$/g, "").trim();
   if (str.startsWith("{") || str.startsWith("[")) {
     try {
       const parsed = JSON.parse(str.replace(/'/g, '"'));
       if (typeof parsed === "object" && parsed !== null) {
+        const rawTitle = parsed.title || parsed.name || parsed.label || parsed.heading || "Section";
+        const rawDesc = parsed.description || parsed.summary || "";
+        let cleanTitle = String(rawTitle).replace(/[_{}"[\]]/g, " ").replace(/\s+/g, " ").trim();
         return {
-          title: String(parsed.title || parsed.name || parsed.label || parsed.heading || "Section"),
-          desc: String(parsed.description || parsed.summary || ""),
+          title: cleanTitle || "Section",
+          desc: String(rawDesc).replace(/[{}"[\]]/g, " ").trim(),
         };
       }
     } catch {
       const m = str.match(/['"](?:title|name|label)['"]\s*:\s*['"]([^'"]+)['"]/i);
-      if (m) return { title: m[1], desc: "" };
+      if (m) return { title: m[1].replace(/[_{}"[\]]/g, " ").trim(), desc: "" };
     }
+  }
+  if (str.includes("_") || (str.includes("-") && !str.includes(" "))) {
+    str = str.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   }
   return { title: str, desc: "" };
 }
@@ -494,6 +507,20 @@ export default function StudioPage() {
           selected_sections: selected.includes(section)
             ? selected.filter((item) => item !== section)
             : [...selected, section],
+        };
+      }),
+    }));
+  }
+
+  function toggleAllSectionsForPage(filename, selectAll) {
+    setBuildPrompt("");
+    setPlan((current) => ({
+      ...current,
+      pages: current.pages.map((page) => {
+        if (page.filename !== filename) return page;
+        return {
+          ...page,
+          selected_sections: selectAll ? [...(page.sections || [])] : (page.sections || []).slice(0, 1),
         };
       }),
     }));
@@ -922,12 +949,12 @@ export default function StudioPage() {
                     </span>
                   </div>
 
-                  <div className="mb-4 flex items-center justify-between gap-3 border-b border-white/10 pb-3">
+                  <div className="mb-4 flex items-center justify-between gap-3 border-b border-border pb-3">
                     <div>
-                      <h3 className="text-sm font-bold">Included Pages &amp; Sections</h3>
-                      <p className="mt-1 text-xs text-slate-500">Home is required. Toggle other pages or select individual sections per page.</p>
+                      <h3 className="text-sm font-bold text-foreground">Included Pages &amp; Sections</h3>
+                      <p className="mt-1 text-xs text-muted-foreground">Home is required. Toggle other pages or select individual sections per page.</p>
                     </div>
-                    <span className="shrink-0 rounded-full bg-[#c89666]/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#dfb180]">
+                    <span className="shrink-0 rounded-full bg-primary/15 border border-primary/25 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-primary">
                       {selectedPageCount} selected
                     </span>
                   </div>
@@ -972,10 +999,36 @@ export default function StudioPage() {
                         </p>
                         {!!page.sections?.length && (
                           <div className="mt-3.5 pt-3 border-t border-border/60">
-                            <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                              Sections &amp; Components
-                            </p>
-                            <div className="flex flex-wrap gap-1.5">
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                                  Sections &amp; Components
+                                </span>
+                                <span className="text-[10px] font-mono text-muted-foreground/80">
+                                  ({(page.selected_sections || page.sections).length}/{page.sections.length})
+                                </span>
+                              </div>
+                              {page.sections.length > 2 && page.included !== false && (
+                                <div className="flex items-center gap-1.5 text-[10px]">
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleAllSectionsForPage(page.filename, true)}
+                                    className="text-primary hover:underline font-semibold cursor-pointer"
+                                  >
+                                    Select All
+                                  </button>
+                                  <span className="text-muted-foreground/40">·</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleAllSectionsForPage(page.filename, false)}
+                                    className="text-muted-foreground hover:text-foreground cursor-pointer"
+                                  >
+                                    Reset
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-1.5" role="group" aria-label={`Sections for ${page.name}`}>
                               {page.sections.map((section, sIdx) => {
                                 const info = formatSectionDisplay(section);
                                 const selected = (page.selected_sections || page.sections).some((s) => {
@@ -986,18 +1039,19 @@ export default function StudioPage() {
                                   <button
                                     key={info.title + "-" + sIdx}
                                     type="button"
+                                    role="checkbox"
                                     disabled={page.included === false}
-                                    aria-pressed={selected}
+                                    aria-checked={selected}
                                     onClick={() => togglePageSection(page.filename, section)}
                                     title={info.desc ? `${info.title} — ${info.desc}` : info.title}
-                                    className={`rounded-lg border px-2.5 py-1 text-[11px] font-medium transition cursor-pointer ${
+                                    className={`rounded-lg border px-2.5 py-1 text-[11px] font-medium transition cursor-pointer flex items-center gap-1.5 ${
                                       selected
-                                        ? "border-primary/40 bg-primary/15 text-primary font-semibold shadow-xs"
+                                        ? "border-primary/50 bg-primary/15 text-primary font-semibold shadow-xs"
                                         : "border-border bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted"
                                     } disabled:cursor-not-allowed disabled:opacity-40`}
                                   >
-                                    {selected ? "✓ " : "+ "}
-                                    {info.title}
+                                    <span className="text-[10px] font-bold leading-none">{selected ? "✓" : "+"}</span>
+                                    <span>{info.title}</span>
                                   </button>
                                 );
                               })}
@@ -1009,21 +1063,21 @@ export default function StudioPage() {
                   </div>
 
                   {plan.design_direction && (
-                    <div className="mt-5 rounded-2xl border border-[#c89666]/30 bg-[#c89666]/15/[0.06] p-4">
-                      <h3 className="text-sm font-semibold text-[#dfb180]">Creative Direction</h3>
-                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-300">{plan.design_direction}</p>
+                    <div className="mt-5 rounded-2xl border border-primary/30 bg-primary/5 p-4">
+                      <h3 className="text-sm font-semibold text-primary">Creative Direction</h3>
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground/80">{plan.design_direction}</p>
                     </div>
                   )}
                 </div>
 
                 {/* Visual Concept */}
-                <div className="studio-visual-concept rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
+                <div className="studio-visual-concept rounded-3xl border border-border bg-card p-5 sm:p-7 shadow-sm">
                   <div className="mb-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#dfb180]">UI Designer Agent · Visual Concept</p>
-                    <h2 className="mt-2 text-xl font-bold">Planned Visual Direction &amp; Color Scheme</h2>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">UI Designer Agent · Visual Concept</p>
+                    <h2 className="mt-2 text-xl font-bold text-foreground">Planned Visual Direction &amp; Color Scheme</h2>
                   </div>
-                  <div className="overflow-hidden rounded-2xl border border-black/10 shadow-xl" style={{ backgroundColor: safeColor(palette.background, "#f3f4f6"), color: safeColor(palette.text, "#172033") }}>
-                    <div className="flex items-center justify-between border-b border-black/10 px-4 py-3 text-xs">
+                  <div className="overflow-hidden rounded-2xl border border-border shadow-md" style={{ backgroundColor: safeColor(palette.background, "#f3f4f6"), color: safeColor(palette.text, "#172033") }}>
+                    <div className="flex items-center justify-between border-b border-border/40 px-4 py-3 text-xs">
                       <strong>{plan.title}</strong>
                       <div className="hidden gap-4 sm:flex">{plan.pages.filter((page) => page.included !== false || page.required).slice(0, 3).map((page) => <span key={page.filename} className="opacity-70">{page.name}</span>)}</div>
                     </div>
@@ -1032,7 +1086,7 @@ export default function StudioPage() {
                         <span className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: safeColor(palette.primary, "#6d4aff") }}>{genre || selectedCategory?.name || "Website"}</span>
                         <h3 className="mt-3 text-2xl sm:text-3xl font-black leading-tight">{plan.preview?.headline || plan.title}</h3>
                         <p className="mt-2 max-w-md text-xs sm:text-sm leading-relaxed opacity-70">{plan.preview?.subheadline || plan.summary}</p>
-                        <span className="mt-4 inline-flex rounded-lg px-4 py-2 text-xs font-bold text-white" style={{ backgroundColor: safeColor(palette.primary, "#6d4aff") }}>{plan.preview?.primary_action || "Explore"}</span>
+                        <span className="mt-4 inline-flex rounded-lg px-4 py-2 text-xs font-bold text-white shadow-xs" style={{ backgroundColor: safeColor(palette.primary, "#6d4aff") }}>{plan.preview?.primary_action || "Explore"}</span>
                       </div>
                       <div className="relative min-h-[140px] overflow-hidden rounded-2xl" style={{ background: `linear-gradient(135deg, ${safeColor(palette.primary, "#6d4aff")}55, ${safeColor(palette.accent, "#f28a64")}66)` }}>
                         {previewImage && <img src={previewImage} alt="Selected visual direction" className="absolute inset-0 h-full w-full object-cover" />}
@@ -1044,18 +1098,18 @@ export default function StudioPage() {
                 </div>
 
                 {/* Bottom Step Actions */}
-                <div className="flex items-center justify-between pt-4 border-t border-white/10">
+                <div className="flex items-center justify-between pt-4 border-t border-border">
                   <button
                     type="button"
                     onClick={() => { setPlan(null); changeStep(1); }}
-                    className="rounded-xl border border-white/10 bg-white/5 px-5 py-3 text-xs font-bold text-slate-300 hover:bg-white/10 hover:text-white transition"
+                    className="rounded-xl border border-border bg-muted/40 hover:bg-muted px-5 py-3 text-xs font-bold text-muted-foreground hover:text-foreground transition cursor-pointer"
                   >
                     ← Edit Project Brief
                   </button>
                   <button
                     type="button"
                     onClick={() => changeStep(clarificationQuestions.length > 0 ? 3 : 4)}
-                    className="inline-flex items-center gap-2 rounded-xl bg-[#c89666]/15 px-6 py-3 text-xs font-bold text-white shadow-lg shadow-violet-600/25 hover:bg-[#c89666]/15 transition"
+                    className="inline-flex items-center gap-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-3 text-xs font-bold shadow-md transition cursor-pointer"
                   >
                     <span>{clarificationQuestions.length > 0 ? "Continue to Clarifications" : "Continue to Assets & Build"}</span>
                     <ArrowRight size={15} />
@@ -1067,14 +1121,14 @@ export default function StudioPage() {
             {/* ── STEP 3: Clarification Questions ── */}
             {currentStep === 3 && (
               <div className="space-y-6">
-                <div className="rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-8">
+                <div className="rounded-3xl border border-border bg-card p-5 sm:p-8 shadow-sm">
                   <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#dfb180]">Step 2 · Clarifications</p>
-                      <h2 className="mt-1 text-2xl font-bold">Answer key project questions</h2>
-                      <p className="mt-1 text-sm text-slate-400">Answer these targeted questions to help the agents tailor your copy and sections.</p>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Step 2 · Clarifications</p>
+                      <h2 className="mt-1 text-2xl font-bold text-foreground">Answer key project questions</h2>
+                      <p className="mt-1 text-sm text-muted-foreground">Answer these targeted questions to help the agents tailor your copy and sections.</p>
                     </div>
-                    <span className="rounded-full border border-[#c89666]/30 bg-[#c89666]/15 px-3.5 py-1 text-xs font-bold text-[#dfb180]">
+                    <span className="rounded-full border border-primary/30 bg-primary/10 px-3.5 py-1 text-xs font-bold text-primary">
                       {completedQuestions.length + skippedQuestions.length} of {clarificationQuestions.length} answered
                     </span>
                   </div>
@@ -1087,8 +1141,8 @@ export default function StudioPage() {
                       if (!wasAnswered && !wasSkipped) return null;
                       return (
                         <div key={id} className="space-y-2">
-                          <div className="max-w-[90%] rounded-2xl rounded-bl-sm border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-slate-300">{question.question}</div>
-                          <div className="ml-auto max-w-[90%] rounded-2xl rounded-br-sm bg-[#c89666]/15 px-4 py-3 text-sm text-[#dfb180]">{wasSkipped ? "Skip for now" : answers[id]}</div>
+                          <div className="max-w-[90%] rounded-2xl rounded-bl-sm border border-border bg-muted/40 px-4 py-3 text-sm text-foreground">{question.question}</div>
+                          <div className="ml-auto max-w-[90%] rounded-2xl rounded-br-sm bg-primary/15 border border-primary/25 px-4 py-3 text-sm text-primary font-medium">{wasSkipped ? "Skip for now" : answers[id]}</div>
                         </div>
                       );
                     })}
@@ -1098,31 +1152,31 @@ export default function StudioPage() {
                       const id = question.id || `q-${activeClarificationIndex}`;
                       const value = answers[id] || "";
                       return (
-                        <div className="rounded-2xl border border-[#c89666]/30 bg-[#c89666]/15/[0.07] p-5 space-y-4" key={id}>
-                          <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-[#dfb180]">
+                        <div className="rounded-2xl border border-primary/30 bg-primary/5 p-5 space-y-4" key={id}>
+                          <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-primary">
                             <span>Studio Question #{completedQuestions.length + skippedQuestions.length + 1}</span>
                             <span>{completedQuestions.length + skippedQuestions.length + 1} / {clarificationQuestions.length}</span>
                           </div>
-                          <label htmlFor={`active-${id}`} className="block text-sm font-semibold text-white leading-relaxed">
-                            {question.question}{question.required && <span className="ml-1 text-[#dfb180]">*</span>}
+                          <label htmlFor={`active-${id}`} className="block text-sm font-semibold text-foreground leading-relaxed">
+                            {question.question}{question.required && <span className="ml-1 text-primary">*</span>}
                           </label>
                           {question.input_type === "select" ? (
-                            <select id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white outline-none focus:border-[#c89666]/30">
+                            <select id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-foreground outline-none focus:border-primary">
                               <option value="">Choose an answer</option>
                               {(question.options || []).map((option) => <option key={option} value={option}>{option}</option>)}
                             </select>
                           ) : question.input_type === "textarea" ? (
-                            <textarea id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} placeholder={question.placeholder || "Type your answer…"} rows={4} className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-[#c89666]/30" />
+                            <textarea id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} placeholder={question.placeholder || "Type your answer…"} rows={4} className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary" />
                           ) : (
-                            <input id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} placeholder={question.placeholder || "Type your answer…"} className="w-full rounded-xl border border-white/10 bg-[#0c111b] px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-[#c89666]/30" />
+                            <input id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} placeholder={question.placeholder || "Type your answer…"} className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary" />
                           )}
                           <div className="flex justify-end gap-2.5 pt-2">
                             {!question.required && (
-                              <button type="button" onClick={() => submitClarification(question, activeClarificationIndex)} className="rounded-xl border border-white/10 px-4 py-2.5 text-xs font-semibold text-slate-300 hover:bg-white/5 transition">
+                              <button type="button" onClick={() => submitClarification(question, activeClarificationIndex)} className="rounded-xl border border-border px-4 py-2.5 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/40 transition cursor-pointer">
                                 Skip
                               </button>
                             )}
-                            <button type="button" onClick={() => submitClarification(question, activeClarificationIndex)} disabled={!value.trim()} className="inline-flex items-center gap-2 rounded-xl bg-[#c89666]/15 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-violet-600/30 hover:bg-[#c89666]/15 disabled:opacity-40 transition">
+                            <button type="button" onClick={() => submitClarification(question, activeClarificationIndex)} disabled={!value.trim()} className="inline-flex items-center gap-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground px-5 py-2.5 text-xs font-bold shadow-md disabled:opacity-40 transition cursor-pointer">
                               <span>Next Answer</span>
                               <ArrowRight size={14} />
                             </button>
@@ -1130,28 +1184,28 @@ export default function StudioPage() {
                         </div>
                       );
                     })() : (
-                      <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.08] p-5 text-center">
-                        <CheckCircle2 className="h-8 w-8 text-emerald-400 mx-auto mb-2" />
-                        <h4 className="font-bold text-emerald-300">All questions answered!</h4>
-                        <p className="mt-1 text-xs text-slate-300">You are ready to upload images and review your project prompt.</p>
+                      <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-5 text-center">
+                        <CheckCircle2 className="h-8 w-8 text-emerald-500 mx-auto mb-2" />
+                        <h4 className="font-bold text-emerald-600 dark:text-emerald-400">All questions answered!</h4>
+                        <p className="mt-1 text-xs text-muted-foreground">You are ready to upload images and review your project prompt.</p>
                       </div>
                     )}
                   </div>
                 </div>
 
                 {/* Bottom Step Actions */}
-                <div className="flex items-center justify-between pt-4 border-t border-white/10">
+                <div className="flex items-center justify-between pt-4 border-t border-border">
                   <button
                     type="button"
                     onClick={() => changeStep(2)}
-                    className="rounded-xl border border-white/10 bg-white/5 px-5 py-3 text-xs font-bold text-slate-300 hover:bg-white/10 hover:text-white transition"
+                    className="rounded-xl border border-border bg-muted/40 hover:bg-muted px-5 py-3 text-xs font-bold text-muted-foreground hover:text-foreground transition cursor-pointer"
                   >
                     ← Back to Pages &amp; Blueprint
                   </button>
                   <button
                     type="button"
                     onClick={() => changeStep(4)}
-                    className="inline-flex items-center gap-2 rounded-xl bg-[#c89666]/15 px-6 py-3 text-xs font-bold text-white shadow-lg shadow-violet-600/25 hover:bg-[#c89666]/15 transition"
+                    className="inline-flex items-center gap-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-3 text-xs font-bold shadow-md transition cursor-pointer"
                   >
                     <span>Continue to Assets &amp; Build (Step 3)</span>
                     <ArrowRight size={15} />

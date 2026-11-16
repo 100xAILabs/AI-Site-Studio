@@ -229,8 +229,8 @@
   overflow: hidden;
   position: relative;
   flex-shrink: 0;
-  background: #121216;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: hsl(var(--muted));
+  border: 1px solid hsl(var(--border));
 }
 
 .cart-item-thumb img {
@@ -948,11 +948,11 @@
 .cart-country-modal {
   width: 100%;
   max-width: 440px;
-  background: #0d1222;
-  border: 1px solid rgba(212, 163, 115, 0.3);
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
   border-radius: 1.25rem;
   padding: 1.5rem;
-  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8), 0 0 30px rgba(212, 163, 115, 0.2);
+  box-shadow: var(--shadow-lg);
 }
 
 .cart-country-modal-header {

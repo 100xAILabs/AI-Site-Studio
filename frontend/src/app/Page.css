@@ -35,64 +35,64 @@
 }
 
 .home-studio-page .section-badge {
-  background: rgba(255, 255, 255, 0.04) !important;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  color: #dfb180 !important;
+  background: hsl(var(--primary) / 0.1) !important;
+  border: 1px solid hsl(var(--primary) / 0.25) !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 /* Feature cards in FeaturesSection */
 .home-studio-page .feature-card {
-  background: #121216 !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5) !important;
+  background: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  box-shadow: var(--shadow-sm) !important;
   transition: all 0.3s ease !important;
 }
 
 .home-studio-page .feature-card:hover {
   transform: translateY(-4px) !important;
-  border-color: rgba(200, 150, 102, 0.45) !important;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.7), 0 0 25px rgba(212, 163, 115, 0.25) !important;
+  border-color: hsl(var(--primary) / 0.45) !important;
+  box-shadow: var(--shadow-md) !important;
 }
 
 .home-studio-page .feature-title {
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .home-studio-page .feature-description {
-  color: #94a3b8 !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 /* How It Works Steps in TestimonialsSection */
 .home-studio-page .step-card,
 .home-studio-page .how-it-works-card {
-  background: #121216 !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  color: #ffffff !important;
+  background: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .home-studio-page .step-title {
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .home-studio-page .step-desc {
-  color: #94a3b8 !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 /* Pricing Card in PricingSection */
 .home-studio-page .pricing-card {
-  background: #121216 !important;
-  border: 1px solid rgba(200, 150, 102, 0.3) !important;
-  color: #ffffff !important;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 35px rgba(212, 163, 115, 0.2) !important;
+  background: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  color: hsl(var(--foreground)) !important;
+  box-shadow: var(--shadow-md) !important;
 }
 
 .home-studio-page .pricing-title,
 .home-studio-page .pricing-feature-text {
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .home-studio-page .pricing-desc {
-  color: #94a3b8 !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 /* CTA Banner */
@@ -153,28 +153,28 @@
 }
 
 .home-studio-page .footer-link-item {
-  color: #94a3b8 !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 .home-studio-page .footer-link-item:hover {
-  color: #dfb180 !important;
+  color: hsl(var(--primary)) !important;
 }
 
 .home-studio-page .footer-social-btn {
-  background: rgba(255, 255, 255, 0.04) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  color: #cbd5e1 !important;
+  background: hsl(var(--muted) / 0.5) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .home-studio-page .footer-social-btn:hover {
-  background: rgba(212, 163, 115, 0.15) !important;
-  border-color: rgba(200, 150, 102, 0.5) !important;
-  color: #ffffff !important;
+  background: hsl(var(--muted)) !important;
+  border-color: hsl(var(--primary) / 0.5) !important;
+  color: hsl(var(--primary)) !important;
 }
 
 .home-studio-page .footer-bottom {
-  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
-  color: #64748b !important;
+  border-top: 1px solid hsl(var(--border)) !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 .footer-wrap {
@@ -332,64 +332,64 @@
 }
 
 .home-studio-page .section-badge {
-  background: rgba(255, 255, 255, 0.04) !important;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  color: #dfb180 !important;
+  background: hsl(var(--primary) / 0.1) !important;
+  border: 1px solid hsl(var(--primary) / 0.25) !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 /* Feature cards in FeaturesSection */
 .home-studio-page .feature-card {
-  background: #121216 !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5) !important;
+  background: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  box-shadow: var(--shadow-sm) !important;
   transition: all 0.3s ease !important;
 }
 
 .home-studio-page .feature-card:hover {
   transform: translateY(-4px) !important;
-  border-color: rgba(200, 150, 102, 0.45) !important;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.7), 0 0 25px rgba(212, 163, 115, 0.25) !important;
+  border-color: hsl(var(--primary) / 0.45) !important;
+  box-shadow: var(--shadow-md) !important;
 }
 
 .home-studio-page .feature-title {
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .home-studio-page .feature-description {
-  color: #94a3b8 !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 /* How It Works Steps in TestimonialsSection */
 .home-studio-page .step-card,
 .home-studio-page .how-it-works-card {
-  background: #121216 !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  color: #ffffff !important;
+  background: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .home-studio-page .step-title {
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .home-studio-page .step-desc {
-  color: #94a3b8 !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 /* Pricing Card in PricingSection */
 .home-studio-page .pricing-card {
-  background: #121216 !important;
-  border: 1px solid rgba(200, 150, 102, 0.3) !important;
-  color: #ffffff !important;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 35px rgba(212, 163, 115, 0.2) !important;
+  background: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  color: hsl(var(--foreground)) !important;
+  box-shadow: var(--shadow-md) !important;
 }
 
 .home-studio-page .pricing-title,
 .home-studio-page .pricing-feature-text {
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .home-studio-page .pricing-desc {
-  color: #94a3b8 !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 /* CTA Banner */
@@ -450,28 +450,28 @@
 }
 
 .home-studio-page .footer-link-item {
-  color: #94a3b8 !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 .home-studio-page .footer-link-item:hover {
-  color: #dfb180 !important;
+  color: hsl(var(--primary)) !important;
 }
 
 .home-studio-page .footer-social-btn {
-  background: rgba(255, 255, 255, 0.04) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  color: #cbd5e1 !important;
+  background: hsl(var(--muted) / 0.5) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .home-studio-page .footer-social-btn:hover {
-  background: rgba(212, 163, 115, 0.15) !important;
-  border-color: rgba(200, 150, 102, 0.5) !important;
-  color: #ffffff !important;
+  background: hsl(var(--muted)) !important;
+  border-color: hsl(var(--primary) / 0.5) !important;
+  color: hsl(var(--primary)) !important;
 }
 
 .home-studio-page .footer-bottom {
-  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
-  color: #64748b !important;
+  border-top: 1px solid hsl(var(--border)) !important;
+  color: hsl(var(--muted-foreground)) !important;
 }
 
 .footer-wrap {

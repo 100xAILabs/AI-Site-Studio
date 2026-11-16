@@ -67,7 +67,7 @@ function ArchitectureTopologyDiagram({ siteData, bundleStats, domainInfo, tokens
     },
     {
       id: "doctor",
-      label: "AI Readiness & Heal",
+      label: "Health & Self-Heal",
       title: "Pre-Flight Auditor",
       sub: `${tokens?.healing_actions_performed || 4} Auto-heals applied`,
       icon: Sparkles,
@@ -781,10 +781,10 @@ export default function DeployedWebsiteDetailsPage() {
         siteData.token_diagnostic.is_low = false;
         siteData.token_diagnostic.is_depleted = false;
       }
-      toast.success(`🎉 Added +${selectedTokenPack} AI Credits to your account!`);
+      toast.success(`🎉 Added +${selectedTokenPack} Studio Credits to your account!`);
       setIsTokenModalOpen(false);
     } catch (e) {
-      toast.error("Failed to add AI credits.");
+      toast.error("Failed to add studio credits.");
     } finally {
       setTokenPurchasing(false);
     }
@@ -1092,7 +1092,7 @@ export default function DeployedWebsiteDetailsPage() {
             className={`deploy-tab-btn ${activeTab === "blockers" ? "active" : ""}`}
           >
             <Coins className="w-4 h-4 text-[#dfb180]" />
-            <span>Blockers &amp; AI Tokens</span>
+            <span>Blockers &amp; Studio Credits</span>
             {blockers.length > 0 && <span className="deploy-tab-badge alert">{blockers.length}</span>}
           </button>
 
@@ -1252,7 +1252,7 @@ export default function DeployedWebsiteDetailsPage() {
                   <div className="deploy-card-title-wrap">
                     <Coins className="w-4 h-4 text-[#dfb180]" />
                     <div>
-                      <h3 className="deploy-card-title">AI Tokens &amp; Compute</h3>
+                      <h3 className="deploy-card-title">Compute &amp; Studio Credits</h3>
                       <p className="deploy-card-sub">Autonomous Healing &amp; Edit Quota</p>
                     </div>
                   </div>
@@ -1278,7 +1278,7 @@ export default function DeployedWebsiteDetailsPage() {
                   </p>
 
                   <div className="p-2.5 rounded-lg bg-white/5 text-[11px] text-slate-300 flex items-center justify-between">
-                    <span>AI Healing Actions Used:</span>
+                    <span>Autonomous Healing Actions:</span>
                     <span className="font-bold text-[#dfb180]">{tokens.healing_actions_performed || 0} repairs completed</span>
                   </div>
                 </div>
@@ -1585,7 +1585,7 @@ export default function DeployedWebsiteDetailsPage() {
                   className="deploy-btn-doctor"
                 >
                   <Sparkles className={`w-3.5 h-3.5 ${isHealing ? "animate-spin" : ""}`} />
-                  <span>{isHealing ? "Running AI Diagnosis..." : "Run Autonomous Self-Healing"}</span>
+                  <span>{isHealing ? "Running Automated Diagnosis..." : "Run Autonomous Self-Healing"}</span>
                 </button>
               </div>
 
@@ -1728,14 +1728,14 @@ export default function DeployedWebsiteDetailsPage() {
               <TokenRadialGauge tokens={tokens} />
 
               <div className="flex items-center justify-between flex-wrap gap-3">
-                <span className="text-xs text-slate-400">Need extra compute power or multi-page AI regeneration?</span>
+                <span className="text-xs text-slate-400">Need extra compute power or multi-page regeneration?</span>
                 <button
                   type="button"
                   onClick={() => setIsTokenModalOpen(true)}
                   className="deploy-btn-primary"
                 >
                   <Coins className="w-4 h-4" />
-                  <span>Get More AI Tokens</span>
+                  <span>Get More Studio Credits</span>
                 </button>
               </div>
             </div>
@@ -1937,7 +1937,7 @@ export default function DeployedWebsiteDetailsPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Coins className="w-5 h-5 text-[#dfb180]" />
-                <h3 className="text-base font-bold text-white">Top Up AI Tokens</h3>
+                <h3 className="text-base font-bold text-white">Top Up Studio Credits</h3>
               </div>
               <button
                 type="button"

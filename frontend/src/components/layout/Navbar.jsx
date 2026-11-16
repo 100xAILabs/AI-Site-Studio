@@ -5,9 +5,8 @@
  */
 
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import Link from "@/components/Link";
-const usePathname = () => window.location.pathname;
 import { useTheme } from "@/hooks/useTheme";
 import { useAppUser, useSignOut } from "@/lib/auth";
 import { motion, AnimatePresence } from "framer-motion";
@@ -40,7 +39,8 @@ function NavbarComponent() {
   const { theme, setTheme } = useTheme();
   const { isSignedIn, user } = useAppUser();
   const signOut = useSignOut();
-  const pathname = usePathname();
+  const location = useLocation();
+  const pathname = location.pathname;
   const navigate = useNavigate();
   const cartItems = useCartStore((s) => s.items);
   const { userCurrency, setUserCurrency, fetchRates } = useCurrencyStore();

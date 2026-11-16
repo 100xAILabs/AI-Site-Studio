@@ -147,13 +147,12 @@ export default function TemplateArchitectureDiagram({ template }) {
                 onClick={() => setActiveNode(node.id)}
                 className={`architecture-node-card ${isSelected ? "active" : ""}`}
                 style={{
-                  borderColor: isSelected ? node.borderColor : "rgba(255, 255, 255, 0.08)",
-                  background: isSelected ? node.accentBg : "rgba(18, 18, 22, 0.65)",
+                  borderColor: isSelected ? node.color : undefined,
                 }}
               >
                 <div
                   className="architecture-node-icon-box"
-                  style={{ color: node.color, background: "rgba(0, 0, 0, 0.4)" }}
+                  style={{ color: node.color }}
                 >
                   <IconComponent className="w-4 h-4" />
                 </div>
@@ -161,7 +160,7 @@ export default function TemplateArchitectureDiagram({ template }) {
                   <span className="text-[10px] font-extrabold uppercase tracking-wider block" style={{ color: node.color }}>
                     {node.tag}
                   </span>
-                  <h5 className="text-xs font-bold text-white truncate max-w-[130px]">
+                  <h5 className="text-xs font-bold text-foreground truncate max-w-[130px]">
                     {node.title}
                   </h5>
                 </div>
@@ -188,21 +187,21 @@ export default function TemplateArchitectureDiagram({ template }) {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.25 }}
         className="architecture-detail-box"
-        style={{ borderColor: current.borderColor, background: "rgba(11, 15, 30, 0.9)" }}
+        style={{ borderColor: current.borderColor }}
       >
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-white/10">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-border">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl" style={{ background: current.accentBg, color: current.color }}>
+            <div className="p-2 rounded-xl border border-border bg-muted/60" style={{ color: current.color }}>
               <current.icon className="w-5 h-5" />
             </div>
             <div>
-              <h4 className="text-sm font-bold text-white flex items-center gap-2">
+              <h4 className="text-sm font-bold text-foreground flex items-center gap-2 flex-wrap">
                 <span>{current.title}</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full uppercase" style={{ background: current.accentBg, color: current.color }}>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full uppercase font-bold border border-primary/30 bg-primary/10 text-primary">
                   {current.telemetry}
                 </span>
               </h4>
-              <p className="text-xs text-muted-foreground mt-0.5">{current.description}</p>
+              <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{current.description}</p>
             </div>
           </div>
         </div>
@@ -210,11 +209,11 @@ export default function TemplateArchitectureDiagram({ template }) {
         {/* 4 Telemetry Metrics */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-3">
           {current.metrics.map((m, i) => (
-            <div key={i} className="p-2.5 rounded-lg bg-black/40 border border-white/5">
-              <span className="text-[10px] uppercase font-bold text-muted-foreground block">
+            <div key={i} className="p-2.5 rounded-lg bg-card border border-border shadow-sm">
+              <span className="text-[10px] uppercase font-bold text-muted-foreground block tracking-wider">
                 {m.label}
               </span>
-              <span className="text-xs font-bold text-white font-mono mt-0.5 block truncate" style={{ color: current.color }}>
+              <span className="text-xs font-bold font-mono mt-0.5 block truncate" style={{ color: current.color }}>
                 {m.val}
               </span>
             </div>

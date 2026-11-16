@@ -159,13 +159,16 @@ class EntitlementService:
 
         return {
             "plan_id": plan_id,
+            "plan": plan_id,
             "plan_name": plan_cfg["name"],
             "plan_badge": plan_cfg["badge"],
             "subscription_status": status,
+            "status": status,
             "is_past_due": is_past_due,
             "in_grace_period": in_grace_period,
             "billing_cycle": sub.billing_cycle,
             "payment_provider": sub.payment_provider,
+            "billing_provider": sub.payment_provider,
             "start_date": sub.start_date.isoformat() if sub.start_date else None,
             "current_period_start": sub.current_period_start.isoformat() if sub.current_period_start else None,
             "current_period_end": sub.current_period_end.isoformat() if sub.current_period_end else None,
@@ -174,14 +177,17 @@ class EntitlementService:
             "canceled_at": sub.canceled_at.isoformat() if sub.canceled_at else None,
             # AI Credits
             "ai_credits_available": available_credits,
+            "available_credits": available_credits,
             "ai_credits_consumed_period": credits_consumed_period,
             "included_monthly_credits": plan_cfg["included_ai_credits"],
             "free_generations_used": free_generations_used,
             "free_generations_allowance": plan_cfg["free_generation_allowance"],
             # Deployments & Hosting
             "active_deployments": active_deployment_count,
+            "active_deployments_count": active_deployment_count,
             "max_deployment_slots": plan_cfg["max_deployment_slots"],
             "active_live_hosted_websites": active_live_hosted_count,
+            "active_hosted_count": active_live_hosted_count,
             "included_hosted_websites": included_hosting,
             "paid_hosting_addons": paid_hosting_addon_count,
             "total_hosting_capacity": total_hosting_capacity,
@@ -193,8 +199,20 @@ class EntitlementService:
             # Auto-Heal
             "auto_heal_allowed": plan_cfg["auto_heal_allowed"],
             "auto_heal_sites_limit": plan_cfg["auto_heal_sites_limit"],
+            "auto_heal_sites_count": active_auto_heal_count,
             "auto_heal_registered_count": active_auto_heal_count,
             "auto_heal_repairs_per_period_limit": plan_cfg["auto_heal_repairs_per_period"],
+            # Nested entitlements object for frontend compatibility
+            "entitlements": {
+                "ai_credits_monthly": plan_cfg["included_ai_credits"],
+                "included_hosted_sites": included_hosting,
+                "max_deployment_slots": plan_cfg["max_deployment_slots"],
+                "auto_heal_sites": plan_cfg["auto_heal_sites_limit"],
+                "max_auto_heal_repairs_per_month": plan_cfg["auto_heal_repairs_per_period"],
+                "custom_domain_allowed": plan_cfg["custom_domain_allowed"],
+                "token_discount_percent": plan_cfg["token_discount_percent"],
+                "support_tier": plan_cfg["support_tier"],
+            },
             # Retention & Tools
             "deployment_versions_limit": plan_cfg["deployment_versions_limit"],
             "backup_retention_days": plan_cfg["backup_retention_days"],

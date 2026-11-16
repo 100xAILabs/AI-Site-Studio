@@ -35,10 +35,10 @@
   box-shadow: 0 4px 6px -1px hsla(var(--primary) / 0.25);
 }
 
-.logo-text {
+.onboarding-wrapper .logo-text {
   font-weight: 700;
   font-size: 1.125rem;
-  background: linear-gradient(90deg, hsl(var(--primary)) 0%, hsl(var(--secondary)) 100%);
+  background: linear-gradient(90deg, hsl(var(--primary)) 0%, hsl(var(--foreground)) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }

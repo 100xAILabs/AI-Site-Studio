@@ -40,7 +40,7 @@ export default function SiteStudioLogo({ className = "" }) {
   return (
     <div className={`flex items-center gap-2.5 ${className}`}>
       <SiteStudioLogoIcon className="w-8 h-8 flex-shrink-0" />
-      <span className="font-bold text-lg tracking-tight text-white">
+      <span className="font-bold text-lg tracking-tight text-foreground">
         Site Studio
       </span>
     </div>

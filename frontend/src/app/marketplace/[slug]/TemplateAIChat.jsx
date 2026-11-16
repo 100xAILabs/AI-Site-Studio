@@ -164,15 +164,15 @@ export default function TemplateAIChat({ template }) {
   return (
     <div className="template-ai-chat-card">
       {/* Header */}
-      <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-4">
+      <div className="flex items-center justify-between pb-3 border-b border-border mb-4">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-[#c89666] to-[#b5804f] flex items-center justify-center text-[#09090b] shadow-md shadow-black/40">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-[#c89666] to-[#b5804f] flex items-center justify-center text-[#09090b] shadow-sm">
             <Sparkles className="w-4 h-4" />
           </div>
           <div>
-            <h4 className="text-sm font-bold text-white flex items-center gap-2">
+            <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
               <span>Chat with Template Specialist</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             </h4>
             <span className="text-[11px] text-muted-foreground block">
               Instant answers on code architecture, customization & deployment
@@ -180,7 +180,7 @@ export default function TemplateAIChat({ template }) {
           </div>
         </div>
 
-        <span className="text-[10px] font-mono font-bold text-[#dfb180] bg-[#c89666]/15 px-2 py-0.5 rounded-full border border-[#c89666]/30">
+        <span className="text-[10px] font-mono font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
           Studio Automation
         </span>
       </div>
@@ -192,7 +192,7 @@ export default function TemplateAIChat({ template }) {
             key={idx}
             type="button"
             onClick={() => handleSend(qp.prompt)}
-            className="px-2.5 py-1 rounded-full text-[11px] font-semibold text-[#f4ecdf] bg-[#c89666]/15 hover:bg-[#c89666]/25 border border-[#c89666]/30 shrink-0 transition-all cursor-pointer"
+            className="px-2.5 py-1 rounded-full text-[11px] font-semibold text-foreground bg-muted/60 hover:bg-muted border border-border/80 shrink-0 transition-all cursor-pointer"
           >
             {qp.label}
           </button>
@@ -212,7 +212,7 @@ export default function TemplateAIChat({ template }) {
               className={`flex gap-2.5 ${isUser ? "justify-end" : "justify-start"}`}
             >
               {!isUser && (
-                <div className="w-6 h-6 rounded-md bg-[#c89666]/20 border border-[#c89666]/30 flex items-center justify-center text-[#dfb180] shrink-0 mt-0.5">
+                <div className="w-6 h-6 rounded-md bg-primary/15 border border-primary/30 flex items-center justify-center text-primary shrink-0 mt-0.5">
                   <Bot className="w-3.5 h-3.5" />
                 </div>
               )}
@@ -220,19 +220,19 @@ export default function TemplateAIChat({ template }) {
               <div
                 className={`max-w-[85%] rounded-xl p-3 text-xs leading-relaxed ${
                   isUser
-                    ? "bg-gradient-to-r from-[#c89666] to-[#b5804f] text-[#09090b] rounded-tr-none shadow-md"
-                    : "bg-white/5 border border-white/10 text-slate-200 rounded-tl-none"
+                    ? "bg-gradient-to-r from-[#c89666] to-[#b5804f] text-[#09090b] rounded-tr-none shadow-sm font-medium"
+                    : "bg-muted/50 border border-border text-foreground rounded-tl-none shadow-sm"
                 }`}
               >
                 <p className="m-0 whitespace-pre-wrap">{m.text}</p>
-                <div className="flex items-center justify-between gap-2 mt-1.5 pt-1 border-t border-white/5 text-[10px] opacity-60">
+                <div className="flex items-center justify-between gap-2 mt-1.5 pt-1 border-t border-border/50 text-[10px] opacity-70">
                   <span>{m.timestamp}</span>
                   {!isUser && (
                     <button
                       type="button"
                       onClick={() => playSpeech(m)}
                       className={`hover:opacity-100 transition-opacity cursor-pointer ${
-                        playingAudioId === m.id ? "text-[#dfb180] opacity-100" : ""
+                        playingAudioId === m.id ? "text-primary opacity-100 font-bold" : ""
                       }`}
                       title="Listen with Text-to-Speech"
                     >
@@ -243,7 +243,7 @@ export default function TemplateAIChat({ template }) {
               </div>
 
               {isUser && (
-                <div className="w-6 h-6 rounded-md bg-white/10 border border-white/20 flex items-center justify-center text-white shrink-0 mt-0.5">
+                <div className="w-6 h-6 rounded-md bg-muted border border-border flex items-center justify-center text-foreground shrink-0 mt-0.5">
                   <User className="w-3.5 h-3.5" />
                 </div>
               )}
@@ -252,11 +252,11 @@ export default function TemplateAIChat({ template }) {
         })}
 
         {loading && (
-          <div className="flex gap-2.5 items-center text-xs text-[#dfb180]">
-            <div className="w-6 h-6 rounded-md bg-[#c89666]/20 border border-[#c89666]/30 flex items-center justify-center text-[#dfb180]">
+          <div className="flex gap-2.5 items-center text-xs text-primary">
+            <div className="w-6 h-6 rounded-md bg-primary/15 border border-primary/30 flex items-center justify-center text-primary">
               <Bot className="w-3.5 h-3.5" />
             </div>
-            <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex items-center gap-2">
+            <div className="p-2.5 rounded-xl bg-muted/50 border border-border text-foreground flex items-center gap-2">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
               <span>Analyzing template architecture...</span>
             </div>

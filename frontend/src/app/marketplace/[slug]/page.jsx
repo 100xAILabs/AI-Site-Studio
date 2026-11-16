@@ -824,7 +824,11 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
   const userTier = String(user?.subscription_tier || "free").toLowerCase();
   const isUserExtreme = userTier === "extreme" || userTier === "enterprise" || userTier === "agency";
   const isUserPro = Boolean(user?.is_pro_subscriber || ["pro", "creator_pro"].includes(userTier));
-  const hasPurchased = Boolean(template?.is_purchased);
+  const hasPurchased = Boolean(
+    template?.is_purchased &&
+    template?.template_origin !== "custom_draft" &&
+    template?.status !== "draft"
+  );
 
   const basePrice = effectivePrice > 0 ? effectivePrice : 49;
   const activeLicense = "commercial";
@@ -968,7 +972,13 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
     }, 600);
   };
 
-  const isOwnerOrAdmin = Boolean(user && (user.id === template?.seller_id || user.role === "admin" || user.role === "super_admin"));
+  const isOwnerOrAdmin = Boolean(
+    user && (
+      (template?.is_marketplace !== false && template?.template_origin === "marketplace" && template?.status === "published" && user.id === template?.seller_id) ||
+      user.role === "admin" ||
+      user.role === "super_admin"
+    )
+  );
   const allImages = template ? [template.thumbnail_url, ...(template.gallery_images ?? [])].filter(Boolean) : [];
 
   // Helper arrays for features and specifications mapping
@@ -1254,7 +1264,9 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
   }
 
   const renderPurchaseCard = (extraClass = "") => {
-    const isOwner = Boolean(user?.id && user?.id === template?.seller_id);
+    // Only genuine published marketplace templates can be managed by the uploading seller. Private drafts and customized copies are not seller listings.
+    const isMarketplaceListing = template?.is_marketplace !== false && template?.template_origin === "marketplace" && template?.status === "published";
+    const isOwner = Boolean(isMarketplaceListing && user?.id && user?.id === template?.seller_id);
     const rawPrice = Number(template?.price) > 0 ? Number(template.price) : 0;
     const isFree = Boolean(template?.is_free && rawPrice === 0);
     const templatePrice = isFree ? 0 : (rawPrice > 0 ? rawPrice : 49);
@@ -1417,7 +1429,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
               <button
                 type="button"
                 onClick={handleBuyNow}
-                className="w-full py-3.5 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] shadow-lg shadow-black/40 transition-all text-sm cursor-pointer border-0"
+                className="details-buy-now-btn w-full py-3.5 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all text-sm cursor-pointer"
               >
                 <Zap className="w-4 h-4 fill-current" />
                 <span>Buy Now • {formatPrice(templatePrice, "USD")}</span>
@@ -1429,20 +1441,18 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                   type="button"
                   onClick={handleAddToCart}
                   className={cn(
-                    "py-2.5 px-3 rounded-xl font-semibold flex items-center justify-center gap-1.5 transition-all text-xs cursor-pointer border",
-                    isInCart
-                      ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400"
-                      : "bg-background/80 hover:bg-muted border-border/80 text-foreground shadow-sm"
+                    "details-secondary-btn py-2.5 px-3 rounded-xl font-semibold flex items-center justify-center gap-1.5 transition-all text-xs cursor-pointer",
+                    isInCart && "is-in-cart"
                   )}
                 >
-                  {isInCart ? <Check className="w-3.5 h-3.5" /> : <ShoppingCart className="w-3.5 h-3.5" />}
+                  {isInCart ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <ShoppingCart className="w-3.5 h-3.5" />}
                   <span>{isInCart ? "In Cart (Checkout)" : "Add to Cart"}</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={startDownloadFlow}
-                  className="py-2.5 px-3 rounded-xl font-semibold flex items-center justify-center gap-1.5 transition-all text-xs cursor-pointer border border-border/80 bg-background/50 hover:bg-muted/70 text-muted-foreground hover:text-foreground"
+                  className="details-secondary-btn py-2.5 px-3 rounded-xl font-semibold flex items-center justify-center gap-1.5 transition-all text-xs cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5 text-primary" />
                   <span>Get Watermarked (Free)</span>
@@ -1454,7 +1464,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
           {/* Tertiary: Live Preview */}
           <Link
             href={`/preview?template=${template.id}`}
-            className="w-full py-2.5 text-xs text-center border border-border/80 bg-background/50 hover:bg-muted/70 text-foreground transition-all rounded-xl font-medium flex items-center justify-center gap-1.5 mt-2"
+            className="details-canvas-launch-btn w-full py-2.5 text-xs text-center transition-all rounded-xl font-medium flex items-center justify-center gap-1.5 mt-2"
             style={{ textDecoration: 'none' }}
           >
             <Sparkles className="w-3.5 h-3.5 text-primary" />
@@ -1601,7 +1611,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                 {heroTab === "screenshot" || heroTab === "gallery" ? (
                   /* Screenshot / Gallery view */
                   <div
-                    style={{ position: "absolute", inset: 0, cursor: "zoom-in", display: "flex", alignItems: "center", justifyContent: "center", background: "#09090b" }}
+                    style={{ position: "absolute", inset: 0, cursor: "zoom-in", display: "flex", alignItems: "center", justifyContent: "center", background: "hsl(var(--card))" }}
                     onClick={() => setLightboxImg(allImages[activeImage])}
                   >
                     <Image
@@ -2612,7 +2622,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                     <span className="text-muted-foreground flex items-center gap-1.5">
                       <Calendar className="w-3.5 h-3.5 text-[#c89666]" /> Published Date
                     </span>
-                    <span className="font-semibold text-foreground">
+                    <span className="details-specs-val font-semibold text-foreground">
                       {template.created_at
                         ? new Date(template.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
                         : "Recently Published"}
@@ -2624,7 +2634,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                     <span className="text-muted-foreground flex items-center gap-1.5">
                       <Clock className="w-3.5 h-3.5 text-amber-500" /> Last Updated
                     </span>
-                    <span className="font-semibold text-foreground">
+                    <span className="details-specs-val font-semibold text-foreground">
                       {template.updated_at
                         ? new Date(template.updated_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
                         : (template.created_at ? new Date(template.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "Up to Date")}
@@ -2636,7 +2646,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                     <span className="text-muted-foreground flex items-center gap-1.5">
                       <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> Access
                     </span>
-                    <span className="font-bold text-foreground text-right max-w-[180px] leading-tight text-emerald-500">
+                    <span className="details-specs-val font-bold text-right max-w-[180px] leading-tight text-emerald-500">
                       Full Source Code • Lifetime
                     </span>
                   </div>
@@ -3175,10 +3185,10 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                   {/* TAB 3: SCREENSHOTS & GALLERY */}
                   {editModalTab === "gallery" && (
                     <div className="space-y-4">
-                      <div className="p-3 bg-[#18181d] border border-[#2e2e33] rounded-xl flex items-start gap-3">
-                        <Sparkles className="w-4 h-4 text-[#dfb180] shrink-0 mt-0.5" />
-                        <div className="text-xs text-slate-300 leading-relaxed">
-                          <strong>Showcase Screenshots Gallery:</strong> Upload multiple high-resolution captures of your pages, responsive layouts, panels, and components.
+                      <div className="p-3 bg-muted/50 border border-border rounded-xl flex items-start gap-3">
+                        <Sparkles className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                        <div className="text-xs text-muted-foreground leading-relaxed">
+                          <strong className="text-foreground">Showcase Screenshots Gallery:</strong> Upload multiple high-resolution captures of your pages, responsive layouts, panels, and components.
                         </div>
                       </div>
 
@@ -3201,7 +3211,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                           type="button"
                           onClick={handleModalAddGalleryUrl}
                           disabled={!galleryUrlInput.trim()}
-                          className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold transition-all disabled:opacity-40 cursor-pointer border-none shrink-0"
+                          className="px-3.5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all disabled:opacity-40 cursor-pointer border-none shrink-0"
                         >
                           + Add URL
                         </button>
@@ -3211,9 +3221,9 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[340px] overflow-y-auto p-1">
                         {/* Cover Photo */}
                         {editForm.thumbnail_url && (
-                          <div className="relative aspect-video rounded-xl overflow-hidden border-2 border-[#c89666]/60 bg-[#121216] group shadow-sm">
+                          <div className="relative aspect-video rounded-xl overflow-hidden border-2 border-primary/60 bg-muted/40 group shadow-sm">
                             <img src={editForm.thumbnail_url} alt="Cover Thumbnail" className="w-full h-full object-cover" />
-                            <span className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded bg-[#c89666] text-[#09090b] text-[9px] font-bold tracking-wider uppercase shadow">
+                            <span className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded bg-primary text-primary-foreground text-[9px] font-bold tracking-wider uppercase shadow">
                               Cover Photo
                             </span>
                           </div>
@@ -3221,7 +3231,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
 
                         {/* Gallery Screenshots */}
                         {(editForm.gallery_images || []).map((imgUrl, gIdx) => (
-                          <div key={gIdx} className="relative aspect-video rounded-xl overflow-hidden border border-slate-700 bg-[#121216] group shadow-sm">
+                          <div key={gIdx} className="relative aspect-video rounded-xl overflow-hidden border border-border bg-muted/40 group shadow-sm">
                             <img src={imgUrl} alt={`Screenshot ${gIdx + 1}`} className="w-full h-full object-cover" />
                             <span className="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded bg-black/60 backdrop-blur-sm text-white text-[9px] font-mono font-bold">
                               #{gIdx + 1}
@@ -3239,7 +3249,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
 
                         {/* + Add Screenshots Tile */}
                         <label className={cn(
-                          "aspect-video rounded-xl border-2 border-dashed border-[#c89666]/40 hover:border-[#c89666] bg-[#141418] hover:bg-[#18181d] flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer group text-[#dfb180] select-none",
+                          "aspect-video rounded-xl border-2 border-dashed border-primary/40 hover:border-primary bg-muted/30 hover:bg-muted/60 flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer group text-primary select-none",
                           isUploadingGallery && "pointer-events-none opacity-60"
                         )}>
                           <input
@@ -3344,7 +3354,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                   {editModalTab === "archive" && (
                     <div className="space-y-4">
                       <div className="edit-modal-zip-box">
-                        <div className="w-12 h-12 rounded-2xl bg-[#18181d] border border-[#2e2e33] flex items-center justify-center text-[#dfb180] shadow-sm">
+                        <div className="w-12 h-12 rounded-2xl bg-muted/50 border border-border flex items-center justify-center text-primary shadow-sm">
                           <Upload className="w-6 h-6" />
                         </div>
                         <div>

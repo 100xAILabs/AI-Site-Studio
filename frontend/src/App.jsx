@@ -9,6 +9,7 @@ import {
 } from "react-router-dom";
 import { useEffect } from 'react'
 import { Toaster } from 'sonner'
+import { useTheme } from './hooks/useTheme'
 import { useAppUser } from './lib/auth.jsx'
 import { useAuthStore } from './store/authStore.js';
 import './App.css';
@@ -130,6 +131,11 @@ function AppRouteContent() {
   );
 }
 
+function AdaptiveToaster() {
+  const { resolvedTheme } = useTheme();
+  return <Toaster richColors position="top-center" theme={resolvedTheme === "light" ? "light" : "dark"} />;
+}
+
 function App() {
   return (
     <BrowserRouter>
@@ -138,7 +144,7 @@ function App() {
         <AppRouteContent />
         <SupportButton />
         <StudioBuildFloatingWidget />
-        <Toaster richColors position="top-center" theme="dark" />
+        <AdaptiveToaster />
       </div>
     </BrowserRouter>
   )

@@ -326,7 +326,11 @@ async def get_template(
                 resp_dict["is_wishlisted"] = is_wish
                 resp_dict["is_purchased"] = is_purch
                 return TemplateResponse.model_validate(resp_dict)
-            return TemplateResponse.model_validate(cached)
+            resp_dict = dict(cached)
+            resp_dict["is_favorited"] = False
+            resp_dict["is_wishlisted"] = False
+            resp_dict["is_purchased"] = False
+            return TemplateResponse.model_validate(resp_dict)
         except Exception as e_cache:
             logger.warning(f"Error serving cached template for '{slug}': {e_cache}")
 
@@ -339,6 +343,7 @@ async def get_template(
             base_dump = result.model_dump(mode="json")
             base_dump["is_favorited"] = None
             base_dump["is_wishlisted"] = None
+            base_dump["is_purchased"] = False
 
             await cache_set(cache_key, base_dump, ttl=CacheKeys.CACHE_TTL_MEDIUM)
             if result.slug and result.slug != slug:

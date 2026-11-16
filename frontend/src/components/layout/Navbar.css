@@ -66,11 +66,27 @@
   filter: drop-shadow(0 0 16px rgba(200, 150, 102, 0.7));
 }
 
-.logo-text {
+.navbar-header .logo-text,
+.logo-container .logo-text {
   font-size: 1.15rem;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: -0.02em;
-  color: hsl(var(--foreground));
+  color: hsl(var(--foreground)) !important;
+  background: none !important;
+  -webkit-background-clip: unset !important;
+  -webkit-text-fill-color: hsl(var(--foreground)) !important;
+}
+
+:root:not(.dark) .navbar-header .logo-text,
+:root:not(.dark) .logo-container .logo-text {
+  color: #171717 !important;
+  -webkit-text-fill-color: #171717 !important;
+}
+
+.dark .navbar-header .logo-text,
+.dark .logo-container .logo-text {
+  color: #FAFAFA !important;
+  -webkit-text-fill-color: #FAFAFA !important;
 }
 
 /* Center Navigation */

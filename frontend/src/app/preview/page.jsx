@@ -21,12 +21,14 @@ import {
   Shield, AlertCircle, Edit3, Trash2, Eraser, Plus, Check,
   Copy, RotateCcw, ArrowLeft, Sliders, Globe, Bot, Send,
   CheckCircle2, Play, Code, Search, X, Wand2, ArrowUpRight,
-  ChevronRight, ChevronLeft, MoreVertical, Menu, Eye, Phone, MapPin, Clock, ShoppingBag, ShoppingCart, Share2, Upload
+  ChevronRight, ChevronLeft, MoreVertical, Menu, Eye, Phone, MapPin, Clock, ShoppingBag, ShoppingCart, Share2, Upload,
+  Link2, ExternalLink
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useCartStore } from "@/store";
 import { useAuthStore } from "@/store/authStore";
+import { useQueryClient } from "@tanstack/react-query";
 import { getFallbackTemplate } from "@/data/popularTemplatesData";
 import "./Page.css";
 import "../storybook/Page.css";
@@ -599,6 +601,7 @@ export const dispatchLiveContentUpdate = (sectionId, key, value, prevValue = nul
 export default function PreviewPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const searchParams = new URLSearchParams(location.search);
   const activeTemplateId = searchParams.get("template") || searchParams.get("templateId") || searchParams.get("slug") || "default";
   const studioBuildId = searchParams.get("build") || "";
@@ -989,7 +992,11 @@ export default function PreviewPage() {
       setNotice("Use at least one letter or number in the page title.");
       return;
     }
-    const pageFileName = `${cleanSlug}.html`;
+    const currentFw = (detectedFramework || templateData?.framework || "").toLowerCase();
+    const isReact = currentFw.includes("react") || currentFw.includes("next");
+    const isVue = currentFw.includes("vue");
+    const pageExt = isReact ? ".jsx" : isVue ? ".vue" : ".html";
+    const pageFileName = `${cleanSlug}${pageExt}`;
     if (pages.some((page) => page.id.toLowerCase() === pageFileName.toLowerCase())) {
       setNotice("A page with that name already exists.");
       return;
@@ -997,7 +1004,7 @@ export default function PreviewPage() {
     const newPageObj = {
       id: pageFileName,
       title: newPageName.trim(),
-      icon: "📄",
+      icon: isReact ? "⚛️" : isVue ? "🟢" : "📄",
       path: pageFileName,
       sectionKey: cleanSlug,
       isNew: true,
@@ -1161,12 +1168,13 @@ export default function PreviewPage() {
       setSections([]);
 
       // Fetch template details AND real extracted template sections in parallel
+      const effectiveToken = authToken || useAuthStore.getState()?.token;
       Promise.all([
-        api.get(`/templates/${activeTemplateId}`).catch((err) => {
+        api.get(`/templates/${activeTemplateId}`, effectiveToken).catch((err) => {
           console.warn("Could not load template detail:", err);
           return getFallbackTemplate(activeTemplateId) || null;
         }),
-        api.get(`/preview/live/${activeTemplateId}/extracted-data`).catch((err) => {
+        api.get(`/preview/live/${activeTemplateId}/extracted-data`, effectiveToken).catch((err) => {
           console.warn("Could not load extracted data:", err);
           return null;
         })
@@ -1201,35 +1209,54 @@ export default function PreviewPage() {
         if (data) {
           setTemplateData(data);
 
+          const fwStr = (data.framework || "").toLowerCase();
+          const isReactTemplate = fwStr.includes("react") || fwStr.includes("next");
+          const isVueTemplate = fwStr.includes("vue");
+          const homePageFile = isReactTemplate ? "App.jsx" : isVueTemplate ? "App.vue" : "index.html";
+
           // Dynamically load generated project pages into multi-page switcher
           if (data.changelog?.plan?.pages && Array.isArray(data.changelog.plan.pages) && data.changelog.plan.pages.length > 0) {
             const dynamicPages = data.changelog.plan.pages.map((p, idx) => {
-              const fname = p.filename || `${(p.name || "page").toLowerCase().replace(/[^a-z0-9]+/g, "-")}.html`;
-              const isHome = idx === 0 || fname === "index.html" || (p.name || "").toLowerCase() === "home";
-              const targetFname = isHome ? "index.html" : fname;
+              const baseName = (p.name || "page").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+              const isHome = idx === 0 || p.filename === "index.html" || (p.name || "").toLowerCase() === "home";
+              const targetFname = isHome
+                ? homePageFile
+                : isReactTemplate
+                ? `${(p.name || "Page").replace(/[^a-zA-Z0-9]/g, "")}.jsx`
+                : isVueTemplate
+                ? `${(p.name || "Page").replace(/[^a-zA-Z0-9]/g, "")}.vue`
+                : (p.filename || `${baseName}.html`);
               return {
                 id: targetFname,
-                title: isHome ? "Home" : (p.name || targetFname.replace(".html", "").replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())),
-                icon: isHome ? "🏠" : "📄",
+                title: isHome ? (isReactTemplate ? "App (Home)" : isVueTemplate ? "App (Home)" : "Home") : (p.name || targetFname.replace(/\.[a-z]+$/, "").replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())),
+                icon: isHome ? (isReactTemplate ? "⚛️" : isVueTemplate ? "🟢" : "🏠") : (isReactTemplate ? "⚛️" : isVueTemplate ? "🟢" : "📄"),
                 path: targetFname,
-                sectionKey: targetFname.replace(".html", ""),
+                sectionKey: targetFname.replace(/\.[a-z]+$/, ""),
               };
             });
             setPages(dynamicPages);
+            setActivePage(homePageFile);
           } else if (data.included_pages && Array.isArray(data.included_pages) && data.included_pages.length > 0) {
             const dynamicPages = data.included_pages.map((pName, idx) => {
               const clean = String(pName);
               const isHome = idx === 0 || clean.toLowerCase() === "home" || clean.toLowerCase() === (data.title || "").toLowerCase();
-              const fname = isHome ? "index.html" : (clean.endsWith(".html") ? clean : `${clean.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.html`);
+              const targetFname = isHome
+                ? homePageFile
+                : isReactTemplate
+                ? `${clean.replace(/[^a-zA-Z0-9]/g, "")}.jsx`
+                : isVueTemplate
+                ? `${clean.replace(/[^a-zA-Z0-9]/g, "")}.vue`
+                : (clean.endsWith(".html") ? clean : `${clean.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.html`);
               return {
-                id: fname,
-                title: isHome ? "Home" : clean.replace(".html", "").replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-                icon: isHome ? "🏠" : "📄",
-                path: fname,
-                sectionKey: fname.replace(".html", ""),
+                id: targetFname,
+                title: isHome ? (isReactTemplate ? "App (Home)" : isVueTemplate ? "App (Home)" : "Home") : clean.replace(/\.[a-z]+$/, "").replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+                icon: isHome ? (isReactTemplate ? "⚛️" : isVueTemplate ? "🟢" : "🏠") : (isReactTemplate ? "⚛️" : isVueTemplate ? "🟢" : "📄"),
+                path: targetFname,
+                sectionKey: targetFname.replace(/\.[a-z]+$/, ""),
               };
             });
             setPages(dynamicPages);
+            setActivePage(homePageFile);
           }
 
           if (primaryColor === "#c89666" && data.color_scheme) {
@@ -1272,6 +1299,9 @@ export default function PreviewPage() {
 
         // Apply extracted brand & section props directly from template source files
         if (extracted && extracted.status === "success") {
+          if (extracted.framework) {
+            setTemplateData((prev) => prev ? { ...prev, framework: extracted.framework } : { framework: extracted.framework });
+          }
           const diskColor = extracted.brand?.primary_color;
           if (diskColor && diskColor.startsWith("#") && primaryColor === "#c89666") {
             primaryColor = diskColor;
@@ -1305,8 +1335,14 @@ export default function PreviewPage() {
             // Populate top multi-page switcher if only 1 page exists
             setPages((prevPages) => {
               if (!prevPages || prevPages.length <= 1) {
+                const currentFw = (extracted.framework || templateData?.framework || "").toLowerCase();
+                const isReact = currentFw.includes("react") || currentFw.includes("next");
+                const isVue = currentFw.includes("vue");
+                const rootPageId = isReact ? "App.jsx" : isVue ? "App.vue" : "index.html";
+                const rootTitle = isReact ? "App (Home)" : isVue ? "App (Home)" : "Home";
+                const rootIcon = isReact ? "⚛️" : isVue ? "🟢" : "🏠";
                 const sectionPages = [
-                  { id: "index.html", title: "Home", icon: "🏠", path: "index.html", sectionKey: "navbar" }
+                  { id: rootPageId, title: rootTitle, icon: rootIcon, path: rootPageId, sectionKey: "navbar" }
                 ];
                 realDetected.forEach((sec) => {
                   if (sec.id !== "navbar" && sec.id !== "footer") {
@@ -1347,7 +1383,7 @@ export default function PreviewPage() {
       setLoadingTemplate(false);
     }
     return () => { cancelled = true; };
-  }, [activeTemplateId]);
+  }, [activeTemplateId, authToken]);
 
   // Active section item
   const currentSection = useMemo(() => {
@@ -1622,6 +1658,7 @@ export default function PreviewPage() {
           const props = sectionProps[sec.id];
           if (!props) return;
           page_edits[sec.id] = {
+            ...props,
             title: props.headline || props.title || props.sectionTitle || props.brandName || "",
             subtitle: props.subtitle || props.subheadline || props.sectionSubtitle || "",
             description: props.story || props.description || "",
@@ -1643,6 +1680,7 @@ export default function PreviewPage() {
 
         if (sectionProps.navbar) {
           page_edits["navbar"] = {
+            ...sectionProps.navbar,
             ...(page_edits["navbar"] || {}),
             brandName: sectionProps.navbar.brandName || brand.business_name,
             logoText: sectionProps.navbar.logoText || brand.logo_text,
@@ -1652,6 +1690,7 @@ export default function PreviewPage() {
           };
         }
 
+        const effectiveToken = authToken || useAuthStore.getState()?.token;
         const res = await api.post(`/preview/live/${targetId}/edit-manual`, {
           business_name: sectionProps.navbar?.brandName || brand.business_name,
           about: sectionProps.about?.story || sectionProps.about?.description || sectionProps.hero?.subheadline || brand.tagline,
@@ -1661,7 +1700,7 @@ export default function PreviewPage() {
           contact_phone: sectionProps.contact?.phone || brand.contact_phone,
           page_edits,
           use_ai: !!useAi
-        });
+        }, effectiveToken);
         const newDraftId = res?.template_id || res?.data?.template_id;
         if (!newDraftId) throw new Error("The save endpoint did not return a draft ID.");
         setCustomDraftId(newDraftId);
@@ -1669,6 +1708,14 @@ export default function PreviewPage() {
           initialSectionPropsRef.current = JSON.parse(JSON.stringify(sectionProps));
         }
         setHasUnfinalizedChanges(false);
+
+        // Instantly invalidate seller and customized template query caches so dashboard updates immediately
+        try {
+          queryClient.invalidateQueries({ queryKey: ["seller-templates"] });
+          queryClient.invalidateQueries({ queryKey: ["my-templates"] });
+          queryClient.invalidateQueries({ queryKey: ["templates"] });
+        } catch (_) {}
+
         navigate(`/preview?template=${newDraftId}&mode=live`, { replace: true });
         setViewMode("live");
         setIframeKey((prev) => prev + 1);
@@ -1737,14 +1784,15 @@ export default function PreviewPage() {
     if (!currentSection?.id) return;
     setHasUnfinalizedChanges(true);
 
-    // 1. If section has cards array
+    // 1. If section has cards array: clone the last item's exact structure and content
     if (Array.isArray(currentProps.cards) && currentProps.cards.length > 0) {
       const last = currentProps.cards[currentProps.cards.length - 1] || {};
       const newIdx = currentProps.cards.length + 1;
       const newCard = {
-        title: `Item #${newIdx} Title`,
-        desc: "Detailed description of newly added content item...",
-        tag: `PRINT 0${newIdx}`,
+        ...last,
+        title: last.title ? `${last.title}` : `Item #${newIdx}`,
+        desc: last.desc || last.description || "Detailed description of newly added content item...",
+        tag: `Item #${newIdx}`,
         stack: last.stack || ""
       };
       const updated = [...currentProps.cards, newCard];
@@ -1838,6 +1886,11 @@ export default function PreviewPage() {
   const handleFinalizeAndExit = async () => {
     const res = await handleFinalizeChanges();
     if (res !== false) {
+      try {
+        queryClient.invalidateQueries({ queryKey: ["seller-templates"] });
+        queryClient.invalidateQueries({ queryKey: ["my-templates"] });
+        queryClient.invalidateQueries({ queryKey: ["templates"] });
+      } catch (_) {}
       setShowExitConfirmModal(false);
       navigate("/marketplace");
     }
@@ -1995,7 +2048,8 @@ export default function PreviewPage() {
       (s.desc && s.desc.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  const pageRouteParam = activePage && activePage !== "index.html" ? activePage : "";
+  const isHomePage = !activePage || activePage === "index.html" || activePage === "App.jsx" || activePage === "App.vue";
+  const pageRouteParam = !isHomePage ? activePage : "";
   // 🔒 Lock Check: Require sign-in to access interactive demo
   if (!isSignedIn) {
     return (
@@ -2011,7 +2065,7 @@ export default function PreviewPage() {
             Sign in to Access Live Demo
           </h2>
           <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
-            Sign in to launch your interactive 30-minute sandbox preview. Try out full-stack features, edit live with AI, test endpoints, and preview on all devices.
+            Sign in to launch your interactive 30-minute sandbox preview. Try out full-stack features, edit live with smart automation, test endpoints, and preview on all devices.
           </p>
           <div className="p-3.5 rounded-xl bg-muted/50 border border-border/80 text-left mb-6 space-y-1.5 text-xs text-muted-foreground">
             <div className="flex items-center gap-2 text-foreground font-semibold">
@@ -2045,9 +2099,10 @@ export default function PreviewPage() {
   }
 
   const currentColorForIframe = sectionProps[currentSection?.id]?.themeColor || sectionProps.navbar?.themeColor || sectionProps.hero?.themeColor || brand?.primary_color || "";
+  const detectedFrameworkParam = (templateData?.framework || "").toLowerCase();
 
   const liveServerUrl = effectiveTemplateId && effectiveTemplateId !== "default"
-    ? `${API_BASE}/preview/live/${effectiveTemplateId}${pageRouteParam ? `/${pageRouteParam}` : "/"}?v=${iframeKey}${currentColorForIframe ? `&primaryColor=${encodeURIComponent(currentColorForIframe)}` : ""}`
+    ? `${API_BASE}/preview/live/${effectiveTemplateId}${pageRouteParam ? `/${pageRouteParam}` : "/"}?v=${iframeKey}${currentColorForIframe ? `&primaryColor=${encodeURIComponent(currentColorForIframe)}` : ""}${detectedFrameworkParam ? `&framework=${encodeURIComponent(detectedFrameworkParam)}` : ""}`
     : null;
 
   return (
@@ -2115,9 +2170,25 @@ export default function PreviewPage() {
                 <h1 className="font-extrabold text-sm tracking-tight text-foreground">
                   {templateData?.title || brand.business_name}
                 </h1>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                  {templateData?.framework || "React"}
-                </span>
+                {(() => {
+                  const fw = String(templateData?.framework || "React").toLowerCase();
+                  const badgeClass = fw.includes("vue")
+                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                    : fw.includes("svelte")
+                    ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                    : fw.includes("angular")
+                    ? "bg-rose-500/15 text-rose-400 border-rose-500/30"
+                    : fw.includes("next")
+                    ? "bg-blue-500/15 text-blue-400 border-blue-500/30"
+                    : fw.includes("html")
+                    ? "bg-[#c89666]/15 text-[#dfb180] border-[#c89666]/30"
+                    : "bg-sky-500/15 text-sky-400 border-sky-500/30";
+                  return (
+                    <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full border", badgeClass)}>
+                      {templateData?.framework || "React"}
+                    </span>
+                  );
+                })()}
 
                 {/* 📸 Image Editor directly after the HTML badge */}
                 <button
@@ -2301,7 +2372,7 @@ export default function PreviewPage() {
                 {/* Tech Stack Badge */}
                 <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/5 border border-white/10 text-[11px] font-semibold text-slate-300">
                   <Code className="w-3.5 h-3.5 text-[#dfb180]" />
-                  <span>{({ react: "React + FastAPI", vue: "Vue + FastAPI", angular: "Angular + FastAPI", nextjs: "Next.js + FastAPI" }[String(templateData?.framework || "html").toLowerCase()] || "HTML5 + CSS + JS")}</span>
+                  <span>{({ react: "React + FastAPI", vue: "Vue + FastAPI", angular: "Angular + FastAPI", nextjs: "Next.js + FastAPI", svelte: "Svelte + FastAPI" }[String(templateData?.framework || "html").toLowerCase()] || "HTML5 + CSS + JS")}</span>
                 </span>
 
                 <button
@@ -2347,10 +2418,10 @@ export default function PreviewPage() {
               onClick={() => handleFinalizeChanges(true)}
               disabled={savingManual || savingWithAi}
               className="py-1.5 px-2.5 rounded-xl bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] text-xs font-bold flex items-center gap-1 border border-[#c89666]/30 disabled:opacity-50"
-              title="AI deep save across entire codebase"
+              title="Smart full-stack save across entire codebase"
             >
               <Sparkles className={`w-3 h-3 text-amber-300 ${savingWithAi ? "animate-spin" : ""}`} />
-              <span>{savingWithAi ? "AI..." : "AI Save"}</span>
+              <span>{savingWithAi ? "Saving..." : "Smart Save"}</span>
             </button>
 
             {templateData && (
@@ -3045,7 +3116,14 @@ export default function PreviewPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => navigate("/dashboard")}
+                        onClick={() => {
+                          try {
+                            queryClient.invalidateQueries({ queryKey: ["seller-templates"] });
+                            queryClient.invalidateQueries({ queryKey: ["my-templates"] });
+                            queryClient.invalidateQueries({ queryKey: ["templates"] });
+                          } catch (_) {}
+                          navigate("/dashboard?tab=customized-files");
+                        }}
                         className="w-full py-2 px-3 rounded-xl border border-border bg-muted/40 hover:bg-muted/70 text-muted-foreground text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer"
                       >
                         <ArrowUpRight className="w-3.5 h-3.5" />
@@ -3269,7 +3347,7 @@ export default function PreviewPage() {
                   </button>
                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#c89666]/15 border border-[#c89666]/25 text-[#dfb180] text-[11px] font-bold">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    <span>AI Ready</span>
+                    <span>Engine Ready</span>
                   </div>
                 </div>
 
@@ -3278,7 +3356,7 @@ export default function PreviewPage() {
                     <div className="w-6 h-6 rounded-lg bg-[#c89666]/20 border border-[#c89666]/30 flex items-center justify-center text-[#dfb180]">
                       <Sparkles className="w-3.5 h-3.5" />
                     </div>
-                    <h3 className="font-extrabold text-xs text-foreground tracking-tight">AI Prompt Assistant</h3>
+                    <h3 className="font-extrabold text-xs text-foreground tracking-tight">Smart Prompt Assistant</h3>
                   </div>
                   {aiHistory.length > 1 && (
                     <button
@@ -3352,7 +3430,7 @@ export default function PreviewPage() {
                           <Bot className="w-3.5 h-3.5" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="text-xs font-bold text-foreground">AI Code Assistant</div>
+                          <div className="text-xs font-bold text-foreground">Smart Code Assistant</div>
                           <div className="text-[10px] text-muted-foreground">Ready to edit template live in canvas</div>
                         </div>
                       </div>
@@ -3397,7 +3475,7 @@ export default function PreviewPage() {
                         {item.role === "assistant" ? (
                           <>
                             <Sparkles className="w-3 h-3 text-[#dfb180]" />
-                            <span>AI Assistant</span>
+                            <span>Smart Assistant</span>
                           </>
                         ) : (
                           <span>You</span>
@@ -3419,12 +3497,12 @@ export default function PreviewPage() {
                   )
                 ))}
 
-                {/* AI Refactoring / Thinking Spinner */}
+                {/* Automation Refactoring / Thinking Spinner */}
                 {isAiProcessing && (
                   <div className="mr-auto items-start max-w-[90%] space-y-1">
                     <div className="flex items-center gap-1.5 text-[10px] font-bold text-[#dfb180] px-1">
                       <Sparkles className="w-3 h-3 animate-spin" />
-                      <span>AI Code Engine</span>
+                      <span>Automation Code Engine</span>
                     </div>
                     <div className="p-3 rounded-2xl rounded-tl-xs bg-[#c89666]/10 border border-[#c89666]/30 text-[#f4ecdf] text-xs flex items-center gap-2.5 shadow-sm animate-pulse">
                       <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#dfb180] flex-shrink-0" />
@@ -4517,6 +4595,169 @@ function ThemeColorPicker({
   );
 }
 
+/**
+ * InlineColorPicker — Compact, sleek color control for individual text, tag, badge, and box elements.
+ * Features:
+ * - Color swatch trigger with preview and active indicator
+ * - Dropdown popover with quick curated modern swatches
+ * - Native HTML5 color picker input (<input type="color">) for full 16.7M color spectrum
+ * - Direct HEX input with instant live validation
+ * - Clear / Reset to default button
+ */
+function InlineColorPicker({
+  value,
+  onChange,
+  label = "Text Color",
+  defaultColor = "",
+  placeholder = "#HEX"
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const popoverRef = useRef(null);
+
+  // Close when clicked outside
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleDown = (e) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleDown);
+    return () => document.removeEventListener("mousedown", handleDown);
+  }, [isOpen]);
+
+  const activeColor = value || defaultColor;
+  const isCustom = Boolean(value && value !== defaultColor && value !== "inherit");
+
+  const quickColors = [
+    { name: "Default", hex: "", isDefault: true },
+    { name: "White", hex: "#ffffff" },
+    { name: "Slate", hex: "#94a3b8" },
+    { name: "Dark", hex: "#0f172a" },
+    { name: "Brand Amber", hex: "#b5804f" },
+    { name: "Rose Red", hex: "#f43f5e" },
+    { name: "Sunset Orange", hex: "#f97316" },
+    { name: "Gold", hex: "#eab308" },
+    { name: "Emerald", hex: "#10b981" },
+    { name: "Cyan", hex: "#06b6d4" },
+    { name: "Tech Blue", hex: "#3b82f6" },
+    { name: "Purple", hex: "#8b5cf6" },
+    { name: "Pink", hex: "#ec4899" },
+    { name: "Ruby", hex: "#e11d48" },
+  ];
+
+  return (
+    <div className="relative inline-flex items-center" ref={popoverRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          "flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] font-mono transition-all cursor-pointer shadow-xs",
+          isCustom
+            ? "border-primary/50 bg-primary/10 text-primary font-semibold"
+            : "border-border/60 bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/70 hover:border-border"
+        )}
+        title={`Change ${label} (currently ${value || "default"})`}
+      >
+        <span
+          className="w-3 h-3 rounded-full border border-black/20 shadow-xs flex-shrink-0"
+          style={{
+            backgroundColor: activeColor || "transparent",
+            backgroundImage: !activeColor ? "repeating-conic-gradient(#808080 0% 25%, transparent 0% 50%) 50% / 6px 6px" : undefined
+          }}
+        />
+        <span className="text-[10px] uppercase font-bold">{value ? value.substring(0, 7) : "Color"}</span>
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 top-full mt-1.5 z-50 w-60 p-2.5 rounded-xl border border-border bg-card shadow-2xl backdrop-blur-md space-y-2 text-left">
+          <div className="flex items-center justify-between pb-1 border-b border-border/40">
+            <span className="text-[10px] font-bold text-foreground uppercase tracking-wider">{label}</span>
+            {isCustom && (
+              <button
+                type="button"
+                onClick={() => {
+                  onChange("");
+                  setIsOpen(false);
+                }}
+                className="text-[9px] text-muted-foreground hover:text-rose-400 font-semibold cursor-pointer"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+
+          {/* Quick Swatches Grid */}
+          <div className="grid grid-cols-7 gap-1">
+            {quickColors.map((qc) => {
+              const isSelected = (!qc.hex && !value) || (qc.hex && value?.toLowerCase() === qc.hex.toLowerCase());
+              return (
+                <button
+                  key={qc.name}
+                  type="button"
+                  onClick={() => {
+                    onChange(qc.hex);
+                    setIsOpen(false);
+                  }}
+                  className={cn(
+                    "w-6 h-6 rounded-md border transition-transform hover:scale-110 flex items-center justify-center cursor-pointer",
+                    isSelected ? "ring-2 ring-primary ring-offset-1 border-primary" : "border-border/80"
+                  )}
+                  style={{
+                    backgroundColor: qc.hex || "transparent",
+                    backgroundImage: !qc.hex ? "repeating-conic-gradient(#94a3b8 0% 25%, transparent 0% 50%) 50% / 6px 6px" : undefined
+                  }}
+                  title={qc.name}
+                >
+                  {isSelected && <Check className={cn("w-3 h-3 stroke-[3]", qc.hex === "#ffffff" ? "text-black" : "text-white")} />}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Custom Color Wheel & HEX Input */}
+          <div className="flex items-center gap-1.5 pt-1.5 border-t border-border/40">
+            <label className="relative flex-shrink-0 cursor-pointer" title="Open Color Wheel">
+              <input
+                type="color"
+                value={normalizeToHex(value || "#b5804f")}
+                onChange={(e) => onChange(e.target.value)}
+                className="w-7 h-7 p-0 rounded-md border border-border cursor-pointer bg-transparent block"
+              />
+            </label>
+            <input
+              type="text"
+              value={value || ""}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder={placeholder}
+              className="sb-control-input text-[11px] font-mono py-1 px-2 h-7 uppercase flex-1"
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FieldLabelWithColor({ label, color, onColorChange, colorLabel, icon: Icon, extraAction = null }) {
+  return (
+    <div className="flex items-center justify-between mb-1">
+      <label className="sb-control-label mb-0 flex items-center gap-1.5">
+        {Icon && <Icon className="w-3 h-3 text-pink-400" />}
+        <span>{label}</span>
+      </label>
+      <div className="flex items-center gap-1.5">
+        {extraAction}
+        <InlineColorPicker
+          value={color}
+          onChange={onColorChange}
+          label={colorLabel || `${label} Color`}
+        />
+      </div>
+    </div>
+  );
+}
+
 function renderFriendlyFields(sectionId, props, onChange, templateId = null, onApplyThemeColor = null) {
   const sid = (sectionId || "").toLowerCase();
 
@@ -4547,7 +4788,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
     return (
       <div className="space-y-3.5">
         <div>
-          <label className="sb-control-label">Brand / Header Title</label>
+          <FieldLabelWithColor
+            label="Brand / Header Title"
+            color={props.brandNameColor}
+            onColorChange={(c) => onChange("brandNameColor", c)}
+          />
           <input
             type="text"
             value={props.brandName || ""}
@@ -4557,7 +4802,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
           />
         </div>
         <div>
-          <label className="sb-control-label">Logo Monogram / Code</label>
+          <FieldLabelWithColor
+            label="Logo Monogram / Code"
+            color={props.logoTextColor}
+            onColorChange={(c) => onChange("logoTextColor", c)}
+          />
           <input
             type="text"
             value={props.logoText || ""}
@@ -4571,13 +4820,20 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="sb-control-label mb-0">Nav Links ({navLinks.length})</label>
-            <button
-              type="button"
-              onClick={addLink}
-              className="flex items-center gap-1 text-[10px] font-bold text-pink-400 hover:text-pink-300 px-2 py-1 rounded-lg bg-pink-500/10 hover:bg-pink-500/20 transition-colors"
-            >
-              <Plus className="w-3 h-3" /> Add Link
-            </button>
+            <div className="flex items-center gap-1.5">
+              <InlineColorPicker
+                value={props.navLinksColor}
+                onChange={(c) => onChange("navLinksColor", c)}
+                label="Nav Links Color"
+              />
+              <button
+                type="button"
+                onClick={addLink}
+                className="flex items-center gap-1 text-[10px] font-bold text-pink-400 hover:text-pink-300 px-2 py-1 rounded-lg bg-pink-500/10 hover:bg-pink-500/20 transition-colors cursor-pointer"
+              >
+                <Plus className="w-3 h-3" /> Add Link
+              </button>
+            </div>
           </div>
           <div className="space-y-1.5">
             {navLinks.map((lnk, idx) => (
@@ -4605,7 +4861,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
         </div>
 
         <div>
-          <label className="sb-control-label">Header Action / CTA Text</label>
+          <FieldLabelWithColor
+            label="Header Action / CTA Text"
+            color={props.ctaColor}
+            onColorChange={(c) => onChange("ctaColor", c)}
+          />
           <input
             type="text"
             value={props.ctaText || ""}
@@ -4652,7 +4912,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
     return (
       <div className="space-y-3.5">
         <div>
-          <label className="sb-control-label">Footer Brand Name</label>
+          <FieldLabelWithColor
+            label="Footer Brand Name"
+            color={props.brandNameColor}
+            onColorChange={(c) => onChange("brandNameColor", c)}
+          />
           <input
             type="text"
             value={props.brandName || ""}
@@ -4662,7 +4926,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
           />
         </div>
         <div>
-          <label className="sb-control-label">Tagline / Mission Statement</label>
+          <FieldLabelWithColor
+            label="Tagline / Mission Statement"
+            color={props.taglineColor}
+            onColorChange={(c) => onChange("taglineColor", c)}
+          />
           <textarea
             rows={2}
             value={props.tagline || ""}
@@ -4672,7 +4940,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
           />
         </div>
         <div>
-          <label className="sb-control-label">Copyright Record</label>
+          <FieldLabelWithColor
+            label="Copyright Record"
+            color={props.copyrightColor}
+            onColorChange={(c) => onChange("copyrightColor", c)}
+          />
           <input
             type="text"
             value={props.copyright || ""}
@@ -4697,7 +4969,14 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
     return (
       <div className="space-y-3.5">
         <div>
-          <label className="sb-control-label">Section Title</label>
+          <FieldLabelWithColor
+            label="Section Title"
+            color={props.titleColor}
+            onColorChange={(c) => {
+              onChange("titleColor", c);
+              onChange("headlineColor", c);
+            }}
+          />
           <input
             type="text"
             value={props.title || props.headline || "Contact Information"}
@@ -4710,7 +4989,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
           />
         </div>
         <div>
-          <label className="sb-control-label">Direct Phone Number</label>
+          <FieldLabelWithColor
+            label="Direct Phone Number"
+            color={props.phoneColor}
+            onColorChange={(c) => onChange("phoneColor", c)}
+          />
           <input
             type="text"
             value={props.phone || ""}
@@ -4720,7 +5003,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
           />
         </div>
         <div>
-          <label className="sb-control-label">Contact Email</label>
+          <FieldLabelWithColor
+            label="Contact Email"
+            color={props.emailColor}
+            onColorChange={(c) => onChange("emailColor", c)}
+          />
           <input
             type="email"
             value={props.email || ""}
@@ -4730,7 +5017,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
           />
         </div>
         <div>
-          <label className="sb-control-label">Office Location / Address</label>
+          <FieldLabelWithColor
+            label="Office Location / Address"
+            color={props.addressColor}
+            onColorChange={(c) => onChange("addressColor", c)}
+          />
           <input
             type="text"
             value={props.address || ""}
@@ -4768,17 +5059,28 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
                 <div key={ti.id || tIdx} className="space-y-1">
                   <div className="flex items-center justify-between">
                     <label className="text-[10px] text-muted-foreground uppercase font-mono">{ti.label || `Text #${tIdx + 1}`}</label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const updated = props.textItems.filter((_, i) => i !== tIdx);
-                        onChange("textItems", updated);
-                      }}
-                      className="p-1 text-muted-foreground hover:text-rose-400 hover:bg-rose-500/15 rounded transition-colors cursor-pointer"
-                      title="Remove text"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <InlineColorPicker
+                        value={ti.color}
+                        onChange={(c) => {
+                          const updated = [...props.textItems];
+                          updated[tIdx] = { ...updated[tIdx], color: c };
+                          onChange("textItems", updated);
+                        }}
+                        label={`${ti.label || "Text"} Color`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = props.textItems.filter((_, i) => i !== tIdx);
+                          onChange("textItems", updated);
+                        }}
+                        className="p-1 text-muted-foreground hover:text-rose-400 hover:bg-rose-500/15 rounded transition-colors cursor-pointer"
+                        title="Remove text"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
                   </div>
                   <input
                     type="text"
@@ -4806,7 +5108,14 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
     return (
       <div className="space-y-3.5">
         <div>
-          <label className="sb-control-label">Form Headline</label>
+          <FieldLabelWithColor
+            label="Form Headline"
+            color={props.titleColor}
+            onColorChange={(c) => {
+              onChange("titleColor", c);
+              onChange("headlineColor", c);
+            }}
+          />
           <input
             type="text"
             value={props.title || props.headline || ""}
@@ -4819,7 +5128,14 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
           />
         </div>
         <div>
-          <label className="sb-control-label">Form Subtitle / Instructions</label>
+          <FieldLabelWithColor
+            label="Form Subtitle / Instructions"
+            color={props.subtitleColor}
+            onColorChange={(c) => {
+              onChange("subtitleColor", c);
+              onChange("subheadlineColor", c);
+            }}
+          />
           <input
             type="text"
             value={props.subtitle || props.subheadline || ""}
@@ -4864,7 +5180,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
           />
         </div>
         <div>
-          <label className="sb-control-label">Submit Button Text</label>
+          <FieldLabelWithColor
+            label="Submit Button Text"
+            color={props.buttonColor}
+            onColorChange={(c) => onChange("buttonColor", c)}
+          />
           <input
             type="text"
             value={props.buttonText || ""}
@@ -4874,7 +5194,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
           />
         </div>
         <div>
-          <label className="sb-control-label">Contact Email</label>
+          <FieldLabelWithColor
+            label="Contact Email"
+            color={props.emailColor}
+            onColorChange={(c) => onChange("emailColor", c)}
+          />
           <input
             type="email"
             value={props.email || ""}
@@ -4887,7 +5211,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
         {/* STRICT: Phone and Location inputs only if present in props */}
         {props.phone !== undefined && (
           <div>
-            <label className="sb-control-label">Direct Phone</label>
+            <FieldLabelWithColor
+              label="Direct Phone"
+              color={props.phoneColor}
+              onColorChange={(c) => onChange("phoneColor", c)}
+            />
             <input
               type="text"
               value={props.phone || ""}
@@ -4899,7 +5227,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
         )}
         {props.address !== undefined && (
           <div>
-            <label className="sb-control-label">Office Location / Address</label>
+            <FieldLabelWithColor
+              label="Office Location / Address"
+              color={props.addressColor}
+              onColorChange={(c) => onChange("addressColor", c)}
+            />
             <input
               type="text"
               value={props.address || ""}
@@ -4923,8 +5255,9 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
       const d = props[`card${i}_desc`] || props[`exhibit${i}_desc`] || props[`s${i}Desc`] || props[`entry${i}_desc`] || props[`print${i}`];
       const tag = props[`card${i}_tag`] || props[`exhibit${i}_tag`] || props[`entry${i}_yr`];
       const st = props[`card${i}_stack`] || props[`exhibit${i}_stack`];
-      if (t || d) {
-        cardsList.push({ title: t || `Item #${i}`, desc: d || "", tag: tag || "", stack: st || "" });
+      const lk = props[`card${i}_link`] || props[`card${i}_href`] || props[`card${i}_url`];
+      if (t || d || lk) {
+        cardsList.push({ title: t || `Item #${i}`, desc: d || "", tag: tag || "", stack: st || "", link: lk || "", href: lk || "" });
       }
     }
   }
@@ -4934,6 +5267,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
       const updated = cardsList.map((c, idx) => (idx === cardIdx ? { ...c, [field]: val } : c));
       onChange("cards", updated);
       onChange(`card${cardIdx + 1}_${field}`, val);
+      if (field === "link" || field === "href" || field === "url") {
+        onChange(`card${cardIdx + 1}_link`, val);
+        onChange(`card${cardIdx + 1}_href`, val);
+        onChange(`card${cardIdx + 1}_url`, val);
+      }
       if (field === "title") {
         onChange(`exhibit${cardIdx + 1}_title`, val);
         onChange(`s${cardIdx + 1}Title`, val);
@@ -4952,31 +5290,73 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
       if (field === "stack") {
         onChange(`exhibit${cardIdx + 1}_stack`, val);
       }
+      if (field === "titleColor") {
+        onChange(`card${cardIdx + 1}_titleColor`, val);
+      }
+      if (field === "descColor") {
+        onChange(`card${cardIdx + 1}_descColor`, val);
+      }
+      if (field === "tagColor") {
+        onChange(`card${cardIdx + 1}_tagColor`, val);
+      }
+      if (field === "stackColor") {
+        onChange(`card${cardIdx + 1}_stackColor`, val);
+      }
+      if (field === "boxColor") {
+        onChange(`card${cardIdx + 1}_boxColor`, val);
+      }
+      if (field === "color") {
+        onChange(`card${cardIdx + 1}_color`, val);
+      }
     };
 
-    const addCardItem = () => {
-      const lastCard = cardsList[cardsList.length - 1] || {};
+    const addCardItem = (cloneFromIdx = null) => {
+      const sourceCard = (typeof cloneFromIdx === "number" && cardsList[cloneFromIdx])
+        ? cardsList[cloneFromIdx]
+        : (cardsList[cardsList.length - 1] || {});
       const newIdx = cardsList.length;
-      // Replicate previous card's exact structure and keys ("like the previous one")
-      const newCard = {};
-      Object.keys(lastCard).forEach((k) => {
-        if (k === "tag") {
-          newCard[k] = `Item #${newIdx + 1}`;
-        } else {
-          newCard[k] = "";
-        }
-      });
-      if (!("title" in newCard)) newCard.title = "";
-      if (!("desc" in newCard)) newCard.desc = "";
-      if ("stack" in lastCard && !("stack" in newCard)) newCard.stack = "";
-      if ("tag" in lastCard && !("tag" in newCard)) newCard.tag = `Item #${newIdx + 1}`;
+
+      // Duplicate the item structure with "the same with same" content so user can customize it
+      const newCard = { ...sourceCard };
+      newCard.tag = `Item #${newIdx + 1}`;
+      if (sourceCard.title) {
+        newCard.title = `${sourceCard.title}`;
+      } else {
+        newCard.title = `Item #${newIdx + 1}`;
+      }
+      if (sourceCard.desc || sourceCard.description) {
+        newCard.desc = sourceCard.desc || sourceCard.description;
+      }
+      if (sourceCard.stack) {
+        newCard.stack = sourceCard.stack;
+      }
+      if (sourceCard.link || sourceCard.href || sourceCard.url) {
+        newCard.link = sourceCard.link || sourceCard.href || sourceCard.url;
+        newCard.href = newCard.link;
+      }
+      if (sourceCard.tagColor) newCard.tagColor = sourceCard.tagColor;
+      if (sourceCard.titleColor) newCard.titleColor = sourceCard.titleColor;
+      if (sourceCard.descColor) newCard.descColor = sourceCard.descColor;
+      if (sourceCard.stackColor) newCard.stackColor = sourceCard.stackColor;
+      if (sourceCard.boxColor) newCard.boxColor = sourceCard.boxColor;
+      if (sourceCard.color) newCard.color = sourceCard.color;
 
       const updated = [...cardsList, newCard];
       onChange("cards", updated);
       onChange(`card${newIdx + 1}_title`, newCard.title);
-      onChange(`card${newIdx + 1}_desc`, newCard.desc);
+      onChange(`card${newIdx + 1}_desc`, newCard.desc || "");
       if (newCard.tag) onChange(`card${newIdx + 1}_tag`, newCard.tag);
       if (newCard.stack) onChange(`card${newIdx + 1}_stack`, newCard.stack);
+      if (newCard.link) {
+        onChange(`card${newIdx + 1}_link`, newCard.link);
+        onChange(`card${newIdx + 1}_href`, newCard.link);
+      }
+      if (newCard.tagColor) onChange(`card${newIdx + 1}_tagColor`, newCard.tagColor);
+      if (newCard.titleColor) onChange(`card${newIdx + 1}_titleColor`, newCard.titleColor);
+      if (newCard.descColor) onChange(`card${newIdx + 1}_descColor`, newCard.descColor);
+      if (newCard.stackColor) onChange(`card${newIdx + 1}_stackColor`, newCard.stackColor);
+      if (newCard.boxColor) onChange(`card${newIdx + 1}_boxColor`, newCard.boxColor);
+      if (newCard.color) onChange(`card${newIdx + 1}_color`, newCard.color);
     };
 
     const removeCardItem = (cardIdx) => {
@@ -4988,7 +5368,15 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
     return (
       <div className="space-y-4">
         <div>
-          <label className="sb-control-label">Section Title</label>
+          <FieldLabelWithColor
+            label="Section Title"
+            color={props.titleColor}
+            onColorChange={(c) => {
+              onChange("titleColor", c);
+              onChange("headlineColor", c);
+              onChange("sectionTitleColor", c);
+            }}
+          />
           <input
             type="text"
             value={props.title || props.headline || props.sectionTitle || ""}
@@ -5002,7 +5390,15 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
           />
         </div>
         <div>
-          <label className="sb-control-label">Section Subtitle</label>
+          <FieldLabelWithColor
+            label="Section Subtitle"
+            color={props.subtitleColor}
+            onColorChange={(c) => {
+              onChange("subtitleColor", c);
+              onChange("subheadlineColor", c);
+              onChange("sectionSubtitleColor", c);
+            }}
+          />
           <input
             type="text"
             value={props.subtitle || props.subheadline || props.sectionSubtitle || ""}
@@ -5025,7 +5421,7 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
             <button
               type="button"
               onClick={addCardItem}
-              className="flex items-center gap-1 text-[10px] font-bold text-pink-400 hover:text-pink-300 px-2 py-0.5 rounded-lg bg-pink-500/10 hover:bg-pink-500/20 transition-colors cursor-pointer"
+              className="flex items-center gap-1 text-[10px] font-bold text-primary hover:opacity-90 px-2 py-0.5 rounded-lg bg-primary/10 hover:bg-primary/20 transition-colors cursor-pointer"
               title="Add another card with the same structure as the previous one"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -5034,25 +5430,51 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
           </div>
 
           {cardsList.map((card, idx) => (
-            <div key={idx} className="p-3.5 rounded-xl border border-border/80 bg-card/60 space-y-2.5">
+            <div key={idx} className="p-3.5 rounded-xl border border-border bg-card shadow-sm space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono font-bold uppercase text-pink-400 block">
+                <span className="text-[10px] font-mono font-bold uppercase text-primary block tracking-wider">
                   {card.tag || `Item #${idx + 1}`}
                 </span>
-                {cardsList.length > 1 && (
+                <div className="flex items-center gap-1.5">
+                  <InlineColorPicker
+                    value={card.boxColor}
+                    onChange={(c) => updateCardItem(idx, "boxColor", c)}
+                    label="Box Background"
+                    placeholder="Box BG"
+                  />
+                  <InlineColorPicker
+                    value={card.color}
+                    onChange={(c) => updateCardItem(idx, "color", c)}
+                    label="Card Text Color"
+                    placeholder="Text"
+                  />
                   <button
                     type="button"
-                    onClick={() => removeCardItem(idx)}
-                    className="p-1 rounded text-muted-foreground hover:text-rose-400 hover:bg-rose-500/15 transition-colors cursor-pointer"
-                    title={`Delete item #${idx + 1}`}
+                    onClick={() => addCardItem(idx)}
+                    className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+                    title={`Duplicate / Clone item #${idx + 1} with same structure`}
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Copy className="w-3.5 h-3.5" />
                   </button>
-                )}
+                  {cardsList.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeCardItem(idx)}
+                      className="p-1 rounded text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                      title={`Delete item #${idx + 1}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
               {card.tag !== undefined && (
                 <div>
-                  <label className="sb-control-label">Badge / Tag</label>
+                  <FieldLabelWithColor
+                    label="Badge / Tag"
+                    color={card.tagColor}
+                    onColorChange={(c) => updateCardItem(idx, "tagColor", c)}
+                  />
                   <input
                     type="text"
                     value={card.tag || ""}
@@ -5063,7 +5485,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
                 </div>
               )}
               <div>
-                <label className="sb-control-label">Title</label>
+                <FieldLabelWithColor
+                  label="Title"
+                  color={card.titleColor}
+                  onColorChange={(c) => updateCardItem(idx, "titleColor", c)}
+                />
                 <input
                   type="text"
                   value={card.title || ""}
@@ -5074,7 +5500,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
               </div>
               {card.stack !== undefined && (
                 <div>
-                  <label className="sb-control-label">Tech Stack / Category</label>
+                  <FieldLabelWithColor
+                    label="Tech Stack / Category"
+                    color={card.stackColor}
+                    onColorChange={(c) => updateCardItem(idx, "stackColor", c)}
+                  />
                   <input
                     type="text"
                     value={card.stack || ""}
@@ -5085,7 +5515,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
                 </div>
               )}
               <div>
-                <label className="sb-control-label">Description</label>
+                <FieldLabelWithColor
+                  label="Description"
+                  color={card.descColor}
+                  onColorChange={(c) => updateCardItem(idx, "descColor", c)}
+                />
                 <textarea
                   rows={2}
                   value={card.desc || card.description || ""}
@@ -5094,8 +5528,34 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
                   className="sb-control-input text-xs resize-none leading-relaxed"
                 />
               </div>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="sb-control-label mb-0 flex items-center gap-1.5">
+                    <Link2 className="w-3.5 h-3.5 text-pink-400" />
+                    <span>Card Link / Target URL</span>
+                  </label>
+                  {(card.link || card.href || card.url) ? (
+                    <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-0.5">
+                      <ExternalLink className="w-2.5 h-2.5" /> active link
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground">optional link</span>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={card.link || card.href || card.url || ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    updateCardItem(idx, "link", val);
+                    updateCardItem(idx, "href", val);
+                  }}
+                  placeholder="e.g. #contact, /details, /pricing, https://..."
+                  className="sb-control-input text-xs font-mono"
+                />
+              </div>
               {/* Extra dynamic fields if previous item had other custom properties */}
-              {Object.keys(card).filter((k) => !["tag", "title", "stack", "desc", "description"].includes(k)).map((extraKey) => (
+              {Object.keys(card).filter((k) => !["tag", "title", "stack", "desc", "description", "link", "href", "url"].includes(k)).map((extraKey) => (
                 <div key={extraKey}>
                   <label className="sb-control-label capitalize">{extraKey.replace(/([A-Z])/g, " $1")}</label>
                   <input
@@ -5112,11 +5572,12 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
 
           <button
             type="button"
-            onClick={addCardItem}
+            onClick={() => addCardItem()}
             className="w-full py-2 px-3 rounded-xl border-2 border-dashed border-border hover:border-pink-500/50 hover:bg-pink-500/5 text-xs font-bold text-muted-foreground hover:text-pink-400 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+            title="Add another item with the same structure and styling"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>+ Add Another Item</span>
+            <span>+ Add Another Item (Same Structure)</span>
           </button>
         </div>
 
@@ -5271,17 +5732,28 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
                 <div key={ti.id || tIdx} className="space-y-1">
                   <div className="flex items-center justify-between">
                     <label className="text-[10px] text-muted-foreground uppercase font-mono">{ti.label || `Text #${tIdx + 1}`}</label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const updated = props.textItems.filter((_, i) => i !== tIdx);
-                        onChange("textItems", updated);
-                      }}
-                      className="p-1 text-muted-foreground hover:text-rose-400 hover:bg-rose-500/15 rounded transition-colors cursor-pointer"
-                      title="Remove text"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <InlineColorPicker
+                        value={ti.color}
+                        onChange={(c) => {
+                          const updated = [...props.textItems];
+                          updated[tIdx] = { ...updated[tIdx], color: c };
+                          onChange("textItems", updated);
+                        }}
+                        label={`${ti.label || "Text"} Color`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = props.textItems.filter((_, i) => i !== tIdx);
+                          onChange("textItems", updated);
+                        }}
+                        className="p-1 text-muted-foreground hover:text-rose-400 hover:bg-rose-500/15 rounded transition-colors cursor-pointer"
+                        title="Remove text"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
                   </div>
                   <input
                     type="text"
@@ -5309,7 +5781,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
     return (
       <div className="space-y-3.5">
         <div>
-          <label className="sb-control-label">Top Pill Badge Text</label>
+          <FieldLabelWithColor
+            label="Top Pill Badge Text"
+            color={props.badgeColor}
+            onColorChange={(c) => onChange("badgeColor", c)}
+          />
           <input
             type="text"
             value={props.badgeText || ""}
@@ -5319,7 +5795,14 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
           />
         </div>
         <div>
-          <label className="sb-control-label">Main Headline</label>
+          <FieldLabelWithColor
+            label="Main Headline"
+            color={props.headlineColor}
+            onColorChange={(c) => {
+              onChange("headlineColor", c);
+              onChange("titleColor", c);
+            }}
+          />
           <input
             type="text"
             value={props.headline || props.title || ""}
@@ -5332,7 +5815,16 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
           />
         </div>
         <div>
-          <label className="sb-control-label">Narrative Story / Bio</label>
+          <FieldLabelWithColor
+            label="Narrative Story / Bio"
+            color={props.storyColor || props.subheadlineColor}
+            onColorChange={(c) => {
+              onChange("storyColor", c);
+              onChange("subheadlineColor", c);
+              onChange("descriptionColor", c);
+              onChange("subtitleColor", c);
+            }}
+          />
           <textarea
             rows={4}
             value={props.subheadline || props.description || props.story || ""}
@@ -5350,7 +5842,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
         {(props.role !== undefined || props.yearsActive !== undefined || props.status !== undefined) && (
           <div className="grid grid-cols-3 gap-2">
             <div>
-              <label className="sb-control-label">Role</label>
+              <FieldLabelWithColor
+                label="Role"
+                color={props.roleColor}
+                onColorChange={(c) => onChange("roleColor", c)}
+              />
               <input
                 type="text"
                 value={props.role || ""}
@@ -5370,7 +5866,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
               />
             </div>
             <div>
-              <label className="sb-control-label">Status</label>
+              <FieldLabelWithColor
+                label="Status"
+                color={props.statusColor}
+                onColorChange={(c) => onChange("statusColor", c)}
+              />
               <input
                 type="text"
                 value={props.status || ""}
@@ -5385,7 +5885,14 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
         {/* Buttons */}
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="sb-control-label">Primary Button</label>
+            <FieldLabelWithColor
+              label="Primary Button"
+              color={props.ctaColor}
+              onColorChange={(c) => {
+                onChange("ctaColor", c);
+                onChange("primaryCtaColor", c);
+              }}
+            />
             <input
               type="text"
               value={props.primaryCta || props.ctaText || ""}
@@ -5398,13 +5905,50 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
             />
           </div>
           <div>
-            <label className="sb-control-label">Secondary Button</label>
+            <FieldLabelWithColor
+              label="Secondary Button"
+              color={props.secondaryCtaColor}
+              onColorChange={(c) => onChange("secondaryCtaColor", c)}
+            />
             <input
               type="text"
               value={props.secondaryCta || ""}
               onChange={(e) => onChange("secondaryCta", e.target.value)}
               placeholder="Secondary CTA"
               className="sb-control-input text-xs"
+            />
+          </div>
+        </div>
+
+        {/* Button Links */}
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="sb-control-label flex items-center gap-1">
+              <Link2 className="w-3 h-3 text-pink-400" />
+              <span>Primary Link</span>
+            </label>
+            <input
+              type="text"
+              value={props.primaryCtaLink || props.ctaLink || ""}
+              onChange={(e) => {
+                onChange("primaryCtaLink", e.target.value);
+                onChange("ctaLink", e.target.value);
+              }}
+              placeholder="e.g. #contact, /demo"
+              className="sb-control-input text-xs font-mono"
+            />
+          </div>
+          <div>
+            <label className="sb-control-label flex items-center gap-1">
+              <Link2 className="w-3 h-3 text-pink-400" />
+              <span>Secondary Link</span>
+            </label>
+            <input
+              type="text"
+              value={props.secondaryCtaLink || ""}
+              onChange={(e) => onChange("secondaryCtaLink", e.target.value)}
+              placeholder="e.g. #pricing, /about"
+              className="sb-control-input text-xs font-mono"
             />
           </div>
         </div>
@@ -5421,7 +5965,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
         {(props.stat1Value !== undefined || props.stat2Value !== undefined) && (
           <div className="grid grid-cols-2 gap-2 pt-2">
             <div>
-              <label className="sb-control-label">Stat 1 Value &amp; Label</label>
+              <FieldLabelWithColor
+                label="Stat 1"
+                color={props.stat1Color || props.statColor}
+                onColorChange={(c) => onChange("statColor", c)}
+              />
               <input
                 type="text"
                 value={props.stat1Value || ""}
@@ -5438,7 +5986,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
               />
             </div>
             <div>
-              <label className="sb-control-label">Stat 2 Value &amp; Label</label>
+              <FieldLabelWithColor
+                label="Stat 2"
+                color={props.stat2Color || props.statColor}
+                onColorChange={(c) => onChange("statColor", c)}
+              />
               <input
                 type="text"
                 value={props.stat2Value || ""}
@@ -5464,7 +6016,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
   return (
     <div className="space-y-3.5">
       <div>
-        <label className="sb-control-label">Badge Text</label>
+        <FieldLabelWithColor
+          label="Badge Text"
+          color={props.badgeColor}
+          onColorChange={(c) => onChange("badgeColor", c)}
+        />
         <input
           type="text"
           value={props.badgeText || ""}
@@ -5474,7 +6030,14 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
         />
       </div>
       <div>
-        <label className="sb-control-label">Component Title</label>
+        <FieldLabelWithColor
+          label="Component Title"
+          color={props.titleColor}
+          onColorChange={(c) => {
+            onChange("titleColor", c);
+            onChange("headlineColor", c);
+          }}
+        />
         <input
           type="text"
           value={props.title || props.headline || ""}
@@ -5487,7 +6050,14 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
         />
       </div>
       <div>
-        <label className="sb-control-label">Subtitle / Hook</label>
+        <FieldLabelWithColor
+          label="Subtitle / Hook"
+          color={props.subtitleColor}
+          onColorChange={(c) => {
+            onChange("subtitleColor", c);
+            onChange("subheadlineColor", c);
+          }}
+        />
         <input
           type="text"
           value={props.subtitle || props.subheadline || ""}
@@ -5500,7 +6070,14 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
         />
       </div>
       <div>
-        <label className="sb-control-label">Description / Bio Narrative</label>
+        <FieldLabelWithColor
+          label="Description / Bio Narrative"
+          color={props.storyColor}
+          onColorChange={(c) => {
+            onChange("storyColor", c);
+            onChange("descriptionColor", c);
+          }}
+        />
         <textarea
           rows={5}
           value={props.story || props.description || ""}
@@ -5514,7 +6091,11 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
       </div>
       {props.mission !== undefined && (
         <div>
-          <label className="sb-control-label">Mission Statement</label>
+          <FieldLabelWithColor
+            label="Mission Statement"
+            color={props.missionColor}
+            onColorChange={(c) => onChange("missionColor", c)}
+          />
           <textarea
             rows={2}
             value={props.mission || ""}
@@ -5537,15 +6118,37 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
         </div>
       )}
       {props.ctaText !== undefined && (
-        <div>
-          <label className="sb-control-label">Button CTA</label>
-          <input
-            type="text"
-            value={props.ctaText || ""}
-            onChange={(e) => onChange("ctaText", e.target.value)}
-            placeholder="e.g. Learn More"
-            className="sb-control-input text-xs"
-          />
+        <div className="space-y-2">
+          <div>
+            <FieldLabelWithColor
+              label="Button CTA"
+              color={props.ctaColor}
+              onColorChange={(c) => onChange("ctaColor", c)}
+            />
+            <input
+              type="text"
+              value={props.ctaText || ""}
+              onChange={(e) => onChange("ctaText", e.target.value)}
+              placeholder="e.g. Learn More"
+              className="sb-control-input text-xs font-bold"
+            />
+          </div>
+          <div>
+            <label className="sb-control-label flex items-center gap-1">
+              <Link2 className="w-3 h-3 text-pink-400" />
+              <span>Button Link / Target</span>
+            </label>
+            <input
+              type="text"
+              value={props.ctaLink || props.primaryCtaLink || ""}
+              onChange={(e) => {
+                onChange("ctaLink", e.target.value);
+                onChange("primaryCtaLink", e.target.value);
+              }}
+              placeholder="e.g. #contact or /about"
+              className="sb-control-input text-xs font-mono"
+            />
+          </div>
         </div>
       )}
 
@@ -5682,7 +6285,7 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
                 const newItem = {
                   id: `text-${Date.now()}-${props.textItems.length}`,
                   label: lastItem.label || "<SPAN> TEXT",
-                  text: "",
+                  text: lastItem.text || `Item #${props.textItems.length + 1}`,
                   originalText: ""
                 };
                 onChange("textItems", [...props.textItems, newItem]);
@@ -5699,17 +6302,28 @@ function renderFriendlyFields(sectionId, props, onChange, templateId = null, onA
               <div key={ti.id || tIdx} className="space-y-1">
                 <div className="flex items-center justify-between">
                   <label className="text-[10px] text-muted-foreground uppercase font-mono">{ti.label || `Text #${tIdx + 1}`}</label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const updated = props.textItems.filter((_, i) => i !== tIdx);
-                      onChange("textItems", updated);
-                    }}
-                    className="p-1 text-muted-foreground hover:text-rose-400 hover:bg-rose-500/15 rounded transition-colors cursor-pointer"
-                    title="Remove text"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <InlineColorPicker
+                      value={ti.color}
+                      onChange={(c) => {
+                        const updated = [...props.textItems];
+                        updated[tIdx] = { ...updated[tIdx], color: c };
+                        onChange("textItems", updated);
+                      }}
+                      label={`${ti.label || "Text"} Color`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updated = props.textItems.filter((_, i) => i !== tIdx);
+                        onChange("textItems", updated);
+                      }}
+                      className="p-1 text-muted-foreground hover:text-rose-400 hover:bg-rose-500/15 rounded transition-colors cursor-pointer"
+                      title="Remove text"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
                 <input
                   type="text"

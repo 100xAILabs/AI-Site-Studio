@@ -100,6 +100,50 @@ async def create_subscription_checkout(
     return res
 
 
+@router.post("/verify-stripe-session/{session_id}")
+async def verify_stripe_subscription_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Direct client-return fallback for Stripe Checkout subscriptions.
+    Verifies the Stripe Checkout Session directly and immediately activates the subscription.
+    """
+    from app.core.config import settings
+    if not settings.STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=400, detail="Stripe secret key not configured")
+        
+    import stripe
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    
+    try:
+        checkout = stripe.checkout.Session.retrieve(session_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not retrieve Stripe session: {e}")
+        
+    if checkout.get("status") != "complete" and checkout.get("payment_status") != "paid":
+        return {"status": "pending", "message": "Payment not yet confirmed by Stripe."}
+        
+    metadata = checkout.get("metadata") or {}
+    plan_id = metadata.get("plan_id") or "pro"
+    billing_cycle = metadata.get("billing_cycle") or "monthly"
+    provider_sub_id = checkout.get("subscription")
+    
+    sub_service = SubscriptionService(db)
+    res = await sub_service.handle_subscription_payment_success(
+        provider="stripe",
+        event_id=f"direct_return_{session_id}",
+        user_id=current_user.id,
+        user_email=current_user.email,
+        plan_id=plan_id,
+        billing_cycle=billing_cycle,
+        provider_sub_id=provider_sub_id,
+        payload=dict(checkout),
+    )
+    return res
+
+
 @router.post("/cancel")
 async def cancel_subscription(
     current_user: User = Depends(get_current_user),

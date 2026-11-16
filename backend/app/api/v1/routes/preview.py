@@ -740,9 +740,8 @@ async def get_live_preview_extracted_data(
     content = ""
     if os.path.exists(preview_dir):
         candidates = []
-        for root, _, files in os.walk(preview_dir):
-            if any(d in root.replace("\\", "/").split("/") for d in ["node_modules", ".git", "dist", "build", ".output"]):
-                continue
+        for root, dirs, files in os.walk(preview_dir):
+            dirs[:] = [d for d in dirs if d not in ["node_modules", ".git", "dist", "build", ".output", "__MACOSX", ".venv", "vendor"]]
             for f in files:
                 ext = os.path.splitext(f)[1].lower()
                 if ext in [".html", ".jsx", ".tsx", ".vue"]:
@@ -810,10 +809,8 @@ async def get_live_preview_extracted_data(
 
     # Also collect files from already-extracted preview_dir (for JSX builds)
     if not all_source_files and os.path.exists(preview_dir):
-        for root, _, files in os.walk(preview_dir):
-            if any(d in root.replace("\\", "/").split("/")
-                   for d in ["node_modules", ".git", "dist", "build", ".output"]):
-                continue
+        for root, dirs, files in os.walk(preview_dir):
+            dirs[:] = [d for d in dirs if d not in ["node_modules", ".git", "dist", "build", ".output", "__MACOSX", ".venv", "vendor"]]
             for f in files:
                 ext = os.path.splitext(f)[1].lower()
                 if ext in [".html", ".jsx", ".tsx", ".vue", ".js", ".ts"]:
@@ -824,39 +821,71 @@ async def get_live_preview_extracted_data(
                     except Exception:
                         pass
 
-    # ─── Universal JSX/TSX Source Code Extractor ────────────────────────────
+    from bs4 import BeautifulSoup
+
+    def clean_text(text: str) -> str:
+        if not text:
+            return ""
+        c = re.sub(r"<[^>]+>", " ", text)
+        c = re.sub(r"\s+([.,!?:;])", r"\1", c)
+        return re.sub(r"\s+", " ", c).strip()
+
+    # ─── Universal JSX/TSX/Vue Source Code Extractor ─────────────────────────
     def extract_from_jsx_sources(src_files: dict, tmpl_title: str, tmpl_color: str):
-        """Parse JSX/TSX/Vue source files to extract real sections without BS4."""
-        combined = "\n".join(src_files.values())
+        """Parse JSX/TSX/Vue source files using normalized BeautifulSoup and regex to extract real sections, headlines, cards, and text."""
+        def file_priority(fname: str) -> int:
+            fn = os.path.basename(fname).lower()
+            if fn in ["home.jsx", "home.tsx", "home.vue"]:
+                return 0
+            if fn in ["app.jsx", "app.tsx", "app.vue"]:
+                return 1
+            if fn in ["index.jsx", "index.tsx", "page.jsx", "page.tsx"]:
+                return 2
+            if "page" in fname.lower():
+                return 3
+            return 4
 
-        # 1. Brand / business name — look for common JSX string patterns
-        bname = tmpl_title
-        for pattern in [
-            r"brandName\s*[=:]\s*['\"`]([^'\"\`]{2,50})['\"`]",
-            r"business_name\s*[=:]\s*['\"`]([^'\"\`]{2,50})['\"`]",
-            r"companyName\s*[=:]\s*['\"`]([^'\"\`]{2,50})['\"`]",
-            r"siteName\s*[=:]\s*['\"`]([^'\"\`]{2,50})['\"`]",
-            r"<title>([^<]{2,50})</title>",
-            r"title:\s*['\"`]([^'\"\`]{2,60})['\"`]",
-        ]:
-            m = re.search(pattern, combined, re.I)
-            if m:
-                bname = m.group(1).split("—")[0].split("-")[0].strip()
-                if 2 < len(bname) < 60:
-                    break
+        sorted_files = sorted(src_files.items(), key=lambda kv: file_priority(kv[0]))
+        combined = "\n".join(ftext for _, ftext in sorted_files)
 
-        # 2. Primary color
-        pcolor = tmpl_color
+        # 1. Primary Color
+        pcolor = tmpl_color or "#4f46e5"
         for cp in [
             r"primary(?:Color)?\s*[=:]\s*['\"`](#[0-9a-fA-F]{3,8})['\"`]",
             r"--(?:primary|accent|brand)(?:-color)?:\s*(#[0-9a-fA-F]{3,8})",
-            r"themeColor\s*[=:]\s*['\"`](#[0-9a-fA-F]{3,8})['\"`]",
             r"--red:\s*(#[0-9a-fA-F]{3,8})",
+            r"--blue:\s*(#[0-9a-fA-F]{3,8})",
+            r"themeColor\s*[=:]\s*['\"`](#[0-9a-fA-F]{3,8})['\"`]",
         ]:
             m = re.search(cp, combined, re.I)
             if m:
                 pcolor = m.group(1)
                 break
+
+        # Pick primary file for main DOM structure
+        primary_fname, primary_code = sorted_files[0] if sorted_files else ("", "")
+        soup_code = re.sub(r'\bclassName=', 'class=', primary_code)
+        soup = BeautifulSoup(soup_code, "html.parser")
+
+        # 2. Brand & Logo Text
+        bname = tmpl_title
+        nav_el = soup.find(["nav", "header"])
+        if nav_el:
+            logo_el = nav_el.find(class_=re.compile(r"logo|brand", re.I)) or nav_el.find("h1")
+            if logo_el and logo_el.get_text(strip=True):
+                bname = clean_text(logo_el.get_text(separator=" ", strip=True))
+        if not bname or bname == tmpl_title:
+            for pattern in [
+                r"brandName\s*[=:]\s*['\"`]([^'\"\`]{2,50})['\"`]",
+                r"business_name\s*[=:]\s*['\"`]([^'\"\`]{2,50})['\"`]",
+                r"companyName\s*[=:]\s*['\"`]([^'\"\`]{2,50})['\"`]",
+                r"siteName\s*[=:]\s*['\"`]([^'\"\`]{2,50})['\"`]",
+                r"<title>([^<]{2,50})</title>",
+            ]:
+                m = re.search(pattern, combined, re.I)
+                if m:
+                    bname = m.group(1).split("—")[0].split("-")[0].strip()
+                    break
 
         logo_text = re.sub(r"[^A-Z0-9]", "", bname.upper())[:7] or "BRAND"
 
@@ -886,108 +915,27 @@ async def get_live_preview_extracted_data(
                 return "Footer & Record", "Shield"
             return "Section Content", "Globe"
 
-        def extract_str_near(key: str, text: str, max_len: int = 120) -> str:
-            """Find a string value near a JSX key."""
-            p = rf"{key}\s*[=:{{]\s*['\"`]([^'\"\`]{{1,{max_len}}})['\"`]"
-            m = re.search(p, text, re.I)
-            return m.group(1).strip() if m else ""
-
-        # 3. Discover section IDs from JSX
-        #    Patterns: id="hero", section id='about', id={sectionId} where sectionId='...',
-        #    component names like <HeroSection, <AboutSection, <NavBar etc.
-        section_ids_found = []
-        seen = set()
-
-        # a) HTML-like id attributes in JSX
-        for m in re.finditer(r'id=["\']([a-zA-Z][a-zA-Z0-9_-]{1,30})["\']', combined):
-            sid = m.group(1).lower().replace("-", "_")
-            if sid not in seen and sid not in ["root", "app", "main", "wrap", "wrapper", "container"]:
-                seen.add(sid)
-                section_ids_found.append(m.group(1))
-
-        # b) Component function/const names like function HeroSection, const AboutSection
-        for m in re.finditer(r'(?:function|const|export\s+default\s+function)\s+([A-Z][a-zA-Z]{3,40})(?:Section|Component|Block|Page)?\b', combined):
-            name = m.group(1)
-            # Strip 'Section', 'Component' etc suffix to get the base ID
-            base = re.sub(r'(?:Section|Component|Block|Page|Widget)$', '', name, flags=re.I)
-            sid = base.lower()
-            if sid not in seen and sid not in ["app", "root", "main", "index", "default", "export", "import"]:
-                seen.add(sid)
-                section_ids_found.append(sid)
-
-        # c) Route / page file names (each .jsx/.tsx file is a section/page)
-        for fname in src_files.keys():
-            base = os.path.splitext(os.path.basename(fname))[0].lower()
-            # Skip generic names
-            skip_names = {"index", "app", "main", "layout", "root", "vite", "config",
-                          "tailwind", "global", "style", "styles", "utils", "helpers",
-                          "types", "constants", "context", "hooks", "store", "api"}
-            if base not in skip_names and len(base) > 2 and base not in seen:
-                seen.add(base)
-                section_ids_found.append(base)
-
-        # 4. Build sections list
         out_sections = {}
         out_sections_list = []
+        seen_ids = set()
 
-        # Always add navbar — extract ALL nav links into array (no fixed limit)
-        nav_link_values = []
+        # 3. Navbar
+        nav_links = []
+        nav_cta = "Get Started"
+        if nav_el:
+            links_raw = [clean_text(a.get_text()) for a in nav_el.find_all("a") if a.get_text(strip=True)]
+            nav_links = [l for l in links_raw if 0 < len(l) < 30 and l.lower() != bname.lower()]
+            btn_el = nav_el.find(["button", "a"], class_=re.compile(r"btn|cta|login|signup", re.I))
+            if btn_el and btn_el.get_text(strip=True):
+                nav_cta = clean_text(btn_el.get_text())
+        if not nav_links:
+            nav_links = ["Features", "About", "Contact"]
 
-        # Strategy 1: keyed link1...link20 style
-        for i in range(1, 21):
-            p = rf"link{i}\s*[=:]\s*['\"`]([^'\"\`]{{1,40}})['\"`]"
-            m = re.search(p, combined, re.I)
-            if m:
-                nav_link_values.append(m.group(1))
-
-        # Strategy 2: navItems / navLinks / menuItems / links arrays
-        if len(nav_link_values) < 2:
-            arr_m = re.search(
-                r'(?:navItems|navLinks|menuItems|links|navMenu|navigation)\s*[=:]\s*\[([^\]]{1,600})\]',
-                combined, re.I
-            )
-            if arr_m:
-                raw = arr_m.group(1)
-                found = re.findall(r"['\"`]([^'\"\`]{2,40})['\"`]", raw)
-                nav_link_values = [f for f in found if 1 < len(f) < 40]
-
-        # Strategy 3: object array [{label:'Home',href:'/'}, ...]
-        if len(nav_link_values) < 2:
-            obj_arr_m = re.findall(
-                r'(?:label|title|name|text)\s*:\s*[\'"`]([^\'"`]{2,30})[\'"`]',
-                combined[:5000], re.I
-            )
-            if obj_arr_m:
-                nav_link_values = obj_arr_m[:15]
-
-        # Strategy 4: href="#section" anchor links
-        if len(nav_link_values) < 2:
-            anchor_matches = re.findall(
-                r'href=["\'](?:#|/)[^"\']*["\'][^>]*>\s*([^<]{2,30})\s*<', combined
-            )
-            if anchor_matches:
-                nav_link_values = [a.strip() for a in anchor_matches if a.strip()]
-
-        # Remove duplicates, keep order
-        seen_links = set()
-        nav_link_values_dedup = []
-        for lnk in nav_link_values:
-            lc = lnk.strip().lower()
-            if lc not in seen_links and lc:
-                seen_links.add(lc)
-                nav_link_values_dedup.append(lnk.strip())
-        nav_link_values = nav_link_values_dedup
-
-        # Fallback: at least provide 4 sensible defaults
-        if not nav_link_values:
-            nav_link_values = ["Home", "About", "Services", "Contact"]
-
-        cta_m = re.search(r"ctaText\s*[=:]\s*['\"`]([^'\"\`]{1,40})['\"`]", combined, re.I)
         out_sections["navbar"] = {
             "brandName": bname,
             "logoText": logo_text,
-            "navLinks": nav_link_values,   # ← unlimited array
-            "ctaText": cta_m.group(1) if cta_m else "Get Started",
+            "navLinks": nav_links,
+            "ctaText": nav_cta,
             "stickyGlass": True,
             "themeColor": pcolor
         }
@@ -997,108 +945,146 @@ async def get_live_preview_extracted_data(
             "desc": "Top navigation bar with brand logo and navigation links",
             "targetSection": "navbar"
         })
-        seen_sec = {"navbar"}
+        seen_ids.add("navbar")
 
-        # Map each discovered section ID to its data by looking in the relevant file
-        for raw_sid in section_ids_found:
-            sid = raw_sid.lower().replace("-", "_")
-            if sid in seen_sec:
+        # 4. Discover and Parse Sections across primary and other components
+        candidate_soups = [(primary_fname, soup)]
+        for fname, fcode in sorted_files[1:]:
+            base_lower = os.path.basename(fname).lower()
+            if any(skip in base_lower for skip in ["config", "test", "spec", "setup", "router", "provider", "context", "store"]):
                 continue
-            # Skip nav-like and footer (we add footer at end)
-            if any(x in sid for x in ["nav", "header", "foot", "wrap", "root", "app", "main",
-                                       "logo", "menu", "route", "router", "provider"]):
-                continue
-            seen_sec.add(sid)
+            if fname.endswith((".jsx", ".tsx", ".vue")):
+                f_soup = BeautifulSoup(re.sub(r'\bclassName=', 'class=', fcode), "html.parser")
+                candidate_soups.append((fname, f_soup))
 
-            # Find the relevant file(s) for this section
-            relevant_text = ""
-            for fname, ftext in src_files.items():
-                base = os.path.splitext(os.path.basename(fname))[0].lower()
-                if base == sid or sid in base or base in sid:
-                    relevant_text = ftext
-                    break
-            if not relevant_text:
-                # Search in combined for id="section"
-                sec_match = re.search(
-                    rf'id=["\'](?:{re.escape(raw_sid)})["\'].*?(?=id=["\'][a-zA-Z]|</(?:section|main|body|div class="(?:footer|nav))|$)',
-                    combined, re.DOTALL | re.I
-                )
-                relevant_text = sec_match.group(0) if sec_match else ""
+        for cfname, csoup in candidate_soups:
+            sec_elements = csoup.find_all(["section", "footer"])
+            if not sec_elements:
+                sec_elements = csoup.find_all(class_=re.compile(r"(?:hero|feature|about|service|pricing|contact|footer|content)-section", re.I))
 
-            if not relevant_text:
-                relevant_text = combined  # Use all combined as fallback
+            for idx, el in enumerate(sec_elements):
+                tag = el.name
+                sec_id = el.get("id") or ""
+                sec_class = " ".join(el.get("class", [])) if el.get("class") else ""
 
-            # Extract meaningful strings from the relevant text
-            headline = ""
-            for hp in [
-                r"headline\s*[=:]\s*['\"`]([^'\"\`]{4,120})['\"`]",
-                r"title\s*[=:]\s*['\"`]([^'\"\`]{4,100})['\"`]",
-                r"h1[^>]*>([^<]{4,100})<",
-                r"h2[^>]*>([^<]{4,100})<",
-            ]:
-                m = re.search(hp, relevant_text, re.I)
-                if m and m.group(1).strip():
-                    headline = m.group(1).strip()
-                    break
+                # Determine canonical ID
+                cid = ""
+                if tag == "footer" or "footer" in sec_class.lower():
+                    cid = "footer"
+                elif sec_id:
+                    cid = sec_id.lower().replace("-", "_")
 
-            subheadline = ""
-            for sp in [
-                r"subheadline\s*[=:]\s*['\"`]([^'\"\`]{10,200})['\"`]",
-                r"subtitle\s*[=:]\s*['\"`]([^'\"\`]{10,200})['\"`]",
-                r"description\s*[=:]\s*['\"`]([^'\"\`]{10,200})['\"`]",
-                r"<p[^>]*>([^<]{20,200})</p>",
-            ]:
-                m = re.search(sp, relevant_text, re.I)
-                if m and m.group(1).strip():
-                    subheadline = m.group(1).strip()
-                    break
+                if not cid:
+                    for kw in ["hero", "feature", "about", "service", "pricing", "contact", "portfolio", "stat"]:
+                        if kw in sec_class.lower():
+                            cid = kw if kw != "feature" else "features"
+                            break
+                if not cid:
+                    cid = f"section_{len(seen_ids)}"
 
-            badge = extract_str_near("badgeText|badge|pill|tag", relevant_text, 60)
-            email_m = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', relevant_text)
-            phone_m = re.search(r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', relevant_text)
+                if cid in seen_ids:
+                    continue
+                seen_ids.add(cid)
 
-            cat_name, icon_name = classify_jsx_section(sid)
-            disp_name = headline if (headline and 3 < len(headline) < 40) else \
-                (sid.replace("_", " ").replace("-", " ").title())
+                # Headline / Title
+                h_tag = el.find(["h1", "h2", "h3", "h4"])
+                headline = clean_text(h_tag.get_text(separator=" ", strip=True)) if h_tag else ""
 
-            sec_data = {
-                "title": headline or disp_name,
-                "headline": headline or disp_name,
-                "badgeText": badge,
-                "subheadline": subheadline,
-                "description": subheadline,
+                # Badge
+                badge_el = el.find(class_=re.compile(r"badge|pill|tag", re.I))
+                badge = clean_text(badge_el.get_text(strip=True)) if badge_el else ""
+
+                # Description / Subtitle
+                p_tags = [clean_text(p.get_text(separator=" ", strip=True)) for p in el.find_all("p") if len(clean_text(p.get_text(strip=True))) > 15]
+                description = p_tags[0] if p_tags else ""
+
+                # Buttons
+                buttons = [clean_text(b.get_text(strip=True)) for b in el.find_all("button") if b.get_text(strip=True)]
+                primary_cta = buttons[0] if buttons else "Get Started"
+                secondary_cta = buttons[1] if len(buttons) > 1 else ""
+
+                # Cards
+                card_els = el.find_all(class_=re.compile(r"card|item", re.I))
+                if not card_els:
+                    grid_container = el.find(class_=re.compile(r"grid|flex-wrap", re.I))
+                    if grid_container:
+                        candidates = [child for child in grid_container.find_all(recursive=False) if getattr(child, "name", None) in ("div", "article", "section", "li")]
+                        if len(candidates) >= 2:
+                            card_els = candidates
+                cards = []
+                for c_idx, c in enumerate(card_els):
+                    c_title = c.find(["h1", "h2", "h3", "h4", "strong"])
+                    c_desc = c.find("p")
+                    c_tag = c.find(class_=re.compile(r"icon|tag|badge", re.I))
+                    c_link = c.find("a") or (c if c.name == "a" else None)
+                    c_href = clean_text(c_link.get("href", "")) if c_link and c_link.get("href") else ""
+                    t_txt = clean_text(c_title.get_text(strip=True)) if c_title else f"Item #{c_idx + 1}"
+                    d_txt = clean_text(c_desc.get_text(separator=" ", strip=True)) if c_desc else ""
+                    tg_txt = clean_text(c_tag.get_text(strip=True)) if c_tag else f"ITEM #{c_idx + 1}"
+                    if t_txt or d_txt:
+                        cards.append({"title": t_txt, "desc": d_txt, "tag": tg_txt, "stack": "", "link": c_href, "href": c_href})
+
+                cat_name, icon_name = classify_jsx_section(cid)
+                if cid == "hero":
+                    disp_name = headline if (headline and 3 < len(headline) < 35) else "Hero Section"
+                elif cid == "features":
+                    disp_name = headline if (headline and 3 < len(headline) < 35) else "Features Section"
+                elif cid == "about":
+                    disp_name = headline if (headline and 3 < len(headline) < 35) else "About Section"
+                elif cid == "footer":
+                    disp_name = "Website Footer"
+                else:
+                    disp_name = headline if (headline and 3 < len(headline) < 35) else cid.replace("_", " ").title()
+
+                sec_data = {
+                    "title": headline or disp_name,
+                    "headline": headline or disp_name,
+                    "badgeText": badge,
+                    "subheadline": description,
+                    "description": description,
+                    "themeColor": pcolor,
+                    "primaryCta": primary_cta,
+                    "secondaryCta": secondary_cta,
+                }
+                if cards:
+                    sec_data["cards"] = cards
+                    for i, c in enumerate(cards[:10], start=1):
+                        sec_data[f"card{i}_title"] = c["title"]
+                        sec_data[f"card{i}_desc"] = c["desc"]
+                        sec_data[f"card{i}_tag"] = c["tag"]
+                        if c.get("link"):
+                            sec_data[f"card{i}_link"] = c["link"]
+                            sec_data[f"card{i}_href"] = c["link"]
+
+                if cid == "footer":
+                    sec_data["brandName"] = bname
+                    sec_data["tagline"] = description or f"{bname}. All rights reserved."
+                    sec_data["copyright"] = f"© 2026 {bname}. All rights reserved."
+
+                out_sections[cid] = sec_data
+                out_sections_list.append({
+                    "id": cid,
+                    "name": disp_name,
+                    "category": cat_name,
+                    "icon": icon_name,
+                    "desc": description[:80] if description else f"Template section for {disp_name}",
+                    "targetSection": cid
+                })
+
+        # Ensure Footer exists
+        if "footer" not in out_sections:
+            out_sections["footer"] = {
+                "brandName": bname,
+                "tagline": f"{bname}. All rights reserved.",
+                "copyright": f"© 2026 {bname}. All rights reserved.",
                 "themeColor": pcolor
             }
-            if email_m:
-                sec_data["email"] = email_m.group(0)
-            if phone_m:
-                sec_data["phone"] = phone_m.group(0)
-
-            out_sections[sid] = sec_data
             out_sections_list.append({
-                "id": sid,
-                "name": disp_name,
-                "category": cat_name,
-                "icon": icon_name,
-                "desc": subheadline[:80] if subheadline else f"Template section for {disp_name}",
-                "targetSection": sid
+                "id": "footer", "name": "Website Footer",
+                "category": "Footer & Record", "icon": "Shield",
+                "desc": "Site footer with brand signature, legal copyright, and links",
+                "targetSection": "footer"
             })
-
-        # Footer
-        copy_m = re.search(r"copyright\s*[=:]\s*['\"`]([^'\"\`]{5,100})['\"`]", combined, re.I)
-        footer_tagline = extract_str_near("tagline|footerTagline|footerDesc", combined, 120)
-        out_sections["footer"] = {
-            "brandName": bname,
-            "tagline": footer_tagline or f"{bname}. All rights reserved.",
-            "copyright": copy_m.group(1) if copy_m else f"© {2026} {bname}. All rights reserved.",
-            "themeColor": pcolor
-        }
-        out_sections_list.append({
-            "id": "footer", "name": "Website Footer",
-            "category": "Footer & Record", "icon": "Shield",
-            "desc": "Site footer with brand signature, legal copyright, and links",
-            "targetSection": "footer"
-        })
 
         return {
             "status": "success",
@@ -1108,24 +1094,14 @@ async def get_live_preview_extracted_data(
         }
 
     # ─── Decide: use JSX extractor OR BeautifulSoup (HTML) ──────────────────
-    # If we have JSX/TSX/Vue files but no real HTML, use the JSX extractor
     jsx_files_found = {k: v for k, v in all_source_files.items()
                        if k.endswith(".jsx") or k.endswith(".tsx") or k.endswith(".vue")}
-    html_content_is_html = content and bool(re.search(r'<html|<!DOCTYPE', content, re.I))
 
-    if not html_content_is_html and jsx_files_found:
-        # React/Vue template — use the universal JSX extractor
+    if jsx_files_found:
+        # Modern React/Vue/Vite project — extract the real sections and components from source files
         result = extract_from_jsx_sources(all_source_files, title, primary_color)
-        return result
-
-    from bs4 import BeautifulSoup
-
-    def clean_text(text: str) -> str:
-        if not text:
-            return ""
-        c = re.sub(r"<[^>]+>", " ", text)
-        c = re.sub(r"\s+([.,!?:;])", r"\1", c)
-        return re.sub(r"\s+", " ", c).strip()
+        if result and len(result.get("sections_list", [])) > 1:
+            return result
 
     soup = BeautifulSoup(content or "", "html.parser")
     
@@ -1382,6 +1358,8 @@ async def get_live_preview_extracted_data(
                         sub_text = ht
                 desc_el = tli.find("p")
                 desc_text = clean_text(desc_el.get_text()) if desc_el else ""
+                t_a = tli.find("a") or (tli if tli.name == "a" else None)
+                t_href = clean_text(t_a.get("href", "")) if t_a and t_a.get("href") else ""
                 if title_text:
                     key = (title_text.lower(), desc_text[:30].lower())
                     if key not in seen_card_keys:
@@ -1390,7 +1368,9 @@ async def get_live_preview_extracted_data(
                             "title": title_text,
                             "desc": desc_text,
                             "tag": date_text,
-                            "stack": sub_text
+                            "stack": sub_text,
+                            "link": t_href,
+                            "href": t_href
                         })
 
         # 2. Skills / Circular progress meters
@@ -1502,6 +1482,8 @@ async def get_live_preview_extracted_data(
                 ctag_text = clean_text(ctag.get_text()) if ctag else ""
                 cstack = c.find(class_=re.compile(r"stack|tech|tools", re.I))
                 cstack_text = clean_text(cstack.get_text()) if cstack else ""
+                c_a = c.find("a") or (c if c.name == "a" else None)
+                c_href = clean_text(c_a.get("href", "")) if c_a and c_a.get("href") else ""
 
                 key = (ctitle.lower(), cdesc[:30].lower())
                 if key not in seen_card_keys:
@@ -1510,7 +1492,9 @@ async def get_live_preview_extracted_data(
                         "title": ctitle,
                         "desc": cdesc,
                         "tag": ctag_text,
-                        "stack": cstack_text
+                        "stack": cstack_text,
+                        "link": c_href,
+                        "href": c_href
                     })
 
         # Check tabs in section (e.g. resume / timeline tabs)
@@ -1620,6 +1604,9 @@ async def get_live_preview_extracted_data(
                 sec_data[f"card{c_i+1}_desc"] = card["desc"]
                 if card["tag"]: sec_data[f"card{c_i+1}_tag"] = card["tag"]
                 if card["stack"]: sec_data[f"card{c_i+1}_stack"] = card["stack"]
+                if card.get("link"):
+                    sec_data[f"card{c_i+1}_link"] = card["link"]
+                    sec_data[f"card{c_i+1}_href"] = card["link"]
 
         # Form
         if has_form:
@@ -1730,9 +1717,35 @@ async def get_live_preview_extracted_data(
     if email_val:
         brand["contact_email"] = email_val
 
+    # Detect framework from source files or template model
+    detected_framework = "HTML5"
+    if any(k.endswith(".vue") for k in (all_source_files or {})):
+        detected_framework = "Vue"
+    elif any(k.endswith((".jsx", ".tsx")) for k in (all_source_files or {})):
+        detected_framework = "React"
+    elif any(k.endswith(".svelte") for k in (all_source_files or {})):
+        detected_framework = "Svelte"
+    elif template and template.framework:
+        fw_val = template.framework.value.lower()
+        if fw_val == "vue":
+            detected_framework = "Vue"
+        elif fw_val == "react":
+            detected_framework = "React"
+        elif fw_val == "nextjs":
+            detected_framework = "Next.js"
+        elif fw_val == "angular":
+            detected_framework = "Angular"
+        elif fw_val == "svelte":
+            detected_framework = "Svelte"
+        elif fw_val == "astro":
+            detected_framework = "Astro"
+        else:
+            detected_framework = "HTML5"
+
     return {
         "status": "success",
         "template_id": template_id,
+        "framework": detected_framework,
         "brand": brand,
         "sections": sections,
         "sections_list": sections_list
@@ -1864,6 +1877,7 @@ async def fork_live_preview_draft(
 async def edit_live_preview_manual(
     template_id: str,
     request: ManualEditRequest,
+    raw_request: Request,
     current_user: Optional[User] = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db)
 ):
@@ -1874,6 +1888,20 @@ async def edit_live_preview_manual(
     from app.models.template import Template, TemplateStatus
     from app.core.storage import storage
     
+    # Try recovering current_user from raw request Authorization header if dependency didn't resolve
+    if not current_user:
+        auth_hdr = raw_request.headers.get("authorization") or raw_request.headers.get("Authorization")
+        if auth_hdr and auth_hdr.startswith("Bearer "):
+            try:
+                from app.core.security import decode_token
+                payload = decode_token(auth_hdr[7:].strip())
+                if payload and payload.get("sub"):
+                    from app.repositories.user_repo import UserRepository
+                    u_repo = UserRepository(db)
+                    current_user = await u_repo.get_by_id(uuid.UUID(payload["sub"]))
+            except Exception:
+                pass
+
     template_repo = TemplateRepository(db)
     template = await template_repo.get_by_id(template_id)
     if not template:
@@ -1889,15 +1917,23 @@ async def edit_live_preview_manual(
         and template.seller_id == current_user.id
     )
 
+    clean_tags = [t for t in (template.tags or []) if t != "studio-project"]
+    if "customized-draft" not in clean_tags:
+        clean_tags.append("customized-draft")
+
     if not is_user_owned_draft:
         existing_draft = None
         if current_user:
-            slug_prefix = template.slug.split("-custom-")[0]
+            slug_prefix = template.slug.split("-custom-")[0].split("-draft-")[0]
+            from sqlalchemy import or_
             ed_res = await db.execute(
                 select(Template).where(
                     Template.seller_id == current_user.id,
                     Template.status == TemplateStatus.DRAFT,
-                    Template.slug.like(f"{slug_prefix}-custom-%")
+                    or_(
+                        Template.slug.like(f"{slug_prefix}-custom-%"),
+                        Template.slug.like(f"{slug_prefix}-draft-%")
+                    )
                 )
             )
             existing_draft = ed_res.scalars().first()
@@ -1905,6 +1941,9 @@ async def edit_live_preview_manual(
         if existing_draft:
             template = existing_draft
             template_id = str(existing_draft.id)
+            template.template_origin = "custom_draft"
+            template.is_marketplace = False
+            template.tags = clean_tags
         else:
             is_new_clone = True
             custom_bname = request.business_name.strip() if request.business_name else ""
@@ -1913,7 +1952,7 @@ async def edit_live_preview_manual(
                 title=custom_title,
                 short_description=template.short_description,
                 description=template.description,
-                slug=f"{template.slug.split('-custom-')[0]}-custom-{uuid.uuid4().hex[:6]}",
+                slug=f"{template.slug.split('-custom-')[0].split('-draft-')[0]}-custom-{uuid.uuid4().hex[:6]}",
                 price=template.price,
                 original_price=template.original_price,
                 is_free=template.is_free,
@@ -1925,7 +1964,7 @@ async def edit_live_preview_manual(
                 seller_id=current_user.id if current_user else template.seller_id,
                 thumbnail_url=template.thumbnail_url,
                 preview_url=template.preview_url,
-                tags=template.tags,
+                tags=clean_tags,
                 framework=template.framework,
                 pages_count=template.pages_count,
                 has_dark_mode=template.has_dark_mode,
@@ -1960,11 +1999,13 @@ async def edit_live_preview_manual(
     stored_file = result.scalar_one_or_none()
     if not stored_file:
         raise HTTPException(status_code=404, detail="Source template archive file not found")
-        
-    stored_file_data = await storage.get_file(db, file_id)
-    if not stored_file_data:
-        raise HTTPException(status_code=404, detail="Source template archive data not found")
-    zip_data = stored_file_data[0]
+
+    zip_data = stored_file.data if stored_file and stored_file.data else None
+    if not zip_data:
+        stored_file_data = await storage.get_file(db, file_id)
+        if not stored_file_data:
+            raise HTTPException(status_code=404, detail="Source template archive data not found")
+        zip_data = stored_file_data[0]
     
     # 1. Read all editable files in the ZIP (HTML, JS, JSX, CSS)
     files_dict = {}
@@ -1981,6 +2022,42 @@ async def edit_live_preview_manual(
         raise HTTPException(status_code=400, detail="Could not locate code files in template archive")
 
     updated_filenames = set()
+
+    def smart_replace_in_code(code: str, old_text: str, new_text: str) -> tuple[str, bool]:
+        if not old_text or not new_text or str(old_text).strip() == str(new_text).strip():
+            return code, False
+        ot = str(old_text).strip()
+        nt = str(new_text).strip()
+        # 1. Exact match
+        if ot in code:
+            return code.replace(ot, nt, 1), True
+        # 2. Case variations
+        if ot.upper() in code:
+            return code.replace(ot.upper(), nt.upper(), 1), True
+        if ot.lower() in code:
+            return code.replace(ot.lower(), nt.lower(), 1), True
+        if ot.title() in code:
+            return code.replace(ot.title(), nt.title(), 1), True
+        # 3. Flexible JSX/HTML matching across nested tags and multiline whitespace
+        words = [re.escape(w) for w in re.split(r'\s+', ot) if w]
+        if len(words) >= 2:
+            pattern = r'(?:\s*<[^>]+>\s*|\s+)+'.join(words)
+            m = re.search(pattern, code, re.I)
+            if m:
+                new_code = code[:m.start()] + nt + code[m.end():]
+                return new_code, True
+        return code, False
+
+    def apply_smart_replace(old_val: str, new_val: str):
+        if not old_val or not new_val or str(old_val).strip() == str(new_val).strip():
+            return
+        ov = str(old_val).strip()
+        nv = str(new_val).strip()
+        for fname in files_dict:
+            updated_code, replaced = smart_replace_in_code(files_dict[fname], ov, nv)
+            if replaced:
+                files_dict[fname] = updated_code
+                updated_filenames.add(fname)
 
     # 2. Fast, Guaranteed Direct Deterministic Replacements across all files
     try:
@@ -2021,10 +2098,7 @@ async def edit_live_preview_manual(
 
         for old_str, new_str in names_to_replace:
             if len(old_str) > 1:
-                for fname in files_dict:
-                    if old_str in files_dict[fname]:
-                        files_dict[fname] = files_dict[fname].replace(old_str, new_str)
-                        updated_filenames.add(fname)
+                apply_smart_replace(old_str, new_str)
 
     # (b) Primary Theme Color Replacement
     if request.primary_color:
@@ -2049,10 +2123,7 @@ async def edit_live_preview_manual(
             if isinstance(s_data, dict) and s_data.get("email"):
                 old_email = s_data["email"].strip()
                 if old_email and old_email != new_email:
-                    for fname in files_dict:
-                        if old_email in files_dict[fname]:
-                            files_dict[fname] = files_dict[fname].replace(old_email, new_email)
-                            updated_filenames.add(fname)
+                    apply_smart_replace(old_email, new_email)
 
     if request.contact_phone:
         new_phone = request.contact_phone.strip()
@@ -2060,10 +2131,7 @@ async def edit_live_preview_manual(
             if isinstance(s_data, dict) and s_data.get("phone"):
                 old_phone = s_data["phone"].strip()
                 if old_phone and old_phone != new_phone:
-                    for fname in files_dict:
-                        if old_phone in files_dict[fname]:
-                            files_dict[fname] = files_dict[fname].replace(old_phone, new_phone)
-                            updated_filenames.add(fname)
+                    apply_smart_replace(old_phone, new_phone)
 
     # (d) Section-by-Section Edits (Titles, Subtitles, Descriptions, CTAs, Cards, Tabs, Filters, Text Items)
     if request.page_edits and isinstance(request.page_edits, dict):
@@ -2076,103 +2144,75 @@ async def edit_live_preview_manual(
             new_logo = (p_data.get("logoText") or p_data.get("logo_text") or "").strip()
             old_logo = (orig_s.get("logoText") or orig_s.get("logo_text") or extracted.get("brand", {}).get("logo_text") or "").strip()
             if new_logo and old_logo and new_logo != old_logo:
-                for fname in files_dict:
-                    if old_logo in files_dict[fname]:
-                        files_dict[fname] = files_dict[fname].replace(old_logo, new_logo)
-                        updated_filenames.add(fname)
-                    if old_logo.upper() in files_dict[fname]:
-                        files_dict[fname] = files_dict[fname].replace(old_logo.upper(), new_logo.upper())
-                        updated_filenames.add(fname)
+                apply_smart_replace(old_logo, new_logo)
 
-            # Title / Headline (with case sensitivity variations)
-            new_title = (p_data.get("title") or p_data.get("brandName") or "").strip()
+            # Title / Headline
+            new_title = (p_data.get("title") or p_data.get("headline") or p_data.get("brandName") or "").strip()
             old_title = (orig_s.get("title") or orig_s.get("headline") or orig_s.get("brandName") or "").strip()
             if new_title and old_title and new_title != old_title:
-                for fname in files_dict:
-                    if old_title in files_dict[fname]:
-                        files_dict[fname] = files_dict[fname].replace(old_title, new_title)
-                        updated_filenames.add(fname)
-                    if old_title.upper() in files_dict[fname]:
-                        files_dict[fname] = files_dict[fname].replace(old_title.upper(), new_title.upper())
-                        updated_filenames.add(fname)
-                    if old_title.lower() in files_dict[fname]:
-                        files_dict[fname] = files_dict[fname].replace(old_title.lower(), new_title.lower())
-                        updated_filenames.add(fname)
+                apply_smart_replace(old_title, new_title)
+
+            # Badge Text
+            new_badge = (p_data.get("badgeText") or p_data.get("badge") or "").strip()
+            old_badge = (orig_s.get("badgeText") or orig_s.get("badge") or "").strip()
+            if new_badge and old_badge and new_badge != old_badge:
+                apply_smart_replace(old_badge, new_badge)
 
             # Subtitle / Subheadline
-            new_sub = (p_data.get("subtitle") or "").strip()
+            new_sub = (p_data.get("subtitle") or p_data.get("subheadline") or "").strip()
             old_sub = (orig_s.get("subtitle") or orig_s.get("subheadline") or "").strip()
             if new_sub and old_sub and new_sub != old_sub:
-                for fname in files_dict:
-                    if old_sub in files_dict[fname]:
-                        files_dict[fname] = files_dict[fname].replace(old_sub, new_sub)
-                        updated_filenames.add(fname)
-                    if old_sub.upper() in files_dict[fname]:
-                        files_dict[fname] = files_dict[fname].replace(old_sub.upper(), new_sub.upper())
-                        updated_filenames.add(fname)
+                apply_smart_replace(old_sub, new_sub)
 
             # Description / Story
-            new_desc = (p_data.get("description") or "").strip()
+            new_desc = (p_data.get("description") or p_data.get("story") or "").strip()
             old_desc = (orig_s.get("description") or orig_s.get("story") or "").strip()
             if new_desc and old_desc and new_desc != old_desc:
-                for fname in files_dict:
-                    if old_desc in files_dict[fname]:
-                        files_dict[fname] = files_dict[fname].replace(old_desc, new_desc)
-                        updated_filenames.add(fname)
+                apply_smart_replace(old_desc, new_desc)
 
-            # CTA Text
-            new_cta = (p_data.get("cta_text") or "").strip()
+            # CTA Text / Primary CTA / Button Text
+            new_cta = (p_data.get("cta_text") or p_data.get("primaryCta") or p_data.get("buttonText") or "").strip()
             old_cta = (orig_s.get("primaryCta") or orig_s.get("buttonText") or orig_s.get("ctaText") or "").strip()
             if new_cta and old_cta and new_cta != old_cta:
-                for fname in files_dict:
-                    if old_cta in files_dict[fname]:
-                        files_dict[fname] = files_dict[fname].replace(old_cta, new_cta)
-                        updated_filenames.add(fname)
-                    if old_cta.upper() in files_dict[fname]:
-                        files_dict[fname] = files_dict[fname].replace(old_cta.upper(), new_cta.upper())
-                        updated_filenames.add(fname)
+                apply_smart_replace(old_cta, new_cta)
+
+            # CTA Links
+            new_cta_link = (p_data.get("ctaLink") or p_data.get("primaryCtaLink") or "").strip()
+            old_cta_link = (orig_s.get("ctaLink") or orig_s.get("primaryCtaLink") or "").strip()
+            if new_cta_link and old_cta_link and new_cta_link != old_cta_link:
+                apply_smart_replace(old_cta_link, new_cta_link)
+
+            # Secondary CTA
+            new_sec_cta = (p_data.get("secondaryCta") or "").strip()
+            old_sec_cta = (orig_s.get("secondaryCta") or "").strip()
+            if new_sec_cta and old_sec_cta and new_sec_cta != old_sec_cta:
+                apply_smart_replace(old_sec_cta, new_sec_cta)
+
+            new_sec_cta_link = (p_data.get("secondaryCtaLink") or "").strip()
+            old_sec_cta_link = (orig_s.get("secondaryCtaLink") or "").strip()
+            if new_sec_cta_link and old_sec_cta_link and new_sec_cta_link != old_sec_cta_link:
+                apply_smart_replace(old_sec_cta_link, new_sec_cta_link)
 
             # Nav Links
             new_nav_links = p_data.get("navLinks") or p_data.get("nav_links") or []
             old_nav_links = orig_s.get("navLinks") or orig_s.get("nav_links") or []
             if isinstance(new_nav_links, list) and isinstance(old_nav_links, list):
                 for o_lnk, n_lnk in zip(old_nav_links, new_nav_links):
-                    o_l = str(o_lnk).strip()
-                    n_l = str(n_lnk).strip()
-                    if o_l and n_l and o_l != n_l:
-                        for fname in files_dict:
-                            if o_l in files_dict[fname]:
-                                files_dict[fname] = files_dict[fname].replace(o_l, n_l)
-                                updated_filenames.add(fname)
-                            if o_l.upper() in files_dict[fname]:
-                                files_dict[fname] = files_dict[fname].replace(o_l.upper(), n_l.upper())
-                                updated_filenames.add(fname)
+                    apply_smart_replace(o_lnk, n_lnk)
 
             # Tabs
             new_tabs = p_data.get("tabs", [])
             old_tabs = orig_s.get("tabs", [])
             if isinstance(new_tabs, list) and isinstance(old_tabs, list):
                 for o_tab, n_tab in zip(old_tabs, new_tabs):
-                    o_tab_s = str(o_tab).strip()
-                    n_tab_s = str(n_tab).strip()
-                    if o_tab_s and n_tab_s and o_tab_s != n_tab_s:
-                        for fname in files_dict:
-                            if o_tab_s in files_dict[fname]:
-                                files_dict[fname] = files_dict[fname].replace(o_tab_s, n_tab_s)
-                                updated_filenames.add(fname)
+                    apply_smart_replace(o_tab, n_tab)
 
             # Category Filters
             new_filters = p_data.get("filters", [])
             old_filters = orig_s.get("filters", [])
             if isinstance(new_filters, list) and isinstance(old_filters, list):
                 for o_f, n_f in zip(old_filters, new_filters):
-                    o_f_s = str(o_f).strip()
-                    n_f_s = str(n_f).strip()
-                    if o_f_s and n_f_s and o_f_s != n_f_s:
-                        for fname in files_dict:
-                            if o_f_s in files_dict[fname]:
-                                files_dict[fname] = files_dict[fname].replace(o_f_s, n_f_s)
-                                updated_filenames.add(fname)
+                    apply_smart_replace(o_f, n_f)
 
             # Cards
             new_cards = p_data.get("cards", [])
@@ -2180,37 +2220,192 @@ async def edit_live_preview_manual(
             if isinstance(new_cards, list) and isinstance(old_cards, list):
                 for o_card, n_card in zip(old_cards, new_cards):
                     if isinstance(o_card, dict) and isinstance(n_card, dict):
-                        o_ctitle = (o_card.get("title") or "").strip()
-                        n_ctitle = (n_card.get("title") or "").strip()
-                        if o_ctitle and n_ctitle and o_ctitle != n_ctitle:
-                            for fname in files_dict:
-                                if o_ctitle in files_dict[fname]:
-                                    files_dict[fname] = files_dict[fname].replace(o_ctitle, n_ctitle)
-                                    updated_filenames.add(fname)
-                        o_cdesc = (o_card.get("desc") or "").strip()
-                        n_cdesc = (n_card.get("desc") or "").strip()
-                        if o_cdesc and n_cdesc and o_cdesc != n_cdesc:
-                            for fname in files_dict:
-                                if o_cdesc in files_dict[fname]:
-                                    files_dict[fname] = files_dict[fname].replace(o_cdesc, n_cdesc)
-                                    updated_filenames.add(fname)
-                        o_ctag = (o_card.get("tag") or "").strip()
-                        n_ctag = (n_card.get("tag") or "").strip()
-                        if o_ctag and n_ctag and o_ctag != n_ctag:
-                            for fname in files_dict:
-                                if o_ctag in files_dict[fname]:
-                                    files_dict[fname] = files_dict[fname].replace(o_ctag, n_ctag)
-                                    updated_filenames.add(fname)
+                        apply_smart_replace(o_card.get("title"), n_card.get("title"))
+                        apply_smart_replace(o_card.get("desc"), n_card.get("desc"))
+                        apply_smart_replace(o_card.get("tag"), n_card.get("tag"))
+                        apply_smart_replace(o_card.get("stack"), n_card.get("stack"))
+                        apply_smart_replace(o_card.get("link"), n_card.get("link"))
+                        apply_smart_replace(o_card.get("href"), n_card.get("href"))
+                        apply_smart_replace(o_card.get("url"), n_card.get("url"))
 
-            # Text Items (exact match replace)
+                # Extra cards added by user beyond original count: replicate markup of the reference card
+                if len(new_cards) > len(old_cards) and len(old_cards) > 0:
+                    last_ref = old_cards[-1]
+                    ref_title = (last_ref.get("title") or "").strip()
+                    ref_desc = (last_ref.get("desc") or "").strip()
+
+                    for extra_card in new_cards[len(old_cards):]:
+                        if not isinstance(extra_card, dict):
+                            continue
+                        e_title = (extra_card.get("title") or "").strip()
+                        e_desc = (extra_card.get("desc") or "").strip()
+                        e_tag = (extra_card.get("tag") or "").strip()
+                        e_link = (extra_card.get("link") or extra_card.get("href") or "").strip()
+                        if not e_title and not e_desc and not e_link:
+                            continue
+
+                        for fname, code in list(files_dict.items()):
+                            anchor = ref_title if (ref_title and ref_title in code) else (ref_desc if (ref_desc and ref_desc in code) else None)
+                            if not anchor:
+                                continue
+
+                            idx_anchor = code.find(anchor)
+                            tag_start = code.rfind("<div", 0, idx_anchor)
+                            if tag_start == -1:
+                                tag_start = code.rfind("<li", 0, idx_anchor)
+                            if tag_start == -1:
+                                tag_start = code.rfind("<article", 0, idx_anchor)
+                            if tag_start == -1:
+                                tag_start = code.rfind("<a", 0, idx_anchor)
+
+                            if tag_start != -1:
+                                tag_sub = code[tag_start:tag_start+10].lower()
+                                close_tag = "</div>"
+                                if tag_sub.startswith("<li"):
+                                    close_tag = "</li>"
+                                elif tag_sub.startswith("<article"):
+                                    close_tag = "</article>"
+                                elif tag_sub.startswith("<a"):
+                                    close_tag = "</a>"
+
+                                tag_end = code.find(close_tag, idx_anchor)
+                                if tag_end != -1:
+                                    tag_end += len(close_tag)
+                                    block = code[tag_start:tag_end]
+                                    new_block = block
+                                    if ref_title and e_title:
+                                        new_block = new_block.replace(ref_title, e_title, 1)
+                                    if ref_desc and e_desc:
+                                        new_block = new_block.replace(ref_desc, e_desc, 1)
+                                    if last_ref.get("tag") and e_tag:
+                                        new_block = new_block.replace(last_ref.get("tag"), e_tag, 1)
+                                    old_l = (last_ref.get("link") or last_ref.get("href") or "").strip()
+                                    if old_l and e_link and old_l in new_block:
+                                        new_block = new_block.replace(old_l, e_link, 1)
+                                    elif e_link and 'href="' in new_block:
+                                        new_block = re.sub(r'href=["\'][^"\']*["\']', f'href="{e_link}"', new_block, count=1)
+
+                                    updated_code = code[:tag_end] + "\n\n" + new_block + code[tag_end:]
+                                    files_dict[fname] = updated_code
+                                    updated_filenames.add(fname)
+                                    ref_title = e_title
+                                    ref_desc = e_desc
+                                    break
+
+            # Text Items
             for ti in p_data.get("textItems", []):
-                orig = (ti.get("originalText") or "").strip()
-                new_t = (ti.get("text") or "").strip()
-                if orig and new_t and orig != new_t:
-                    for fname in files_dict:
-                        if orig in files_dict[fname]:
-                            files_dict[fname] = files_dict[fname].replace(orig, new_t)
-                            updated_filenames.add(fname)
+                apply_smart_replace(ti.get("originalText"), ti.get("text"))
+
+            # Direct top-level fields (e.g. card1_link, card1_title, ctaLink, primaryCtaLink)
+            for k, val in p_data.items():
+                if isinstance(val, str) and val.strip():
+                    orig_val = orig_s.get(k)
+                    if orig_val and isinstance(orig_val, str) and orig_val.strip() and orig_val != val:
+                        apply_smart_replace(orig_val.strip(), val.strip())
+
+        # (e) Persist Custom Element Colors into HTML/CSS files
+        color_rules = []
+        for p_name, p_data in request.page_edits.items():
+            if not isinstance(p_data, dict):
+                continue
+
+            sec_sel = f"#{p_name}, .{p_name}, [data-section='{p_name}']"
+
+            # Headline / Section Title color
+            h_col = p_data.get("headlineColor") or p_data.get("titleColor")
+            if h_col and isinstance(h_col, str) and h_col.strip():
+                c = h_col.strip()
+                color_rules.append(f"{sec_sel} h1, {sec_sel} h2, {sec_sel} .title, {sec_sel} .hero-title, {sec_sel} .section-title {{ color: {c} !important; }}")
+
+            # Subtitle / Story / Bio / Description color
+            sub_col = p_data.get("subtitleColor") or p_data.get("subheadlineColor") or p_data.get("storyColor") or p_data.get("descriptionColor")
+            if sub_col and isinstance(sub_col, str) and sub_col.strip():
+                c = sub_col.strip()
+                color_rules.append(f"{sec_sel} p, {sec_sel} .hero-sub, {sec_sel} .subtitle, {sec_sel} .story-content, {sec_sel} .lead {{ color: {c} !important; }}")
+
+            # Badge / Top Pill / Tag color
+            badge_col = p_data.get("badgeColor") or p_data.get("tagColor")
+            if badge_col and isinstance(badge_col, str) and badge_col.strip():
+                c = badge_col.strip()
+                color_rules.append(f"{sec_sel} .badge, {sec_sel} .pill, {sec_sel} .hero-badge, {sec_sel} .status-pill {{ color: {c} !important; border-color: {c}44 !important; }}")
+
+            # Primary CTA / Button color
+            cta_col = p_data.get("ctaColor") or p_data.get("primaryCtaColor") or p_data.get("buttonColor")
+            if cta_col and isinstance(cta_col, str) and cta_col.strip():
+                c = cta_col.strip()
+                color_rules.append(f"{sec_sel} .btn-primary, {sec_sel} .hero-cta, {sec_sel} .cta-button, {sec_sel} .primary-btn {{ color: {c} !important; }}")
+
+            # Secondary CTA color
+            sec_cta_col = p_data.get("secondaryCtaColor")
+            if sec_cta_col and isinstance(sec_cta_col, str) and sec_cta_col.strip():
+                c = sec_cta_col.strip()
+                color_rules.append(f"{sec_sel} .btn-secondary, {sec_sel} .btn-outline, {sec_sel} .secondary-cta {{ color: {c} !important; }}")
+
+            # Brand Name color
+            b_col = p_data.get("brandNameColor")
+            if b_col and isinstance(b_col, str) and b_col.strip():
+                c = b_col.strip()
+                color_rules.append(f".brand-logo, .brand-name, .logo, .navbar-brand, .logo-text, .footer-logo {{ color: {c} !important; }}")
+
+            # Logo Code / Monogram color
+            l_col = p_data.get("logoTextColor")
+            if l_col and isinstance(l_col, str) and l_col.strip():
+                c = l_col.strip()
+                color_rules.append(f".brand-code, .logo-monogram, .logo-mark {{ color: {c} !important; }}")
+
+            # Tagline color
+            tg_col = p_data.get("taglineColor")
+            if tg_col and isinstance(tg_col, str) and tg_col.strip():
+                c = tg_col.strip()
+                color_rules.append(f"footer p, footer .tagline {{ color: {c} !important; }}")
+
+            # Copyright color
+            cp_col = p_data.get("copyrightColor")
+            if cp_col and isinstance(cp_col, str) and cp_col.strip():
+                c = cp_col.strip()
+                color_rules.append(f".copyright, footer small, footer p:last-child {{ color: {c} !important; }}")
+
+            # Contact colors
+            for f_key, sel in [("phoneColor", "a[href^='tel:'], .phone, .contact-phone"), ("emailColor", "a[href^='mailto:'], .email, .contact-email"), ("addressColor", ".address, .contact-address, address")]:
+                f_val = p_data.get(f_key)
+                if f_val and isinstance(f_val, str) and f_val.strip():
+                    color_rules.append(f"{sel} {{ color: {f_val.strip()} !important; }}")
+
+            # Cards color rules
+            cards = p_data.get("cards", [])
+            if isinstance(cards, list):
+                for c_idx, c_obj in enumerate(cards):
+                    if not isinstance(c_obj, dict):
+                        continue
+                    n = c_idx + 1
+                    card_sel = f"{sec_sel} .card:nth-of-type({n}), {sec_sel} [class*='card']:nth-of-type({n}), {sec_sel} .grid > div:nth-child({n})"
+                    if c_obj.get("titleColor"):
+                        color_rules.append(f"{card_sel} h1, {card_sel} h2, {card_sel} h3, {card_sel} h4, {card_sel} .card-title, {card_sel} strong {{ color: {c_obj['titleColor'].strip()} !important; }}")
+                    if c_obj.get("descColor"):
+                        color_rules.append(f"{card_sel} p, {card_sel} .card-desc, {card_sel} .desc {{ color: {c_obj['descColor'].strip()} !important; }}")
+                    if c_obj.get("tagColor"):
+                        color_rules.append(f"{card_sel} .tag, {card_sel} .badge, {card_sel} .pill {{ color: {c_obj['tagColor'].strip()} !important; }}")
+                    if c_obj.get("stackColor"):
+                        color_rules.append(f"{card_sel} .stack, {card_sel} small {{ color: {c_obj['stackColor'].strip()} !important; }}")
+                    if c_obj.get("boxColor"):
+                        color_rules.append(f"{card_sel} {{ background-color: {c_obj['boxColor'].strip()} !important; border-color: {c_obj['boxColor'].strip()}55 !important; }}")
+                    if c_obj.get("color"):
+                        color_rules.append(f"{card_sel} {{ color: {c_obj['color'].strip()} !important; }}")
+
+        if color_rules:
+            custom_css_block = "<style id=\"studio-custom-colors\">\n/* AI Site Studio Custom Text & Element Colors */\n" + "\n".join(color_rules) + "\n</style>"
+            for fname, content in list(files_dict.items()):
+                if fname.endswith(".html"):
+                    if '<style id="studio-custom-colors">' in content:
+                        pattern = r'<style id="studio-custom-colors">.*?</style>'
+                        files_dict[fname] = re.sub(pattern, custom_css_block, content, flags=re.DOTALL)
+                    elif "</head>" in content:
+                        files_dict[fname] = content.replace("</head>", f"  {custom_css_block}\n</head>", 1)
+                    elif "</body>" in content:
+                        files_dict[fname] = content.replace("</body>", f"  {custom_css_block}\n</body>", 1)
+                    else:
+                        files_dict[fname] = content + "\n" + custom_css_block
+                    updated_filenames.add(fname)
 
     # 3. AI Code Refactor (Step 2): Only invoked when user chooses "AI Save" (request.use_ai=True)
     if request.use_ai:
@@ -2352,11 +2547,15 @@ Here are the codebase files:
                 files_dict[name] = files_dict[name].replace(template.title or "Port", request.business_name)
                 updated_filenames.add(name)
 
-    # 4. Overwrite files in ZIP
+    # 4. Overwrite files in ZIP (and strip stale pre-compiled build artifacts like dist/ so updated source files are authoritative)
     new_zip_buffer = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
         with zipfile.ZipFile(new_zip_buffer, "w", zipfile.ZIP_DEFLATED) as z_out:
             for item in z_in.infolist():
+                norm_f = item.filename.replace("\\", "/").strip("/").lower()
+                f_parts = norm_f.split("/")
+                if any(p in ("dist", "build", ".output", "out") for p in f_parts[:-1]) or norm_f in ("dist", "build", ".output", "out"):
+                    continue
                 content = z_in.read(item.filename)
                 if item.filename in updated_filenames:
                     content = files_dict[item.filename].encode("utf-8")
@@ -2379,6 +2578,8 @@ Here are the codebase files:
     }
     if request.business_name and request.business_name.strip():
         template.title = f"{request.business_name.strip()} (Customized)"
+    elif not template.title.startswith("Customized ") and "(Customized)" not in template.title:
+        template.title = f"Customized {template.title}"
 
     # Automatically generate visual snapshot thumbnail
     try:
@@ -2406,20 +2607,95 @@ Here are the codebase files:
     from app.services.security_scanner import security_scanner
     security_scanner.sanitize_extract_zip(new_zip_bytes, Path(preview_dir))
 
-    # Also persist updated code into local_project_manager under the draft's slug
+    # Purge any stale pre-compiled build output directories from preview_dir
+    for bf in ["dist", "build", ".output", "out"]:
+        b_path = os.path.join(preview_dir, bf)
+        if os.path.exists(b_path):
+            shutil.rmtree(b_path, ignore_errors=True)
+        for root, dirs, _ in list(os.walk(preview_dir)):
+            if bf in dirs:
+                shutil.rmtree(os.path.join(root, bf), ignore_errors=True)
+
+    # Auto-flatten single wrapper subfolder in preview_dir if present
+    subitems = [os.path.join(preview_dir, i) for i in os.listdir(preview_dir) if not i.startswith(".")]
+    if len(subitems) == 1 and os.path.isdir(subitems[0]):
+        inner = subitems[0]
+        for s_item in os.listdir(inner):
+            src_f = os.path.join(inner, s_item)
+            dst_f = os.path.join(preview_dir, s_item)
+            if os.path.exists(dst_f):
+                if os.path.isdir(dst_f):
+                    shutil.rmtree(dst_f, ignore_errors=True)
+                else:
+                    os.remove(dst_f)
+            shutil.move(src_f, dst_f)
+        try:
+            os.rmdir(inner)
+        except Exception:
+            pass
+
+    # Also persist updated code AND ALL media/image assets into local_project_manager under the draft's slug
     try:
         from app.core.local_project_manager import local_project_manager
+        all_save_files = {}
+        with zipfile.ZipFile(io.BytesIO(new_zip_bytes), "r") as z_all:
+            for zinfo in z_all.infolist():
+                if not zinfo.is_dir() and not any(d in zinfo.filename.replace("\\", "/").split("/") for d in ["node_modules", ".git", "__MACOSX"]):
+                    try:
+                        all_save_files[zinfo.filename] = z_all.read(zinfo.filename)
+                    except Exception:
+                        pass
+
         local_project_manager.save_project_revision(
             template_id=template.id,
-            files=files_dict,
+            files=all_save_files,
             instruction="Manual edits applied in Live Preview editor",
             slug=template.slug
         )
+
+        # Auto-flatten single wrapper subfolder in latest/ if present so assets and HTML are at root level
+        latest_dir = local_project_manager.get_local_project_dir(template.slug or template.id, version="latest")
+        if latest_dir and os.path.isdir(str(latest_dir)):
+            for bf in ["dist", "build", ".output", "out"]:
+                b_path = os.path.join(str(latest_dir), bf)
+                if os.path.exists(b_path):
+                    shutil.rmtree(b_path, ignore_errors=True)
+            subitems = [os.path.join(str(latest_dir), i) for i in os.listdir(str(latest_dir)) if not i.startswith(".")]
+            if len(subitems) == 1 and os.path.isdir(subitems[0]):
+                inner = subitems[0]
+                for s_item in os.listdir(inner):
+                    src_f = os.path.join(inner, s_item)
+                    dst_f = os.path.join(str(latest_dir), s_item)
+                    if os.path.exists(dst_f):
+                        if os.path.isdir(dst_f):
+                            shutil.rmtree(dst_f, ignore_errors=True)
+                        else:
+                            os.remove(dst_f)
+                    shutil.move(src_f, dst_f)
+                try:
+                    os.rmdir(inner)
+                except Exception:
+                    pass
     except Exception as save_err:
         logger.warning(f"Could not persist manual edit to local_project_manager: {save_err}")
             
     # Commit session changes
     await db.commit()
+
+    # 7. Invalidate template caches in memory and Redis so fresh customized code is immediately served
+    invalidate_preview_template_cache(str(template.id))
+    invalidate_preview_template_cache(str(template_id))
+    if template.slug:
+        invalidate_preview_template_cache(template.slug)
+    if original_template_id:
+        invalidate_preview_template_cache(original_template_id)
+    try:
+        from app.core.redis import cache_delete
+        await cache_delete(f"template:{template.id}")
+        await cache_delete(f"template:{template.slug}")
+        await cache_delete(f"template:{original_template_id}")
+    except Exception:
+        pass
     
     return {"status": "success", "template_id": str(template_id), "title": template.title, "thumbnail_url": template.thumbnail_url, "original_template_id": original_template_id}
 
@@ -2680,9 +2956,8 @@ async def apply_live_preview_theme_color(
                 target_dirs.append(p_dir)
 
     for t_dir in target_dirs:
-        for root, _, files in os.walk(t_dir):
-            if any(d in root.replace("\\", "/").split("/") for d in ["dist", "build", "node_modules", ".output"]):
-                continue
+        for root, dirs, files in os.walk(t_dir):
+            dirs[:] = [d for d in dirs if d not in ["dist", "build", "node_modules", ".output", ".git", "__MACOSX", ".venv"]]
             for f_name in files:
                 f_path = os.path.join(root, f_name)
                 rel_path = os.path.relpath(f_path, t_dir).replace("\\", "/")
@@ -2935,11 +3210,13 @@ async def edit_live_preview_find_replace(
     stored_file = result.scalar_one_or_none()
     if not stored_file:
         raise HTTPException(status_code=404, detail="Source template archive file not found")
-        
-    stored_file_data = await storage.get_file(db, file_id)
-    if not stored_file_data:
-        raise HTTPException(status_code=404, detail="Source template archive data not found")
-    zip_data = stored_file_data[0]
+
+    zip_data = stored_file.data if stored_file and stored_file.data else None
+    if not zip_data:
+        stored_file_data = await storage.get_file(db, file_id)
+        if not stored_file_data:
+            raise HTTPException(status_code=404, detail="Source template archive data not found")
+        zip_data = stored_file_data[0]
     
     # 1. Read files and do find-and-replace
     updated_filenames = set()
@@ -3093,11 +3370,13 @@ async def edit_live_preview_ai(
     stored_file = result.scalar_one_or_none()
     if not stored_file:
         raise HTTPException(status_code=404, detail="Source template archive file not found")
-        
-    stored_file_data = await storage.get_file(db, file_id)
-    if not stored_file_data:
-        raise HTTPException(status_code=404, detail="Source template archive data not found")
-    zip_data = stored_file_data[0]
+
+    zip_data = stored_file.data if stored_file and stored_file.data else None
+    if not zip_data:
+        stored_file_data = await storage.get_file(db, file_id)
+        if not stored_file_data:
+            raise HTTPException(status_code=404, detail="Source template archive data not found")
+        zip_data = stored_file_data[0]
     
     # 1. Read all editable files in the preview dir or ZIP (HTML, JS, JSX, CSS)
     files_dict = {}
@@ -3561,35 +3840,64 @@ async def serve_live_preview(
                 return Response(content=b"", media_type="application/javascript")
             return Response(content=b"", media_type="application/octet-stream")
 
-        # 1. First attempt: In-Browser Standalone React/Babel Runner for App.jsx
+        # 1. Multi-Framework Source Detection (Vue, React, Svelte, Static HTML)
+        app_vue_content = None
         app_jsx_content = None
+        app_svelte_content = None
+        index_html_content = None
         index_css_content = ""
+        package_json_content = None
         preview_dir_loc = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
 
-        # Scan preview_dir (extracted filesystem) for App.jsx
+        # Scan preview_dir (extracted filesystem) for framework entry files
         if os.path.isdir(preview_dir_loc):
             for root, _, files in os.walk(preview_dir_loc):
                 if any(d in root.replace("\\", "/").split("/") for d in ["dist", "build", ".output", "node_modules"]):
                     continue
-                if "App.jsx" in files:
-                    try:
-                        with open(os.path.join(root, "App.jsx"), "r", encoding="utf-8", errors="ignore") as _f:
-                            raw_app = _f.read()
-                            from app.services.ai_service import clean_code_response, repair_truncated_jsx
-                            app_jsx_content = repair_truncated_jsx(clean_code_response(raw_app, "jsx"))
-                    except Exception:
-                        pass
-                if "index.css" in files:
-                    try:
-                        with open(os.path.join(root, "index.css"), "r", encoding="utf-8", errors="ignore") as _cf:
-                            index_css_content = _cf.read()
-                    except Exception:
-                        pass
-                if app_jsx_content:
-                    break
+                for f in files:
+                    f_lower = f.lower()
+                    f_full = os.path.join(root, f)
+                    if f_lower in ("app.vue", "main.vue") or (f_lower.endswith(".vue") and not app_vue_content):
+                        try:
+                            with open(f_full, "r", encoding="utf-8", errors="ignore") as _vf:
+                                app_vue_content = _vf.read()
+                        except Exception:
+                            pass
+                    elif f_lower in ("app.jsx", "app.tsx", "main.jsx", "main.tsx", "index.jsx") or (f_lower.endswith((".jsx", ".tsx")) and not app_jsx_content):
+                        try:
+                            with open(f_full, "r", encoding="utf-8", errors="ignore") as _jf:
+                                raw_app = _jf.read()
+                                from app.services.ai_service import clean_code_response, repair_truncated_jsx
+                                app_jsx_content = repair_truncated_jsx(clean_code_response(raw_app, "jsx"))
+                        except Exception:
+                            pass
+                    elif f_lower in ("app.svelte", "main.svelte") or (f_lower.endswith(".svelte") and not app_svelte_content):
+                        try:
+                            with open(f_full, "r", encoding="utf-8", errors="ignore") as _sf:
+                                app_svelte_content = _sf.read()
+                        except Exception:
+                            pass
+                    elif f_lower in ("index.html", "index.htm", "home.html", "main.html") and not index_html_content:
+                        try:
+                            with open(f_full, "r", encoding="utf-8", errors="ignore") as _hf:
+                                index_html_content = _hf.read()
+                        except Exception:
+                            pass
+                    elif f_lower.endswith(".css"):
+                        try:
+                            with open(f_full, "r", encoding="utf-8", errors="ignore") as _cf:
+                                index_css_content += "\n" + _cf.read()
+                        except Exception:
+                            pass
+                    elif f_lower == "package.json" and not package_json_content:
+                        try:
+                            with open(f_full, "r", encoding="utf-8", errors="ignore") as _pf:
+                                package_json_content = _pf.read()
+                        except Exception:
+                            pass
 
-        # If preview_dir is empty/missing, also try reading App.jsx from the DB-stored ZIP
-        if not app_jsx_content:
+        # If preview_dir is empty or missing sources, read directly from the DB-stored ZIP
+        if not (app_vue_content or app_jsx_content or app_svelte_content or index_html_content):
             try:
                 d_assets = template.download_assets or {}
                 z_url = d_assets.get("zip")
@@ -3602,24 +3910,203 @@ async def serve_live_preview(
                         if stored_f and stored_f.data and zipfile.is_zipfile(io.BytesIO(stored_f.data)):
                             with zipfile.ZipFile(io.BytesIO(stored_f.data), "r") as zf:
                                 names = zf.namelist()
-                                jsx_candidates = sorted(
-                                    [n for n in names if n.endswith("App.jsx") and "node_modules" not in n],
-                                    key=len
+                                # Vue candidates
+                                vue_cands = sorted(
+                                    [n for n in names if n.lower().endswith(".vue") and "node_modules" not in n],
+                                    key=lambda x: (not x.lower().endswith("app.vue"), len(x))
                                 )
-                                if jsx_candidates:
-                                    raw_app = zf.read(jsx_candidates[0]).decode("utf-8", errors="ignore")
+                                if vue_cands:
+                                    app_vue_content = zf.read(vue_cands[0]).decode("utf-8", errors="ignore")
+                                # JSX / TSX candidates
+                                jsx_cands = sorted(
+                                    [n for n in names if (n.lower().endswith(".jsx") or n.lower().endswith(".tsx")) and "node_modules" not in n],
+                                    key=lambda x: (not x.lower().endswith("app.jsx"), len(x))
+                                )
+                                if jsx_cands:
+                                    raw_app = zf.read(jsx_cands[0]).decode("utf-8", errors="ignore")
                                     from app.services.ai_service import clean_code_response, repair_truncated_jsx
                                     app_jsx_content = repair_truncated_jsx(clean_code_response(raw_app, "jsx"))
-                                css_cands = [n for n in names if n.endswith("index.css") and "node_modules" not in n]
-                                if css_cands:
-                                    index_css_content = zf.read(css_cands[0]).decode("utf-8", errors="ignore")
+                                # Svelte candidates
+                                svelte_cands = sorted(
+                                    [n for n in names if n.lower().endswith(".svelte") and "node_modules" not in n],
+                                    key=len
+                                )
+                                if svelte_cands:
+                                    app_svelte_content = zf.read(svelte_cands[0]).decode("utf-8", errors="ignore")
+                                # HTML candidates
+                                html_cands = sorted(
+                                    [n for n in names if (n.lower().endswith("index.html") or n.lower().endswith(".html")) and "node_modules" not in n and "__MACOSX" not in n],
+                                    key=lambda x: (not x.lower().endswith("index.html"), len(x))
+                                )
+                                if html_cands:
+                                    index_html_content = zf.read(html_cands[0]).decode("utf-8", errors="ignore")
+                                # CSS candidates
+                                css_cands = [n for n in names if n.lower().endswith(".css") and "node_modules" not in n]
+                                for c_name in css_cands[:3]:
+                                    index_css_content += "\n" + zf.read(c_name).decode("utf-8", errors="ignore")
+                                # package.json
+                                pkg_cands = [n for n in names if n.lower().endswith("package.json") and "node_modules" not in n]
+                                if pkg_cands:
+                                    package_json_content = zf.read(pkg_cands[0]).decode("utf-8", errors="ignore")
             except Exception as e_zip_read:
-                logger.warning(f"serve_fallback: Could not read App.jsx from DB ZIP: {e_zip_read}")
+                logger.warning(f"serve_fallback: Could not read sources from DB ZIP: {e_zip_read}")
 
+        # Determine target framework
+        requested_fw = (request.query_params.get("framework") or "").strip().lower()
+        model_fw = (template.framework.value if template.framework else "").lower()
+
+        pkg_deps = {}
+        if package_json_content:
+            try:
+                pkg_data = json.loads(package_json_content)
+                pkg_deps = {**pkg_data.get("dependencies", {}), **pkg_data.get("devDependencies", {})}
+            except Exception:
+                pass
+
+        detected_fw = "react"
+        if requested_fw in ("vue", "react", "nextjs", "svelte", "angular", "html", "vanilla"):
+            detected_fw = requested_fw
+        elif app_vue_content or "vue" in pkg_deps or "nuxt" in pkg_deps or model_fw in ("vue", "nuxt"):
+            detected_fw = "vue"
+        elif app_jsx_content or "react" in pkg_deps or "next" in pkg_deps or model_fw in ("react", "nextjs"):
+            detected_fw = "react"
+        elif app_svelte_content or "svelte" in pkg_deps or model_fw == "svelte":
+            detected_fw = "svelte"
+        elif "@angular/core" in pkg_deps or model_fw == "angular":
+            detected_fw = "angular"
+        elif index_html_content or model_fw in ("html", "vanilla", "static"):
+            detected_fw = "html"
+
+        _title = template.title or "Live Preview"
+        _css = index_css_content
+
+        # ─── RUNNER 1: Vue 3 In-Browser Standalone Runner ──────────────────────────
+        if app_vue_content or (detected_fw == "vue" and app_vue_content):
+            try:
+                # 1. Extract <template>, <script>, and <style>
+                t_match = re.search(r"<template[^>]*>([\s\S]*?)</template>", app_vue_content, re.IGNORECASE)
+                vue_template_html = t_match.group(1).strip() if t_match else "<div class='p-8'><h1>{{ title || 'Vue Preview' }}</h1></div>"
+
+                s_match = re.search(r"<script[^>]*>([\s\S]*?)</script>", app_vue_content, re.IGNORECASE)
+                raw_vue_script = s_match.group(1).strip() if s_match else ""
+                
+                # Clean script: remove imports
+                cleaned_vue_script = raw_vue_script
+                cleaned_vue_script = re.sub(r"import\s+[\s\S]*?from\s+['\"].*?['\"]; *\n?", "", cleaned_vue_script)
+                cleaned_vue_script = re.sub(r"import\s+['\"].*?['\"]; *\n?", "", cleaned_vue_script)
+
+                style_matches = re.findall(r"<style[^>]*>([\s\S]*?)</style>", app_vue_content, re.IGNORECASE)
+                vue_styles = "\n".join(style_matches)
+
+                # Escape backticks and dollar signs for embedding in template string
+                escaped_script = cleaned_vue_script.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+
+                vue_runner_html = (
+                    "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
+                    "  <meta charset=\"UTF-8\">\n"
+                    "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
+                    f"  <title>{_title} - Live Preview (Vue)</title>\n"
+                    "  <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n"
+                    "  <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap\" rel=\"stylesheet\">\n"
+                    "  <script src=\"https://cdn.tailwindcss.com\"></script>\n"
+                    "  <script src=\"https://unpkg.com/vue@3/dist/vue.global.js\"></script>\n"
+                    "  <style>\n"
+                    "    *, *::before, *::after { box-sizing: border-box; }\n"
+                    "    body { margin: 0; font-family: 'Inter', system-ui, sans-serif; }\n"
+                    f"    {_css}\n"
+                    f"    {vue_styles}\n"
+                    "  </style>\n"
+                    "</head>\n<body>\n"
+                    "  <div id=\"app\"></div>\n"
+                    "  <script id=\"vue-template-src\" type=\"text/x-template\">\n"
+                    f"    {vue_template_html}\n"
+                    "  </script>\n"
+                    "  <script>\n"
+                    "    const { createApp, ref, reactive, computed, onMounted, watch } = Vue;\n"
+                    "    const commonIconNames = [\n"
+                    "      'Sparkles','ArrowLeft','ArrowRight','ArrowUp','ArrowDown','CheckCircle','CheckCircle2',\n"
+                    "      'Check','XCircle','X','Cpu','Globe','Layers','FileText','File','Folder','Plus','Minus',\n"
+                    "      'Trash','Trash2','Edit','Edit2','Edit3','Info','AlertCircle','AlertTriangle','Bell',\n"
+                    "      'Building','Building2','Home','Map','MapPin','Palette','Paintbrush','Wand','Wand2',\n"
+                    "      'Phone','Mail','MessageCircle','MessageSquare','Send','Share','Share2','Link',\n"
+                    "      'ExternalLink','Copy','Download','Upload','Eye','EyeOff','Lock','Unlock','Key',\n"
+                    "      'Shield','ShieldCheck','User','Users','UserPlus','Zap','Flame','Rocket','Star',\n"
+                    "      'Heart','ThumbsUp','ThumbsDown','ShoppingBag','ShoppingCart','Package','Tag',\n"
+                    "      'Gift','Store','Coffee','Leaf','Apple','Sun','Moon','Cloud','Menu','MoreHorizontal',\n"
+                    "      'MoreVertical','ChevronUp','ChevronDown','ChevronLeft','ChevronRight','Sliders',\n"
+                    "      'Settings','Settings2','Bot','Code','Code2','Terminal','Server','Database','Wifi',\n"
+                    "      'Play','Pause','Circle','TrendingUp','TrendingDown','BarChart','BarChart2',\n"
+                    "      'DollarSign','CreditCard','Banknote','Wallet','Award','Trophy','Crown','Flag',\n"
+                    "      'Calendar','Clock','Timer','Search','Filter','RefreshCw','RotateCw','Camera',\n"
+                    "      'Image','Video','Music','Mic','Volume2','Lightbulb','Brain','Network','Monitor',\n"
+                    "      'Laptop','Tablet','Smartphone'\n"
+                    "    ];\n"
+                    "    const vueMockIcons = {};\n"
+                    "    commonIconNames.forEach(function(name) {\n"
+                    "      vueMockIcons[name] = {\n"
+                    "        name: name,\n"
+                    "        props: ['class', 'size', 'color', 'strokeWidth'],\n"
+                    "        template: '<svg xmlns=\"http://www.w3.org/2000/svg\" :class=\"class || \\'w-4 h-4 inline-block\\'\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/></svg>'\n"
+                    "      };\n"
+                    "    });\n"
+                    "    let compDefinition = {};\n"
+                    "    try {\n"
+                    f"      const scriptBody = `{escaped_script}`;\n"
+                    "      if (scriptBody.indexOf('export default') !== -1) {\n"
+                    "        const expMatch = scriptBody.match(/export\\s+default\\s+([\\s\\S]+)$/);\n"
+                    "        if (expMatch) {\n"
+                    "          const objText = expMatch[1].trim().replace(/;$/, '');\n"
+                    "          compDefinition = new Function('Vue', 'ref', 'reactive', 'computed', 'onMounted', 'watch', 'return (' + objText + ')')(Vue, ref, reactive, computed, onMounted, watch);\n"
+                    "        }\n"
+                    "      } else if (scriptBody.trim()) {\n"
+                    "        compDefinition = {\n"
+                    "          setup: function() {\n"
+                    "            try {\n"
+                    "              return new Function('Vue', 'ref', 'reactive', 'computed', 'onMounted', 'watch', scriptBody + '\\nreturn {};')(Vue, ref, reactive, computed, onMounted, watch);\n"
+                    "            } catch(e) {\n"
+                    "              console.warn('Vue setup execute:', e);\n"
+                    "              return {};\n"
+                    "            }\n"
+                    "          }\n"
+                    "        };\n"
+                    "      }\n"
+                    "    } catch (e) {\n"
+                    "      console.warn('Vue component compile notice:', e);\n"
+                    "    }\n"
+                    "    compDefinition.template = document.getElementById('vue-template-src').innerHTML;\n"
+                    "    try {\n"
+                    "      const app = createApp(compDefinition);\n"
+                    "      Object.keys(vueMockIcons).forEach(function(k) { app.component(k, vueMockIcons[k]); });\n"
+                    "      app.mount('#app');\n"
+                    "    } catch (e) {\n"
+                    "      console.error('Vue mount error:', e);\n"
+                    "      const appEl = document.getElementById('app');\n"
+                    "      if (appEl) appEl.innerHTML = '<div style=\"padding:2rem;font-family:sans-serif;color:#e11d48;\"><h3>Vue Preview Ready</h3><p>' + (e && e.message || 'Rendered') + '</p></div>';\n"
+                    "    }\n"
+                    "  </script>\n"
+                    f"  {watermark_payload}\n"
+                    "</body>\n</html>"
+                )
+                return Response(content=vue_runner_html.encode("utf-8"), media_type="text/html", headers=security_scanner.get_secure_preview_headers())
+            except Exception as e_vue:
+                logger.warning(f"In-browser Vue runner fallback notice: {e_vue}")
+
+        # ─── RUNNER 2: React 18 In-Browser Standalone Runner ───────────────────────
         if app_jsx_content:
             try:
-                # Safely strip ES module imports (handles multi-line destructured imports)
+                # Safely transform ES module image/asset imports into valid JS variables
+                # e.g. import heroImg from "./assets/hero.png" -> const heroImg = "./assets/hero.png";
+                def transform_asset_import(match):
+                    var_name = match.group(1).strip()
+                    asset_path = match.group(2).strip()
+                    return f"const {var_name} = '{asset_path}';"
+
                 cleaned_jsx = app_jsx_content
+                cleaned_jsx = re.sub(
+                    r"import\s+([A-Za-z0-9_]+)\s+from\s+['\"]([^'\"]+\.(?:png|jpg|jpeg|svg|webp|gif|ico|avif|bmp))['\"];?",
+                    transform_asset_import,
+                    cleaned_jsx
+                )
                 cleaned_jsx = re.sub(r"import\s+[\s\S]*?from\s+['\"].*?['\"]; *\n?", "", cleaned_jsx)
                 cleaned_jsx = re.sub(r"import\s+['\"].*?['\"]; *\n?", "", cleaned_jsx)
                 cleaned_jsx = re.sub(r"^\s*export\s+default\s+[A-Za-z0-9_]+\s*;\s*$", "", cleaned_jsx, flags=re.MULTILINE)
@@ -3634,9 +4121,6 @@ async def serve_live_preview(
                         comp_name = func_m.group(1)
                     elif const_m:
                         comp_name = const_m.group(1)
-
-                _title = template.title
-                _css = index_css_content
 
                 react_runner_html = (
                     "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
@@ -3711,11 +4195,29 @@ async def serve_live_preview(
                     "      const root = document.getElementById('root'); root.replaceChildren(); const msg = document.createElement('p'); msg.textContent = String(e && e.message || 'Unknown preview error'); root.appendChild(msg);\n"
                     "    }\n"
                     "  </script>\n"
+                    f"  {watermark_payload}\n"
                     "</body>\n</html>"
                 )
                 return Response(content=react_runner_html.encode("utf-8"), media_type="text/html", headers=security_scanner.get_secure_preview_headers())
             except Exception as e_runner:
                 logger.warning(f"In-browser React runner fallback failed: {e_runner}")
+
+        # ─── RUNNER 3: Static HTML Runner ──────────────────────────────────────────
+        if index_html_content:
+            try:
+                html_out = index_html_content
+                if "<head>" in html_out and "cdn.tailwindcss.com" not in html_out:
+                    html_out = html_out.replace("<head>", f"<head>\n  <base href=\"/api/v1/preview/live/{template_id}/\" />\n  <script src=\"https://cdn.tailwindcss.com\"></script>\n", 1)
+                elif "<base" not in html_out and "<head>" in html_out:
+                    html_out = html_out.replace("<head>", f"<head>\n  <base href=\"/api/v1/preview/live/{template_id}/\" />\n", 1)
+
+                if "</body>" in html_out:
+                    html_out = html_out.replace("</body>", f"{watermark_payload}\n</body>", 1)
+                else:
+                    html_out = html_out + "\n" + watermark_payload
+                return Response(content=html_out.encode("utf-8"), media_type="text/html", headers=security_scanner.get_secure_preview_headers())
+            except Exception as e_html:
+                logger.warning(f"Static HTML runner fallback failed: {e_html}")
 
         # 2. Visual rich landing page fallback
 
@@ -4270,6 +4772,20 @@ async def serve_live_preview(
             serve_root = preview_dir
             build_dir = None
 
+            is_custom_draft_item = (
+                template.template_origin == "custom_draft"
+                or template.status == TemplateStatus.DRAFT
+                or "-custom-" in (template.slug or "")
+                or "-draft-" in (template.slug or "")
+            )
+
+            # For customized user drafts, purge any stale pre-compiled build folders so edited source files run
+            if is_custom_draft_item:
+                for bf in build_folders:
+                    for root, dirs, _ in list(os.walk(preview_dir)):
+                        if bf in dirs:
+                            shutil.rmtree(os.path.join(root, bf), ignore_errors=True)
+
             # Detect if this template is pure HTML / static vs modern framework
             template_fw_str = (template.framework.value if template.framework else "").lower()
             
@@ -4298,16 +4814,17 @@ async def serve_live_preview(
             if package_json_path:
                 project_root = os.path.dirname(package_json_path)
 
-                # Check if project is already compiled
-                for d in build_folders:
-                    candidate = os.path.join(project_root, d)
-                    if os.path.isdir(candidate):
-                        for b_root, b_dirs, b_files in os.walk(candidate):
-                            if "index.html" in b_files:
-                                build_dir = b_root
+                # Check if project is already compiled (skip for custom drafts so updated source code runs live)
+                if not is_custom_draft_item:
+                    for d in build_folders:
+                        candidate = os.path.join(project_root, d)
+                        if os.path.isdir(candidate):
+                            for b_root, b_dirs, b_files in os.walk(candidate):
+                                if "index.html" in b_files:
+                                    build_dir = b_root
+                                    break
+                            if build_dir:
                                 break
-                        if build_dir:
-                            break
 
                 # Compile any package-based SPA (React, Vue, Angular, etc.) into a static bundle.
                 if not build_dir:
@@ -4331,6 +4848,15 @@ async def serve_live_preview(
 
             if build_dir:
                 serve_root = build_dir
+            elif template_fw_str in ("react", "nextjs", "vue", "nuxt", "svelte") or (request.query_params.get("framework") or "").lower() in ("react", "vue", "svelte"):
+                # If template is declared or requested as a modern framework and not pre-compiled into dist/,
+                # always run via the In-Browser Standalone Runner (React 18 + Babel or Vue 3) so the user's
+                # actual App.jsx / App.vue executes live in the preview, NEVER a static HTML mirror!
+                logger.info("Serving modern framework template %s (%s) directly via in-browser runner", template_id, template_fw_str)
+                return await serve_fallback(f"Preview compilation: in-browser runner for {template_fw_str}")
+            elif any(f in ("App.jsx", "App.tsx", "App.vue", "App.svelte") for r, d, files in os.walk(preview_dir) for f in files if "node_modules" not in r):
+                logger.info("Detected App.jsx / App.vue in %s; serving directly via in-browser runner", template_id)
+                return await serve_fallback("Found framework source file; serving via in-browser runner")
             elif package_json_path:
                 # A framework's source index.html is only an empty mount point
                 # (for example <div id="app"></div>). Never serve it as if it
@@ -4396,63 +4922,9 @@ async def serve_live_preview(
 
             if found_html:
                 index_file_path = found_html
-            elif not filepath or filepath == "/" or filepath.endswith(".html") or filepath.endswith(".htm"):
-                # Friendly fallback warning message explaining how to structure the HTML template
-                missing_html_warning = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Site Studio — Preview Notice</title>
-  <style>
-    body {{
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #0b0f19;
-      color: #f1f5f9;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      margin: 0;
-      padding: 24px;
-      box-sizing: border-box;
-    }}
-    .card {{
-      background: #1e293b;
-      border: 1px solid #334155;
-      border-radius: 16px;
-      padding: 32px;
-      max-width: 580px;
-      text-align: center;
-      box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
-    }}
-    .icon {{ font-size: 42px; margin-bottom: 12px; }}
-    h1 {{ font-size: 20px; font-weight: 700; margin: 0 0 12px 0; color: #f8fafc; }}
-    p {{ font-size: 14px; color: #94a3b8; line-height: 1.6; margin: 0 0 20px 0; }}
-    .tip {{
-      background: rgba(99, 102, 241, 0.1);
-      border: 1px solid rgba(99, 102, 241, 0.3);
-      border-radius: 10px;
-      padding: 14px 18px;
-      font-size: 13px;
-      color: #a5b4fc;
-      text-align: left;
-    }}
-    code {{ font-family: monospace; font-weight: bold; color: #e2e8f0; }}
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="icon">📄</div>
-    <h1>No HTML Entry Point Found</h1>
-    <p>We could not find an entry file (e.g. <code>index.html</code> or <code>index.htm</code>) in your uploaded template archive.</p>
-    <div class="tip">
-      <strong>Tip for HTML Templates:</strong> Please ensure your template archive includes an <code>index.html</code> (or <code>index.htm</code>) file in the root folder, or upload a standalone <code>.html</code> file directly.
-    </div>
-  </div>
-</body>
-</html>"""
-                return Response(content=missing_html_warning.encode("utf-8"), media_type="text/html", headers=security_scanner.get_secure_preview_headers())
+            else:
+                # Dynamic multi-framework fallback: compile & run Vue, React, Svelte, or static components
+                return await serve_fallback("Preview compilation: finding framework entry point")
     
         # Determine file to serve
         if not filepath or filepath == "/":
@@ -4479,38 +4951,120 @@ async def serve_live_preview(
                     if os.path.exists(nested_path):
                         full_path = str(nested_path)
     
+        is_asset_request = bool(re.search(r'\.(?:png|jpg|jpeg|svg|webp|gif|ico|avif|bmp|tiff|css|js|mjs|woff|woff2|ttf|eot|otf|mp4|webm|mp3|wav|ogg|pdf|json|map)$', filepath or "", re.I))
+        is_image_request = bool(re.search(r'\.(?:png|jpg|jpeg|svg|webp|gif|ico|avif|bmp)$', filepath or "", re.I))
+
         if not os.path.exists(full_path) or os.path.isdir(full_path):
             # 1. Clean URL resolution: check if appending .html or .htm matches a real page
-            if os.path.exists(full_path + ".html"):
+            if not is_asset_request and os.path.exists(full_path + ".html"):
                 full_path = full_path + ".html"
-            elif os.path.exists(full_path + ".htm"):
+            elif not is_asset_request and os.path.exists(full_path + ".htm"):
                 full_path = full_path + ".htm"
             # 2. Directory route: check if directory contains index.html
-            elif os.path.isdir(full_path) and os.path.exists(os.path.join(full_path, "index.html")):
+            elif not is_asset_request and os.path.isdir(full_path) and os.path.exists(os.path.join(full_path, "index.html")):
                 full_path = os.path.join(full_path, "index.html")
             else:
-                # 3. Fuzzy & case-insensitive match against physical files in serve_root
-                base_clean = os.path.basename(full_path).lower().rstrip("/").replace("-", "").replace("_", "").replace(" ", "")
                 found_match = None
-                if base_clean:
-                    for root, dirs, files in os.walk(serve_root):
-                        dirs[:] = [d for d in dirs if d not in ["node_modules", ".git", "dist", "build"]]
-                        for f in files:
-                            f_clean = f.lower().replace("-", "").replace("_", "").replace(" ", "")
-                            if f_clean == f"{base_clean}.html" or f_clean == f"{base_clean}.htm" or f_clean == base_clean:
-                                found_match = os.path.join(root, f)
-                                break
-                            if f.lower().endswith((".html", ".htm")):
-                                f_stem = f_clean.rsplit(".", 1)[0]
-                                if (len(base_clean) >= 4 and base_clean in f_stem) or (len(f_stem) >= 4 and f_stem in base_clean):
-                                    found_match = os.path.join(root, f)
+                clean_target = (filepath or "").lstrip("/").replace("\\", "/")
+                target_base = os.path.basename(clean_target).lower()
+
+                # Check all alternative local extraction and project roots
+                search_roots = [serve_root]
+                for extra_r in [preview_dir, preview_id_dir, preview_slug_dir]:
+                    if extra_r and os.path.exists(extra_r) and extra_r not in search_roots:
+                        search_roots.append(extra_r)
+
+                # 3a. Direct check for filepath in alternative roots & their direct subfolders
+                for sr in search_roots:
+                    direct_cand = os.path.join(sr, clean_target)
+                    if os.path.isfile(direct_cand):
+                        found_match = direct_cand
+                        break
+                    try:
+                        for sub in os.listdir(sr):
+                            sub_p = os.path.join(sr, sub)
+                            if os.path.isdir(sub_p) and sub not in ["node_modules", ".git", "__MACOSX"]:
+                                nested_cand = os.path.join(sub_p, clean_target)
+                                if os.path.isfile(nested_cand):
+                                    found_match = nested_cand
+                                    break
+                    except Exception:
+                        pass
+                    if found_match:
+                        break
+
+                # 3b. Recursive search by relative path suffix or filename match across all roots
+                if not found_match and target_base:
+                    for sr in search_roots:
+                        try:
+                            for root, dirs, files in os.walk(sr):
+                                dirs[:] = [d for d in dirs if d not in ["node_modules", ".git", "__MACOSX"]]
+                                for f in files:
+                                    f_lower = f.lower()
+                                    full_f = os.path.join(root, f)
+                                    rel_f = os.path.relpath(full_f, sr).replace("\\", "/").lower()
+                                    if rel_f.endswith(clean_target.lower()) or f_lower == target_base:
+                                        found_match = full_f
+                                        break
+                                if found_match:
+                                    break
+                        except Exception:
+                            pass
                         if found_match:
                             break
 
+                # 3c. Direct ZIP Archive Fallback: If still not on disk, extract it directly from the template StoredFile zip!
+                if not found_match and is_asset_request:
+                    try:
+                        d_assets = template.download_assets or {}
+                        z_url = d_assets.get("zip")
+                        if z_url:
+                            uuid_m = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(z_url))
+                            if uuid_m:
+                                from app.models import StoredFile
+                                sf_res = await db.execute(select(StoredFile).where(StoredFile.id == uuid.UUID(uuid_m.group(1))))
+                                sf_obj = sf_res.scalar_one_or_none()
+                                if sf_obj and sf_obj.data and zipfile.is_zipfile(io.BytesIO(sf_obj.data)):
+                                    with zipfile.ZipFile(io.BytesIO(sf_obj.data), "r") as zf:
+                                        zf_names = zf.namelist()
+                                        matched_entry = None
+                                        # First try exact path suffix match
+                                        for zn in zf_names:
+                                            zn_clean = zn.replace("\\", "/").lower()
+                                            if zn_clean.endswith(clean_target.lower()):
+                                                matched_entry = zn
+                                                break
+                                        # Second try filename match
+                                        if not matched_entry and target_base:
+                                            for zn in zf_names:
+                                                if os.path.basename(zn).lower() == target_base:
+                                                    matched_entry = zn
+                                                    break
+                                        if matched_entry:
+                                            asset_bytes = zf.read(matched_entry)
+                                            # Cache onto disk at candidate_path so subsequent requests are fast
+                                            try:
+                                                os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                                                with open(full_path, "wb") as _cached:
+                                                    _cached.write(asset_bytes)
+                                                found_match = full_path
+                                            except Exception:
+                                                m_type, _ = mimetypes.guess_type(matched_entry)
+                                                return Response(content=asset_bytes, media_type=m_type or "application/octet-stream", headers=security_scanner.get_secure_preview_headers())
+                    except Exception as z_err:
+                        logger.warning(f"Live preview ZIP asset extraction fallback notice: {z_err}")
+
                 if found_match and os.path.exists(found_match):
                     full_path = found_match
-                # 4. Fallback to index.html (SPA / client-side routing) only if genuinely not a subpage
+                elif is_asset_request:
+                    # NEVER serve index.html for images or assets!
+                    if is_image_request:
+                        clean_name = os.path.basename(clean_target)
+                        placeholder_svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400"><rect width="100%" height="100%" fill="#1e293b"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#64748b" font-family="sans-serif" font-size="16">{clean_name}</text></svg>'
+                        return Response(content=placeholder_svg.encode("utf-8"), media_type="image/svg+xml", headers=security_scanner.get_secure_preview_headers())
+                    raise HTTPException(status_code=404, detail=f"Asset '{filepath}' not found in template")
                 elif os.path.exists(index_file_path):
+                    # SPA client-side route fallback only for pages/documents (e.g. /about, /features, /pricing)
                     full_path = index_file_path
                 else:
                     raise HTTPException(status_code=404, detail="Requested file not found in template")
@@ -4755,9 +5309,144 @@ async def serve_live_preview(
 
           let secEl = null;
           if (sectionId) {{
-            secEl = document.querySelector('[data-section="' + sectionId + '"], #' + sectionId + ', .' + sectionId + ', section.' + sectionId + ', [id*="' + sectionId + '"]');
+            const sIdClean = (sectionId || '').toLowerCase().trim();
+            secEl = document.querySelector(
+              '[data-section="' + sectionId + '"], ' +
+              '#' + sectionId + ', ' +
+              '.' + sectionId + ', ' +
+              'section#' + sectionId + ', ' +
+              'section.' + sectionId + ', ' +
+              '[id*="' + sectionId + '"], ' +
+              '[class*="' + sectionId + '-section"], ' +
+              '[class*="' + sectionId + '_section"], ' +
+              '[class*="' + sectionId + 'Section"], ' +
+              '[class*="' + sectionId + '"], ' +
+              '[data-section*="' + sectionId + '"]'
+            );
+            if (!secEl) {{
+              if (sIdClean.includes('hero') || sIdClean.includes('banner')) {{
+                secEl = document.querySelector('section.hero-section, .hero-section, header.hero, .hero, #hero, [class*="hero"], main > section:first-of-type');
+              }} else if (sIdClean.includes('nav') || sIdClean.includes('header')) {{
+                secEl = document.querySelector('nav, header, .navbar, .nav-container, [class*="navbar"]');
+              }} else if (sIdClean.includes('foot')) {{
+                secEl = document.querySelector('footer, .footer, [class*="footer"]');
+              }} else if (sIdClean.includes('feature')) {{
+                secEl = document.querySelector('#features, .features-section, [class*="feature"]');
+              }} else if (sIdClean.includes('about') || sIdClean.includes('story')) {{
+                secEl = document.querySelector('#about, .about-section, [class*="about"]');
+              }} else if (sIdClean.includes('pricing') || sIdClean.includes('plan')) {{
+                secEl = document.querySelector('#pricing, .pricing-section, [class*="pricing"]');
+              }} else if (sIdClean.includes('contact') || sIdClean.includes('reach')) {{
+                secEl = document.querySelector('#contact, .contact-section, [class*="contact"]');
+              }}
+            }}
           }}
           const root = secEl || document;
+
+          // (C1) Main Headline / Section Title Color
+          if (key === 'headlineColor' || key === 'titleColor' || key === 'sectionTitleColor') {{
+            let h1 = root.querySelector('h1, .hero-title, [data-bind="headline"], [data-bind="title"], header h1, main h1, .section-title');
+            if (!h1 && secEl) h1 = secEl.querySelector('h1, h2, .title');
+            if (!h1) h1 = document.querySelector('h1, .hero-title');
+            if (h1) {{
+              h1.style.color = value || '';
+              const spans = h1.querySelectorAll('span:not(.pulse)');
+              spans.forEach(function(s) {{ s.style.color = value || ''; }});
+            }}
+            return;
+          }}
+
+          // (C2) Subtitle / Story / Bio / Narrative Description Color
+          if (key === 'subtitleColor' || key === 'subheadlineColor' || key === 'storyColor' || key === 'descriptionColor' || key === 'taglineColor') {{
+            let p = root.querySelector('.hero-sub, .hero-subtitle, .subtitle, [data-bind="subheadline"], [data-bind="subtitle"], [data-bind="story"], [data-bind="description"], .hero-description, .about-text, .lead, p.lead, header p, .story-content, .tagline');
+            if (!p && secEl) p = secEl.querySelector('p');
+            if (!p) p = document.querySelector('.hero-sub, .hero-subtitle, p.lead, header p');
+            if (p) {{
+              p.style.color = value || '';
+            }}
+            return;
+          }}
+
+          // (C3) Badge / Top Pill / Tag Color
+          if (key === 'badgeColor' || key === 'tagColor') {{
+            let badge = root.querySelector('.hero-badge, .badge, .pill, .status-pill, .case-badge, [data-bind="badgeText"]');
+            if (!badge) badge = document.querySelector('.hero-badge, .badge, .pill, .status-pill');
+            if (badge) {{
+              badge.style.color = value || '';
+              if (value) {{
+                badge.style.borderColor = value + '44';
+              }} else {{
+                badge.style.borderColor = '';
+              }}
+            }}
+            return;
+          }}
+
+          // (C4) Primary Button / CTA Text Color
+          if (key === 'ctaColor' || key === 'primaryCtaColor' || key === 'buttonColor' || key === 'buttonTextColor') {{
+            let btn = root.querySelector('.hero-cta, .btn-primary, .cta-button, .primary-btn, [data-bind="primaryCta"], [data-bind="ctaText"], [data-bind="buttonText"], button[type="submit"]');
+            if (!btn && secEl) btn = secEl.querySelector('.btn, button, a.btn');
+            if (!btn) btn = document.querySelector('.hero-cta, .btn-primary, .cta-button, .primary-btn');
+            if (btn) {{
+              btn.style.color = value || '';
+            }}
+            return;
+          }}
+
+          // (C5) Secondary Button Color
+          if (key === 'secondaryCtaColor') {{
+            let btn = root.querySelector('.btn-secondary, .btn-outline, .secondary-cta, .btn-ghost, [data-bind="secondaryCta"]');
+            if (btn) {{
+              btn.style.color = value || '';
+            }}
+            return;
+          }}
+
+          // (C6) Brand / Header Name Color
+          if (key === 'brandNameColor' || key === 'businessNameColor') {{
+            const brandEls = document.querySelectorAll('.brand-logo, .brand-name, .logo, .nav-logo, .navbar-brand, a.brand-logo, [data-bind="brandName"], [data-bind="businessName"], .logo-text, header .brand, .footer-logo');
+            brandEls.forEach(function(el) {{
+              el.style.color = value || '';
+              const span = el.querySelector('span:not(.pulse), strong');
+              if (span) span.style.color = value || '';
+            }});
+            return;
+          }}
+
+          // (C7) Logo Monogram / Code Color
+          if (key === 'logoTextColor') {{
+            const logoEls = document.querySelectorAll('.brand-code, .logo-monogram, [data-bind="logoText"], .logo-code, .monogram, .logo-mark, .brand-mark, .navbar-logo');
+            logoEls.forEach(function(el) {{ el.style.color = value || ''; }});
+            return;
+          }}
+
+          // (C8) Nav Links Color
+          if (key === 'navLinksColor') {{
+            const navAnchors = document.querySelectorAll('nav a:not(.brand-logo):not(.logo):not(.nav-logo), .nav-links a, .nav-item a, header nav a, header ul li a');
+            navAnchors.forEach(function(a) {{ a.style.color = value || ''; }});
+            return;
+          }}
+
+          // (C9) Footer Copyright Color
+          if (key === 'copyrightColor') {{
+            const cpEls = document.querySelectorAll('.copyright, footer small, footer p:last-child, [data-bind="copyright"]');
+            cpEls.forEach(function(el) {{ el.style.color = value || ''; }});
+            return;
+          }}
+
+          // (C10) Contact Info Colors
+          if (key === 'phoneColor') {{
+            document.querySelectorAll('a[href^="tel:"], .phone, .contact-phone, [data-bind="phone"]').forEach(function(el) {{ el.style.color = value || ''; }});
+            return;
+          }}
+          if (key === 'emailColor') {{
+            document.querySelectorAll('a[href^="mailto:"], .email, .contact-email, [data-bind="email"]').forEach(function(el) {{ el.style.color = value || ''; }});
+            return;
+          }}
+          if (key === 'addressColor') {{
+            document.querySelectorAll('.address, .contact-address, address, [data-bind="address"]').forEach(function(el) {{ el.style.color = value || ''; }});
+            return;
+          }}
 
           // (1) Brand / Business Name across headers, navbars, and signatures
           if (key === 'brandName' || key === 'businessName') {{
@@ -4834,7 +5523,7 @@ async def serve_live_preview(
             return;
           }}
 
-          // (6) Primary Button / CTA Text
+          // (6) Primary Button / CTA Text & Link
           if (key === 'primaryCta' || key === 'ctaText' || key === 'buttonText') {{
             let btn = root.querySelector('.hero-cta, .btn-primary, .cta-button, .primary-btn, [data-bind="primaryCta"], [data-bind="ctaText"], [data-bind="buttonText"], button[type="submit"]');
             if (!btn && secEl) btn = secEl.querySelector('.btn, button, a.btn');
@@ -4851,8 +5540,13 @@ async def serve_live_preview(
             }}
             return;
           }}
+          if (key === 'primaryCtaLink' || key === 'ctaLink') {{
+            let btn = root.querySelector('.hero-cta, .btn-primary, .cta-button, .primary-btn, [data-bind="primaryCta"], a[href]');
+            if (btn && btn.tagName === 'A') btn.setAttribute('href', value);
+            return;
+          }}
 
-          // (7) Secondary Button
+          // (7) Secondary Button & Link
           if (key === 'secondaryCta') {{
             let btn = root.querySelector('.btn-secondary, .btn-outline, .secondary-cta, .btn-ghost, [data-bind="secondaryCta"]');
             if (btn) {{
@@ -4865,6 +5559,11 @@ async def serve_live_preview(
                 btn.textContent = value;
               }}
             }}
+            return;
+          }}
+          if (key === 'secondaryCtaLink') {{
+            let btn = root.querySelector('.btn-secondary, .btn-outline, .secondary-cta, a[href]');
+            if (btn && btn.tagName === 'A') btn.setAttribute('href', value);
             return;
           }}
 
@@ -4902,31 +5601,74 @@ async def serve_live_preview(
 
           // (10) Cards Array - Full Live Dynamic Creation & Updating
           if (key === 'cards' && Array.isArray(value)) {{
-            let cards = Array.from(root.querySelectorAll('.card, .service-card, .portfolio-card, .grid > div, [data-card], .feature-card, .case-card'));
-            if (cards.length === 0 && secEl) {{
-              cards = Array.from(secEl.querySelectorAll('.grid > div, [class*="card"], [class*="item"]'));
+            let cards = [];
+            let parentGrid = null;
+
+            if (secEl) {{
+              parentGrid = secEl.querySelector(
+                '.stats-grid, .features-grid, .cards-grid, .grid, [class*="grid"], [class*="cards"], [class*="list"], [class*="items"], [class*="row"]'
+              );
+              cards = Array.from(secEl.querySelectorAll(
+                '.stat-card, .feature-card, .service-card, .portfolio-card, .card, [class*="card"], [class*="stat"], [class*="feature"], [class*="service"], [class*="portfolio"], [data-card]'
+              ));
+              if (cards.length === 0 && parentGrid) {{
+                cards = Array.from(parentGrid.children);
+              }}
             }}
+            if (cards.length === 0) {{
+              cards = Array.from(root.querySelectorAll(
+                '.stat-card, .feature-card, .service-card, .portfolio-card, .card, [class*="card"], [class*="stat"], [class*="feature"], .grid > div, [class*="grid"] > div, [data-card]'
+              ));
+            }}
+            if (!parentGrid && cards.length > 0) {{
+              parentGrid = cards[0].parentElement;
+            }}
+
             value.forEach(function(cardItem, idx) {{
               // If user added more cards, clone the last card in the grid so it appears in the website!
-              if (!cards[idx] && cards.length > 0) {{
+              if (!cards[idx] && cards.length > 0 && parentGrid) {{
                 const lastCard = cards[cards.length - 1];
-                const parentGrid = lastCard.parentElement;
-                if (parentGrid) {{
-                  const newCard = lastCard.cloneNode(true);
-                  newCard.setAttribute('data-studio-dynamic', 'true');
-                  parentGrid.appendChild(newCard);
-                  cards.push(newCard);
-                }}
+                const newCard = lastCard.cloneNode(true);
+                newCard.setAttribute('data-studio-dynamic', 'true');
+                parentGrid.appendChild(newCard);
+                cards.push(newCard);
               }}
               if (cards[idx]) {{
-                const cTitle = cards[idx].querySelector('h3, h4, .card-title, .title, strong');
-                if (cTitle && cardItem.title) cTitle.textContent = cardItem.title;
-                const cDesc = cards[idx].querySelector('p, .card-desc, .desc');
-                if (cDesc && (cardItem.desc || cardItem.description)) cDesc.textContent = cardItem.desc || cardItem.description;
-                const cTag = cards[idx].querySelector('.card-tag, .tag, .badge');
-                if (cTag && cardItem.tag) cTag.textContent = cardItem.tag;
-                const cStack = cards[idx].querySelector('.card-stack, .stack');
-                if (cStack && cardItem.stack) cStack.textContent = cardItem.stack;
+                const cTitle = cards[idx].querySelector('h1, h2, h3, h4, h5, .card-title, .title, strong, b');
+                if (cTitle && (typeof cardItem.title !== 'undefined')) cTitle.textContent = cardItem.title;
+                if (cTitle && cardItem.titleColor) cTitle.style.color = cardItem.titleColor;
+                const cDesc = cards[idx].querySelector('p, .card-desc, .desc, span.desc');
+                if (cDesc && (typeof (cardItem.desc || cardItem.description) !== 'undefined')) cDesc.textContent = cardItem.desc || cardItem.description;
+                if (cDesc && cardItem.descColor) cDesc.style.color = cardItem.descColor;
+                const cTag = cards[idx].querySelector('.card-tag, .tag, .badge, .pill, span.tag');
+                if (cTag && (typeof cardItem.tag !== 'undefined')) cTag.textContent = cardItem.tag;
+                if (cTag && cardItem.tagColor) cTag.style.color = cardItem.tagColor;
+                const cStack = cards[idx].querySelector('.card-stack, .stack, .tech, small');
+                if (cStack && (typeof cardItem.stack !== 'undefined')) cStack.textContent = cardItem.stack;
+                if (cStack && cardItem.stackColor) cStack.style.color = cardItem.stackColor;
+                if (cardItem.boxColor) {{
+                  cards[idx].style.backgroundColor = cardItem.boxColor;
+                  cards[idx].style.borderColor = cardItem.boxColor + '55';
+                }}
+                if (cardItem.color) {{
+                  cards[idx].style.color = cardItem.color;
+                }}
+                const targetLink = cardItem.link || cardItem.href || cardItem.url;
+                if (typeof targetLink !== 'undefined') {{
+                  let cLink = cards[idx].tagName === 'A' ? cards[idx] : cards[idx].querySelector('a');
+                  if (cLink) {{
+                    cLink.setAttribute('href', targetLink);
+                  }} else if (targetLink) {{
+                    if (cTitle && cTitle.parentNode && cTitle.parentNode.tagName !== 'A') {{
+                      const aWrap = document.createElement('a');
+                      aWrap.setAttribute('href', targetLink);
+                      aWrap.style.color = 'inherit';
+                      aWrap.style.textDecoration = 'none';
+                      cTitle.parentNode.insertBefore(aWrap, cTitle);
+                      aWrap.appendChild(cTitle);
+                    }}
+                  }}
+                }}
               }}
             }});
             // If cards were deleted in editor, clean up removed elements from DOM
@@ -4939,12 +5681,85 @@ async def serve_live_preview(
             return;
           }}
 
+          // (10a) Individual Card Field Updates (e.g. card4_title, card1_desc, card2_link, card1_boxColor)
+          const cardKeyMatch = key.match(/^(?:card|exhibit|s|entry)(\\d+)_(title|desc|tag|stack|link|href|url|titlecolor|desccolor|tagcolor|stackcolor|boxcolor|color)$/i);
+          if (cardKeyMatch) {{
+            const cardIdx = parseInt(cardKeyMatch[1], 10) - 1;
+            const field = cardKeyMatch[2].toLowerCase();
+            let cards = [];
+            let parentGrid = null;
+            if (secEl) {{
+              parentGrid = secEl.querySelector('.stats-grid, .features-grid, .cards-grid, .grid, [class*="grid"], [class*="cards"], [class*="list"], [class*="items"], [class*="row"]');
+              cards = Array.from(secEl.querySelectorAll('.stat-card, .feature-card, .service-card, .portfolio-card, .card, [class*="card"], [class*="stat"], [class*="feature"], [class*="service"], [class*="portfolio"], [data-card]'));
+              if (cards.length === 0 && parentGrid) cards = Array.from(parentGrid.children);
+            }}
+            if (cards.length === 0) {{
+              cards = Array.from(root.querySelectorAll('.stat-card, .feature-card, .service-card, .portfolio-card, .card, [class*="card"], [class*="stat"], [class*="feature"], .grid > div, [class*="grid"] > div, [data-card]'));
+            }}
+            if (!parentGrid && cards.length > 0) parentGrid = cards[0].parentElement;
+            if (!cards[cardIdx] && cards.length > 0 && parentGrid) {{
+              const lastCard = cards[cards.length - 1];
+              const newCard = lastCard.cloneNode(true);
+              newCard.setAttribute('data-studio-dynamic', 'true');
+              parentGrid.appendChild(newCard);
+              cards.push(newCard);
+            }}
+            if (cards[cardIdx]) {{
+              if (field === 'title') {{
+                const cTitle = cards[cardIdx].querySelector('h1, h2, h3, h4, h5, .card-title, .title, strong, b');
+                if (cTitle) cTitle.textContent = value;
+              }} else if (field === 'titlecolor') {{
+                const cTitle = cards[cardIdx].querySelector('h1, h2, h3, h4, h5, .card-title, .title, strong, b');
+                if (cTitle) cTitle.style.color = value || '';
+              }} else if (field === 'desc') {{
+                const cDesc = cards[cardIdx].querySelector('p, .card-desc, .desc, span.desc');
+                if (cDesc) cDesc.textContent = value;
+              }} else if (field === 'desccolor') {{
+                const cDesc = cards[cardIdx].querySelector('p, .card-desc, .desc, span.desc');
+                if (cDesc) cDesc.style.color = value || '';
+              }} else if (field === 'tag') {{
+                const cTag = cards[cardIdx].querySelector('.card-tag, .tag, .badge, .pill, span.tag');
+                if (cTag) cTag.textContent = value;
+              }} else if (field === 'tagcolor') {{
+                const cTag = cards[cardIdx].querySelector('.card-tag, .tag, .badge, .pill, span.tag');
+                if (cTag) cTag.style.color = value || '';
+              }} else if (field === 'stack') {{
+                const cStack = cards[cardIdx].querySelector('.card-stack, .stack, .tech, small');
+                if (cStack) cStack.textContent = value;
+              }} else if (field === 'stackcolor') {{
+                const cStack = cards[cardIdx].querySelector('.card-stack, .stack, .tech, small');
+                if (cStack) cStack.style.color = value || '';
+              }} else if (field === 'boxcolor') {{
+                cards[cardIdx].style.backgroundColor = value || '';
+                if (value) cards[cardIdx].style.borderColor = value + '55';
+              }} else if (field === 'color') {{
+                cards[cardIdx].style.color = value || '';
+              }} else if (field === 'link' || field === 'href' || field === 'url') {{
+                let cLink = cards[cardIdx].tagName === 'A' ? cards[cardIdx] : cards[cardIdx].querySelector('a');
+                if (cLink) {{
+                  cLink.setAttribute('href', value);
+                }} else if (value) {{
+                  const cTitle = cards[cardIdx].querySelector('h1, h2, h3, h4, h5, .card-title, .title, strong, b');
+                  if (cTitle && cTitle.parentNode && cTitle.parentNode.tagName !== 'A') {{
+                    const aWrap = document.createElement('a');
+                    aWrap.setAttribute('href', value);
+                    aWrap.style.color = 'inherit';
+                    aWrap.style.textDecoration = 'none';
+                    cTitle.parentNode.insertBefore(aWrap, cTitle);
+                    aWrap.appendChild(cTitle);
+                  }}
+                }}
+              }}
+            }}
+            return;
+          }}
+
           // (10b) TextItems Array - Full Live Dynamic Creation & Updating
           if (key === 'textItems' && Array.isArray(value)) {{
             value.forEach(function(ti, idx) {{
               const newText = (ti.text || '').toString();
               const origText = (ti.originalText || '').toString().trim();
-              if (!newText) return;
+              if (!newText && !ti.color) return;
 
               // 1. Try finding and replacing existing text in DOM
               if (origText && origText.length >= 2) {{
@@ -4953,8 +5768,9 @@ async def serve_live_preview(
                 let found = false;
                 while ((node = walker.nextNode())) {{
                   if (node.nodeValue && node.nodeValue.includes(origText)) {{
-                    node.nodeValue = node.nodeValue.replace(origText, newText);
-                    ti.originalText = newText;
+                    if (newText) node.nodeValue = node.nodeValue.replace(origText, newText);
+                    if (ti.color && node.parentElement) node.parentElement.style.color = ti.color;
+                    ti.originalText = newText || origText;
                     found = true;
                     break;
                   }}
@@ -4966,7 +5782,8 @@ async def serve_live_preview(
               const dynId = 'studio-dyn-text-' + (ti.id || idx);
               let existingEl = root.querySelector('#' + dynId);
               if (existingEl) {{
-                existingEl.textContent = newText;
+                if (newText) existingEl.textContent = newText;
+                if (ti.color) existingEl.style.color = ti.color;
               }} else if (ti.isNew || !origText) {{
                 const candidateSiblings = Array.from(root.querySelectorAll('p, div.grid > div, [class*="card"], li, h4, span'));
                 const lastSibling = candidateSiblings.length > 0 ? candidateSiblings[candidateSiblings.length - 1] : null;
@@ -4975,13 +5792,15 @@ async def serve_live_preview(
                   newEl.id = dynId;
                   newEl.setAttribute('data-studio-dynamic', 'true');
                   const targetChild = newEl.querySelector('p, h4, span') || newEl;
-                  targetChild.textContent = newText;
+                  if (newText) targetChild.textContent = newText;
+                  if (ti.color) targetChild.style.color = ti.color;
                   lastSibling.parentElement.appendChild(newEl);
                 }} else {{
                   const newEl = document.createElement('p');
                   newEl.id = dynId;
                   newEl.className = 'studio-added-content leading-relaxed text-foreground mt-2';
-                  newEl.textContent = newText;
+                  if (newText) newEl.textContent = newText;
+                  if (ti.color) newEl.style.color = ti.color;
                   (secEl || document.body).appendChild(newEl);
                 }}
               }}

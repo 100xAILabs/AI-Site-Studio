@@ -514,7 +514,7 @@ function AdminPanel() {
                         { id: "all", label: "All" },
                         { id: "subscription", label: "Subscriptions" },
                         { id: "marketplace", label: "Templates" },
-                        { id: "ai_tokens", label: "AI Tokens" },
+                        { id: "ai_tokens", label: "Studio Credits" },
                       ].map((t) => (
                         <button
                           key={t.id}
@@ -908,7 +908,7 @@ function AdminPanel() {
                         <tr className="admin-tr">
                           <th className="admin-th">User Details</th>
                           <th className="admin-th">Subscription Tier</th>
-                          <th className="admin-th">AI Credits</th>
+                          <th className="admin-th">Studio Credits</th>
                           <th className="admin-th">Orders & Spend</th>
                           <th className="admin-th">Downloads (Clean / WM)</th>
                           <th className="admin-th">Active Sites</th>
@@ -963,7 +963,7 @@ function AdminPanel() {
                                       <Sparkles className="w-3 h-3" /> Unlimited
                                     </span>
                                   ) : (
-                                    <span className="text-foreground text-xs">{u.ai_credits ?? 10} tokens</span>
+                                    <span className="text-foreground text-xs">{u.ai_credits ?? 10} credits</span>
                                   )}
                                 </td>
                                 <td className="admin-td">

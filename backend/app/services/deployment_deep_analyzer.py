@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 REQ_PATTERN = re.compile(r"\[SERVER HTTP (\d+)\] ([A-Z]+) ([^ ]+)(?: \(([^)]+)\))?")
 
 
+def _resolve_site_current_dir(deployment: Any, target_id: Optional[str] = None) -> Optional[Path]:
+    """Resolves deployment site directory matching target_id or deployment record."""
+    return _find_site_directory(deployment)
+
+
 def _find_site_directory(deployment: Any) -> Optional[Path]:
     """Locates the physical root directory of the deployed site on disk with multi-tier discovery."""
     site_id = (getattr(deployment, "site_id", None) or "").strip()

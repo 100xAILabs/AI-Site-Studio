@@ -32,12 +32,20 @@ class _Client:
 
 @pytest.mark.asyncio
 async def test_gemini_max_tokens_is_not_returned_as_success(monkeypatch):
-    from app.services import ai_service
+    import sys
+    import httpx
 
-    monkeypatch.setattr(ai_service.httpx, "AsyncClient", _Client)
+    ai_mod = sys.modules.get("app.services.ai_service")
+    if not ai_mod or not hasattr(ai_mod, "_GEMINI_FALLBACK_MODELS"):
+        import importlib
+        ai_mod = importlib.import_module("app.services.ai_service")
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
     monkeypatch.setattr(AIService, "_gemini_api_keys", staticmethod(lambda: ["test-key"]))
-    monkeypatch.setattr(ai_service, "_GEMINI_FALLBACK_MODELS", [])
-    monkeypatch.setattr(ai_service, "_gemini_model_cooldowns", {})
+    if hasattr(ai_mod, "_GEMINI_FALLBACK_MODELS"):
+        monkeypatch.setattr(ai_mod, "_GEMINI_FALLBACK_MODELS", [])
+    if hasattr(ai_mod, "_gemini_model_cooldowns"):
+        monkeypatch.setattr(ai_mod, "_gemini_model_cooldowns", {})
 
     result = await AIService()._call_gemini_api("prompt", "test-model", "application/json")
 

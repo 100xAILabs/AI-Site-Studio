@@ -383,9 +383,10 @@ async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Op
                 user_res = await db.execute(select(User).where(User.id == order.user_id))
                 target_user = user_res.scalar_one_or_none()
                 if target_user:
-                    target_user.subscription_tier = plan_id
+                    now_utc = datetime.now(timezone.utc)
                     days = 365 if billing_cycle == "annual" else 30
-                    target_user.subscription_expires_at = datetime.now(timezone.utc) + timedelta(days=days)
+                    target_user.subscription_tier = plan_id
+                    target_user.subscription_expires_at = now_utc + timedelta(days=days)
                     target_user.subscription_status = "active"
                     target_user.auto_renew = True
                     target_user.subscription_id = str(order.order_number)
@@ -393,6 +394,29 @@ async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Op
                     if sub_credits > 0 and not order.extra_metadata.get("credits_credited"):
                         target_user.ai_credits = (target_user.ai_credits or 0) + sub_credits
                         order.extra_metadata["credits_credited"] = True
+
+                    # Synchronize authoritative primary UserSubscription record
+                    try:
+                        from app.services.entitlement_service import EntitlementService
+                        ent_svc = EntitlementService(db)
+                        sub = await ent_svc.get_or_create_user_subscription(target_user)
+                        sub.plan_id = plan_id
+                        sub.billing_cycle = billing_cycle
+                        sub.payment_provider = (
+                            order.payment.gateway.value if order.payment and hasattr(order.payment.gateway, "value")
+                            else "razorpay"
+                        )
+                        sub.status = "active"
+                        sub.is_trial = False
+                        sub.cancel_at_period_end = False
+                        sub.current_period_start = now_utc
+                        sub.current_period_end = target_user.subscription_expires_at
+                        sub.next_billing_date = target_user.subscription_expires_at
+                        sub.last_successful_payment_at = now_utc
+                        sub.grace_period_end = None
+                    except Exception as ent_err:
+                        logger.warning(f"Could not sync UserSubscription record for {target_user.email}: {ent_err}")
+
                     logger.info(
                         "Upgraded user %s subscription tier to %s (Expires: %s, AI credits: %s)",
                         target_user.email, plan_id, target_user.subscription_expires_at, target_user.ai_credits
@@ -427,7 +451,8 @@ async def verify_payment(
 
     # 1. Direct client-side Razorpay signature verification
     if (
-        data.gateway_order_id
+        data.gateway == PaymentGateway.RAZORPAY
+        and data.gateway_order_id
         and data.gateway_payment_id
         and data.gateway_signature
         and settings.RAZORPAY_KEY_SECRET
@@ -474,9 +499,12 @@ async def verify_payment(
 
     # 2. Simulated card flow (Razorpay test mode in development / sandbox)
     is_card_mock = (
-        (data.gateway_order_id and data.gateway_order_id.startswith("rzp_mock_"))
-        or (data.gateway_payment_id and data.gateway_payment_id.startswith("pay_mock_"))
-        or (data.gateway_signature in ("mock_signature_verified", "rzp_mock_sig"))
+        data.gateway == PaymentGateway.RAZORPAY
+        and (
+            (data.gateway_order_id and data.gateway_order_id.startswith("rzp_mock_"))
+            or (data.gateway_payment_id and data.gateway_payment_id.startswith("pay_mock_"))
+            or (data.gateway_signature in ("mock_signature_verified", "rzp_mock_sig"))
+        )
     )
 
     if is_card_mock:
@@ -1070,9 +1098,12 @@ async def razorpay_webhook(
             provider_sub_id=sub_id,
             payload=payload_data,
         )
+        if isinstance(res, dict) and res.get("status") == "success":
+            res["status"] = "subscription_charged"
+            res["tier"] = res.get("plan_id", plan_id)
         return res
 
-    elif event in ("subscription.halted", "subscription.completed"):
+    elif event in ("subscription.halted", "subscription.completed", "subscription.cancelled"):
         rz_sub = payload_data.get("subscription", {}).get("entity", {})
         rz_sub_payment = payload_data.get("payment", {}).get("entity", {})
         sub_notes = rz_sub.get("notes", {}) or rz_sub_payment.get("notes", {})
@@ -1089,21 +1120,18 @@ async def razorpay_webhook(
             except Exception:
                 pass
 
-        res = await sub_svc.handle_subscription_payment_failure(
-            provider="razorpay",
-            event_id=event_id,
-            user_id=parsed_user_id,
-            user_email=user_email,
-            provider_sub_id=sub_id,
-            error_reason=f"Razorpay {event}",
-            payload=payload_data,
-        )
-        return res
-        rz_sub = payload_data.get("subscription", {}).get("entity", {})
-        rz_sub_payment = payload_data.get("payment", {}).get("entity", {})
-        sub_notes = rz_sub.get("notes", {}) or rz_sub_payment.get("notes", {})
-        user_email = sub_notes.get("user_email") or rz_sub_payment.get("email")
-        user_id_str = sub_notes.get("user_id")
+        try:
+            await sub_svc.handle_subscription_payment_failure(
+                provider="razorpay",
+                event_id=event_id,
+                user_id=parsed_user_id,
+                user_email=user_email,
+                provider_sub_id=sub_id,
+                error_reason=f"Razorpay {event}",
+                payload=payload_data,
+            )
+        except Exception:
+            pass
 
         target_user = None
         if user_id_str:

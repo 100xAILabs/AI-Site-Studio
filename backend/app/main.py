@@ -423,45 +423,26 @@ def create_application() -> FastAPI:
         raw_host = request.headers.get("host", "").split(":")[0].strip().lower()
 
         platform_hosts = {
-
-            "localhost", "127.0.0.1", "0.0.0.0", "testserver",
-
+            "localhost", "127.0.0.1", "0.0.0.0", "testserver", "test",
             "api",
-
             # Render.com internal hosts
-
             "onrender.com",
-
         }
 
-
-
         path = request.url.path
-
         # Allow platform calls, API endpoints, docs, and direct asset routes to proceed normally
-
         if (
-
             raw_host in platform_hosts
-
             or raw_host.endswith(".onrender.com")
-
             or raw_host.endswith(".vercel.app")
-
+            or path in ("/health", "/healthz")
             or path.startswith("/api/")
-
             or path.startswith("/internal/")
-
             or path.startswith("/docs")
-
             or path.startswith("/openapi")
-
             or path.startswith("/static")
-
             or path.startswith("/sites/")
-
         ):
-
             return await call_next(request)
 
 

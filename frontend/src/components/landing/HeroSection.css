@@ -458,6 +458,17 @@
   transform: rotateY(180deg);
   display: flex;
   flex-direction: column;
+  box-shadow: var(--shadow-lg);
+}
+
+:root:not(.dark) .card-face-back {
+  background: #FFFFFF !important;
+  border-color: #E5E5E2 !important;
+}
+
+.dark .card-face-back {
+  background: #18191D !important;
+  border-color: #303137 !important;
 }
 
 .back-features-container {
@@ -829,6 +840,44 @@
   grid-template-columns: repeat(5, 1fr);
   gap: 1.75rem;
   box-shadow: var(--shadow-sm);
+  transition: background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+:root:not(.dark) .studio-feature-strip {
+  background: #FFFFFF !important;
+  border-color: #E5E5E2 !important;
+  box-shadow: 0 4px 20px -4px rgba(0, 0, 0, 0.05), 0 2px 6px -1px rgba(0, 0, 0, 0.02) !important;
+}
+
+.dark .studio-feature-strip {
+  background: #18191D !important;
+  border-color: #303137 !important;
+  box-shadow: 0 8px 30px -4px rgba(0, 0, 0, 0.5) !important;
+}
+
+:root:not(.dark) .feature-strip-icon-box {
+  background: rgba(200, 150, 102, 0.12) !important;
+  border-color: rgba(200, 150, 102, 0.3) !important;
+}
+
+:root:not(.dark) .feature-strip-icon {
+  color: #936338 !important;
+}
+
+:root:not(.dark) .feature-strip-title {
+  color: #171717 !important;
+}
+
+.dark .feature-strip-title {
+  color: #FAFAFA !important;
+}
+
+:root:not(.dark) .feature-strip-desc {
+  color: #666666 !important;
+}
+
+.dark .feature-strip-desc {
+  color: #A1A1AA !important;
 }
 
 @media (max-width: 1024px) {
@@ -1057,22 +1106,22 @@
 .feat-cta-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   flex: 1;
-  padding: 8px 0;
+  padding: 4px 0;
   justify-content: center;
-  align-items: center;
+  align-items: stretch;
+  width: 100%;
 }
 
 /* Each row holds the beam + the revealed link, centered */
 .feat-cta-row {
   position: relative;
   width: 100%;
-  min-height: 60px;
+  min-height: 52px;
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
 }
 
 /* Shooting laser beam scoped per row */
@@ -1105,55 +1154,162 @@
 .feat-cta-motion-wrap {
   width: 100%;
   display: flex;
-  justify-content: center;
 }
 
-/* The CTA link — styled pill, high-contrast text, arrow left */
+/* The CTA link — tactile, high-contrast, professional feature row */
 .feat-cta-link-btn {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 8px 20px;
-  border-radius: 14px;
-  border: 1px solid transparent;
-  background: transparent;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 14px;
+  border-radius: 12px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
   text-decoration: none;
   cursor: pointer;
   transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
-.feat-cta-link-btn:hover {
-  background: hsl(var(--muted) / 0.7);
-  border-color: hsl(var(--border));
-  transform: translateY(-2px) scale(1.02);
-  box-shadow: var(--shadow-sm);
+:root:not(.dark) .feat-cta-link-btn {
+  background: #FFFFFF !important;
+  border-color: #E5E5E2 !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05) !important;
 }
 
-/* Arrow on LEFT side of label */
-.feat-cta-arrow-left {
-  width: 28px;
-  height: 28px;
+:root:not(.dark) .feat-cta-link-btn:hover {
+  background: #F8F8F6 !important;
+  border-color: #c89666 !important;
+  box-shadow: 0 4px 12px rgba(200, 150, 102, 0.15) !important;
+  transform: translateX(4px);
+}
+
+.dark .feat-cta-link-btn {
+  background: #1F2025 !important;
+  border-color: #303137 !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3) !important;
+}
+
+.dark .feat-cta-link-btn:hover {
+  background: #25262D !important;
+  border-color: #c89666 !important;
+  box-shadow: 0 4px 16px rgba(200, 150, 102, 0.25) !important;
+  transform: translateX(4px);
+}
+
+/* Left icon pill with arrow */
+.feat-cta-arrow-pill {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.2s ease;
 }
 
-.feat-cta-link-btn:hover .feat-cta-arrow-left {
-  transform: translateX(6px);
+.feat-cta-link-btn:hover .feat-cta-arrow-pill {
+  transform: scale(1.08);
+}
+
+.feat-cta-arrow-left {
+  width: 17px;
+  height: 17px;
+}
+
+/* Text group with title and subtitle */
+.feat-cta-text-group {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  gap: 1px;
+}
+
+.feat-cta-top-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* Big feature name — high contrast theme-aware */
 .feat-cta-label {
-  font-size: 1.85rem;
-  font-weight: 850;
-  letter-spacing: -0.03em;
-  line-height: 1.1;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
   white-space: nowrap;
   color: hsl(var(--foreground)) !important;
   transition: color 0.2s ease;
 }
 
+:root:not(.dark) .feat-cta-label {
+  color: #171717 !important;
+}
+
+.dark .feat-cta-label {
+  color: #FAFAFA !important;
+}
+
 .feat-cta-link-btn:hover .feat-cta-label {
   color: hsl(var(--primary)) !important;
+}
+
+.feat-cta-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 0.1rem 0.45rem;
+  border-radius: 9999px;
+  border: 1px solid;
+  text-transform: uppercase;
+}
+
+.feat-cta-subdesc {
+  font-size: 0.72rem;
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.25;
+}
+
+:root:not(.dark) .feat-cta-subdesc {
+  color: #52525B !important;
+}
+
+.dark .feat-cta-subdesc {
+  color: #A1A1AA !important;
+}
+
+/* Hover Action Indicator on the right */
+.feat-cta-hover-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: hsl(var(--muted-foreground));
+  opacity: 0.75;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+:root:not(.dark) .feat-cta-hover-indicator {
+  color: #52525B !important;
+}
+
+.dark .feat-cta-hover-indicator {
+  color: #A1A1AA !important;
+}
+
+.feat-cta-link-btn:hover .feat-cta-hover-indicator {
+  color: hsl(var(--primary)) !important;
+  opacity: 1;
+  transform: translateX(2px);
 }
 
 /* ============================================================
@@ -1166,10 +1322,10 @@
   bottom: 0;
   left: 0;
   right: 0;
-  height: 52%;
+  height: 48%;
   background: linear-gradient(to top,
-      rgba(9, 9, 11, 0.88) 0%,
-      rgba(9, 9, 11, 0.5) 45%,
+      hsl(var(--card) / 0.92) 0%,
+      hsl(var(--card) / 0.45) 45%,
       transparent 100%);
   z-index: 1;
   border-radius: inherit;
@@ -1179,20 +1335,20 @@
 /* Surprise badge — pinned to card bottom */
 .surprise-bottom-badge {
   position: absolute;
-  bottom: 20px;
-  left: 20px;
-  right: 20px;
+  bottom: 18px;
+  left: 18px;
+  right: 18px;
   z-index: 3;
   display: flex;
   align-items: center;
   gap: 12px;
-  background: hsl(var(--card) / 0.94);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: hsl(var(--card) / 0.95);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   border: 1px solid hsl(var(--primary) / 0.35);
   border-radius: 14px;
   padding: 12px 16px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25), 0 0 0 1px hsl(var(--border));
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18), 0 0 0 1px hsl(var(--border));
   color: hsl(var(--foreground));
 }
 

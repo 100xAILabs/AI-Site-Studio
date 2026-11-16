@@ -367,6 +367,7 @@ function Dashboard() {
         if (!i.template_id) continue;
         if (i.is_marketplace === false) continue;
         if (i.template_status && i.template_status !== "published") continue;
+        if (i.template_origin === "custom_draft" || i.slug?.includes("-custom-") || i.slug?.includes("-draft-")) continue;
         const key = String(i.template_id);
         if (hiddenIds.includes(key)) continue;
         if (!seen.has(key)) {
@@ -851,11 +852,23 @@ function Dashboard() {
       if (activateOrderParam && authToken) {
         api.post(`/payment/activate-token-order/${activateOrderParam}`, {}, authToken)
           .then((res) => {
-            alert(res?.message || "AI Tokens successfully credited to your account!");
+            alert(res?.message || "Studio Credits successfully credited to your account!");
             qc.invalidateQueries({ queryKey: ["billing-report"] });
             qc.invalidateQueries({ queryKey: ["orders"] });
           })
           .catch((e) => console.error("Error activating order:", e));
+      }
+
+      const sessionIdParam = searchParams.get("session_id");
+      if (sessionIdParam && authToken && (searchParams.get("status") === "success" || searchParams.get("tab") === "billing")) {
+        api.post(`/subscriptions/verify-stripe-session/${sessionIdParam}`, {}, authToken)
+          .then((res) => {
+            alert(res?.message || `Subscription successfully activated! Granted ${res?.credits_granted || 150} compute credits.`);
+            qc.invalidateQueries({ queryKey: ["user-subscription"] });
+            qc.invalidateQueries({ queryKey: ["billing-report"] });
+            qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
+          })
+          .catch((e) => console.error("Error verifying Stripe subscription session:", e));
       }
 
       const deployTpl = searchParams.get("deployTemplate");
@@ -873,12 +886,14 @@ function Dashboard() {
   useEffect(() => {
     if (activeTab === "seller-templates") {
       setTemplatesSubTab("uploaded");
+      qc.invalidateQueries(["seller-templates"]);
     } else if (activeTab === "buyer-templates") {
       setTemplatesSubTab("purchased");
     } else if (activeTab === "customized-files") {
       setTemplatesSubTab("customized");
+      qc.invalidateQueries(["seller-templates"]);
     }
-  }, [activeTab]);
+  }, [activeTab, qc]);
 
   useEffect(() => {
     getToken().then(setAuthToken);
@@ -1031,7 +1046,8 @@ function Dashboard() {
     queryKey: ["seller-templates"],
     queryFn: () => api.get("/templates/my-templates", authToken ?? undefined),
     enabled: !!authToken,
-    staleTime: 1000 * 60 * 3,
+    staleTime: 5000,
+    refetchOnMount: "always",
     placeholderData: (prev) => prev,
   });
 
@@ -1431,7 +1447,7 @@ function Dashboard() {
   // 1. Downloaded & Purchased Templates (from completed orders)
   const purchasedTemplatesList = orders
     .filter(o => o.status === "completed")
-    .flatMap(o => (o.items || []).map(i => ({
+    .flatMap(o => (o.items || []).filter(i => i.template_origin !== "custom_draft" && !i.slug?.includes("-custom-") && !i.slug?.includes("-draft-")).map(i => ({
       id: i.template_id || i.id,
       title: i.title || i.template?.title || "Downloaded Template",
       framework: i.framework || i.template?.framework || "HTML",
@@ -2747,7 +2763,10 @@ function Dashboard() {
 
               <button
                 type="button"
-                onClick={() => setTemplatesSubTab("customized")}
+                onClick={() => {
+                  setTemplatesSubTab("customized");
+                  qc.invalidateQueries(["seller-templates"]);
+                }}
                 className={cn("mt-tab-btn", templatesSubTab === "customized" && "active")}
               >
                 <Sparkles className="w-4 h-4" style={{ color: templatesSubTab === "customized" ? "#ec4899" : "#64748b" }} />
@@ -2846,7 +2865,7 @@ function Dashboard() {
               </div>
               <h4 className="mt-empty-title">No Purchased Templates Yet</h4>
               <p className="mt-empty-desc">
-                Explore our diverse marketplace with modern, production-ready website templates and customize them live with AI.
+                Explore our diverse marketplace with modern, production-ready website templates and customize them live with intelligent automation.
               </p>
               <Link
                 href="/marketplace"
@@ -5961,7 +5980,7 @@ function Dashboard() {
                     {/* Entitlement Quotas Grid */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-border/30">
                       <div className="p-3 bg-muted/20 rounded-xl">
-                        <span className="text-[11px] text-muted-foreground uppercase font-semibold block">AI Generation Quota</span>
+                        <span className="text-[11px] text-muted-foreground uppercase font-semibold block">Generation Quota</span>
                         <div className="text-base font-bold text-foreground mt-0.5">
                           {userSubData?.available_credits ?? user?.ai_credits ?? 10} Credits
                         </div>

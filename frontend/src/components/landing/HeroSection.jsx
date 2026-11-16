@@ -444,7 +444,7 @@ export default function HeroSection() {
                               {isRevealed && (
                                 <motion.div
                                   className="feat-cta-motion-wrap"
-                                  initial={{ opacity: 0, x: 32, scale: 0.92 }}
+                                  initial={{ opacity: 0, x: 28, scale: 0.94 }}
                                   animate={{ opacity: 1, x: 0, scale: 1 }}
                                   transition={{ duration: 0.38, ease: [0.16, 1, 0.3, 1] }}
                                 >
@@ -457,15 +457,42 @@ export default function HeroSection() {
                                       }
                                     }}
                                   >
-                                    {/* Arrow LEFT of label */}
-                                    <ArrowRight
-                                      className="feat-cta-arrow-left"
-                                      style={{ color: feat.accent }}
-                                    />
-                                    {/* High-Contrast Bold Feature Label */}
-                                    <span className="feat-cta-label">
-                                      {feat.arrowLabel}
-                                    </span>
+                                    <div
+                                      className="feat-cta-arrow-pill"
+                                      style={{
+                                        borderColor: `${feat.accent}66`,
+                                        background: `${feat.accent}18`,
+                                      }}
+                                    >
+                                      <ArrowRight
+                                        className="feat-cta-arrow-left"
+                                        style={{ color: feat.accent }}
+                                      />
+                                    </div>
+                                    <div className="feat-cta-text-group">
+                                      <div className="feat-cta-top-line">
+                                        <span className="feat-cta-label">
+                                          {feat.arrowLabel}
+                                        </span>
+                                        <span
+                                          className="feat-cta-badge"
+                                          style={{
+                                            color: feat.accent,
+                                            borderColor: `${feat.accent}45`,
+                                            background: `${feat.accent}16`,
+                                          }}
+                                        >
+                                          {feat.badge}
+                                        </span>
+                                      </div>
+                                      <span className="feat-cta-subdesc">
+                                        {feat.subtitle}
+                                      </span>
+                                    </div>
+                                    <div className="feat-cta-hover-indicator">
+                                      <span>Open</span>
+                                      <ArrowRight className="w-3.5 h-3.5" />
+                                    </div>
                                   </Link>
                                 </motion.div>
                               )}

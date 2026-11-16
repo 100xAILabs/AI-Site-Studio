@@ -75,16 +75,16 @@ export default function TemplatePerformanceGraphs({ template }) {
   return (
     <div className="performance-graphs-container">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4 pb-2 border-b border-white/10">
+      <div className="flex items-center justify-between mb-4 pb-2 border-b border-border">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+          <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400">
             <Gauge className="w-4 h-4" />
           </div>
-          <h3 className="section-title" style={{ margin: 0 }}>
+          <h3 className="section-title text-foreground" style={{ margin: 0 }}>
             Lighthouse Performance & Code Payload Telemetry
           </h3>
         </div>
-        <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
+        <span className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20 font-semibold">
           ✓ Verified Production Edge Build
         </span>
       </div>
@@ -100,7 +100,7 @@ export default function TemplatePerformanceGraphs({ template }) {
             <div className="relative w-16 h-16 md:w-20 md:h-20 shrink-0 mx-auto mb-2">
               <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
                 <path
-                  className="text-white/10"
+                  className="text-muted/40"
                   strokeWidth="3.2"
                   stroke="currentColor"
                   fill="none"
@@ -118,13 +118,13 @@ export default function TemplatePerformanceGraphs({ template }) {
                   d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                 />
               </svg>
-              <div className="absolute inset-0 flex items-center justify-center font-mono font-black text-sm md:text-lg text-white">
+              <div className="absolute inset-0 flex items-center justify-center font-mono font-black text-sm md:text-lg text-foreground">
                 {s.score}
               </div>
             </div>
 
             <div className="text-center">
-              <span className="text-xs font-bold text-white block">{s.name}</span>
+              <span className="text-xs font-bold text-foreground block">{s.name}</span>
               <span className="text-[10px] text-muted-foreground mt-0.5 block truncate">
                 {s.note}
               </span>
@@ -134,19 +134,19 @@ export default function TemplatePerformanceGraphs({ template }) {
       </div>
 
       {/* 2. Asset Payload Weight Distribution Chart */}
-      <div className="asset-payload-box p-4 rounded-xl bg-black/40 border border-white/10 mb-6">
+      <div className="asset-payload-box p-4 rounded-xl bg-card border border-border mb-6 shadow-sm">
         <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2 text-xs font-bold text-white">
-            <PieChart className="w-3.5 h-3.5 text-[#dfb180]" />
+          <div className="flex items-center gap-2 text-xs font-bold text-foreground">
+            <PieChart className="w-3.5 h-3.5 text-primary" />
             <span>Asset Weight & Code Payload Split</span>
           </div>
-          <span className="text-[11px] font-mono text-muted-foreground">
+          <span className="text-[11px] font-mono text-muted-foreground font-semibold">
             {template?.changelog?.ai_report?.assets_count?.zip_size || "1.8 MB Total Package"}
           </span>
         </div>
 
         {/* Multi-Segment Stacked Bar Chart */}
-        <div className="w-full h-3.5 rounded-full overflow-hidden flex bg-white/5 p-0.5 gap-0.5 mb-3">
+        <div className="w-full h-3.5 rounded-full overflow-hidden flex bg-muted p-0.5 gap-0.5 mb-3">
           {ASSET_PAYLOADS.map((item, idx) => (
             <motion.div
               key={idx}
@@ -164,9 +164,9 @@ export default function TemplatePerformanceGraphs({ template }) {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">
           {ASSET_PAYLOADS.map((item, idx) => (
             <div key={idx} className="flex items-center gap-1.5 text-muted-foreground">
-              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: item.color }} />
+              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: item.color }} />
               <span className="truncate">{item.label}</span>
-              <span className="font-mono font-bold text-white ml-auto">{item.pct}%</span>
+              <span className="font-mono font-bold text-foreground ml-auto">{item.pct}%</span>
             </div>
           ))}
         </div>
@@ -174,40 +174,40 @@ export default function TemplatePerformanceGraphs({ template }) {
 
       {/* 3. Device Viewport Reflow Compatibility Matrix */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="p-3 rounded-xl bg-black/30 border border-white/5 flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400">
+        <div className="p-3 rounded-xl bg-muted/40 border border-border flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500 dark:text-blue-400">
             <Monitor className="w-4 h-4" />
           </div>
           <div>
             <span className="text-[10px] uppercase font-bold text-muted-foreground block">Desktop Reflow</span>
-            <span className="text-xs font-bold text-white flex items-center gap-1 mt-0.5">
-              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+            <span className="text-xs font-bold text-foreground flex items-center gap-1 mt-0.5">
+              <CheckCircle2 className="w-3 h-3 text-emerald-500 dark:text-emerald-400" />
               1280px Fluid Canvas
             </span>
           </div>
         </div>
 
-        <div className="p-3 rounded-xl bg-black/30 border border-white/5 flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-[#c89666]/15 text-[#dfb180]">
+        <div className="p-3 rounded-xl bg-muted/40 border border-border flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
             <Tablet className="w-4 h-4" />
           </div>
           <div>
             <span className="text-[10px] uppercase font-bold text-muted-foreground block">Tablet Reflow</span>
-            <span className="text-xs font-bold text-white flex items-center gap-1 mt-0.5">
-              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+            <span className="text-xs font-bold text-foreground flex items-center gap-1 mt-0.5">
+              <CheckCircle2 className="w-3 h-3 text-emerald-500 dark:text-emerald-400" />
               768px Adaptive Grids
             </span>
           </div>
         </div>
 
-        <div className="p-3 rounded-xl bg-black/30 border border-white/5 flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-[#c89666]/15 text-[#dfb180]">
+        <div className="p-3 rounded-xl bg-muted/40 border border-border flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
             <Smartphone className="w-4 h-4" />
           </div>
           <div>
             <span className="text-[10px] uppercase font-bold text-muted-foreground block">Mobile Reflow</span>
-            <span className="text-xs font-bold text-white flex items-center gap-1 mt-0.5">
-              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+            <span className="text-xs font-bold text-foreground flex items-center gap-1 mt-0.5">
+              <CheckCircle2 className="w-3 h-3 text-emerald-500 dark:text-emerald-400" />
               390px Zero Overflow-X
             </span>
           </div>

@@ -5,8 +5,8 @@
 
 .deploy-details-page {
   min-height: 100vh;
-  background: #09090b !important;
-  color: #fafafa;
+  background-color: hsl(var(--background)) !important;
+  color: hsl(var(--foreground));
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   padding-top: 6.5rem !important;
   padding-bottom: 5rem;
@@ -36,9 +36,9 @@
   gap: 0.55rem;
   font-size: 0.875rem;
   font-weight: 700;
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
   text-decoration: none;
-  background: #18181d !important;
+  background: hsl(var(--card)) !important;
   border: 1px solid rgba(200, 150, 102, 0.45) !important;
   padding: 0.55rem 1.15rem;
   border-radius: 9999px;
@@ -69,7 +69,7 @@
   font-size: 0.825rem;
   font-weight: 600;
   color: #e2e8f0;
-  background: #18181d !important;
+  background: hsl(var(--card)) !important;
   border: 1px solid #2e2e33 !important;
   padding: 0.5rem 1rem;
   border-radius: 0.75rem;
@@ -79,7 +79,7 @@
 
 .deploy-btn-secondary:hover:not(:disabled) {
   background: #27272a !important;
-  color: #ffffff;
+  color: hsl(var(--foreground));
   border-color: rgba(200, 150, 102, 0.4) !important;
 }
 
@@ -133,17 +133,17 @@
 
 .deploy-btn-doctor:hover:not(:disabled) {
   background: rgba(200, 150, 102, 0.25) !important;
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
   border-color: rgba(200, 150, 102, 0.6) !important;
   transform: translateY(-1px);
 }
 
 /* ── Hero Overview Header Card ──────────────────────────────────────── */
 .deploy-hero-card {
-  background: #121216 !important;
+  background: hsl(var(--card)) !important;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid #27272a !important;
+  border: 1px solid hsl(var(--border)) !important;
   border-radius: 1.5rem;
   padding: 1.75rem 2rem;
   margin-bottom: 2rem;
@@ -195,7 +195,7 @@
 .deploy-project-title {
   font-size: 1.65rem;
   font-weight: 800;
-  color: #ffffff;
+  color: hsl(var(--foreground));
   margin: 0;
   letter-spacing: -0.02em;
 }
@@ -311,7 +311,7 @@
 }
 
 .deploy-url-link:hover {
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
   text-decoration: underline;
 }
 
@@ -327,14 +327,14 @@
 }
 
 .deploy-copy-btn:hover {
-  color: #ffffff;
+  color: hsl(var(--foreground));
 }
 
 /* ── Urgent Renewal & Payment Warning Banner ────────────────────────── */
 .deploy-renewal-urgent-banner {
   margin-top: 1.25rem;
   padding: 0.85rem 1.25rem;
-  background: #141418;
+  background: hsl(var(--card));
   border: 1px solid rgba(245, 158, 11, 0.4);
   border-radius: 1rem;
   display: flex;
@@ -345,7 +345,7 @@
 }
 
 .deploy-renewal-urgent-banner.healthy {
-  background: #141418 !important;
+  background: hsl(var(--card)) !important;
   border: 1px solid rgba(200, 150, 102, 0.35) !important;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
 }
@@ -376,7 +376,7 @@
 .deploy-renewal-title {
   font-size: 0.85rem;
   font-weight: 700;
-  color: #ffffff;
+  color: hsl(var(--foreground));
   margin: 0;
 }
 
@@ -414,12 +414,12 @@
 }
 
 .deploy-tab-btn:hover {
-  color: #ffffff;
+  color: hsl(var(--foreground));
   background: rgba(255, 255, 255, 0.04);
 }
 
 .deploy-tab-btn.active {
-  color: #ffffff;
+  color: hsl(var(--foreground));
   background: rgba(200, 150, 102, 0.2);
   border-color: rgba(212, 163, 115, 0.4);
   box-shadow: 0 4px 12px rgba(200, 150, 102, 0.2);
@@ -436,12 +436,12 @@
 
 .deploy-tab-btn.active .deploy-tab-badge {
   background: #b5804f;
-  color: #ffffff;
+  color: hsl(var(--foreground));
 }
 
 .deploy-tab-badge.alert {
   background: #ef4444;
-  color: #ffffff;
+  color: hsl(var(--foreground));
   animation: pulse 1.5s infinite;
 }
 
@@ -481,7 +481,7 @@
 
 /* ── Glass Section Cards ────────────────────────────────────────────── */
 .deploy-details-page .deploy-detail-card {
-  background: rgba(18, 18, 22, 0.9) !important;
+  background: hsl(var(--card)) !important;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(212, 163, 115, 0.22) !important;
@@ -491,7 +491,7 @@
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  color: #f1f5f9 !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .deploy-details-page .deploy-card-header {
@@ -516,7 +516,7 @@
 .deploy-details-page .deploy-card-title {
   font-size: 1rem;
   font-weight: 700;
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
   margin: 0;
 }
 
@@ -528,7 +528,7 @@
 
 /* ── Live Canvas Iframe Preview ─────────────────────────────────────── */
 .deploy-details-page .deploy-canvas-wrapper {
-  background: rgba(18, 18, 22, 0.9) !important;
+  background: hsl(var(--card)) !important;
   border: 1px solid rgba(212, 163, 115, 0.25) !important;
   border-radius: 1.25rem;
   overflow: hidden;
@@ -572,12 +572,12 @@
 }
 
 .deploy-details-page .deploy-device-btn:hover {
-  color: #ffffff;
+  color: hsl(var(--foreground));
 }
 
 .deploy-details-page .deploy-device-btn.active {
   background: rgba(200, 150, 102, 0.35);
-  color: #ffffff;
+  color: hsl(var(--foreground));
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
@@ -595,7 +595,7 @@
 .deploy-details-page .deploy-canvas-iframe {
   border: 1px solid rgba(212, 163, 115, 0.3) !important;
   border-radius: 0.85rem;
-  background: #09090b !important;
+  background-color: hsl(var(--background)) !important;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7), 0 0 30px rgba(212, 163, 115, 0.15);
   transition: width 0.3s ease;
   height: 560px;
@@ -673,13 +673,13 @@
 }
 
 .terminal-filter-btn:hover {
-  color: #ffffff;
+  color: hsl(var(--foreground));
   background: rgba(255, 255, 255, 0.1);
 }
 
 .terminal-filter-btn.active {
   background: #b5804f;
-  color: #ffffff;
+  color: hsl(var(--foreground));
   border-color: #d4a373;
 }
 
@@ -755,7 +755,7 @@
 .deploy-details-page .deploy-stat-val {
   font-size: 1.65rem;
   font-weight: 800;
-  color: #ffffff !important;
+  color: hsl(var(--foreground)) !important;
   letter-spacing: -0.01em;
 }
 
@@ -833,7 +833,7 @@
 .deploy-details-page .deploy-incident-title {
   font-size: 0.925rem;
   font-weight: 700;
-  color: #ffffff;
+  color: hsl(var(--foreground));
   margin: 0;
 }
 
@@ -878,7 +878,7 @@
 .deploy-details-page .deploy-token-number {
   font-size: 2.25rem;
   font-weight: 900;
-  color: #ffffff;
+  color: hsl(var(--foreground));
   letter-spacing: -0.02em;
 }
 
@@ -949,7 +949,7 @@
 .deploy-check-title {
   font-size: 0.85rem;
   font-weight: 700;
-  color: #ffffff;
+  color: hsl(var(--foreground));
   margin: 0;
 }
 
@@ -974,7 +974,7 @@
 
 .deploy-check-action-btn:hover {
   background: rgba(245, 158, 11, 0.28);
-  color: #ffffff;
+  color: hsl(var(--foreground));
 }
 
 /* ── DNS Records Table ──────────────────────────────────────────────── */
@@ -1042,8 +1042,8 @@
    ========================================================================== */
 
 .deploy-topology-wrapper {
-  background: #121216 !important;
-  border: 1px solid #27272a !important;
+  background: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
   border-radius: 1.25rem !important;
   padding: 1.35rem 1.5rem !important;
   display: flex;
@@ -1062,7 +1062,7 @@
 }
 
 .deploy-topology-node {
-  background: #18181d !important;
+  background: hsl(var(--card)) !important;
   border: 1px solid #2e2e33 !important;
   border-radius: 1rem;
   padding: 0.75rem 0.9rem;
@@ -1084,7 +1084,7 @@
 
 .deploy-topology-node.active {
   border-color: rgba(200, 150, 102, 0.45) !important;
-  background: #18181d !important;
+  background: hsl(var(--card)) !important;
 }
 
 .deploy-topology-node-header {
@@ -1168,7 +1168,7 @@
   border-radius: 0.5rem;
   padding: 0.4rem 0.65rem;
   font-size: 0.72rem;
-  color: #ffffff;
+  color: hsl(var(--foreground));
   pointer-events: none;
   transform: translate(-50%, -120%);
   white-space: nowrap;

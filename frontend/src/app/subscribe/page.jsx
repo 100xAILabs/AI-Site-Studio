@@ -66,6 +66,7 @@ export default function SubscribePage() {
 
   const [selectedPlanId, setSelectedPlanId] = useState(initialPlan);
   const [billingCycle, setBillingCycle] = useState(initialBilling);
+  const [gateway, setGateway] = useState("razorpay"); // "razorpay" | "stripe"
   const [exchangeRate, setExchangeRate] = useState(95.48);
   const [isProcessing, setIsProcessing] = useState(false);
   const [subscribedPlan, setSubscribedPlan] = useState(null);
@@ -110,7 +111,26 @@ export default function SubscribePage() {
     try {
       const token = await getToken();
 
-      // 1. Initiate subscription payment order via backend
+      // ── STRIPE SUBSCRIPTION FLOW ──
+      if (gateway === "stripe") {
+        const res = await api.post(
+          "/subscriptions/checkout",
+          {
+            plan_id: selectedPlanId,
+            billing_cycle: billingCycle,
+            gateway: "stripe",
+          },
+          token
+        );
+
+        if (res?.checkout_url) {
+          window.location.href = res.checkout_url;
+          return;
+        }
+        throw new Error(res?.detail || "Could not initialize Stripe Checkout.");
+      }
+
+      // ── RAZORPAY SUBSCRIPTION FLOW ──
       const res = await api.post(
         "/payment/purchase-plan",
         {
@@ -366,12 +386,12 @@ export default function SubscribePage() {
             </div>
           </div>
 
-          {/* Right Column: Order Summary & Razorpay Trigger */}
+          {/* Right Column: Order Summary & Gateway Checkout */}
           <div className="sub-right-col">
             <div className="sub-card sub-summary-card">
               <div className="sub-summary-header">
                 <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Order Summary</span>
-                <span className="sub-gateway-pill">Razorpay Secure</span>
+                <span className="sub-gateway-pill">{gateway === "stripe" ? "Stripe Global" : "Razorpay Secure"}</span>
               </div>
 
               <div className="sub-price-display">
@@ -388,22 +408,70 @@ export default function SubscribePage() {
                 </div>
               </div>
 
-              {/* Converted INR Preview for Razorpay */}
-              <div className="sub-currency-conversion">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-muted-foreground">Amount in USD:</span>
-                  <span className="font-semibold text-foreground">${totalUsd}.00 USD</span>
-                </div>
-                <div className="flex justify-between items-center text-xs mt-1.5 pt-1.5 border-t border-border/40">
-                  <span className="text-emerald-400 font-semibold">Razorpay Total (INR):</span>
-                  <strong className="text-sm font-bold text-emerald-400">
-                    ₹{totalInr.toLocaleString("en-IN")}
-                  </strong>
-                </div>
-                <div className="text-[10px] text-muted-foreground/80 mt-1">
-                  Live conversion applied at ₹{exchangeRate.toFixed(2)} per USD. Supports all Indian &amp; Global UPI, Cards, and NetBanking.
+              {/* Payment Gateway Selector */}
+              <div className="sub-gateway-selector" style={{ margin: "1rem 0" }}>
+                <span className="text-xs font-bold text-foreground block mb-2">Select Payment Method</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setGateway("razorpay")}
+                    className={`sub-gw-btn ${gateway === "razorpay" ? "active" : ""}`}
+                  >
+                    <CreditCard className="w-4 h-4 text-[#dfb180] shrink-0" />
+                    <div className="text-left">
+                      <div className="font-bold text-xs text-foreground">Razorpay</div>
+                      <div className="text-[10px] text-muted-foreground">UPI · Cards · NetBanking (INR)</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setGateway("stripe")}
+                    className={`sub-gw-btn ${gateway === "stripe" ? "active" : ""}`}
+                  >
+                    <Globe className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <div className="text-left">
+                      <div className="font-bold text-xs text-foreground">Stripe</div>
+                      <div className="text-[10px] text-muted-foreground">Cards · Apple Pay · USD</div>
+                    </div>
+                  </button>
                 </div>
               </div>
+
+              {/* Gateway-specific pricing preview */}
+              {gateway === "razorpay" ? (
+                <div className="sub-currency-conversion">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-muted-foreground">Amount in USD:</span>
+                    <span className="font-semibold text-foreground">${totalUsd}.00 USD</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs mt-1.5 pt-1.5 border-t border-border/40">
+                    <span className="text-emerald-400 font-semibold">Razorpay Total (INR):</span>
+                    <strong className="text-sm font-bold text-emerald-400">
+                      ₹{totalInr.toLocaleString("en-IN")}
+                    </strong>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground/80 mt-1">
+                    Live conversion applied at ₹{exchangeRate.toFixed(2)} per USD. Supports all Indian &amp; Global UPI, Cards, and NetBanking.
+                  </div>
+                </div>
+              ) : (
+                <div className="sub-currency-conversion">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-muted-foreground">Billing Cycle:</span>
+                    <span className="font-semibold text-foreground capitalize">{billingCycle}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs mt-1.5 pt-1.5 border-t border-border/40">
+                    <span className="text-emerald-400 font-semibold">Stripe Checkout Total:</span>
+                    <strong className="text-sm font-bold text-emerald-400">
+                      ${totalUsd}.00 USD
+                    </strong>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground/80 mt-1">
+                    Direct Stripe Subscription with recurring billing. Supports international Visa, Mastercard, Amex, Apple Pay &amp; Google Pay.
+                  </div>
+                </div>
+              )}
 
               {/* User Account Pill */}
               <div className="sub-user-box">
@@ -423,19 +491,27 @@ export default function SubscribePage() {
                 {isProcessing ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    <span>Connecting to Razorpay...</span>
+                    <span>{gateway === "stripe" ? "Connecting to Stripe..." : "Connecting to Razorpay..."}</span>
                   </>
                 ) : (
                   <>
                     <Lock className="w-4 h-4 mr-2" />
-                    <span>Pay ₹{totalInr.toLocaleString("en-IN")} with Razorpay</span>
+                    <span>
+                      {gateway === "stripe"
+                        ? `Pay $${totalUsd}.00 with Stripe Checkout`
+                        : `Pay ₹${totalInr.toLocaleString("en-IN")} with Razorpay`}
+                    </span>
                   </>
                 )}
               </button>
 
               <div className="sub-security-footer">
                 <CreditCard className="w-3.5 h-3.5 text-muted-foreground" />
-                <span>Powered by Razorpay • UPI, Visa, Mastercard, RuPay &amp; NetBanking</span>
+                <span>
+                  {gateway === "stripe"
+                    ? "Powered by Stripe • 256-Bit SSL • Visa, Mastercard, Apple Pay & Google Pay"
+                    : "Powered by Razorpay • UPI, Visa, Mastercard, RuPay & NetBanking"}
+                </span>
               </div>
             </div>
           </div>
