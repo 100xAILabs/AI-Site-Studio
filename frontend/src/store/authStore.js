@@ -24,11 +24,11 @@ const tabIsolatedStorage = {
     try {
       const sessionVal = sessionStorage.getItem(name);
       if (sessionVal) return JSON.parse(sessionVal);
-    } catch (e) {}
+    } catch (e) { }
     try {
       const localVal = localStorage.getItem(name);
       if (localVal) return JSON.parse(localVal);
-    } catch (e) {}
+    } catch (e) { }
     return null;
   },
   setItem: (name, value) => {
@@ -36,13 +36,13 @@ const tabIsolatedStorage = {
       const str = JSON.stringify(value);
       sessionStorage.setItem(name, str);
       localStorage.setItem(name, str);
-    } catch (e) {}
+    } catch (e) { }
   },
   removeItem: (name) => {
     try {
       sessionStorage.removeItem(name);
       localStorage.removeItem(name);
-    } catch (e) {}
+    } catch (e) { }
   },
 };
 
@@ -56,9 +56,9 @@ function initWebSocketSession(token) {
       const prevWs = activeWs;
       activeWs = null;
       if (prevWs.readyState === WebSocket.OPEN) {
-        try { prevWs.close(); } catch (e) {}
+        try { prevWs.close(); } catch (e) { }
       } else if (prevWs.readyState === WebSocket.CONNECTING) {
-        prevWs.onopen = () => { try { prevWs.close(); } catch (e) {} };
+        prevWs.onopen = () => { try { prevWs.close(); } catch (e) { } };
       }
     }
     return;
@@ -70,24 +70,24 @@ function initWebSocketSession(token) {
       const prevWs = activeWs;
       activeWs = null;
       if (prevWs.readyState === WebSocket.OPEN) {
-        try { prevWs.close(); } catch (e) {}
+        try { prevWs.close(); } catch (e) { }
       } else if (prevWs.readyState === WebSocket.CONNECTING) {
-        prevWs.onopen = () => { try { prevWs.close(); } catch (e) {} };
+        prevWs.onopen = () => { try { prevWs.close(); } catch (e) { } };
       }
     }
     const ws = new WebSocket(wsUrl);
     activeWs = ws;
     ws.onopen = () => {
       if (activeWs !== ws) {
-        try { ws.close(); } catch (e) {}
+        try { ws.close(); } catch (e) { }
         return;
       }
       try {
         ws.send(JSON.stringify({ type: "auth", token }));
-      } catch (e) {}
+      } catch (e) { }
       activeWsPingTimer = setInterval(() => {
         if (activeWs && activeWs.readyState === WebSocket.OPEN) {
-          try { activeWs.send("ping"); } catch (e) {}
+          try { activeWs.send("ping"); } catch (e) { }
         }
       }, 30000);
     };
@@ -116,18 +116,24 @@ export const useAuthStore = create(
       // ── Actions ────────────────────────────────────────
       /** Called once on app mount to mark as hydrated */
       setLoaded: async () => {
-        // Check URL for token after redirect
+        // Check URL for token only after verified OAuth flow (prevent login CSRF)
         const urlParams = new URLSearchParams(window.location.search);
         const urlToken = urlParams.get('token');
         const urlRedirect = urlParams.get('redirect');
-        if (urlToken) {
+        const isOAuthReturn = typeof window !== 'undefined' && sessionStorage.getItem('oauth_in_progress');
+        if (urlToken && isOAuthReturn) {
+          try { sessionStorage.removeItem('oauth_in_progress'); } catch (e) { }
           get().setToken(urlToken);
           await get().fetchProfile();
           // Store redirect path for the React app to handle (avoids hard page reload)
-          if (urlRedirect) {
+          if (urlRedirect && urlRedirect.startsWith('/') && !urlRedirect.startsWith('//') && !urlRedirect.includes('://')) {
             set({ pendingRedirect: urlRedirect });
           }
           // Clean up URL
+          window.history.replaceState({}, document.title, window.location.pathname);
+          set({ isLoaded: true });
+        } else if (urlToken && !isOAuthReturn) {
+          // Discard unrequested third-party token in URL to prevent Login CSRF
           window.history.replaceState({}, document.title, window.location.pathname);
           set({ isLoaded: true });
         } else if (get().token) {
@@ -156,7 +162,7 @@ export const useAuthStore = create(
       fetchProfile: async () => {
         const { token } = get();
         if (!token) return;
-        
+
         try {
           const res = await fetch(`${API_BASE}/auth/me`, {
             headers: {
@@ -213,6 +219,7 @@ export const useAuthStore = create(
 
       /** Redirect to backend OAuth (Google) */
       beginGoogleAuth: (role) => {
+        try { sessionStorage.setItem('oauth_in_progress', '1'); } catch (e) { }
         const originParam = typeof window !== 'undefined' ? `&origin=${encodeURIComponent(window.location.origin)}` : '';
         window.location.href = `${API_BASE}/auth/google/login?role=${role || 'buyer'}${originParam}`;
         return { success: true };
@@ -226,17 +233,17 @@ export const useAuthStore = create(
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ email, password, role })
           });
-          
+
           if (res.status === 429) {
             throw new Error("Account temporarily locked due to too many failed attempts. Please try again later.");
           }
-          
+
           if (!res.ok) {
             const err = await res.json();
             throw new Error(err.detail || "Invalid email or password");
           }
           const data = await res.json();
-          
+
           if (data.status === "otp_required" || data.status === "registration_received") {
             return {
               requires_otp: true,
@@ -245,7 +252,7 @@ export const useAuthStore = create(
               message: data.message
             };
           }
-          
+
           set({ token: data.access_token, isSignedIn: true });
           await get().fetchProfile();
           return { success: true };
@@ -266,16 +273,16 @@ export const useAuthStore = create(
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ email, otp: code })
           });
-          
+
           if (res.status === 429) {
             throw new Error("Too many attempts. Please try again later.");
           }
-          
+
           if (!res.ok) {
             const err = await res.json();
             throw new Error(err.detail || "Invalid or expired verification code");
           }
-          
+
           const data = await res.json();
           set({ token: data.access_token, isSignedIn: true });
           await get().fetchProfile();
@@ -285,7 +292,7 @@ export const useAuthStore = create(
           throw err;
         }
       },
-      
+
       /** Resend OTP */
       resendOtp: async ({ email }) => {
         try {
@@ -433,7 +440,7 @@ export const useAuthStore = create(
         try {
           sessionStorage.removeItem("aisitestudio_auth");
           localStorage.removeItem("aisitestudio_auth");
-        } catch (e) {}
+        } catch (e) { }
         initWebSocketSession(null);
         set({
           user: null,

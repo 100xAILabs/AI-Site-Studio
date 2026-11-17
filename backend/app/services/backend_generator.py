@@ -389,6 +389,10 @@ AUTH REQUIRED ({architecture["auth_strategy"]}):
   - Protect relevant routes with auth middleware / dependency.
 """
 
+        resumption_directive = ""
+        if existing_files:
+            flist = "\n".join(f"- {f}" for f in existing_files)
+            resumption_directive = f"\nRESUMPTION DIRECTIVE (DO NOT START FROM SCRATCH):\nThe following files were ALREADY successfully generated:\n{flist}\nDo NOT rewrite these existing files. Resume by outputting ONLY the remaining missing backend files required to complete the application!\n"
         request = f"""{system_prompt}
 
 {stripe_section}
@@ -399,12 +403,7 @@ Architecture plan:
 
 User brief:
 {prompt[:3000]}
-{f"""
-RESUMPTION DIRECTIVE (DO NOT START FROM SCRATCH):
-The following files were ALREADY successfully generated:
-""" + chr(10).join(f"- {f}" for f in existing_files) + """
-Do NOT rewrite these existing files. Resume by outputting ONLY the remaining missing backend files required to complete the application!
-""" if existing_files else ""}
+{resumption_directive}
 OUTPUT INSTRUCTIONS (CRITICAL — follow exactly):
 - Output EVERY required file listed in your instructions above.
 - For each file, use this exact delimiter format:

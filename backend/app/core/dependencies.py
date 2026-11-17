@@ -68,6 +68,25 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # Check session revocation (e.g. after password reset or global logout)
+    try:
+        from app.core.redis import get_redis_client
+        redis_c = await get_redis_client()
+        if redis_c:
+            revoked_before = await redis_c.get(f"auth:revoked_before:{user_id}")
+            if revoked_before:
+                iat_val = payload.get("iat")
+                if isinstance(iat_val, (int, float)) and iat_val < int(revoked_before):
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Session has been revoked. Please sign in again.",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
     repo = UserRepository(db)
     user = await repo.get_by_id(user_uuid)
     if not user:
@@ -98,21 +117,6 @@ async def get_current_user_optional(
         except HTTPException:
             pass
 
-    # Check query param token for direct browser asset downloads (e.g. window.open)
-    if request:
-        token = request.query_params.get("token")
-        if token:
-            try:
-                payload = decode_token(token)
-                sub = payload.get("sub")
-                if sub:
-                    repo = UserRepository(db)
-                    user = await repo.get_by_id(UUID(str(sub)))
-                    if user and user.is_active:
-                        return user
-            except Exception:
-                pass
-
     return None
 
 
@@ -133,4 +137,29 @@ def require_role(*roles: UserRole):
 # Convenience role guards
 require_admin = require_role(UserRole.ADMIN, UserRole.SUPER_ADMIN)
 require_super_admin = require_role(UserRole.SUPER_ADMIN)
-require_seller_or_admin = require_role(UserRole.SELLER, UserRole.ADMIN, UserRole.SUPER_ADMIN)
+
+
+async def require_creator_or_admin(current_user: User = Depends(get_current_user)) -> User:
+    """Enforces active Extreme Plan subscription or Admin privilege for creator studio publishing."""
+    is_admin = current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
+    if is_admin:
+        return current_user
+    if current_user.can_retail_templates or current_user.is_extreme_subscriber:
+        return current_user
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Selling website templates is an exclusive privilege of the Extreme Plan ($50/mo). Please upgrade to access Creator Studio publishing.",
+    )
+
+
+async def require_seller_or_admin(current_user: User = Depends(get_current_user)) -> User:
+    """Allows Admin, existing Sellers, and active Extreme plan creators."""
+    is_admin = current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
+    if is_admin:
+        return current_user
+    if current_user.role == UserRole.SELLER or current_user.can_retail_templates or current_user.is_extreme_subscriber:
+        return current_user
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Creator Studio privileges require an active Extreme Plan subscription.",
+    )

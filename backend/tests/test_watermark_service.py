@@ -227,7 +227,7 @@ def test_process_zip_package_with_fullstack_and_stealth():
         zf.writestr("backend/app/main.py", "from fastapi import FastAPI\napp = FastAPI()\n")
     raw_zip = archive.getvalue()
 
-    # 1. Standard Edition download -> stealth telemetry woven into main.js and backend/app/main.py
+    # 1. Standard Edition download -> visible badges embedded, covert spyware hooks disabled
     standard_zip = process_zip_package(
         raw_zip,
         is_clean=False,
@@ -242,17 +242,15 @@ def test_process_zip_package_with_fullstack_and_stealth():
         assert "LICENSE_WARNING_AND_RULES.txt" in names
         assert "assets/js/site-studio-runtime.js" in names
 
-        # Verify JS has stealth telemetry weaved into existing file
+        # Verify JS has visible app code but NO covert tracking or buyer PII
         main_js = zf.read("assets/js/main.js").decode("utf-8")
         assert "User frontend app" in main_js
-        assert STEALTH_JS_START in main_js
-        assert "fullstack-template-1" in main_js
+        assert "standard_buyer@test.com" not in main_js
 
-        # Verify backend Python has stealth hook weaved
+        # Verify backend Python is untouched with no phone-home hooks
         backend_py = zf.read("backend/app/main.py").decode("utf-8")
         assert "from fastapi import FastAPI" in backend_py
-        assert STEALTH_PY_START in backend_py
-        assert "fullstack-template-1" in backend_py
+        assert "standard_buyer@test.com" not in backend_py
 
     # 2. Pro subscriber / Extended download -> everything stripped 100% clean
     clean_zip = process_zip_package(
@@ -288,20 +286,19 @@ def test_fullstack_backend_node_hook_and_user_upload_subfolders():
         STEALTH_NODE_START,
         STEALTH_NODE_END,
     )
+    # Stealth hook is disabled for user privacy and compliance
     node_hook = generate_stealth_backend_node_hook(
         template_id="node-express-tmpl",
         buyer_email="buyer@test.com",
         license_key="STD-NODE",
     )
-    assert STEALTH_NODE_START in node_hook
-    assert STEALTH_NODE_END in node_hook
-    assert "node-express-tmpl" in node_hook
-    assert "watermark-license.html" in node_hook
+    assert node_hook == ""
 
-    sample_node = "const express = require('express');\nconst app = express();\n\n" + node_hook + "\napp.listen(3000);"
-    cleaned = strip_stealth_telemetry(sample_node)
+    # Legacy content containing stealth comments is stripped properly
+    legacy_sample_node = f"const express = require('express');\nconst app = express();\n\n{STEALTH_NODE_START}\nconsole.log('hook');\n{STEALTH_NODE_END}\napp.listen(3000);"
+    cleaned = strip_stealth_telemetry(legacy_sample_node)
     assert STEALTH_NODE_START not in cleaned
-    assert "node-express-tmpl" not in cleaned
+    assert "console.log('hook');" not in cleaned
     assert "const express = require('express');" in cleaned
 
     # Test complete full-stack archive with frontend subfolder and Node.js backend
@@ -332,13 +329,3 @@ def test_fullstack_backend_node_hook_and_user_upload_subfolders():
         assert 'src="../assets/js/site-studio-runtime.js"' in about_html
         assert 'href="../watermark-license.html"' in about_html
         assert 'site-studio-watermark-overlay' in about_html
-
-        # Verify Node backend has hook
-        server_js = zf.read("backend/server.js").decode("utf-8")
-        assert STEALTH_NODE_START in server_js
-        assert "fullstack-node-tmpl" in server_js
-
-        # Verify frontend JS has observer
-        main_js = zf.read("frontend/src/main.js").decode("utf-8")
-        assert STEALTH_JS_START in main_js
-        assert "fullstack-node-tmpl" in main_js

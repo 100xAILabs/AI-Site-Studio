@@ -27,6 +27,7 @@ from app.core.storage import storage
 from app.schemas.template import (
     TemplateCreate, TemplateUpdate, TemplateResponse,
     TemplateListResponse, TemplateFilterParams, TemplateCardResponse,
+    RetailTemplateRequest,
 )
 from app.models.template import Template, TemplateFramework, TemplateLicense, TemplateStatus
 from app.models.order import Order, OrderItem, OrderStatus
@@ -131,12 +132,6 @@ async def list_templates(
     """
     import json
     import hashlib
-
-    user_role_val = getattr(current_user, "role", None)
-    if user_role_val is not None:
-        user_role_str = user_role_val.value if hasattr(user_role_val, "value") else str(user_role_val)
-        if user_role_str.lower() == "seller":
-            seller_id = current_user.id
 
     filters = TemplateFilterParams(
         q=q, category=category, sub_category=sub_category, min_price=min_price, max_price=max_price,
@@ -381,16 +376,6 @@ async def update_template(
     user_role = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
     is_admin = user_role.lower() in ("admin", "super_admin")
     is_owner = template.seller_id == current_user.id
-    if not is_owner and template.seller_id is None:
-        user_names = {
-            current_user.full_name.lower() if getattr(current_user, "full_name", None) else "",
-            current_user.display_name.lower() if getattr(current_user, "display_name", None) else "",
-            current_user.username.lower() if getattr(current_user, "username", None) else "",
-        }
-        user_names.discard("")
-        if template.developer_name and template.developer_name.lower() in user_names:
-            template.seller_id = current_user.id
-            is_owner = True
 
     if not is_owner and not is_admin:
         raise HTTPException(
@@ -546,15 +531,195 @@ async def audit_template_zip(
     return report
 
 
-# ── Admin Endpoints ───────────────────────────────────────────────────────────
+# ── Admin & Retail Endpoints ───────────────────────────────────────────────────
+
+async def _commit_template_status_safe(db: AsyncSession, template: Template, target_status: TemplateStatus):
+    """
+    Safely commits template status changes, automatically healing and adding any
+    missing PostgreSQL enum values on the live database if needed.
+    """
+    template.status = target_status
+    try:
+        await db.commit()
+    except Exception as db_err:
+        err_msg = str(db_err)
+        if "templatestatus" in err_msg or "InvalidTextRepresentationError" in err_msg:
+            await db.rollback()
+            from app.core.database import engine
+            from sqlalchemy import text
+            async with engine.connect() as patch_conn:
+                patch_conn = await patch_conn.execution_options(isolation_level="AUTOCOMMIT")
+                for s_val in [
+                    'DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'PUBLISHED', 'SUSPENDED', 'ARCHIVED',
+                    'draft', 'submitted', 'under_review', 'approved', 'rejected', 'published', 'suspended', 'archived',
+                ]:
+                    try:
+                        await patch_conn.execute(text(f"ALTER TYPE templatestatus ADD VALUE IF NOT EXISTS '{s_val}';"))
+                    except Exception:
+                        pass
+            template.status = target_status
+            await db.commit()
+        else:
+            raise
+
+
+@router.post("/retail", response_model=TemplateResponse)
+async def retail_generated_template(
+    data: RetailTemplateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Retail an AI-generated website on the Site Studio global marketplace.
+    Exclusively available to Extreme Plan subscribers ($50/mo) and platform administrators.
+    Arbitrary manual zip uploads are disabled; only platform-generated websites can be retailed.
+    """
+    if not current_user.can_retail_templates:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Retailing websites on the marketplace is an exclusive privilege of the Extreme Plan ($50/mo). "
+                "Please upgrade your subscription to the Extreme Plan to list and sell your AI-generated websites."
+            ),
+        )
+
+    from app.repositories.template_repo import TemplateRepository
+    repo = TemplateRepository(db)
+    template = await repo.get_by_id(data.template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Generated website template not found.")
+
+    role_str = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    is_admin = role_str.lower() in ("admin", "super_admin")
+
+    # Verify ownership
+    if template.seller_id != current_user.id and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only retail websites created under your own account."
+        )
+
+    # Verify that it is an AI-generated template ("not a uploadable it was a generated template can be selling")
+    is_generated = (
+        template.template_origin in ("studio", "custom_draft")
+        or (template.tags and any(t in ("studio-project", "ai-generated") for t in template.tags))
+    )
+    if not is_generated and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only AI-generated websites created via Site Studio can be retailed on the marketplace."
+        )
+
+    # Update template with retail metadata
+    import re
+    if data.title and data.title.strip():
+        template.title = data.title.strip()
+        clean_slug = re.sub(r"[^a-z0-9]+", "-", template.title.lower()).strip("-")
+        template.slug = f"{clean_slug[:50]}-{str(template.id)[:8]}"
+
+    if data.category_id:
+        template.category_id = data.category_id
+
+    if data.short_description and data.short_description.strip():
+        template.short_description = data.short_description.strip()
+    elif not template.short_description:
+        template.short_description = "Turnkey AI-generated website tailored for production deployment."
+
+    if data.description and data.description.strip():
+        template.description = data.description.strip()
+
+    if data.tags:
+        clean_tags = list(set(data.tags + ["retailed", "extreme-creator"]))
+        template.tags = clean_tags
+
+    if data.industry and data.industry.strip():
+        template.industry = data.industry.strip()
+
+    if data.thumbnail_url and data.thumbnail_url.strip():
+        template.thumbnail_url = data.thumbnail_url.strip()
+
+    if data.included_pages:
+        template.included_pages = data.included_pages
+
+    # Set retail pricing in USD
+    template.price = round(Decimal(str(data.retail_price)), 2)
+    template.price_currency = "USD"
+    template.is_free = False
+    
+    # Platform Workflow: Admins publish immediately; Creators submit for review
+    if is_admin:
+        target_status = TemplateStatus.PUBLISHED
+    else:
+        target_status = TemplateStatus.SUBMITTED
+        template.submitted_at = datetime.now(timezone.utc)
+        template.rejection_reason = None
+
+    template.is_marketplace = True
+    template.developer_name = current_user.full_name or current_user.username or "Studio Creator"
+    if current_user.avatar_url:
+        template.developer_avatar = current_user.avatar_url
+    template.updated_at = datetime.now(timezone.utc)
+
+    await _commit_template_status_safe(db, template, target_status)
+    await db.refresh(template)
+
+    fast_catalog.invalidate()
+    await cache_delete_pattern("templates:*")
+
+    service = TemplateService(db)
+    return await service.get_template_by_id(template.id)
+
+
+@router.post("/{template_id}/submit-review", response_model=TemplateResponse)
+async def submit_template_for_review(
+    template_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Submit a draft or modified website template for admin review.
+    Enforces that creator has an active Extreme subscription.
+    """
+    if not current_user.can_retail_templates:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Publishing to the marketplace requires an active Extreme Plan subscription.",
+        )
+
+    from app.repositories.template_repo import TemplateRepository
+    repo = TemplateRepository(db)
+    template = await repo.get_by_id(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found.")
+
+    role_str = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    is_admin = role_str.lower() in ("admin", "super_admin")
+
+    if template.seller_id != current_user.id and not is_admin:
+        raise HTTPException(status_code=403, detail="You can only submit your own templates for review.")
+
+    target_status = TemplateStatus.SUBMITTED
+    template.submitted_at = datetime.now(timezone.utc)
+    template.rejection_reason = None
+    template.updated_at = datetime.now(timezone.utc)
+
+    await _commit_template_status_safe(db, template, target_status)
+    await db.refresh(template)
+
+    fast_catalog.invalidate()
+    await cache_delete_pattern("templates:*")
+
+    service = TemplateService(db)
+    return await service.get_template_by_id(template.id)
+
 
 @router.post("", response_model=TemplateResponse, status_code=status.HTTP_201_CREATED)
 async def create_template(
     data: TemplateCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_seller_or_admin),
+    current_user: User = Depends(require_admin),
 ):
-    """Create a new template and permanently link it to the uploading seller's account."""
+    """Create a new template listing (restricted to platform admins)."""
     data.status = TemplateStatus.PUBLISHED
     data.is_marketplace = True
     data.template_origin = "marketplace"
@@ -583,7 +748,7 @@ async def reupload_template_zip(
     template_id: str | uuid.UUID,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_seller_or_admin),
+    current_user: User = Depends(require_admin),
 ):
     """
     Re-upload and replace a template's source ZIP file.
@@ -814,7 +979,7 @@ async def purge_custom_drafts(
                 continue
             seen_dirs.add(gen_proj_dir)
             for entry in os.listdir(gen_proj_dir):
-                if "-draft-" in entry or "draft" in entry.lower() or any(d_id in entry for d_id in deleted_ids):
+                if any(d_id in entry for d_id in deleted_ids):
                     try:
                         full_p = gen_proj_dir / entry
                         if full_p.is_dir():
@@ -832,7 +997,7 @@ async def purge_custom_drafts(
     for temp_prev_dir in temp_dirs:
         if os.path.isdir(temp_prev_dir):
             for entry in os.listdir(temp_prev_dir):
-                if any(d_id in entry for d_id in deleted_ids) or "-draft-" in entry or "draft" in entry.lower():
+                if any(d_id in entry for d_id in deleted_ids):
                     try:
                         shutil.rmtree(os.path.join(temp_prev_dir, entry), ignore_errors=True)
                     except Exception:
@@ -944,19 +1109,29 @@ async def download_template(
         raise HTTPException(status_code=400, detail="Source zip file not configured for this template")
 
     lic_param = f"&license={quote_plus(selected_lic)}"
+    tmpl_param = f"&template_id={template.id}"
+    from app.core.security import create_access_token
+    from datetime import timedelta
+    download_jwt = create_access_token(
+        subject=str(current_user.id),
+        expires_delta=timedelta(minutes=30),
+        role=getattr(current_user.role, "value", str(current_user.role))
+    )
+    token_param = f"&token={quote_plus(download_jwt)}"
+    extra_params = f"{lic_param}{tmpl_param}{token_param}"
 
     if file_uuid:
         file_id_str = str(file_uuid)
-        expires = int(datetime.now(timezone.utc).timestamp()) + 86400 * 3650  # Lifetime download validity (10 years)
+        expires = int(datetime.now(timezone.utc).timestamp()) + 900  # 15 minutes download validity
         signature = generate_file_signature(file_id_str, expires)
 
         # Build clean download URL using current request host or configured storage URL
         if request and request.base_url:
             base_url = str(request.base_url).rstrip("/")
-            download_url = f"{base_url}/api/v1/files/{file_id_str}?expires={expires}&signature={signature}{lic_param}"
+            download_url = f"{base_url}/api/v1/files/{file_id_str}?expires={expires}&signature={signature}{extra_params}"
         else:
             clean_base = storage.build_url(file_uuid).split("?")[0]
-            download_url = f"{clean_base}?expires={expires}&signature={signature}{lic_param}"
+            download_url = f"{clean_base}?expires={expires}&signature={signature}{extra_params}"
         return {
             "download_url": download_url,
             "is_clean": is_clean,
@@ -970,13 +1145,13 @@ async def download_template(
     try:
         f_uuid = uuid.UUID(raw_id)
         file_id_str = str(f_uuid)
-        expires = int(datetime.now(timezone.utc).timestamp()) + 86400 * 3650  # Lifetime download validity (10 years)
+        expires = int(datetime.now(timezone.utc).timestamp()) + 900  # 15 minutes download validity
         signature = generate_file_signature(file_id_str, expires)
         if request and request.base_url:
             base_url = str(request.base_url).rstrip("/")
-            download_url = f"{base_url}/api/v1/files/{file_id_str}?expires={expires}&signature={signature}{lic_param}"
+            download_url = f"{base_url}/api/v1/files/{file_id_str}?expires={expires}&signature={signature}{extra_params}"
         else:
-            download_url = f"{clean_url}?expires={expires}&signature={signature}{lic_param}"
+            download_url = f"{clean_url}?expires={expires}&signature={signature}{extra_params}"
         return {
             "download_url": download_url,
             "is_clean": is_clean,

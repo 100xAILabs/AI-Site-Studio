@@ -27,6 +27,7 @@ import {
   Briefcase,
   FileText,
   HelpCircle,
+  Crown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCartStore } from "@/store";
@@ -47,6 +48,14 @@ function NavbarComponent() {
   const [scrolled, setScrolled] = useState(false);
 
   const isSeller = isSignedIn && (user?.role === "seller" || user?.role === "SELLER");
+  const isExtreme =
+    isSignedIn &&
+    (user?.can_retail_templates ||
+      user?.is_extreme_subscriber ||
+      ["extreme", "agency", "enterprise"].includes(String(user?.subscription_tier || "").toLowerCase()) ||
+      user?.role === "admin" ||
+      user?.role === "super_admin");
+  const subTier = String(user?.subscription_tier || "free").toLowerCase();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [templatesDropdown, setTemplatesDropdown] = useState(false);
@@ -315,6 +324,18 @@ function NavbarComponent() {
           {/* Sign In & Get Started Free or User Profile */}
           {isSignedIn ? (
             <div className="navbar-auth-group">
+              {/* Extreme Creator Quick Retailing Link */}
+              {isExtreme && (
+                <Link
+                  href="/dashboard?tab=creator-studio"
+                  className="navbar-sell-btn"
+                  title="Open Creator Studio to Sell Templates"
+                >
+                  <ShoppingBag className="w-3.5 h-3.5 text-[#dfb180]" />
+                  <span className="hidden md:inline">Sell Templates</span>
+                </Link>
+              )}
+
               <Link
                 href="/dashboard"
                 className="navbar-user-pill-link"
@@ -342,10 +363,28 @@ function NavbarComponent() {
                 </div>
                 <div className="navbar-user-info-text">
                   <span className="navbar-user-display-name">
-                    {user?.name || user?.full_name || (user?.email ? user.email.split("@")[0] : "Navin Bharath.N")}
+                    {user?.name || user?.full_name || (user?.email ? user.email.split("@")[0] : "Creator")}
                   </span>
-                  <span className="navbar-user-role-label">
-                    {user?.role === "seller" || user?.role === "SELLER" ? "Seller" : "Buyer"}
+                  <span className={`navbar-user-sub-badge ${
+                    isExtreme
+                      ? "sub-badge-extreme"
+                      : subTier === "pro"
+                      ? "sub-badge-pro"
+                      : "sub-badge-free"
+                  }`}>
+                    {isExtreme ? (
+                      <>
+                        <Crown className="w-2.5 h-2.5" />
+                        <span>Extreme</span>
+                      </>
+                    ) : subTier === "pro" ? (
+                      <>
+                        <Sparkles className="w-2.5 h-2.5" />
+                        <span>Pro</span>
+                      </>
+                    ) : (
+                      <span>Free</span>
+                    )}
                   </span>
                 </div>
               </Link>
@@ -449,6 +488,24 @@ function NavbarComponent() {
 
                 {isSignedIn ? (
                   <>
+                    <div className="py-2 px-1 text-xs text-muted-foreground flex items-center justify-between">
+                      <span>Subscription Tier</span>
+                      <span className={`navbar-user-sub-badge ${
+                        isExtreme ? "sub-badge-extreme" : subTier === "pro" ? "sub-badge-pro" : "sub-badge-free"
+                      }`}>
+                        {isExtreme ? "Extreme" : subTier === "pro" ? "Pro" : "Free Plan"}
+                      </span>
+                    </div>
+                    {isExtreme && (
+                      <Link
+                        href="/dashboard?tab=creator-studio"
+                        className="mobile-link text-[#dfb180] font-bold flex items-center gap-2"
+                        onClick={() => setMobileOpen(false)}
+                      >
+                        <Crown className="w-4 h-4 text-[#dfb180]" />
+                        <span>Creator Studio (Sell Templates)</span>
+                      </Link>
+                    )}
                     <Link href="/dashboard" className="mobile-link" onClick={() => setMobileOpen(false)}>
                       Dashboard
                     </Link>

@@ -27,8 +27,8 @@ _DEPLOYMENTS_ROOT = _STATIC_ROOT / "deployments"
 os.makedirs(_DEPLOYMENTS_ROOT, exist_ok=True)
 
 
-def _run_process(command: list[str], cwd: str, env: Dict[str, str]) -> Tuple[int, list[str]]:
-    """Run a build command in a worker thread and retain only its final log lines."""
+def _run_process(command: list[str], cwd: str, env: Dict[str, str], timeout: int = 180) -> Tuple[int, list[str]]:
+    """Run a build command in a worker thread with strict timeout and retain only its final log lines."""
     output_lines = deque(maxlen=600)
     with subprocess.Popen(
         command,
@@ -41,10 +41,15 @@ def _run_process(command: list[str], cwd: str, env: Dict[str, str]) -> Tuple[int
         errors="replace",
         bufsize=1,
     ) as process:
-        if process.stdout is not None:
-            for line in process.stdout:
-                output_lines.append(line.rstrip())
-        return_code = process.wait()
+        try:
+            if process.stdout is not None:
+                for line in process.stdout:
+                    output_lines.append(line.rstrip())
+            return_code = process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            output_lines.append(f"❌ Process killed after exceeding {timeout}s timeout limit.")
+            return -1, list(output_lines)
     return return_code, list(output_lines)
 
 
@@ -143,11 +148,23 @@ class LocalDeploymentProvider(DeploymentProvider):
                 command = " ".join(subprocess.list2cmdline([arg]) for arg in args)
                 return [cmd_exe, "/d", "/c", command]
             return list(args)
-        # Inject tenant-specified public environment variables
+        # Inject tenant-specified public environment variables (with strict security allowlisting)
+        _BLOCKED_ENV_PREFIXES = ("NODE_", "NPM_", "npm_config_", "PYTHON", "PERL", "RUBY")
+        _BLOCKED_ENV_NAMES = {
+            "NODE_OPTIONS", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH",
+            "PATH", "SYSTEMROOT", "WINDIR", "COMSPEC", "HOME", "USERPROFILE",
+            "APPDATA", "LOCALAPPDATA", "TEMP", "TMP"
+        }
         if env_vars:
             for k, v in env_vars.items():
-                if isinstance(v, str):
-                    tenant_clean_env[k] = v
+                k_clean = str(k).strip()
+                if (
+                    isinstance(v, str)
+                    and k_clean.isidentifier()
+                    and k_clean.upper() not in _BLOCKED_ENV_NAMES
+                    and not any(k_clean.upper().startswith(p.upper()) for p in _BLOCKED_ENV_PREFIXES)
+                ):
+                    tenant_clean_env[k_clean] = v
 
         # Locate root directory containing package.json
         project_root = source_path
@@ -190,7 +207,7 @@ class LocalDeploymentProvider(DeploymentProvider):
         try:
             install_code, install_output = await asyncio.to_thread(
                 _run_process,
-                npm_process_args(npm_cmd, "install", "--include=dev", "--no-audit", "--no-fund"),
+                npm_process_args(npm_cmd, "install", "--ignore-scripts", "--include=dev", "--no-audit", "--no-fund"),
                 project_root,
                 tenant_clean_env,
             )
@@ -204,7 +221,7 @@ class LocalDeploymentProvider(DeploymentProvider):
                     if healed:
                         install_code, install_output = await asyncio.to_thread(
                             _run_process,
-                            npm_process_args(npm_cmd, "install", "--include=dev", "--no-audit", "--no-fund"),
+                            npm_process_args(npm_cmd, "install", "--ignore-scripts", "--include=dev", "--no-audit", "--no-fund"),
                             project_root,
                             tenant_clean_env,
                         )
@@ -220,14 +237,19 @@ class LocalDeploymentProvider(DeploymentProvider):
             logs.append(f"❌ Dependency install error: {e!r}")
             return False, "\n".join(logs), ""
 
-        # 4. Run build script
-        logs.append(f"🚀 Executing build command: {build_command}")
+        # 4. Run build script (enforce safe npm build arguments)
+        safe_build = build_command.strip() if build_command else "npm run build"
+        cmd_parts = safe_build.split()
+        if not cmd_parts or cmd_parts[0] != "npm" or (len(cmd_parts) > 1 and cmd_parts[1] not in ("run", "build", "run-script")):
+            safe_build = "npm run build"
+            cmd_parts = ["npm", "run", "build"]
+
+        logs.append(f"🚀 Executing build command: {safe_build}")
         try:
-            cmd_parts = build_command.split(" ")
-            if cmd_parts[0] == "npm" and len(cmd_parts) > 2 and cmd_parts[1] == "run":
+            if len(cmd_parts) >= 3 and cmd_parts[1] == "run":
                 build_args = npm_process_args(npm_cmd, "run", cmd_parts[2])
             else:
-                build_args = npm_process_args(*cmd_parts)
+                build_args = npm_process_args(npm_cmd, "run", "build")
             build_code, build_output = await asyncio.to_thread(
                 _run_process, build_args, project_root, tenant_clean_env
             )

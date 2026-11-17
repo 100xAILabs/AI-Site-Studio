@@ -116,12 +116,37 @@ class PreviewService:
         Phase 2 will use headless browser screenshot of actual rendered template.
         """
         import httpx
-        async with httpx.AsyncClient() as client:
+        import socket
+        import ipaddress
+        import asyncio
+        from urllib.parse import urlparse
+
+        parsed = urlparse(template_thumbnail_url)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(f"Invalid URL scheme: {parsed.scheme}")
+
+        hostname = parsed.hostname
+        if not hostname:
+            raise ValueError("Invalid URL hostname")
+
+        # Resolve DNS and block private / loopback IP addresses (anti-SSRF guard)
+        try:
+            addr_info = socket.getaddrinfo(hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
+            for _, _, _, _, sockaddr in addr_info:
+                ip_str = sockaddr[0]
+                ip_obj = ipaddress.ip_address(ip_str)
+                if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved or ip_obj.is_multicast:
+                    raise ValueError(f"SSRF blocked: target IP {ip_str} is within a restricted network.")
+        except socket.gaierror as e_dns:
+            raise ValueError(f"Could not resolve thumbnail hostname: {e_dns}")
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(template_thumbnail_url)
             resp.raise_for_status()
             image_bytes = resp.content
 
-        watermarked = self.apply_watermark(image_bytes, user_email=user_email)
+        # Apply watermark in thread worker without baking user email into public thumbnail
+        watermarked = await asyncio.to_thread(self.apply_watermark, image_bytes, user_email=None)
         url = await storage.upload_file(
             self.db,
             watermarked,

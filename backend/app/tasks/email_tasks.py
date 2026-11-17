@@ -65,15 +65,19 @@ def send_license_delivery(self, to_email: str, license_key: str, template_name: 
                 server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
                 server.sendmail(settings.SMTP_FROM or settings.SMTP_USER, [to_email], msg.as_string())
 
-        print(f"📧 [EMAIL SENT] License {license_key} delivered to {to_email}")
+        masked_email = f"{to_email[:2]}***@{to_email.split('@')[-1]}" if "@" in to_email else "hidden"
+        masked_lic = f"{license_key[:6]}****" if len(license_key) > 6 else "LIC-***"
+        logger.info(f"📧 [EMAIL SENT] License {masked_lic} delivered to {masked_email}")
         return True
 
     except smtplib.SMTPException as exc:
-        print(f"[EMAIL ERROR] Failed to send license email to {to_email}: {exc}")
+        masked_email = f"{to_email[:2]}***@{to_email.split('@')[-1]}" if "@" in to_email else "hidden"
+        logger.error(f"[EMAIL ERROR] Failed to send license email to {masked_email}: {exc}")
         # Retry up to 3 times with exponential backoff (60s, 120s, 240s)
         raise self.retry(exc=exc, countdown=60 * (2 ** self.request.retries))
     except Exception as exc:
-        print(f"[EMAIL ERROR] Unexpected error sending email to {to_email}: {exc}")
+        masked_email = f"{to_email[:2]}***@{to_email.split('@')[-1]}" if "@" in to_email else "hidden"
+        logger.error(f"[EMAIL ERROR] Unexpected error sending email to {masked_email}: {exc}")
         return False
 
 

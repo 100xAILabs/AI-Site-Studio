@@ -207,10 +207,15 @@ class TemplateResponse(BaseModel):
     is_wishlisted: Optional[bool] = None
     is_purchased: Optional[bool] = None
 
-    # Seller / Ownership
+    # Seller / Ownership & Moderation
     seller_id: Optional[uuid.UUID] = None
     seller_templates_count: Optional[int] = 0
     seller_total_sales: Optional[int] = 0
+    rejection_reason: Optional[str] = None
+    admin_notes: Optional[str] = None
+    submitted_at: Optional[datetime] = None
+    reviewed_at: Optional[datetime] = None
+    source_project_id: Optional[uuid.UUID] = None
 
     model_config = {"from_attributes": True}
 
@@ -287,5 +292,26 @@ class TemplateFilterParams(BaseModel):
     semantic: Optional[bool] = False
     developer: Optional[str] = None
     seller_id: Optional[uuid.UUID] = None
+
+
+class RetailTemplateRequest(BaseModel):
+    template_id: uuid.UUID
+    retail_price: Decimal = Field(..., ge=1, le=5000, description="Retail price in USD")
+    title: Optional[str] = Field(None, max_length=255)
+    category_id: Optional[uuid.UUID] = None
+    short_description: Optional[str] = Field(None, max_length=500)
+    description: Optional[str] = None
+    tags: Optional[List[str]] = None
+    industry: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    included_pages: Optional[List[str]] = None
+
+
+class TemplateReviewDecisionRequest(BaseModel):
+    status: str = Field(..., description="approved, rejected, published, suspended, under_review")
+    rejection_reason: Optional[str] = None
+    admin_notes: Optional[str] = None
+
+
 
 

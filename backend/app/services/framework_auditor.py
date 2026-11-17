@@ -514,7 +514,7 @@ async def health_check():
 
             def run_npm_install():
                 return subprocess.run(
-                    npm_process_args(npm_cmd, "install", "--include=dev", "--prefer-offline", "--no-audit", "--no-fund", "--progress=false"),
+                    npm_process_args(npm_cmd, "install", "--ignore-scripts", "--include=dev", "--prefer-offline", "--no-audit", "--no-fund", "--progress=false"),
                     cwd=temp_dir,
                     env=tenant_clean_env,
                     stdout=subprocess.PIPE,

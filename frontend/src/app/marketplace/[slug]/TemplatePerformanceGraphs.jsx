@@ -39,21 +39,21 @@ export default function TemplatePerformanceGraphs({ template }) {
       name: "Accessibility",
       short: "A11y",
       score: getDeterministicScore(seed, 2, 95, 100),
-      color: "#38bdf8",
+      color: "#0ea5e9",
       note: "Touch targets >= 44px, WCAG AA",
     },
     {
       name: "Best Practices",
       short: "Practices",
       score: getDeterministicScore(seed, 3, 94, 100),
-      color: "#dfb180",
+      color: "#f59e0b",
       note: "HTTPS, HSTS, modern ES6+ JS",
     },
     {
       name: "SEO Optimization",
       short: "SEO",
       score: getDeterministicScore(seed, 4, 96, 100),
-      color: "#c084fc",
+      color: "#a855f7",
       note: "OpenGraph tags, meta descriptions",
     },
   ];
@@ -66,7 +66,7 @@ export default function TemplatePerformanceGraphs({ template }) {
   const mediaPercent = 100 - htmlPercent - cssPercent - jsPercent;
 
   const ASSET_PAYLOADS = [
-    { label: "HTML5 Semantic Markup", pct: htmlPercent, color: "#38bdf8" },
+    { label: "HTML5 Semantic Markup", pct: htmlPercent, color: "#0ea5e9" },
     { label: "CSS3 Styles & Design Tokens", pct: cssPercent, color: "#c89666" },
     { label: "JavaScript Interactivity", pct: jsPercent, color: "#ec4899" },
     { label: "Vector SVG & Media Assets", pct: mediaPercent, color: "#10b981" },
@@ -77,14 +77,14 @@ export default function TemplatePerformanceGraphs({ template }) {
       {/* Header */}
       <div className="flex items-center justify-between mb-4 pb-2 border-b border-border">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400">
+          <div className="telemetry-header-icon">
             <Gauge className="w-4 h-4" />
           </div>
           <h3 className="section-title text-foreground" style={{ margin: 0 }}>
             Lighthouse Performance & Code Payload Telemetry
           </h3>
         </div>
-        <span className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20 font-semibold">
+        <span className="telemetry-verified-badge">
           ✓ Verified Production Edge Build
         </span>
       </div>
@@ -100,9 +100,8 @@ export default function TemplatePerformanceGraphs({ template }) {
             <div className="relative w-16 h-16 md:w-20 md:h-20 shrink-0 mx-auto mb-2">
               <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
                 <path
-                  className="text-muted/40"
+                  className="lighthouse-track"
                   strokeWidth="3.2"
-                  stroke="currentColor"
                   fill="none"
                   d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                 />
@@ -118,14 +117,14 @@ export default function TemplatePerformanceGraphs({ template }) {
                   d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                 />
               </svg>
-              <div className="absolute inset-0 flex items-center justify-center font-mono font-black text-sm md:text-lg text-foreground">
+              <div className="lighthouse-score-val absolute inset-0 flex items-center justify-center font-mono font-black text-sm md:text-lg">
                 {s.score}
               </div>
             </div>
 
             <div className="text-center">
-              <span className="text-xs font-bold text-foreground block">{s.name}</span>
-              <span className="text-[10px] text-muted-foreground mt-0.5 block truncate">
+              <span className="lighthouse-score-name block">{s.name}</span>
+              <span className="lighthouse-score-note mt-0.5 block truncate">
                 {s.note}
               </span>
             </div>
@@ -163,9 +162,9 @@ export default function TemplatePerformanceGraphs({ template }) {
         {/* Legend */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">
           {ASSET_PAYLOADS.map((item, idx) => (
-            <div key={idx} className="flex items-center gap-1.5 text-muted-foreground">
+            <div key={idx} className="flex items-center gap-1.5 text-foreground/80">
               <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: item.color }} />
-              <span className="truncate">{item.label}</span>
+              <span className="truncate font-medium">{item.label}</span>
               <span className="font-mono font-bold text-foreground ml-auto">{item.pct}%</span>
             </div>
           ))}
@@ -174,41 +173,41 @@ export default function TemplatePerformanceGraphs({ template }) {
 
       {/* 3. Device Viewport Reflow Compatibility Matrix */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="p-3 rounded-xl bg-muted/40 border border-border flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500 dark:text-blue-400">
+        <div className="reflow-compat-card">
+          <div className="p-2 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(14, 165, 233, 0.12)', color: '#0284c7' }}>
             <Monitor className="w-4 h-4" />
           </div>
-          <div>
-            <span className="text-[10px] uppercase font-bold text-muted-foreground block">Desktop Reflow</span>
-            <span className="text-xs font-bold text-foreground flex items-center gap-1 mt-0.5">
-              <CheckCircle2 className="w-3 h-3 text-emerald-500 dark:text-emerald-400" />
-              1280px Fluid Canvas
+          <div className="min-w-0">
+            <span className="reflow-compat-label">Desktop Reflow</span>
+            <span className="reflow-compat-val">
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" style={{ color: '#10b981' }} />
+              <span>1280px Fluid Canvas</span>
             </span>
           </div>
         </div>
 
-        <div className="p-3 rounded-xl bg-muted/40 border border-border flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
+        <div className="reflow-compat-card">
+          <div className="p-2 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(200, 150, 102, 0.15)', color: '#b5804f' }}>
             <Tablet className="w-4 h-4" />
           </div>
-          <div>
-            <span className="text-[10px] uppercase font-bold text-muted-foreground block">Tablet Reflow</span>
-            <span className="text-xs font-bold text-foreground flex items-center gap-1 mt-0.5">
-              <CheckCircle2 className="w-3 h-3 text-emerald-500 dark:text-emerald-400" />
-              768px Adaptive Grids
+          <div className="min-w-0">
+            <span className="reflow-compat-label">Tablet Reflow</span>
+            <span className="reflow-compat-val">
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" style={{ color: '#10b981' }} />
+              <span>768px Adaptive Grids</span>
             </span>
           </div>
         </div>
 
-        <div className="p-3 rounded-xl bg-muted/40 border border-border flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
+        <div className="reflow-compat-card">
+          <div className="p-2 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(16, 185, 129, 0.12)', color: '#059669' }}>
             <Smartphone className="w-4 h-4" />
           </div>
-          <div>
-            <span className="text-[10px] uppercase font-bold text-muted-foreground block">Mobile Reflow</span>
-            <span className="text-xs font-bold text-foreground flex items-center gap-1 mt-0.5">
-              <CheckCircle2 className="w-3 h-3 text-emerald-500 dark:text-emerald-400" />
-              390px Zero Overflow-X
+          <div className="min-w-0">
+            <span className="reflow-compat-label">Mobile Reflow</span>
+            <span className="reflow-compat-val">
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" style={{ color: '#10b981' }} />
+              <span>390px Zero Overflow-X</span>
             </span>
           </div>
         </div>

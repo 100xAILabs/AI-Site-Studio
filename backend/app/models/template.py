@@ -4,12 +4,13 @@ Template ORM model — the core product entity.
 
 import enum
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional, List, TYPE_CHECKING
 
 from sqlalchemy import (
     String, Text, Boolean, Integer, Numeric, Float,
-    ForeignKey, JSON, Uuid, Enum as SAEnum
+    ForeignKey, JSON, Uuid, Enum as SAEnum, DateTime
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
     from app.models.order import OrderItem
     from app.models.download import Download
     from app.models.user import User
+    from app.models.project import Project
 
 
 from sqlalchemy.types import TypeDecorator
@@ -63,8 +65,22 @@ class TemplateLicense(str, enum.Enum):
 
 class TemplateStatus(str, enum.Enum):
     DRAFT = "draft"
+    SUBMITTED = "submitted"
+    UNDER_REVIEW = "under_review"
+    APPROVED = "approved"
+    REJECTED = "rejected"
     PUBLISHED = "published"
+    SUSPENDED = "suspended"
     ARCHIVED = "archived"
+
+    @classmethod
+    def _missing_(cls, value):
+        if isinstance(value, str):
+            val_clean = value.strip().lower()
+            for member in cls:
+                if member.name.lower() == val_clean or member.value.lower() == val_clean:
+                    return member
+        return None
 
 
 class Template(UUIDMixin, TimestampMixin, Base):
@@ -145,7 +161,7 @@ class Template(UUIDMixin, TimestampMixin, Base):
     developer_name: Mapped[Optional[str]] = mapped_column(String(200))
     developer_avatar: Mapped[Optional[str]] = mapped_column(String(500))
 
-    # ── Seller / Owner ────────────────────────────────────────────────────────
+    # ── Seller / Owner & Moderation ───────────────────────────────────────────
     # Permanently links this template to the uploading seller's account.
     seller_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid(as_uuid=True),
@@ -153,6 +169,23 @@ class Template(UUIDMixin, TimestampMixin, Base):
         nullable=True,
         index=True,
     )
+    # Originating Site Studio user project
+    source_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # Moderation & Review Workflow
+    rejection_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    admin_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reviewed_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # ── Download Assets ───────────────────────────────────────────────────────
     # JSON for flexible asset storage: {react: "url", html: "url", zip: "url"}
@@ -167,7 +200,21 @@ class Template(UUIDMixin, TimestampMixin, Base):
 
     # ── Relationships ─────────────────────────────────────────────────────────
     category: Mapped["Category"] = relationship(back_populates="templates")
-    seller: Mapped[Optional["User"]] = relationship(back_populates="uploaded_templates", lazy="select")
+    seller: Mapped[Optional["User"]] = relationship(
+        back_populates="uploaded_templates",
+        foreign_keys=[seller_id],
+        lazy="select",
+    )
+    reviewer: Mapped[Optional["User"]] = relationship(
+        "User",
+        foreign_keys=[reviewed_by_id],
+        lazy="select",
+    )
+    source_project: Mapped[Optional["Project"]] = relationship(
+        "Project",
+        foreign_keys=[source_project_id],
+        lazy="select",
+    )
     reviews: Mapped[List["Review"]] = relationship(back_populates="template", lazy="select", cascade="all, delete-orphan")
     wishlist_items: Mapped[List["WishlistItem"]] = relationship(back_populates="template", lazy="select", cascade="all, delete-orphan")
     favorites: Mapped[List["Favorite"]] = relationship(back_populates="template", lazy="select", cascade="all, delete-orphan")

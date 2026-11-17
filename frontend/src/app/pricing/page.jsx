@@ -36,7 +36,6 @@ const TOKEN_PACKS = [
     proPrice: 6,
     extremePrice: 4,
     badge: "Entry Pack",
-    unitPrice: "$0.20 (Free) · $0.12 (Pro) · $0.08 (Extreme) / token",
     description: "50 Studio Automation Credits for section fills, component generation, and template customizations.",
     popular: false,
   },
@@ -84,6 +83,10 @@ const FAQS = [
     a: "Yes! Pro plans allow you to connect your custom domain to your 1 included hosted website. Extreme plans allow custom domain connections for up to 3 included hosted websites, and annual Extreme subscribers receive a promotional domain credit up to $15 for their first year.",
   },
   {
+    q: "Can I sell and retail the websites I generate?",
+    a: "Yes! Subscribers on the Extreme Plan ($50/mo) receive an exclusive Marketplace Retailer License. You can list your AI-generated websites directly on the Site Studio global marketplace, set your custom retail price in USD, and receive creator payouts for every sale.",
+  },
+  {
     q: "What payment gateways are supported?",
     a: "We support Stripe (international credit/debit cards, Apple Pay, Google Pay) and Razorpay (cards, UPI, NetBanking). All subscription cycles, invoices, and credit balances are updated automatically via secure webhooks.",
   },
@@ -113,7 +116,7 @@ export default function PricingPage() {
     recommendedReason = `Includes 150 monthly automation credits, 1 hosted site, up to 3 deployment slots, and 1 Auto-Heal site (10 repairs/mo)!`;
   } else if (siteCount > 3) {
     recommendedPlan = "Extreme Plan ($50/mo or $500/yr)";
-    recommendedReason = `Includes 1,000 monthly automation credits, 3 hosted sites, up to 3 Auto-Heal sites (30 repairs/mo), and $15 domain credit!`;
+    recommendedReason = `Includes 1,000 monthly automation credits, Exclusive Marketplace Retailer License (sell your AI-generated websites), 3 hosted sites, and 3 Auto-Heal sites!`;
   }
 
   // Handle Token Top-Up Purchase -> Takes user to checkout payment options
@@ -179,7 +182,6 @@ export default function PricingPage() {
                 className={`pricing-toggle-btn ${billingCycle === "annual" ? "active" : ""}`}
               >
                 Annual Billing
-                <span className="pricing-save-badge">Save 20%</span>
               </button>
             </motion.div>
           </div>

@@ -2409,6 +2409,8 @@ async def edit_live_preview_manual(
 
     # 3. AI Code Refactor (Step 2): Only invoked when user chooses "AI Save" (request.use_ai=True)
     if request.use_ai:
+        if not current_user:
+            raise HTTPException(status_code=401, detail="Authentication required to use AI Code Refactoring.")
         files_str = ""
         ordered_files = sorted(
             files_dict.items(),
@@ -3011,8 +3013,8 @@ async def apply_live_preview_theme_color(
         except Exception:
             pass
 
-    # Also update the StoredFile zip archive in database if template has one
-    if template:
+    # Only update stored zip archive in database if template is a private DRAFT owned by the current user
+    if template and template.status == TemplateStatus.DRAFT and current_user and template.seller_id == current_user.id:
         download_assets = template.download_assets or {}
         zip_url = download_assets.get("zip")
         if zip_url:
@@ -3083,13 +3085,22 @@ async def revoke_live_preview_changes(
     from app.core.local_project_manager import local_project_manager
     from app.repositories.template_repo import TemplateRepository
 
-    clean_id = str(template_id).strip()
-    result = local_project_manager.purge_demo_website_data(clean_id, wipe_reason="user_revoked_changes")
-
     template_repo = TemplateRepository(db)
     template = await template_repo.get_by_id(clean_id)
     if not template:
         template = await template_repo.get_by_slug(clean_id)
+
+    # Authorization check: only the owner or an admin can revoke a draft template
+    if template and template.status == TemplateStatus.DRAFT:
+        is_admin = current_user and getattr(current_user, "role", None) in ("admin", "super_admin")
+        if not is_admin and (not current_user or template.seller_id != current_user.id):
+            raise HTTPException(status_code=403, detail="Not authorized to revoke changes for this draft")
+
+    # If it is a published marketplace template, never purge the canonical project or alter database color_scheme
+    is_published = template and template.status == TemplateStatus.PUBLISHED
+
+    if not is_published:
+        result = local_project_manager.purge_demo_website_data(clean_id, wipe_reason="user_revoked_changes")
 
     original_color = "#4F46E5"
     if template:
@@ -3103,22 +3114,23 @@ async def revoke_live_preview_changes(
                     except Exception:
                         pass
 
-        project_dir = local_project_manager._resolve_project_dir(template.slug or clean_id)
-        meta_file = project_dir / "metadata.json"
-        if meta_file.exists():
-            try:
-                meta = json.loads(meta_file.read_text(encoding="utf-8-sig"))
-                if "initial_color_scheme" in meta:
-                    original_color = meta["initial_color_scheme"]
-                elif meta.get("color_scheme"):
-                    original_color = meta["color_scheme"]
-            except Exception:
-                pass
+        if not is_published:
+            project_dir = local_project_manager._resolve_project_dir(template.slug or clean_id)
+            meta_file = project_dir / "metadata.json"
+            if meta_file.exists():
+                try:
+                    meta = json.loads(meta_file.read_text(encoding="utf-8-sig"))
+                    if "initial_color_scheme" in meta:
+                        original_color = meta["initial_color_scheme"]
+                    elif meta.get("color_scheme"):
+                        original_color = meta["color_scheme"]
+                except Exception:
+                    pass
 
-        if original_color and template.color_scheme != original_color:
-            template.color_scheme = original_color
-            db.add(template)
-            await db.commit()
+            if original_color and template.color_scheme != original_color:
+                template.color_scheme = original_color
+                db.add(template)
+                await db.commit()
 
     return {
         "status": "success",
@@ -3137,7 +3149,7 @@ class FindReplaceRequest(BaseModel):
 async def edit_live_preview_find_replace(
     template_id: str,
     request: FindReplaceRequest,
-    current_user: Optional[User] = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     import zipfile
@@ -3227,13 +3239,14 @@ async def edit_live_preview_find_replace(
             for item in z_in.infolist():
                 content = z_in.read(item.filename)
                 is_build = any(d in item.filename.replace("\\", "/").split("/") for d in ["dist", "build", "out", "node_modules", ".output"])
+                is_package_or_env = any(x in item.filename.lower() for x in ["package.json", "package-lock.json", ".env", "pnpm-lock", "yarn.lock"])
                 is_text = (item.filename.endswith(".html") or 
                            item.filename.endswith(".jsx") or 
                            item.filename.endswith(".js") or 
                            item.filename.endswith(".css") or 
                            item.filename.endswith(".tsx") or 
                            item.filename.endswith(".ts") or
-                           item.filename.endswith(".json")) and not is_build
+                           item.filename.endswith(".json")) and not is_build and not is_package_or_env
                            
                 if is_text:
                     try:
@@ -3279,7 +3292,7 @@ async def edit_live_preview_ai(
     template_id: str,
     request: AIEditRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
 ):
     import zipfile
     import io
@@ -3291,9 +3304,9 @@ async def edit_live_preview_ai(
     template = await template_repo.get_by_id(template_id)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
-    if current_user:
-        from app.core.request_limits import enforce_user_limit
-        await enforce_user_limit(str(current_user.id), "template-ai-edit")
+
+    from app.core.request_limits import enforce_user_limit
+    await enforce_user_limit(str(current_user.id), "template-ai-edit")
         
     # If the template is PUBLISHED or belongs to another user, clone/fork it so the user modifies their own private DRAFT copy
     is_user_owned_draft = (
@@ -3676,6 +3689,7 @@ async def serve_live_preview(
     from sqlalchemy import select
     from app.repositories.template_repo import TemplateRepository
     from app.services.security_scanner import security_scanner
+    from app.models.template import TemplateStatus
     
     # Fast in-memory template metadata lookup (avoids multi-second Neon Oregon cloud round trips)
     template = await _get_cached_preview_template(template_id, db)
@@ -4677,7 +4691,6 @@ async def serve_live_preview(
 
         import json
         import shutil
-        from app.models.template import TemplateStatus
 
         def detect_project_ui_package_json(base_dir: str) -> Optional[str]:
             # Priority 1: Check standard UI locations
@@ -6082,21 +6095,10 @@ async def serve_live_preview(
     </script>
     """.replace("__PURCHASE_URL__", purchase_url)
 
-                # Check if this template is a personal project, figma import, customized draft, or live mode
-                is_personal_or_clean = (
-                    getattr(template, "is_free", False) or
-                    getattr(template, "price", 0) <= 0 or
-                    template.status == TemplateStatus.DRAFT or
-                    "figma" in (template.tags or []) or
-                    "personal" in (template.tags or []) or
-                    (template.title and "(Figma Import)" in template.title) or
-                    (template.title and "(Customized)" in template.title) or
-                    (template.slug and "-custom-" in template.slug) or
-                    request.query_params.get("mode") == "live" or
-                    request.query_params.get("clean") == "1"
-                )
+                # Inject watermark overlay on all template previews unless explicitly marked clean
+                is_clean = request.query_params.get("clean") == "1"
 
-                if not is_personal_or_clean:
+                if not is_clean:
                     if "</body>" in html_content:
                         html_content = html_content.replace("</body>", f"{watermark_payload}\n</body>", 1)
                     else:

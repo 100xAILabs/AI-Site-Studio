@@ -479,36 +479,37 @@ def create_application() -> FastAPI:
 
             return PlainTextResponse("denied", status_code=403)
 
-        if clean_domain == "aisitestudio.com" or clean_domain.endswith(".aisitestudio.com"):
-
+        system_domains = {"aisitestudio.com", "www.aisitestudio.com", "app.aisitestudio.com", "api.aisitestudio.com"}
+        if clean_domain in system_domains:
             return PlainTextResponse("ok", status_code=200)
+
+        subdomain_part = None
+        if clean_domain.endswith(".aisitestudio.com"):
+            subdomain_part = clean_domain[:-len(".aisitestudio.com")]
 
         base_domain = clean_domain[4:] if clean_domain.startswith("www.") else clean_domain
 
         async with AsyncSessionLocal() as db:
+            if subdomain_part:
+                sub_res = await db.execute(
+                    select(Deployment.id).where(
+                        (Deployment.subdomain == subdomain_part) | (Deployment.site_id == subdomain_part.upper())
+                    ).limit(1)
+                )
+                if sub_res.scalar_one_or_none():
+                    return PlainTextResponse("ok", status_code=200)
 
             result = await db.execute(
-
                 select(Domain.id)
-
                 .join(Deployment, Deployment.id == Domain.deployment_id)
-
                 .where(
-
                     Domain.domain == base_domain,
-
                     Domain.verification_status == "verified",
-
                     Deployment.provider == "local",
-
                 )
-
                 .limit(1)
-
             )
-
             if result.scalar_one_or_none():
-
                 return PlainTextResponse("ok", status_code=200)
 
         return PlainTextResponse("denied", status_code=403)
@@ -646,27 +647,33 @@ def create_application() -> FastAPI:
         """
         import tempfile
         import mimetypes
+        from pathlib import Path
         from fastapi.responses import FileResponse
 
         referer = request.headers.get("referer", "")
         match = re.search(r"/preview/live/([^/?#]+)", referer)
         if match:
             target_id = match.group(1)
-            live_root = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews")
-            base_dir = os.path.join(live_root, target_id)
-            dirs_to_check = [base_dir]
-            if os.path.isdir(live_root):
-                for d in os.listdir(live_root):
-                    c = os.path.join(live_root, d)
-                    if os.path.isdir(c) and c != base_dir:
-                        dirs_to_check.append(c)
+            # Validate target_id is a safe identifier
+            clean_target = re.sub(r"[^a-zA-Z0-9_\-]", "", target_id)
+            if not clean_target:
+                return Response(status_code=404, content=b"Invalid preview target")
 
-            for d in dirs_to_check:
-                for sub in ["dist/assets", "frontend/dist/assets", "build/assets", "assets"]:
-                    p = os.path.join(d, sub, filepath)
-                    if os.path.isfile(p):
-                        mime, _ = mimetypes.guess_type(p)
-                        return FileResponse(p, media_type=mime or "application/octet-stream")
+            live_root = Path(tempfile.gettempdir()) / "ai_site_studio" / "live_previews"
+            base_dir = (live_root / clean_target).resolve()
+            if not base_dir.is_dir() or not base_dir.is_relative_to(live_root.resolve()):
+                return Response(status_code=404, content=b"Preview directory not found")
+
+            # Clean path from directory traversal sequences
+            clean_rel = filepath.lstrip("/\\")
+            if ".." in clean_rel.split("/") or ".." in clean_rel.split("\\"):
+                return Response(status_code=403, content=b"Access denied: Path traversal detected")
+
+            for sub in ["dist/assets", "frontend/dist/assets", "build/assets", "assets"]:
+                candidate = (base_dir / sub / clean_rel).resolve()
+                if candidate.is_file() and candidate.is_relative_to(base_dir):
+                    mime, _ = mimetypes.guess_type(str(candidate))
+                    return FileResponse(str(candidate), media_type=mime or "application/octet-stream")
 
         return Response(status_code=404, content=b"Asset not found")
 

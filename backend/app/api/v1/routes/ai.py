@@ -20,27 +20,27 @@ router = APIRouter()
 
 
 class ContentGenerateRequest(BaseModel):
-    business_name: str
-    industry: str
-    template_type: str = "business"
-    additional_context: Optional[str] = None
+    business_name: str = Field(min_length=1, max_length=200)
+    industry: str = Field(min_length=1, max_length=200)
+    template_type: str = Field(default="business", max_length=100)
+    additional_context: Optional[str] = Field(default=None, max_length=4000)
 
 
 class SEORequest(BaseModel):
-    business_name: str
-    industry: str
-    services: List[str]
-    location: Optional[str] = None
+    business_name: str = Field(min_length=1, max_length=200)
+    industry: str = Field(min_length=1, max_length=200)
+    services: List[str] = Field(default_factory=list, max_length=20)
+    location: Optional[str] = Field(default=None, max_length=200)
 
 
 class ColorPaletteRequest(BaseModel):
-    industry: str
-    mood: str = "professional"
+    industry: str = Field(min_length=1, max_length=200)
+    mood: str = Field(default="professional", max_length=100)
 
 
 class RecommendRequest(BaseModel):
-    description: str
-    available_categories: List[str]
+    description: str = Field(min_length=1, max_length=4000)
+    available_categories: List[str] = Field(default_factory=list, max_length=50)
 
 
 @router.post("/generate-content")
@@ -50,6 +50,7 @@ async def generate_content(
     db: AsyncSession = Depends(get_db),
 ):
     """Generate website content for a business using AI."""
+    await enforce_user_limit(str(current_user.id), "ai-content-generate")
     ent_svc = EntitlementService(db)
     can_op, reason, cost = await ent_svc.check_ai_generation_entitlement(current_user, "content_generation")
     if not can_op:
@@ -83,6 +84,7 @@ async def generate_seo(
     db: AsyncSession = Depends(get_db),
 ):
     """Generate SEO meta tags and keywords."""
+    await enforce_user_limit(str(current_user.id), "ai-seo-generate")
     ent_svc = EntitlementService(db)
     can_op, reason, cost = await ent_svc.check_ai_generation_entitlement(current_user, "seo_generation")
     if not can_op:
@@ -116,6 +118,7 @@ async def generate_color_palette(
     db: AsyncSession = Depends(get_db),
 ):
     """Generate a color palette for a business."""
+    await enforce_user_limit(str(current_user.id), "ai-palette-generate")
     ent_svc = EntitlementService(db)
     can_op, reason, cost = await ent_svc.check_ai_generation_entitlement(current_user, "color_palette")
     if not can_op:
@@ -145,6 +148,7 @@ async def recommend_templates(
     current_user: User = Depends(get_current_user),
 ):
     """Get AI-powered template category recommendations based on business description."""
+    await enforce_user_limit(str(current_user.id), "ai-recommend")
     try:
         return await ai_service.recommend_templates(
             user_description=request.description,

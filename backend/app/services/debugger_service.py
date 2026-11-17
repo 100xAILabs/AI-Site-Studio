@@ -331,6 +331,21 @@ DEBUGGING & REPAIR INSTRUCTIONS:
             failing_files = self.extract_failing_files_from_error(project_root, current_error_log, framework=framework)
             logger.info(f"🔍 [AI Debugger] Identified {len(failing_files)} potentially failing file(s): {failing_files}")
 
+            tenant_clean_env = {
+                "PATH": os.environ.get("PATH", ""),
+                "NODE_ENV": "production",
+                "SYSTEMROOT": os.environ.get("SYSTEMROOT", "C:\\Windows"),
+                "TEMP": os.environ.get("TEMP", tempfile.gettempdir()),
+                "TMP": os.environ.get("TMP", tempfile.gettempdir()),
+            }
+            if platform.system() == "Windows":
+                for key in ("USERPROFILE", "APPDATA", "LOCALAPPDATA", "HOMEDRIVE", "HOMEPATH", "PATHEXT", "WINDIR"):
+                    val = os.environ.get(key)
+                    if val:
+                        tenant_clean_env[key] = val
+                cmd_exe = os.path.join(tenant_clean_env["SYSTEMROOT"], "System32", "cmd.exe")
+                tenant_clean_env["COMSPEC"] = os.environ.get("COMSPEC", cmd_exe)
+
             def run_build_check():
                 is_win = platform.system() == "Windows"
                 cmd = build_cmd
@@ -341,8 +356,10 @@ DEBUGGING & REPAIR INSTRUCTIONS:
                 return subprocess.run(
                     cmd,
                     cwd=project_root,
+                    env=tenant_clean_env,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
+                    timeout=90,
                 )
 
             # Step 1: Fast Heuristic AST Repair pass (instant syntax healing without LLM latency)
@@ -408,8 +425,10 @@ DEBUGGING & REPAIR INSTRUCTIONS:
                 return subprocess.run(
                     cmd,
                     cwd=project_root,
+                    env=tenant_clean_env,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
+                    timeout=90,
                 )
 
             build_res = await loop.run_in_executor(None, run_build_check)

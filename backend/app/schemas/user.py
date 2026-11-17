@@ -79,11 +79,22 @@ class UserResponse(UserBase):
     is_payout_setup_completed: bool = False
     subscription_tier: Optional[str] = "free"
     is_pro_subscriber: bool = False
+    is_extreme_subscriber: bool = False
+    can_retail_templates: bool = False
     country: Optional[str] = None
     country_code: Optional[str] = None
     city: Optional[str] = None
     currency: Optional[str] = None
-    detected_ip: Optional[str] = None
+
+    @field_validator("payout_account_number", mode="before")
+    @classmethod
+    def mask_account_number(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return None
+        clean = str(v).strip()
+        if len(clean) <= 4:
+            return "******"
+        return f"{'*' * (len(clean) - 4)}{clean[-4:]}"
 
     model_config = {"from_attributes": True}
 

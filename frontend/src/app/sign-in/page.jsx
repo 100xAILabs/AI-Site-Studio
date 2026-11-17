@@ -543,7 +543,7 @@ export default function SignInPage({ isRegister = false }) {
                   </button>
                 ) : (
                   <Link
-                    to={`/sign-in?role=${role}`}
+                    to="/sign-in"
                     className="duplicate-action-btn"
                   >
                     Sign in to existing account
@@ -585,7 +585,7 @@ export default function SignInPage({ isRegister = false }) {
                 {isRegister ? "Already have an account?" : "Don't have an account?"}
               </span>{" "}
               <Link
-                to={isRegister ? `/sign-in?role=${role}` : `/register?role=${role}`}
+                to={isRegister ? "/sign-in" : "/register"}
                 className="footer-action-link"
               >
                 {isRegister ? "Sign In" : "Create Account"}

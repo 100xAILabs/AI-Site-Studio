@@ -121,44 +121,17 @@ async def verify_domain_dns_ownership(domain: str, expected_token: str) -> Dict[
                 "records": list(all_txts),
             }
 
-    # Check 3: Verify A Record pointing to Studio Edge IP
-    a_records = await query_public_dns_records(clean, record_type="A")
-    try:
-        ip = socket.gethostbyname(clean)
-        if ip and ip not in a_records:
-            a_records.append(ip)
-    except Exception:
-        pass
-
-    matching_ips = [ip for ip in a_records if ip in EDGE_SERVER_IPS]
-    if matching_ips:
-        return {
-            "verified": True,
-            "method": "a_record",
-            "details": f"Domain {clean} A-record correctly points to Studio Edge IP ({matching_ips[0]})",
-            "records": a_records,
-        }
-
-    # Check 4: Verify CNAME record
-    cname_records = await query_public_dns_records(clean, record_type="CNAME")
-    matching_cnames = [c for c in cname_records if any(target in c.lower() for target in EDGE_CNAME_TARGETS)]
-    if matching_cnames:
-        return {
-            "verified": True,
-            "method": "cname",
-            "details": f"Domain {clean} CNAME points to Studio Edge ({matching_cnames[0]})",
-            "records": cname_records,
-        }
-
-    # If all checks failed:
+    # An A record or CNAME points traffic to Studio Edge, but domain ownership strictly requires
+    # the unique cryptographic TXT challenge token at _studio-challenge.<domain> to prevent
+    # cross-tenant domain hijacking on shared edge infrastructure.
     found_info = f"Current A-records point to: {', '.join(a_records)}" if a_records else "Domain has no active A records"
     return {
         "verified": False,
         "reason": (
             f"Ownership verification failed for '{clean}'. "
-            f"No matching DNS TXT verification record was found at '{txt_subdomain}' with value '{expected_token}'. "
+            f"No matching DNS TXT verification challenge record was found at '{txt_subdomain}' with value '{expected_token}'. "
             f"({found_info}). "
-            "Please configure the TXT record in your domain registrar's DNS settings, or point the A record to 149.28.243.12."
+            f"To verify domain ownership, please add a TXT record for '{txt_subdomain}' with value '{expected_token}' in your DNS provider settings."
         ),
         "details": f"TXT searched on {txt_subdomain} (found {len(all_txts)} records). A-records: {a_records}.",
     }

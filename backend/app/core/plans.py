@@ -41,6 +41,7 @@ PLANS: Dict[str, Dict[str, Any]] = {
         "deployment_versions_limit": 3,
         "backup_retention_days": 0,
         "token_discount_percent": 0,
+        "can_retail_templates": False,
         "support_tier": "community",
         "features": [
             "1 Free AI Website Generation (Build your first site 100% free)",
@@ -76,6 +77,7 @@ PLANS: Dict[str, Dict[str, Any]] = {
         "deployment_versions_limit": 10,
         "backup_retention_days": 7,
         "token_discount_percent": 40,
+        "can_retail_templates": False,
         "support_tier": "standard",
         "features": [
             "150 AI Credits / billing month for website generation & AI edits",
@@ -115,8 +117,10 @@ PLANS: Dict[str, Dict[str, Any]] = {
         "deployment_versions_limit": 30,
         "backup_retention_days": 30,
         "token_discount_percent": 60,
+        "can_retail_templates": True,
         "support_tier": "priority",
         "features": [
+            "Exclusive Marketplace Retailer License: Sell & retail your AI-generated websites directly to global buyers",
             "1,000 AI Credits / billing month for high-volume creation & edits",
             "Unlimited saved projects & templates under fair-use storage rules",
             "Unlimited deployment updates under fair-use rate limits",

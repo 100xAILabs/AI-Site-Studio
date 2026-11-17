@@ -230,7 +230,18 @@ async def generate_otp(email: str, purpose: str) -> tuple[str, bool]:
     email_key = email.lower().strip()
     redis_client = await get_redis()
     
-    # 1. Rate limiting: Check if an OTP was generated within the last 60 seconds
+    # 1a. Daily send cap: max 10 OTP requests per email per 24 hours to prevent quota exhaustion
+    daily_key = f"otp:daily:{purpose}:{email_key}"
+    daily_count = await redis_client.incr(daily_key)
+    if daily_count == 1:
+        await redis_client.expire(daily_key, 86400)
+    elif daily_count > 10:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Daily OTP limit exceeded for this email address. Please try again tomorrow."
+        )
+
+    # 1b. Rate limiting: Check if an OTP was generated within the last 60 seconds
     rate_key = f"otp:rate:{purpose}:{email_key}"
     if await redis_client.get(rate_key):
         raise HTTPException(
@@ -254,7 +265,7 @@ async def generate_otp(email: str, purpose: str) -> tuple[str, bool]:
     
     # Dispatch email and wait for delivery result
     sent = await send_otp_email(email, otp)
-    print(f"\n[OTP DISPATCH] Email: {email} | Purpose: {purpose} | Code: {otp} | Delivered: {sent}\n", flush=True)
+    logger.info("OTP dispatched for %s (purpose=%s, delivered=%s)", email, purpose, sent)
     
     return otp, sent
 
@@ -319,7 +330,7 @@ async def login(
     redirect_uri = request.url_for('auth_callback', provider=provider)
     
     request.session['auth_role'] = role
-    if redirect:
+    if redirect and redirect.startswith('/') and not redirect.startswith('//') and '://' not in redirect:
         request.session['auth_redirect'] = redirect
         
     candidate_origin = origin or request.headers.get("referer")
@@ -356,12 +367,7 @@ async def auth_callback(provider: str, request: Request, db: AsyncSession = Depe
     if not client:
         raise HTTPException(status_code=500, detail=f"{provider} OAuth is not configured")
     try:
-        if "development" in settings.ENVIRONMENT.lower():
-            # Avoid mismatching_state errors in local development due to localhost/127.0.0.1 session cookie mismatches
-            token = await client.authorize_access_token(request, check_state=False)
-        else:
-            token = await client.authorize_access_token(request)
-
+        token = await client.authorize_access_token(request)
     except OAuthError as error:
         logger.warning("OAuth token exchange failed for provider %s (%s)", provider, type(error).__name__)
         raise HTTPException(status_code=400, detail=f"OAuth error: {error.error}")
@@ -370,6 +376,8 @@ async def auth_callback(provider: str, request: Request, db: AsyncSession = Depe
         user_info = token.get('userinfo')
         if not user_info:
             user_info = await client.parse_id_token(request, token)
+        if not user_info.get("email_verified"):
+            raise HTTPException(status_code=400, detail="Google account email is not verified.")
         email = user_info.get("email")
         provider_id = user_info.get("sub")
         full_name = user_info.get("name")
@@ -393,13 +401,16 @@ async def auth_callback(provider: str, request: Request, db: AsyncSession = Depe
         email = None
         if isinstance(emails, list):
             for em in emails:
-                if em.get("primary") and em.get("verified"):
+                if em.get("verified") and (em.get("primary") or not email):
                     email = em.get("email")
-                    break
-            if not email and len(emails) > 0:
-                email = emails[0].get("email")
+                    if em.get("primary"):
+                        break
+        # Reject unverified emails: only accept emails verified by GitHub
         if not email:
-            email = user_info.get("email") or f"{user_info.get('login')}@github.placeholder.com"
+            raise HTTPException(
+                status_code=400,
+                detail="GitHub account has no verified email address. Please verify your email on GitHub before signing in."
+            )
             
         provider_id = str(user_info.get("id"))
         full_name = user_info.get("name") or user_info.get("login")
@@ -430,7 +441,8 @@ async def auth_callback(provider: str, request: Request, db: AsyncSession = Depe
         await db.refresh(user)
     else:
         role_str = request.session.get('auth_role', 'buyer')
-        print(f"\n[OAUTH AUTH] Provider: {provider.upper()} | Email: {email} | Requested Role: {role_str}\n", flush=True)
+        masked_em = f"{email[:2]}***@{email.split('@')[-1]}" if "@" in email else "user"
+        logger.info("[OAUTH AUTH] Provider: %s | User: %s | Requested Role: %s", provider.upper(), masked_em, role_str)
 
         user = await repo.upsert_oauth_user(
             provider=provider,
@@ -571,16 +583,10 @@ async def register(
                 detail="This email is already registered using Google Sign-In. You cannot create a manual password account with this email. Please sign in using 'Continue with Google'."
             )
         existing_role_str = existing.role.value if hasattr(existing.role, "value") else str(existing.role)
-        if existing_role_str.lower() != role.lower():
-            target_role = "Seller" if existing_role_str.lower() == "seller" else "Buyer"
-            raise HTTPException(
-                status_code=409,
-                detail=f"This email is already registered as a {target_role} account. The same email address cannot be used for both Seller and Buyer accounts. Please switch to {target_role} login."
-            )
         if existing.is_email_verified:
             raise HTTPException(
                 status_code=409,
-                detail=f"An account with this email already exists as a {existing_role_str.capitalize()}. Please sign in instead."
+                detail=f"An account with this email already exists. Please sign in instead."
             )
         sent = False
         try:
@@ -723,20 +729,21 @@ async def verify_otp(
     if not stored_hash:
         raise HTTPException(status_code=400, detail="OTP expired or no active request found.")
 
-    # Check verification attempts limit
-    attempts_str = await redis_client.get(attempts_key) or "0"
-    attempts = int(attempts_str)
-    if attempts >= 3:
+    # Atomic attempt counter increment to prevent parallel brute-force race conditions
+    current_attempts = await redis_client.incr(attempts_key)
+    if current_attempts > 3:
         await redis_client.delete(db_key)
         await redis_client.delete(attempts_key)
         raise HTTPException(status_code=400, detail="Max verification attempts exceeded. Please request a new OTP.")
 
-    # Compare hashed code
+    # Constant-time comparison of hashed code
     provided_hash = hashlib.sha256(otp.encode("utf-8")).hexdigest()
-    if stored_hash != provided_hash:
-        # Increment attempt counter
-        await redis_client.incr(attempts_key)
+    if not hmac.compare_digest(stored_hash, provided_hash):
         raise HTTPException(status_code=400, detail="Invalid OTP code.")
+    
+    # Successful verification clears OTP keys
+    await redis_client.delete(db_key)
+    await redis_client.delete(attempts_key)
         
     repo = UserRepository(db)
     user = await repo.get_by_email(email)
@@ -859,17 +866,19 @@ async def reset_password(
     if not stored_hash:
         raise HTTPException(status_code=400, detail="OTP expired or no active reset request found.")
         
-    attempts_str = await redis_client.get(attempts_key) or "0"
-    attempts = int(attempts_str)
-    if attempts >= 3:
+    # Atomic increment to prevent parallel brute-force race conditions
+    current_attempts = await redis_client.incr(attempts_key)
+    if current_attempts > 3:
         await redis_client.delete(db_key)
         await redis_client.delete(attempts_key)
         raise HTTPException(status_code=400, detail="Max reset attempts exceeded. Please request a new code.")
 
     provided_hash = hashlib.sha256(otp.encode("utf-8")).hexdigest()
-    if stored_hash != provided_hash:
-        await redis_client.incr(attempts_key)
+    if not hmac.compare_digest(stored_hash, provided_hash):
         raise HTTPException(status_code=400, detail="Invalid reset code.")
+    
+    await redis_client.delete(db_key)
+    await redis_client.delete(attempts_key)
     
     # Validate new password strength
     if not is_strong_password(new_password):
@@ -900,6 +909,14 @@ async def reset_password(
     # Clean up OTP keys in redis
     await redis_client.delete(db_key)
     await redis_client.delete(attempts_key)
+
+    # Invalidate all prior active JWT sessions across devices for this account
+    try:
+        from datetime import timezone
+        revocation_ts = int(datetime.now(timezone.utc).timestamp())
+        await redis_client.set(f"auth:revoked_before:{user.id}", str(revocation_ts), ex=30 * 86400)
+    except Exception as e_rev:
+        logger.warning(f"Failed to record token revocation in Redis: {e_rev}")
     
     return {"message": "Password has been reset successfully. You can now sign in with your new password."}
 
@@ -922,7 +939,8 @@ async def get_me(
         except Exception as err:
             print(f"Location detection notice in /me: {err}")
 
-    print(f"\n[PROFILE FETCH] User: {current_user.email} | Role: {user_role_val.upper()} | Location: {current_user.country} ({current_user.currency})\n", flush=True)
+    masked_user_em = f"{current_user.email[:2]}***@{current_user.email.split('@')[-1]}" if "@" in current_user.email else "user"
+    logger.info("[PROFILE FETCH] User: %s | Role: %s | Location: %s (%s)", masked_user_em, user_role_val.upper(), current_user.country, current_user.currency)
     return UserResponse.model_validate(current_user)
 
 
@@ -948,7 +966,7 @@ async def update_me(
     data = await request.json()
     
     from app.models.user import UserRole
-    if "role" in data and data["role"] == "seller":
+    if "role" in data and str(data["role"]).lower() == "seller" and current_user.role == UserRole.BUYER:
         current_user.role = UserRole.SELLER
 
     if "full_name" in data:
@@ -1006,4 +1024,113 @@ async def update_payout_account(
     await db.commit()
     await db.refresh(current_user)
     return UserResponse.model_validate(current_user)
+
+
+@router.get("/me/export")
+async def export_my_data(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Self-service personal data export endpoint (GDPR Art. 20 / India DPDP Act 2023 Sec. 12).
+    Returns machine-readable JSON containing all personal profile data, order history, and activity records.
+    """
+    from app.models.order import Order
+    from app.models.download import Download
+    from sqlalchemy.orm import selectinload
+
+    order_stmt = select(Order).options(selectinload(Order.items)).where(Order.user_id == current_user.id)
+    order_res = await db.execute(order_stmt)
+    orders = order_res.scalars().all()
+
+    dl_stmt = select(Download).where(Download.user_id == current_user.id)
+    dl_res = await db.execute(dl_stmt)
+    downloads = dl_res.scalars().all()
+
+    return {
+        "export_date": datetime.now(timezone.utc).isoformat(),
+        "profile": {
+            "id": str(current_user.id),
+            "email": current_user.email,
+            "username": current_user.username,
+            "full_name": current_user.full_name,
+            "avatar_url": current_user.avatar_url,
+            "bio": current_user.bio,
+            "country": current_user.country,
+            "currency": current_user.currency,
+            "role": current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
+            "ai_credits": current_user.ai_credits,
+            "subscription_tier": current_user.subscription_tier,
+            "created_at": current_user.created_at.isoformat() if hasattr(current_user, "created_at") and current_user.created_at else None,
+        },
+        "orders": [
+            {
+                "order_number": o.order_number,
+                "status": o.status.value if hasattr(o.status, "value") else str(o.status),
+                "total": float(o.total),
+                "currency": getattr(o, "currency", "USD"),
+                "created_at": o.created_at.isoformat() if o.created_at else None,
+                "items": [
+                    {
+                        "template_id": str(item.template_id),
+                        "price": float(item.price),
+                        "license_type": getattr(item, "license_type", "regular"),
+                    }
+                    for item in o.items
+                ],
+            }
+            for o in orders
+        ],
+        "downloads_count": len(downloads),
+        "compliance_notice": "Data export prepared in compliance with GDPR Art. 20 and DPDP Act 2023.",
+    }
+
+
+@router.delete("/me")
+async def delete_my_account(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Self-service account deletion and personal data anonymization (GDPR Art. 17 / DPDP Act 2023 Sec. 12).
+    Anonymizes identifying personal information while preserving financial/order records for statutory compliance.
+    """
+    user_id_str = str(current_user.id)
+    anonymized_tag = uuid.uuid4().hex[:12]
+
+    # Anonymize personal profile data
+    current_user.email = f"anonymized_{anonymized_tag}@privacy.local"
+    current_user.username = f"deleted_user_{anonymized_tag[:8]}"
+    current_user.full_name = "Deleted User"
+    current_user.avatar_url = None
+    current_user.bio = None
+    current_user.detected_ip = None
+    current_user.hashed_password = None
+    current_user.github_access_token = None
+    current_user.google_id = None
+    current_user.github_id = None
+    current_user.facebook_id = None
+    current_user.payout_account_number = None
+    current_user.payout_bank_name = None
+    current_user.payout_ifsc_code = None
+    current_user.payout_account_holder_name = None
+    current_user.is_payout_setup_completed = False
+    current_user.is_active = False
+
+    await db.flush()
+    await db.commit()
+
+    # Invalidate all active tokens immediately in Redis
+    try:
+        redis_client = await get_redis()
+        revocation_ts = int(datetime.now(timezone.utc).timestamp())
+        await redis_client.set(f"auth:revoked_before:{user_id_str}", str(revocation_ts), ex=30 * 86400)
+    except Exception as e_rev:
+        logger.warning(f"Failed to record token revocation on account deletion: {e_rev}")
+
+    return {
+        "status": "success",
+        "message": "Your personal data has been permanently anonymized and your account has been closed.",
+    }
+
 

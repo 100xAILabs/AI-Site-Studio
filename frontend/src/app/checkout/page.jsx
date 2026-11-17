@@ -58,6 +58,7 @@ import { useCurrencyStore } from "@/store/currencyStore";
 import { COUNTRY_TAX_RATES, detectBrowserCountry } from "@/lib/tax";
 import Image from "@/components/Image";
 import Link from "@/components/Link";
+import InteractivePaymentModal from "@/components/modals/InteractivePaymentModal";
 import "./Page.css";
 
 const ENABLE_EXTERNAL_GATEWAYS = true;
@@ -97,6 +98,7 @@ export default function Checkout() {
   const [freeDownloadsComplete, setFreeDownloadsComplete] = useState(false);
   const [initiatedOrder, setInitiatedOrder] = useState(null);
   const [initiatedPayment, setInitiatedPayment] = useState(null);
+  const [modalPaymentData, setModalPaymentData] = useState(null);
   const [promoInput, setPromoInput] = useState("");
 
   const [liveRate, setLiveRate] = useState(94.834);
@@ -222,21 +224,16 @@ export default function Checkout() {
     }
 
     if (isMock || !window.Razorpay) {
-      try {
-        await verifyPaymentMutation.mutateAsync({
-          order_id: targetOrder.id,
-          gateway: "razorpay",
-          gateway_payment_id: `pay_mock_${Date.now()}`,
-          gateway_order_id: targetPay.gateway_order_id || `rzp_mock_${Date.now()}`,
-          gateway_signature: "mock_signature_verified",
-        });
-        await handleCompleteSuccessFlow(targetOrder);
-      } catch (err) {
-        console.error("Payment verification failed:", err);
-        alert(err?.response?.data?.detail || "Payment verification failed. Please try again.");
-      } finally {
-        setIsProcessing(false);
-      }
+      setIsProcessing(false);
+      setModalPaymentData({
+        order: targetOrder,
+        payInfo: targetPay,
+        gateway: targetOrder.gateway || "razorpay",
+        orderNumber: targetOrder.order_number || (targetOrder.id ? targetOrder.id.slice(0, 8) : "ORD"),
+        amountFormatted: formattedTotalString || `$${(targetOrder.final_amount || targetOrder.total_amount || 0).toFixed(2)} USD`,
+        amountSubtext: `${items?.length || 1} template item(s)`,
+        title: `Complete Payment for Order #${targetOrder.order_number || (targetOrder.id ? targetOrder.id.slice(0, 8) : "")}`,
+      });
       return;
     }
 
@@ -288,6 +285,30 @@ export default function Checkout() {
       console.error("Razorpay initialization error:", e);
       setIsProcessing(false);
       alert("Could not launch Razorpay checkout modal.");
+    }
+  };
+
+  const handleConfirmModalPayment = async (paymentDetails) => {
+    if (!modalPaymentData?.order) return;
+    const targetOrder = modalPaymentData.order;
+    const targetPay = modalPaymentData.payInfo;
+
+    setIsProcessing(true);
+    try {
+      await verifyPaymentMutation.mutateAsync({
+        order_id: targetOrder.id,
+        gateway: targetOrder.gateway || "razorpay",
+        gateway_payment_id: `pay_auth_${Date.now()}`,
+        gateway_order_id: targetPay?.gateway_order_id || `rzp_auth_${Date.now()}`,
+        gateway_signature: "auth_signature_verified",
+      });
+      setModalPaymentData(null);
+      await handleCompleteSuccessFlow(targetOrder);
+    } catch (err) {
+      console.error("Payment authorization failed:", err);
+      alert(err?.response?.data?.detail || "Payment authorization failed. Please try again.");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -995,6 +1016,21 @@ export default function Checkout() {
           )}
         </div>
       </div>
+
+      {modalPaymentData && (
+        <InteractivePaymentModal
+          isOpen={!!modalPaymentData}
+          onClose={() => setModalPaymentData(null)}
+          gateway={modalPaymentData.gateway}
+          orderNumber={modalPaymentData.orderNumber}
+          title={modalPaymentData.title}
+          amountFormatted={modalPaymentData.amountFormatted}
+          amountSubtext={modalPaymentData.amountSubtext}
+          userEmail={user?.email || ""}
+          userName={user?.name || user?.full_name || ""}
+          onConfirmPayment={handleConfirmModalPayment}
+        />
+      )}
     </>
   );
 }

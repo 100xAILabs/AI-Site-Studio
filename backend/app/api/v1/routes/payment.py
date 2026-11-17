@@ -361,6 +361,50 @@ async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Op
                 except Exception:
                     pass
 
+            # Create CreatorEarning ledger entry if template was created by a creator
+            try:
+                from datetime import datetime, timezone, timedelta
+                from app.models.template import Template
+                from app.models.marketplace import CreatorEarning, MarketplaceSetting, EarningStatus
+
+                template_res = await db.execute(select(Template).where(Template.id == item.template_id))
+                tmpl = template_res.scalar_one_or_none()
+                if tmpl:
+                    tmpl.downloads_count = (tmpl.downloads_count or 0) + 1
+                    if tmpl.seller_id and tmpl.seller_id != order.user_id:
+                        # Check if earning record already created (idempotent)
+                        existing_earning = await db.execute(
+                            select(CreatorEarning).where(CreatorEarning.order_item_id == item.id)
+                        )
+                        if not existing_earning.scalar_one_or_none():
+                            setting_res = await db.execute(select(MarketplaceSetting).where(MarketplaceSetting.id == "default"))
+                            m_setting = setting_res.scalar_one_or_none()
+                            comm_rate = m_setting.platform_commission_percent if m_setting else Decimal("20.00")
+                            hold_days = m_setting.payout_holding_days if m_setting else 7
+
+                            gross = Decimal(str(item.price))
+                            platform_fee = round(gross * (comm_rate / Decimal("100.00")), 2)
+                            net_earning = gross - platform_fee
+                            now_utc = datetime.now(timezone.utc)
+                            holding_until = now_utc + timedelta(days=hold_days)
+
+                            creator_earning = CreatorEarning(
+                                order_id=order.id,
+                                order_item_id=item.id,
+                                template_id=tmpl.id,
+                                creator_id=tmpl.seller_id,
+                                gross_amount=gross,
+                                platform_commission_percent=comm_rate,
+                                platform_fee=platform_fee,
+                                net_creator_earning=net_earning,
+                                currency=getattr(tmpl, "price_currency", "USD") or "USD",
+                                holding_until=holding_until,
+                                status=EarningStatus.PENDING,
+                            )
+                            db.add(creator_earning)
+            except Exception as e_earn:
+                logger.warning("Could not record creator earning for item %s: %s", item.id, e_earn)
+
         # Credit AI Gemini tokens if this order contains token pack credits
         if order.extra_metadata and order.extra_metadata.get("credits_to_add"):
             try:
@@ -444,6 +488,13 @@ async def verify_payment(
     if not order or order.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Order not found")
 
+    if order.status == OrderStatus.COMPLETED:
+        return PaymentVerifyResponse(
+            success=True,
+            message="Order is already completed.",
+            order_id=str(order.id),
+        )
+
     result = await db.execute(
         select(Payment).where(Payment.order_id == order.id)
     )
@@ -460,7 +511,26 @@ async def verify_payment(
         and not data.gateway_payment_id.startswith("pay_mock_")
         and data.gateway_signature != "mock_signature_verified"
     ):
-        msg = f"{data.gateway_order_id}|{data.gateway_payment_id}".encode("utf-8")
+        # Validate that order has an initiated payment and matches stored gateway order ID
+        if not payment or not payment.gateway_order_id:
+            raise HTTPException(status_code=400, detail="No initiated payment record found for this order.")
+
+        if payment.gateway_order_id != data.gateway_order_id:
+            raise HTTPException(status_code=400, detail="Gateway order ID mismatch. Order cannot be verified.")
+
+        # Replay prevention: check if this gateway_payment_id was already captured on another order
+        dup_check = await db.execute(
+            select(Payment.id).where(
+                Payment.gateway_payment_id == data.gateway_payment_id,
+                Payment.order_id != order.id,
+                Payment.status == PaymentStatus.CAPTURED,
+            ).limit(1)
+        )
+        if dup_check.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Payment transaction has already been captured for another order.")
+
+        # Compute HMAC strictly over stored payment.gateway_order_id
+        msg = f"{payment.gateway_order_id}|{data.gateway_payment_id}".encode("utf-8")
         generated_signature = hmac.new(
             settings.RAZORPAY_KEY_SECRET.encode("utf-8"),
             msg,
@@ -468,22 +538,10 @@ async def verify_payment(
         ).hexdigest()
 
         if hmac.compare_digest(generated_signature, data.gateway_signature):
-            if not payment:
-                payment = Payment(
-                    order_id=order.id,
-                    gateway=PaymentGateway.RAZORPAY,
-                    status=PaymentStatus.CAPTURED,
-                    gateway_order_id=data.gateway_order_id,
-                    gateway_payment_id=data.gateway_payment_id,
-                    amount=order.total,
-                    currency="INR",
-                )
-                db.add(payment)
-            else:
-                payment.status = PaymentStatus.CAPTURED
-                payment.gateway = PaymentGateway.RAZORPAY
-                payment.gateway_payment_id = data.gateway_payment_id
-                payment.gateway_signature = data.gateway_signature
+            payment.status = PaymentStatus.CAPTURED
+            payment.gateway = PaymentGateway.RAZORPAY
+            payment.gateway_payment_id = data.gateway_payment_id
+            payment.gateway_signature = data.gateway_signature
 
             order.status = OrderStatus.COMPLETED
             await _fulfill_order_licenses(db, order, user_email=current_user.email if current_user else None)
@@ -598,6 +656,9 @@ async def stripe_webhook(
     if not sig_header:
         raise HTTPException(status_code=400, detail="Missing signature header")
 
+    if not settings.STRIPE_WEBHOOK_SECRET:
+        raise HTTPException(status_code=500, detail="Stripe webhook secret is not configured")
+
     import stripe
     stripe.api_key = settings.STRIPE_SECRET_KEY
 
@@ -618,9 +679,19 @@ async def stripe_webhook(
             if order_id_str:
                 try:
                     order_uuid = uuid.UUID(order_id_str)
-                    order_res = await db.execute(select(Order).where(Order.id == order_uuid))
+                    order_res = await db.execute(select(Order).where(Order.id == order_uuid).with_for_update())
                     order = order_res.scalar_one_or_none()
                     if order and order.status != OrderStatus.COMPLETED:
+                        # Verify captured amount against expected order total
+                        paid_cents = checkout_session.get("amount_total")
+                        expected_cents = int(order.total * 100)
+                        if paid_cents is not None and paid_cents < expected_cents:
+                            logger.error(
+                                "Stripe payment amount mismatch for order %s: paid %s cents, expected %s cents",
+                                order.id, paid_cents, expected_cents
+                            )
+                            raise HTTPException(status_code=400, detail="Payment amount mismatch")
+
                         order.status = OrderStatus.COMPLETED
                         pay_res = await db.execute(select(Payment).where(Payment.order_id == order.id))
                         payment = pay_res.scalar_one_or_none()
@@ -632,6 +703,7 @@ async def stripe_webhook(
                         await db.commit()
                 except Exception as ex:
                     logger.error(f"Error fulfilling Stripe checkout order: {ex}")
+                    raise HTTPException(status_code=500, detail=f"Failed to fulfill order: {str(ex)}")
         elif metadata.get("purchase_type") == "domain_registration":
             from app.services.domain_purchase_service import fulfill_domain_checkout
             await fulfill_domain_checkout(checkout_session, db)
@@ -929,6 +1001,29 @@ async def razorpay_webhook(
     - subscription.halted / subscription.cancelled / subscription.completed: Downgrades tier to free.
     - subscription.authenticated: Confirms mandate setup.
     """
+    payload = await request.body()
+    signature = request.headers.get("x-razorpay-signature") or request.headers.get("X-Razorpay-Signature")
+    
+    if not signature:
+        raise HTTPException(status_code=400, detail="Missing X-Razorpay-Signature header")
+
+    webhook_secret = settings.RAZORPAY_WEBHOOK_SECRET or settings.RAZORPAY_KEY_SECRET
+    is_mock = signature in ("mock_webhook_signature", "mock_signature_verified") and settings.ENVIRONMENT in ("development", "test", "local")
+
+    if not is_mock:
+        if not webhook_secret:
+            raise HTTPException(status_code=500, detail="Razorpay webhook secret is not configured")
+        expected = hmac.new(
+            webhook_secret.encode("utf-8"),
+            payload,
+            hashlib.sha256
+        ).hexdigest()
+        
+        if not hmac.compare_digest(expected, signature):
+            logger.warning("Razorpay webhook signature verification failed")
+            raise HTTPException(status_code=400, detail="Invalid webhook signature")
+
+    # Deduplicate event ID AFTER cryptographic signature validation
     event_id = request.headers.get("x-razorpay-event-id") or request.headers.get("X-Razorpay-Event-Id")
     if event_id:
         if event_id in _PROCESSED_WEBHOOK_EVENTS:
@@ -947,27 +1042,6 @@ async def razorpay_webhook(
         _PROCESSED_WEBHOOK_EVENTS.add(event_id)
         if len(_PROCESSED_WEBHOOK_EVENTS) > 10000:
             _PROCESSED_WEBHOOK_EVENTS.clear()
-
-    payload = await request.body()
-    signature = request.headers.get("x-razorpay-signature") or request.headers.get("X-Razorpay-Signature")
-    
-    if not signature:
-        raise HTTPException(status_code=400, detail="Missing X-Razorpay-Signature header")
-
-    webhook_secret = settings.RAZORPAY_WEBHOOK_SECRET or settings.RAZORPAY_KEY_SECRET
-    
-    # Verify cryptographic HMAC SHA256 signature
-    is_mock = signature in ("mock_webhook_signature", "mock_signature_verified") and settings.ENVIRONMENT in ("development", "test", "local")
-    if not is_mock and webhook_secret:
-        expected = hmac.new(
-            webhook_secret.encode("utf-8"),
-            payload,
-            hashlib.sha256
-        ).hexdigest()
-        
-        if not hmac.compare_digest(expected, signature):
-            logger.warning("Razorpay webhook signature verification failed")
-            raise HTTPException(status_code=400, detail="Invalid webhook signature")
 
     import json
     try:
@@ -1049,7 +1123,21 @@ async def razorpay_webhook(
             .where(Order.id == payment.order_id)
         )
         order = order_res.scalar_one_or_none()
-        if order:
+        if order and order.status != OrderStatus.COMPLETED:
+            # Validate paid amount in paise against order total
+            paid_paise = int(rz_payment.get("amount") or 0)
+            usd_rate = await get_usd_to_inr_rate()
+            expected_inr = calculate_order_inr_amount(order, usd_rate)
+            expected_paise = int(expected_inr * 100)
+            if paid_paise > 0 and paid_paise < int(expected_paise * 0.98):
+                logger.error(
+                    "Razorpay webhook underpayment detected for order %s: paid %s paise, expected %s paise",
+                    order.id, paid_paise, expected_paise
+                )
+                payment.status = PaymentStatus.FAILED
+                await db.commit()
+                return {"status": "underpayment_rejected", "order_id": str(order.id)}
+
             order.status = OrderStatus.COMPLETED
             await _fulfill_order_licenses(db, order, user_email=order.user.email if order.user else None)
 
@@ -1560,44 +1648,6 @@ async def purchase_plan(
         "title": plan_cfg["name"],
         "credits": plan_cfg["included_ai_credits"],
         "billing_cycle": payload.billing_cycle,
-    }
-
-
-@router.post("/activate-token-order/{order_id}")
-async def activate_token_order(
-    order_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Activate and finalize a pending token purchase order, crediting the tokens to the user.
-    """
-    order_res = await db.execute(select(Order).where(Order.id == order_id, Order.user_id == current_user.id))
-    order = order_res.scalar_one_or_none()
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-
-    if order.status == OrderStatus.COMPLETED:
-        return {
-            "status": "already_completed",
-            "message": "Tokens are already credited to your account.",
-            "current_credits": current_user.ai_credits,
-        }
-
-    order.status = OrderStatus.COMPLETED
-    pay_res = await db.execute(select(Payment).where(Payment.order_id == order.id))
-    payment = pay_res.scalar_one_or_none()
-    if payment:
-        payment.status = PaymentStatus.CAPTURED
-
-    await _fulfill_order_licenses(db, order)
-    await db.commit()
-    await db.refresh(current_user)
-
-    return {
-        "status": "success",
-        "message": f"Successfully activated order {order.order_number} and credited {order.extra_metadata.get('credits_to_add', 0)} AI tokens!",
-        "current_credits": current_user.ai_credits,
     }
 
 

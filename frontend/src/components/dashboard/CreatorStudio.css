@@ -1,0 +1,548 @@
+/* =========================================================================
+   CREATOR STUDIO — HIGH-FIDELITY THEMED STYLESHEET
+   ========================================================================= */
+
+.cs-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  width: 100%;
+}
+
+/* ── Top Header ─────────────────────────────────────────────────────────── */
+.cs-header {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.5rem;
+  background: var(--card, rgba(22, 27, 34, 0.7));
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 1rem;
+}
+
+@media (min-width: 640px) {
+  .cs-header {
+    flex-direction: row;
+    align-items: center;
+  }
+}
+
+.cs-header-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.cs-avatar-wrap {
+  position: relative;
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 0.875rem;
+  background: linear-gradient(135deg, rgba(200, 150, 102, 0.2), rgba(223, 177, 128, 0.1));
+  border: 1px solid rgba(223, 177, 128, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  shrink: 0;
+}
+
+.cs-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cs-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.cs-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+}
+
+.cs-title {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--foreground, #f3f4f6);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.cs-tier-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(223, 177, 128, 0.15);
+  color: #dfb180;
+  border: 1px solid rgba(223, 177, 128, 0.35);
+}
+
+.cs-subtitle {
+  font-size: 0.8125rem;
+  color: var(--muted-foreground, #9ca3af);
+  margin: 0;
+}
+
+.cs-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.cs-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.875rem;
+  border-radius: 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  background: var(--secondary, rgba(255, 255, 255, 0.05));
+  color: var(--foreground, #f3f4f6);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-decoration: none;
+}
+
+.cs-btn-secondary:hover {
+  background: var(--secondary-hover, rgba(255, 255, 255, 0.1));
+  border-color: rgba(223, 177, 128, 0.4);
+}
+
+.cs-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.95rem;
+  border-radius: 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #dfb180, #c89666);
+  color: #121212;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 4px 12px rgba(200, 150, 102, 0.25);
+  text-decoration: none;
+}
+
+.cs-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(200, 150, 102, 0.35);
+}
+
+/* ── Navigation Tabs ────────────────────────────────────────────────────── */
+.cs-nav-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem;
+  background: var(--card, rgba(22, 27, 34, 0.5));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 0.875rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.cs-nav-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.cs-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  border-radius: 0.625rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--muted-foreground, #9ca3af);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.cs-nav-btn:hover {
+  color: var(--foreground, #f3f4f6);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.cs-nav-btn.active {
+  color: #dfb180;
+  background: rgba(223, 177, 128, 0.12);
+  font-weight: 700;
+}
+
+.cs-nav-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.125rem;
+  height: 1.125rem;
+  padding: 0 0.3rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  border-radius: 9999px;
+  background: rgba(223, 177, 128, 0.25);
+  color: #dfb180;
+}
+
+/* ── Metrics Grid ───────────────────────────────────────────────────────── */
+.cs-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.cs-metric-card {
+  padding: 1.25rem;
+  background: var(--card, rgba(22, 27, 34, 0.7));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.cs-metric-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cs-metric-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground, #9ca3af);
+}
+
+.cs-metric-icon-wrap {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted-foreground, #9ca3af);
+}
+
+.cs-metric-value {
+  font-size: 1.625rem;
+  font-weight: 800;
+  color: var(--foreground, #f3f4f6);
+  letter-spacing: -0.02em;
+}
+
+.cs-metric-subtext {
+  font-size: 0.75rem;
+  color: var(--muted-foreground, #9ca3af);
+}
+
+/* ── Content Card Container ─────────────────────────────────────────────── */
+.cs-card {
+  background: var(--card, rgba(22, 27, 34, 0.7));
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 1rem;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.cs-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+}
+
+.cs-card-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--foreground, #f3f4f6);
+  margin: 0;
+}
+
+.cs-card-desc {
+  font-size: 0.8125rem;
+  color: var(--muted-foreground, #9ca3af);
+  margin: 0.2rem 0 0 0;
+}
+
+/* ── Tables ─────────────────────────────────────────────────────────────── */
+.cs-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.cs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+  text-align: left;
+}
+
+.cs-table th {
+  padding: 0.75rem 1rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground, #9ca3af);
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
+
+.cs-table td {
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.04));
+  color: var(--foreground, #f3f4f6);
+  vertical-align: middle;
+}
+
+.cs-table tr:last-child td {
+  border-bottom: none;
+}
+
+.cs-table tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* ── Status Badges ──────────────────────────────────────────────────────── */
+.cs-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.cs-badge-success {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.cs-badge-warning {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.cs-badge-danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.cs-badge-info {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.cs-badge-neutral {
+  background: rgba(156, 163, 175, 0.15);
+  color: #9ca3af;
+  border: 1px solid rgba(156, 163, 175, 0.3);
+}
+
+/* ── Upgrade Gate ───────────────────────────────────────────────────────── */
+.cs-gate-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 3.5rem 1.5rem;
+  background: var(--card, rgba(22, 27, 34, 0.7));
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(223, 177, 128, 0.3);
+  border-radius: 1.25rem;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.3);
+  gap: 1.75rem;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.cs-gate-icon-wrap {
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: 1.25rem;
+  background: linear-gradient(135deg, rgba(223, 177, 128, 0.25), rgba(200, 150, 102, 0.1));
+  border: 1px solid rgba(223, 177, 128, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 24px rgba(223, 177, 128, 0.2);
+}
+
+.cs-gate-title {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--foreground, #f3f4f6);
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.cs-gate-text {
+  font-size: 0.9375rem;
+  color: var(--muted-foreground, #9ca3af);
+  line-height: 1.6;
+  max-width: 580px;
+  margin: 0;
+}
+
+.cs-gate-features {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 540px;
+  text-align: left;
+}
+
+@media (min-width: 640px) {
+  .cs-gate-features {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.cs-gate-feat-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.8125rem;
+  color: var(--foreground, #f3f4f6);
+}
+
+.cs-gate-pricing {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.cs-gate-price-big {
+  font-size: 2.25rem;
+  font-weight: 900;
+  color: #dfb180;
+}
+
+.cs-gate-price-sub {
+  font-size: 0.875rem;
+  color: var(--muted-foreground, #9ca3af);
+}
+
+/* ── Wizard / Publishing Form ───────────────────────────────────────────── */
+.cs-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.cs-label {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--foreground, #f3f4f6);
+}
+
+.cs-input, .cs-select, .cs-textarea {
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  border-radius: 0.625rem;
+  background: var(--input, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  color: var(--foreground, #f3f4f6);
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.cs-input:focus, .cs-select:focus, .cs-textarea:focus {
+  border-color: #dfb180;
+}
+
+.cs-revenue-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  background: rgba(223, 177, 128, 0.08);
+  border: 1px solid rgba(223, 177, 128, 0.2);
+}
+
+.cs-rev-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8125rem;
+  color: var(--muted-foreground, #9ca3af);
+}
+
+.cs-rev-row.highlight {
+  font-size: 0.9375rem;
+  font-weight: 800;
+  color: #34d399;
+  border-top: 1px solid rgba(223, 177, 128, 0.15);
+  padding-top: 0.5rem;
+}
+
+/* ── Modal Backdrop & Dialog ────────────────────────────────────────────── */
+.cs-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.cs-modal-dialog {
+  background: var(--card, #161b22);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  border-radius: 1rem;
+  width: 100%;
+  max-width: 480px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5);
+}

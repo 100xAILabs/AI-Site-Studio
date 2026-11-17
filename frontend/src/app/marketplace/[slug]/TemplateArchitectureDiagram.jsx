@@ -30,9 +30,9 @@ export default function TemplateArchitectureDiagram({ template }) {
       title: "Client Reflow & Viewport",
       tag: "Device Adaptive",
       icon: Monitor,
-      color: "#38bdf8",
-      accentBg: "rgba(223, 177, 128, 0.12)",
-      borderColor: "rgba(223, 177, 128, 0.35)",
+      color: "#0ea5e9",
+      accentBg: "rgba(14, 165, 233, 0.12)",
+      borderColor: "rgba(14, 165, 233, 0.35)",
       telemetry: "Reflow: 100% Responsive",
       metrics: [
         { label: "Target Viewports", val: "320px – 1920px" },
@@ -47,9 +47,9 @@ export default function TemplateArchitectureDiagram({ template }) {
       title: "Atomic Edge CDN & Routing",
       tag: "Edge Infrastructure",
       icon: Globe,
-      color: "#dfb180",
-      accentBg: "rgba(129, 140, 248, 0.12)",
-      borderColor: "rgba(129, 140, 248, 0.35)",
+      color: "#f59e0b",
+      accentBg: "rgba(245, 158, 11, 0.12)",
+      borderColor: "rgba(245, 158, 11, 0.35)",
       telemetry: "Latency: < 12ms Edge Response",
       metrics: [
         { label: "DNS Propagation", val: "Instant Subdomain / CNAME" },
@@ -81,9 +81,9 @@ export default function TemplateArchitectureDiagram({ template }) {
       title: "Smart Fill Automation Engine",
       tag: "Semantic Personalization",
       icon: Sparkles,
-      color: "#c084fc",
-      accentBg: "rgba(223, 177, 128, 0.12)",
-      borderColor: "rgba(223, 177, 128, 0.35)",
+      color: "#a855f7",
+      accentBg: "rgba(168, 85, 247, 0.12)",
+      borderColor: "rgba(168, 85, 247, 0.35)",
       telemetry: "Engine: Real-Time Synthesis",
       metrics: [
         { label: "Copy Generation", val: "1 Credit / Section" },
@@ -98,9 +98,9 @@ export default function TemplateArchitectureDiagram({ template }) {
       title: "Autonomous Site Self-Healing",
       tag: "Runtime Health Audit",
       icon: Activity,
-      color: "#34d399",
-      accentBg: "rgba(52, 211, 153, 0.12)",
-      borderColor: "rgba(52, 211, 153, 0.35)",
+      color: "#10b981",
+      accentBg: "rgba(16, 185, 129, 0.12)",
+      borderColor: "rgba(16, 185, 129, 0.35)",
       telemetry: "Status: 100% Healthy",
       metrics: [
         { label: "Error Detection", val: "Real-time Telemetry" },
@@ -119,14 +119,14 @@ export default function TemplateArchitectureDiagram({ template }) {
       {/* Header */}
       <div className="architecture-header">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-[#c89666]/15 border border-[#c89666]/30 text-[#dfb180]">
+          <div className="p-1.5 rounded-lg border flex items-center justify-center shrink-0" style={{ background: 'hsla(var(--primary) / 0.12)', borderColor: 'hsla(var(--primary) / 0.25)', color: 'hsl(var(--primary))' }}>
             <Zap className="w-4 h-4" />
           </div>
-          <h3 className="section-title" style={{ margin: 0 }}>
+          <h3 className="section-title text-foreground" style={{ margin: 0 }}>
             Live Architecture & Request Flow Lifecycle
           </h3>
         </div>
-        <span className="text-xs text-[#dfb180] font-mono bg-[#c89666]/15 px-2.5 py-1 rounded-full border border-[#c89666]/30">
+        <span className="text-xs font-mono px-2.5 py-1 rounded-full border font-bold" style={{ background: 'hsla(var(--primary) / 0.12)', borderColor: 'hsla(var(--primary) / 0.25)', color: 'hsl(var(--primary))' }}>
           Interactive Pipeline Map
         </span>
       </div>
@@ -148,19 +148,24 @@ export default function TemplateArchitectureDiagram({ template }) {
                 className={`architecture-node-card ${isSelected ? "active" : ""}`}
                 style={{
                   borderColor: isSelected ? node.color : undefined,
+                  boxShadow: isSelected ? `0 4px 16px ${node.color}33` : undefined,
                 }}
               >
                 <div
                   className="architecture-node-icon-box"
-                  style={{ color: node.color }}
+                  style={{
+                    color: node.color,
+                    background: isSelected ? `${node.color}15` : undefined,
+                    borderColor: isSelected ? `${node.color}40` : undefined,
+                  }}
                 >
                   <IconComponent className="w-4 h-4" />
                 </div>
                 <div className="text-left min-w-0">
-                  <span className="text-[10px] font-extrabold uppercase tracking-wider block" style={{ color: node.color }}>
+                  <span className="architecture-node-tag" style={{ color: node.color }}>
                     {node.tag}
                   </span>
-                  <h5 className="text-xs font-bold text-foreground truncate max-w-[130px]">
+                  <h5 className="architecture-node-title truncate max-w-[130px]">
                     {node.title}
                   </h5>
                 </div>
@@ -187,21 +192,35 @@ export default function TemplateArchitectureDiagram({ template }) {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.25 }}
         className="architecture-detail-box"
-        style={{ borderColor: current.borderColor }}
+        style={{ borderColor: `${current.color}60` }}
       >
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-border">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl border border-border bg-muted/60" style={{ color: current.color }}>
+            <div
+              className="p-2.5 rounded-xl border shrink-0"
+              style={{
+                color: current.color,
+                background: `${current.color}18`,
+                borderColor: `${current.color}40`,
+              }}
+            >
               <current.icon className="w-5 h-5" />
             </div>
             <div>
               <h4 className="text-sm font-bold text-foreground flex items-center gap-2 flex-wrap">
                 <span>{current.title}</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full uppercase font-bold border border-primary/30 bg-primary/10 text-primary">
+                <span
+                  className="architecture-detail-telemetry"
+                  style={{
+                    color: current.color,
+                    background: `${current.color}15`,
+                    borderColor: `${current.color}35`,
+                  }}
+                >
                   {current.telemetry}
                 </span>
               </h4>
-              <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{current.description}</p>
+              <p className="architecture-detail-desc">{current.description}</p>
             </div>
           </div>
         </div>
@@ -209,11 +228,11 @@ export default function TemplateArchitectureDiagram({ template }) {
         {/* 4 Telemetry Metrics */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-3">
           {current.metrics.map((m, i) => (
-            <div key={i} className="p-2.5 rounded-lg bg-card border border-border shadow-sm">
-              <span className="text-[10px] uppercase font-bold text-muted-foreground block tracking-wider">
+            <div key={i} className="architecture-metric-card">
+              <span className="architecture-metric-label">
                 {m.label}
               </span>
-              <span className="text-xs font-bold font-mono mt-0.5 block truncate" style={{ color: current.color }}>
+              <span className="architecture-metric-val">
                 {m.val}
               </span>
             </div>

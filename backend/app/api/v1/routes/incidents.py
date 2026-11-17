@@ -197,11 +197,21 @@ async def report_broken_website_by_site_id(
 @router.get("/deployment/{deployment_id}", response_model=List[IncidentResponse])
 async def list_deployment_incidents(
     deployment_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Lists incident history for a specific deployment.
+    Lists incident history for a specific deployment (owner or admin only).
     """
+    dep_res = await db.execute(select(Deployment).where(Deployment.id == deployment_id))
+    deployment = dep_res.scalar_one_or_none()
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+
+    is_admin = getattr(current_user, "role", None) in ("admin", "super_admin")
+    if deployment.user_id != current_user.id and not is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized to view incidents for this deployment")
+
     stmt = (
         select(SiteIncident)
         .where(SiteIncident.deployment_id == deployment_id)
@@ -216,7 +226,7 @@ async def list_deployment_incidents(
 async def auto_fix_deployment(
     deployment_id: uuid.UUID,
     payload: Optional[AutoFixRequest] = None,
-    current_user: Optional[User] = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -229,16 +239,12 @@ async def auto_fix_deployment(
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found.")
 
-    # Subscription Tier Enforcement:
-    # 1. Free: Auto-heal is disabled.
-    # 2. Pro: Auto-heal 1 website only. Once registered, it cannot be changed.
-    # 3. Extreme: Unlimited multi-website auto-healing.
-    owner_stmt = select(User).where(User.id == deployment.user_id)
-    owner_res = await db.execute(owner_stmt)
-    site_owner = owner_res.scalar_one_or_none()
-    effective_user = current_user or site_owner
-    tier = (effective_user.subscription_tier or "free").lower() if effective_user else "free"
-    is_admin = effective_user and (getattr(effective_user, "role", "") in ("admin", "super_admin") or getattr(effective_user, "is_admin", False))
+    is_admin = getattr(current_user, "role", None) in ("admin", "super_admin")
+    if deployment.user_id != current_user.id and not is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized to run auto-fix on this deployment.")
+
+    effective_user = current_user
+    tier = (effective_user.subscription_tier or "free").lower()
 
     if not is_admin:
         if tier == "free":

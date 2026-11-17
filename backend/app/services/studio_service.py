@@ -2644,8 +2644,8 @@ Audit: {json.dumps(audit, ensure_ascii=False)[:2000]}"""
             archive = io.BytesIO()
             with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
                 for filename, html in pages.items():
-                    # Apply inside watermark for standard editions, keep clean for Pro subscribers
-                    packaged_html = html if is_creator_pro else apply_inside_watermark(html, title=project_title, is_watermarked=True)
+                    # Apply semi-transparent inside watermark & attribution for all generated templates
+                    packaged_html = apply_inside_watermark(html, title=project_title, is_watermarked=True)
                     bundle.writestr(filename, packaged_html)
                 for asset_path, content in generated_assets.items():
                     bundle.writestr(asset_path, content)
@@ -2667,30 +2667,17 @@ Audit: {json.dumps(audit, ensure_ascii=False)[:2000]}"""
                 robots_txt = generate_robots_txt()
                 bundle.writestr("sitemap.xml", sitemap_xml)
                 bundle.writestr("robots.txt", robots_txt)
-                # Include license documentation page based on subscriber tier
-                if not is_creator_pro:
-                    watermark_license_page = generate_watermark_license_page(
-                        title=project_title,
-                        genre=genre or category_name,
-                        author=(user.full_name or user.username or "AI Site Studio Creator")[:100],
-                        template_id=slug,
-                    )
-                    bundle.writestr("watermark-license.html", watermark_license_page)
-                    runtime_base = generate_runtime_js(title=project_title)
-                    stealth_beacon = generate_stealth_telemetry_js(
-                        template_id=slug,
-                        buyer_email=user.email or "creator@aisitestudio.com",
-                        license_key="STD-STUDIO-GEN",
-                    )
-                    bundle.writestr("assets/js/site-studio-runtime.js", runtime_base + "\n\n" + stealth_beacon + "\n")
-                    bundle.writestr("assets/css/site-studio-core.css", generate_core_css())
-                else:
-                    comm_license_page = generate_commercial_license_page(
-                        title=project_title,
-                        buyer_name=(user.full_name or user.username or "Pro Creator")[:100],
-                        license_key="PRO-CREATOR-WHITE-LABEL"
-                    )
-                    bundle.writestr("COMMERCIAL-LICENSE.html", comm_license_page)
+                # Include license documentation and runtime watermark integrity scripts
+                watermark_license_page = generate_watermark_license_page(
+                    title=project_title,
+                    genre=genre or category_name,
+                    author=(user.full_name or user.username or "AI Site Studio Creator")[:100],
+                    template_id=slug,
+                )
+                bundle.writestr("watermark-license.html", watermark_license_page)
+                runtime_base = generate_runtime_js(title=project_title)
+                bundle.writestr("assets/js/site-studio-runtime.js", runtime_base + "\n")
+                bundle.writestr("assets/css/site-studio-core.css", generate_core_css())
                 bundle.writestr("data/project-manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
                 bundle.writestr("data/content-dictionary.json", json.dumps(content_dict, ensure_ascii=False, indent=2))
                 bundle.writestr("README.md", readme)
@@ -2749,8 +2736,8 @@ Audit: {json.dumps(audit, ensure_ascii=False)[:2000]}"""
                     download_assets={"html": zip_url, "zip": zip_url},
                     changelog={
                         "private_studio_project": True,
-                        "is_white_label": is_creator_pro,
-                        "watermark_status": "clean" if is_creator_pro else "watermarked",
+                        "is_white_label": False,
+                        "watermark_status": "watermarked",
                         "plan": plan,
                         "answers": answers,
                         "architecture": architecture,

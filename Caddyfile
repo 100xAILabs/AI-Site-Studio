@@ -12,5 +12,12 @@ https:// {
 	tls {
 		on_demand
 	}
+
+	# Block external internet access to internal service endpoints
+	@internal path /internal/*
+	handle @internal {
+		respond "Access Denied" 403
+	}
+
 	reverse_proxy api:8000
 }

@@ -22,6 +22,7 @@ from app.models.hosting_subscription import HostingSubscription
 from app.models.incident import SiteIncident
 from app.models.project import Project
 from app.models.withdrawal_request import WithdrawalRequest, WithdrawalStatus
+from app.models.marketplace import MarketplaceSetting, CreatorEarning, EarningStatus
 from app.models.template_view import TemplateAccountView
 from app.models.studio_build import StudioBuild, StudioBuildMessage, StudioBuildEvent
 from app.models.demo_session import DemoSession
@@ -60,6 +61,9 @@ __all__ = [
     "Project",
     "WithdrawalRequest",
     "WithdrawalStatus",
+    "MarketplaceSetting",
+    "CreatorEarning",
+    "EarningStatus",
     "TemplateAccountView",
     "StudioBuild", "StudioBuildMessage", "StudioBuildEvent",
     "DemoSession",

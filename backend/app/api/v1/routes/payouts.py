@@ -16,8 +16,9 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user, require_seller_or_admin, require_admin
 from app.models.user import User, UserRole
 from app.models.order import Order, OrderItem, OrderStatus
-from app.models.payment import Payment
-from app.models.template import Template
+from app.models.payment import Payment, PaymentStatus
+from app.models.template import Template, TemplateStatus
+from app.models.marketplace import MarketplaceSetting, CreatorEarning, EarningStatus
 from app.models.withdrawal_request import WithdrawalRequest, WithdrawalStatus
 from app.schemas.payout import (
     EarningsSummaryResponse,
@@ -25,32 +26,82 @@ from app.schemas.payout import (
     WithdrawalCreateRequest,
     WithdrawalResponse,
     WithdrawalStatusUpdateRequest,
+    MarketplaceSettingsResponse,
+    MarketplaceSettingsUpdate,
 )
 
 router = APIRouter()
 
 
 async def calculate_seller_earnings(db: AsyncSession, seller_id: uuid.UUID) -> dict:
-    """Helper function to calculate seller's total earnings, withdrawn, pending and available balance."""
-    # 1. Total Earned from completed orders
+    """
+    Calculates seller's real financial metrics:
+    - Gross sales
+    - Configured platform commission rate & total platform fee (default 20%)
+    - Net creator earnings (default 80%)
+    - Pending earnings (sales within the dispute/refund holding period, e.g. 7 days)
+    - Available earnings (sales that have cleared the holding period)
+    - Withdrawn/paid amount
+    - Pending withdrawals
+    - Net withdrawable available balance
+    """
+    now_utc = datetime.now(timezone.utc)
+
+    # 1. Fetch platform settings
+    setting_res = await db.execute(select(MarketplaceSetting).where(MarketplaceSetting.id == "default"))
+    m_setting = setting_res.scalar_one_or_none()
+    commission_rate = m_setting.platform_commission_percent if m_setting else Decimal("20.00")
+    holding_days = m_setting.payout_holding_days if m_setting else 7
+
+    # 2. Completed sales query
     stmt = (
         select(
-            func.coalesce(func.sum(OrderItem.price), Decimal("0.00")).label("total")
+            OrderItem.price,
+            Order.created_at.label("order_date")
         )
         .select_from(OrderItem)
         .join(Order, OrderItem.order_id == Order.id)
+        .join(Payment, Payment.order_id == Order.id)
         .join(Template, OrderItem.template_id == Template.id)
         .where(
             and_(
                 Order.status == OrderStatus.COMPLETED,
+                Payment.status == PaymentStatus.CAPTURED,
+                Order.user_id != seller_id,  # Exclude self-purchases
                 Template.seller_id == seller_id
             )
         )
     )
     res = await db.execute(stmt)
-    total_earned = res.scalar_one()
+    order_items = res.all()
 
-    # 2. Withdrawn/Paid requests
+    gross_sales = Decimal("0.00")
+    total_net_earnings = Decimal("0.00")
+    available_net_earnings = Decimal("0.00")
+    pending_net_earnings = Decimal("0.00")
+
+    holding_delta = timedelta(days=holding_days)
+
+    for item in order_items:
+        gross_val = Decimal(str(item.price))
+        gross_sales += gross_val
+        platform_fee = round(gross_val * (commission_rate / Decimal("100.00")), 2)
+        net_val = gross_val - platform_fee
+        total_net_earnings += net_val
+
+        # Check holding period
+        order_date = item.order_date
+        if order_date.tzinfo is None:
+            order_date = order_date.replace(tzinfo=timezone.utc)
+
+        if (order_date + holding_delta) <= now_utc:
+            available_net_earnings += net_val
+        else:
+            pending_net_earnings += net_val
+
+    platform_commission_total = gross_sales - total_net_earnings
+
+    # 3. Withdrawn/Paid requests
     stmt_paid = (
         select(
             func.coalesce(func.sum(WithdrawalRequest.amount), Decimal("0.00")).label("total")
@@ -65,7 +116,7 @@ async def calculate_seller_earnings(db: AsyncSession, seller_id: uuid.UUID) -> d
     res_paid = await db.execute(stmt_paid)
     withdrawn_amount = res_paid.scalar_one()
 
-    # 3. Pending requests
+    # 4. Pending requests
     stmt_pending = (
         select(
             func.coalesce(func.sum(WithdrawalRequest.amount), Decimal("0.00")).label("total")
@@ -80,16 +131,23 @@ async def calculate_seller_earnings(db: AsyncSession, seller_id: uuid.UUID) -> d
     res_pending = await db.execute(stmt_pending)
     pending_withdrawal = res_pending.scalar_one()
 
-    # 4. Available Balance
-    available_balance = total_earned - withdrawn_amount - pending_withdrawal
+    # 5. Withdrawable Available Balance
+    available_balance = available_net_earnings - withdrawn_amount - pending_withdrawal
     if available_balance < Decimal("0.00"):
         available_balance = Decimal("0.00")
 
     return {
-        "total_earned": total_earned,
+        "gross_sales": gross_sales,
+        "platform_commission": platform_commission_total,
+        "total_earned": total_net_earnings,  # Total net creator earnings
+        "net_earnings": total_net_earnings,
+        "available_net_earnings": available_net_earnings,
+        "pending_earnings": pending_net_earnings,
         "withdrawn_amount": withdrawn_amount,
         "pending_withdrawal": pending_withdrawal,
-        "available_balance": available_balance
+        "available_balance": available_balance,
+        "commission_rate": commission_rate,
+        "holding_days": holding_days,
     }
 
 
@@ -100,11 +158,15 @@ async def get_seller_earnings(
     current_user: User = Depends(require_seller_or_admin),
 ):
     """
-    Get detailed earnings ledger and summary stats for the current seller.
+    Get detailed earnings ledger and full Creator Studio analytics for the current creator.
+    Uses real database calculations with dispute holding periods and platform commission rates.
     """
+    now_utc = datetime.now(timezone.utc)
     summary = await calculate_seller_earnings(db, current_user.id)
+    holding_delta = timedelta(days=summary["holding_days"])
+    comm_rate = summary["commission_rate"]
 
-    # Fetch individual sales
+    # 1. Fetch individual sales ledger
     sales_stmt = (
         select(
             Order.id.label("order_id"),
@@ -125,7 +187,8 @@ async def get_seller_earnings(
         .where(
             and_(
                 Order.status == OrderStatus.COMPLETED,
-                Template.seller_id == current_user.id
+                Template.seller_id == current_user.id,
+                Order.user_id != current_user.id,
             )
         )
         .order_by(Order.created_at.desc())
@@ -134,6 +197,7 @@ async def get_seller_earnings(
     sales_rows = sales_res.all()
 
     sales = []
+    recent_orders = []
     for row in sales_rows:
         utr = None
         if row.extra_metadata and isinstance(row.extra_metadata, dict):
@@ -141,26 +205,142 @@ async def get_seller_earnings(
         if not utr and row.gateway_payment_id and "UTR:" in str(row.gateway_payment_id):
             utr = str(row.gateway_payment_id).split("UTR:")[-1].strip()
 
-        sales.append(
-            SaleItemResponse(
-                order_id=row.order_id,
-                template_id=row.template_id,
-                template_title=row.template_title,
-                price=row.price,
-                purchaser_email=row.purchaser_email,
-                date=row.date,
-                order_number=row.order_number,
-                license_type=row.license_type,
-                upi_utr=utr,
-            )
+        gross_val = Decimal(str(row.price))
+        fee = round(gross_val * (comm_rate / Decimal("100.00")), 2)
+        net_val = gross_val - fee
+
+        row_date = row.date
+        if row_date.tzinfo is None:
+            row_date = row_date.replace(tzinfo=timezone.utc)
+        hold_until = row_date + holding_delta
+        is_avail = hold_until <= now_utc
+
+        sale_item = SaleItemResponse(
+            order_id=row.order_id,
+            template_id=row.template_id,
+            template_title=row.template_title,
+            price=row.price,
+            purchaser_email=row.purchaser_email,
+            date=row.date,
+            order_number=row.order_number,
+            license_type=row.license_type,
+            upi_utr=utr,
+            gross_amount=gross_val,
+            platform_fee=fee,
+            net_creator_earning=net_val,
+            holding_until=hold_until,
+            is_available=is_avail,
         )
+        sales.append(sale_item)
+
+        if len(recent_orders) < 10:
+            recent_orders.append({
+                "order_number": row.order_number,
+                "template_title": row.template_title,
+                "buyer_email": row.purchaser_email,
+                "gross": float(gross_val),
+                "net": float(net_val),
+                "date": row.date.isoformat(),
+                "is_available": is_avail,
+            })
+
+    # 2. Template counts (Published vs Pending review)
+    pub_stmt = select(func.count(Template.id)).where(
+        Template.seller_id == current_user.id,
+        Template.status == TemplateStatus.PUBLISHED,
+    )
+    pub_res = await db.execute(pub_stmt)
+    published_templates_count = pub_res.scalar_one()
+
+    pend_stmt = select(func.count(Template.id)).where(
+        Template.seller_id == current_user.id,
+        Template.status.in_([TemplateStatus.SUBMITTED, TemplateStatus.UNDER_REVIEW]),
+    )
+    pend_res = await db.execute(pend_stmt)
+    pending_templates_count = pend_res.scalar_one()
+
+    # 3. Total views and purchases
+    views_stmt = select(func.coalesce(func.sum(Template.views_count), 0)).where(
+        Template.seller_id == current_user.id
+    )
+    views_res = await db.execute(views_stmt)
+    total_views = views_res.scalar_one()
+
+    total_purchases = len(sales_rows)
+
+    # 4. Best performing templates (top by sales count)
+    best_stmt = (
+        select(
+            Template.id,
+            Template.title,
+            Template.thumbnail_url,
+            Template.price,
+            func.count(OrderItem.id).label("sales_count"),
+            func.coalesce(func.sum(OrderItem.price), Decimal("0.00")).label("total_gross")
+        )
+        .join(OrderItem, OrderItem.template_id == Template.id)
+        .join(Order, OrderItem.order_id == Order.id)
+        .where(
+            Template.seller_id == current_user.id,
+            Order.status == OrderStatus.COMPLETED,
+            Order.user_id != current_user.id,
+        )
+        .group_by(Template.id, Template.title, Template.thumbnail_url, Template.price)
+        .order_by(func.count(OrderItem.id).desc())
+        .limit(5)
+    )
+    best_res = await db.execute(best_stmt)
+    best_templates = [
+        {
+            "id": str(r.id),
+            "title": r.title,
+            "thumbnail_url": r.thumbnail_url,
+            "price": float(r.price),
+            "sales_count": r.sales_count,
+            "total_gross": float(r.total_gross),
+        }
+        for r in best_res.all()
+    ]
+
+    # 5. Sales chart aggregation (last 6 months or 30 days)
+    sales_chart = []
+    # Build daily or monthly buckets from sales_rows
+    from collections import defaultdict
+    day_buckets = defaultdict(lambda: {"count": 0, "gross": Decimal("0.00"), "net": Decimal("0.00")})
+    for s in sales:
+        day_key = s.date.strftime("%Y-%m-%d")
+        day_buckets[day_key]["count"] += 1
+        day_buckets[day_key]["gross"] += (s.gross_amount or Decimal("0.00"))
+        day_buckets[day_key]["net"] += (s.net_creator_earning or Decimal("0.00"))
+
+    # Sort days
+    for day in sorted(day_buckets.keys())[-14:]:
+        sales_chart.append({
+            "date": day,
+            "count": day_buckets[day]["count"],
+            "gross": float(day_buckets[day]["gross"]),
+            "net": float(day_buckets[day]["net"]),
+        })
 
     return EarningsSummaryResponse(
         total_earned=summary["total_earned"],
         withdrawn_amount=summary["withdrawn_amount"],
         pending_withdrawal=summary["pending_withdrawal"],
         available_balance=summary["available_balance"],
-        sales=sales
+        sales=sales,
+        gross_sales=summary["gross_sales"],
+        platform_commission=summary["platform_commission"],
+        net_earnings=summary["net_earnings"],
+        pending_earnings=summary["pending_earnings"],
+        commission_rate=summary["commission_rate"],
+        holding_days=summary["holding_days"],
+        published_templates_count=published_templates_count,
+        pending_templates_count=pending_templates_count,
+        total_views=total_views,
+        total_purchases=total_purchases,
+        recent_orders=recent_orders,
+        best_performing_templates=best_templates,
+        sales_chart=sales_chart,
     )
 
 
@@ -185,10 +365,20 @@ async def create_withdrawal_request(
     summary = await calculate_seller_earnings(db, current_user.id)
     available = summary["available_balance"]
 
+    setting_res = await db.execute(select(MarketplaceSetting).where(MarketplaceSetting.id == "default"))
+    m_setting = setting_res.scalar_one_or_none()
+    min_amount = m_setting.min_payout_amount if m_setting else Decimal("10.00")
+
+    if data.amount < min_amount:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Minimum payout request is ${min_amount:.2f} USD."
+        )
+
     if data.amount > available:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Insufficient balance. You only have ${available:.2f} available to withdraw."
+            detail=f"Insufficient available balance. You only have ${available:.2f} available to withdraw (pending earnings are held for {summary['holding_days']} days)."
         )
 
     # Use specified details or fallback to user settings
@@ -553,9 +743,9 @@ async def transfer_seller_earnings(
         await db.flush()
 
     if not settings.STRIPE_SECRET_KEY or account_id.startswith("acct_mock_"):
-        if settings.ENVIRONMENT == "production":
+        if settings.ENVIRONMENT.lower() not in ("development", "local", "test"):
             await db.rollback()
-            raise HTTPException(status_code=503, detail="Mock Stripe Connect accounts cannot receive production payouts.")
+            raise HTTPException(status_code=503, detail="Mock Stripe Connect accounts cannot receive payouts in non-local environments.")
         w_req.status = WithdrawalStatus.PAID
         await db.commit()
         return {

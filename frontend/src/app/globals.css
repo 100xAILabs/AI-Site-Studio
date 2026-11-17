@@ -1303,7 +1303,11 @@ a, a:visited, a:active {
 }
 
 .shadow-lg {
-  box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.6), 0 4px 6px -2px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.12), 0 4px 6px -2px rgba(0, 0, 0, 0.06);
+}
+
+.dark .shadow-lg {
+  box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.45), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
 }
 
 .animate-spin {

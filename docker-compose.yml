@@ -48,6 +48,7 @@ services:
     env_file:
       - ./backend/.env
     environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_site_studio}
       REDIS_URL: redis://redis:6379/0
       CUSTOM_DOMAIN_TLS_ENABLED: "true"
@@ -57,7 +58,7 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - ./backend:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8000 $${UVICORN_EXTRA_ARGS:-}"
 
   caddy:
     image: caddy:2-alpine

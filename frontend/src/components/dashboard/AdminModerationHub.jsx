@@ -82,10 +82,11 @@ export default function AdminModerationHub({
   // ── Metrics Calculation ──────────────────────────────────────────────────
   const metrics = useMemo(() => {
     const total = moderationTemplates.length;
-    const inReview = moderationTemplates.filter((t) => t.status === "draft").length;
-    const published = moderationTemplates.filter((t) => t.status === "published").length;
+    const inReview = moderationTemplates.filter((t) => ["draft", "submitted", "under_review"].includes(t.status)).length;
+    const published = moderationTemplates.filter((t) => ["published", "approved"].includes(t.status)).length;
+    const rejected = moderationTemplates.filter((t) => ["rejected", "suspended"].includes(t.status)).length;
     const archived = moderationTemplates.filter((t) => t.status === "archived").length;
-    return { total, inReview, published, archived };
+    return { total, inReview, published, rejected, archived };
   }, [moderationTemplates]);
 
   // ── Unique Frameworks List ───────────────────────────────────────────────
@@ -102,8 +103,9 @@ export default function AdminModerationHub({
     return moderationTemplates
       .filter((t) => {
         // Status & Category Filter
-        if (statusFilter === "draft" && t.status !== "draft") return false;
-        if (statusFilter === "published" && t.status !== "published") return false;
+        if (statusFilter === "draft" && !["draft", "submitted", "under_review"].includes(t.status)) return false;
+        if (statusFilter === "published" && !["published", "approved"].includes(t.status)) return false;
+        if (statusFilter === "rejected" && !["rejected", "suspended"].includes(t.status)) return false;
         if (statusFilter === "archived" && t.status !== "archived") return false;
 
         // Framework Filter

@@ -84,6 +84,97 @@
   margin-bottom: 1.25rem;
 }
 
+/* User Subscription Status Banner */
+.hero-subscription-banner {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 0.35rem 0.95rem;
+  margin-bottom: 1.25rem;
+  backdrop-filter: blur(8px);
+  font-size: 0.825rem;
+  font-weight: 600;
+  transition: all 0.25s ease;
+}
+
+.hero-sub-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.hero-sub-extreme {
+  background: rgba(223, 177, 128, 0.12);
+  border: 1px solid rgba(223, 177, 128, 0.45);
+  box-shadow: 0 0 16px rgba(223, 177, 128, 0.2);
+}
+
+.hero-sub-extreme .hero-sub-title {
+  color: #f5d0a9;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.hero-sub-extreme .hero-sub-badge {
+  background: rgba(223, 177, 128, 0.25);
+  color: #dfb180;
+  padding: 0.1rem 0.55rem;
+  border-radius: 9999px;
+  font-size: 0.725rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid rgba(223, 177, 128, 0.4);
+}
+
+.hero-sub-pro {
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  box-shadow: 0 0 14px rgba(139, 92, 246, 0.15);
+}
+
+.hero-sub-pro .hero-sub-title {
+  color: #c4b5fd;
+  font-weight: 600;
+}
+
+.hero-sub-free {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.hero-sub-free .hero-sub-title {
+  color: #d4d4d8;
+  font-weight: 500;
+}
+
+.hero-sub-free-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: #a1a1aa;
+}
+
+.hero-sub-upgrade-link {
+  margin-left: 0.35rem;
+  color: #dfb180;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-decoration: none;
+  background: rgba(223, 177, 128, 0.12);
+  padding: 0.15rem 0.55rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(223, 177, 128, 0.25);
+  transition: all 0.2s ease;
+}
+
+.hero-sub-upgrade-link:hover {
+  background: rgba(223, 177, 128, 0.25);
+  color: #ffffff;
+  border-color: rgba(223, 177, 128, 0.6);
+  transform: translateY(-1px);
+}
+
 .badge-sparkle-dot {
   color: #f43f5e;
   font-size: 0.85rem;

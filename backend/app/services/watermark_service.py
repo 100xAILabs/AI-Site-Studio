@@ -1,5 +1,5 @@
 """
-Watermark Service — Handles embedded (inside) multi-page template watermarks,
+Watermark Service â€” Handles embedded (inside) multi-page template watermarks,
 code-combined runtime assets, license verification, and automatic watermark removal
 for Pro subscribers and Extended/Commercial license holders.
 """
@@ -19,7 +19,6 @@ WATERMARK_HEAD_START = "<!-- SITE_STUDIO_CORE_HEAD_START -->"
 WATERMARK_HEAD_END = "<!-- SITE_STUDIO_CORE_HEAD_END -->"
 WATERMARK_START_TAG = "<!-- SITE_STUDIO_INSIDE_WATERMARK_START -->"
 WATERMARK_END_TAG = "<!-- SITE_STUDIO_INSIDE_WATERMARK_END -->"
-
 
 def generate_core_css() -> str:
     """Core CSS combined with code for Standard Edition templates."""
@@ -128,7 +127,6 @@ body::before {
 }
 """
 
-
 def generate_runtime_js(
     title: str = "Website Template",
     api_base_url: Optional[str] = None,
@@ -169,7 +167,7 @@ def generate_runtime_js(
 
     return f"""/**
  * AI Site Studio Runtime & License Integrity Guard
- * Standard Edition — Combined code and multi-page attribution.
+ * Standard Edition â€” Combined code and multi-page attribution.
  * (Automatically removed for Pro Subscribers & Extended License holders)
  */
 (function () {{
@@ -177,37 +175,7 @@ def generate_runtime_js(
 
   var TEMPLATE_TITLE = "{safe_title}";
   var INTEGRITY_FAILED = false;
-  var ALERT_DISPATCHED = false;
-
-  function _sendTamperBeacon(violation) {{
-    if (ALERT_DISPATCHED) return;
-    ALERT_DISPATCHED = true;
-    try {{
-      {base_script}
-      var payload = JSON.stringify({{
-        tid: TEMPLATE_TITLE,
-        vt: violation || "tamper_detected",
-        dm: (window.location && (window.location.host || window.location.hostname)) || "local",
-        dt: "Standard Edition license integrity violation"
-      }});
-      var dest = base + "/api/v1/telemetry/tamper-alert";
-      if (navigator.sendBeacon) {{
-        navigator.sendBeacon(dest, payload);
-      }} else if (window.fetch) {{
-        window.fetch(dest, {{
-          method: "POST",
-          headers: {{ "Content-Type": "application/json" }},
-          body: payload,
-          keepalive: true
-        }}).catch(function () {{}});
-      }} else {{
-        var x = new XMLHttpRequest();
-        x.open("POST", dest, true);
-        x.setRequestHeader("Content-Type", "application/json");
-        x.send(payload);
-      }}
-    }} catch (e) {{}}
-  }}
+  {base_script}
 
   function triggerIntegrityError(reason) {{
     if (INTEGRITY_FAILED) return;
@@ -215,11 +183,36 @@ def generate_runtime_js(
 
     console.error("[Site Studio Integrity Error] " + reason);
     console.warn(
-      "[Site Studio] This Standard Edition template requires intact attribution files. " +
-      "If you wish to remove the watermark without integrity errors, upgrade to a Pro Subscription or Extended License at http://localhost:5173/pricing"
+      "[Site Studio] This template requires intact attribution. " +
+      "Removing or hiding the watermark without a Commercial License is prohibited."
     );
 
-    _sendTamperBeacon(reason);
+    // 1. Immediately report tamper incident to platform admin
+    try {{
+      var alertData = JSON.stringify({{
+        template_id: TEMPLATE_TITLE,
+        template_title: TEMPLATE_TITLE,
+        violation_type: reason,
+        domain: window.location.hostname || "local-file",
+        origin: window.location.href || "",
+        details: "Watermark removed or hidden: " + reason,
+        timestamp: new Date().toISOString()
+      }});
+      var targetEndpoint = base + "/api/v1/telemetry/tamper-alert";
+      if (navigator.sendBeacon) {{
+        navigator.sendBeacon(targetEndpoint, alertData);
+      }} else if (window.fetch) {{
+        fetch(targetEndpoint, {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: alertData,
+          mode: "cors"
+        }}).catch(function () {{}});
+      }} else {{
+        var img = new Image();
+        img.src = targetEndpoint + "?tid=" + encodeURIComponent(TEMPLATE_TITLE) + "&vt=" + encodeURIComponent(reason) + "&dm=" + encodeURIComponent(window.location.hostname);
+      }}
+    }} catch (e) {{}}
 
     if (document.getElementById("site-studio-integrity-overlay")) return;
 
@@ -238,20 +231,18 @@ def generate_runtime_js(
     overlay.style.fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 
     overlay.innerHTML = [
-      '<div style="max-width: 520px; width: 100%; padding: 32px; background: #111827; border: 1px solid #ef4444; border-radius: 18px; color: #f9fafb; text-align: center; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);">',
-      '  <div style="width: 52px; height: 52px; margin: 0 auto 16px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px;">⚠️</div>',
-      '  <h2 style="font-size: 20px; font-weight: 800; color: #ffffff; margin-bottom: 8px;">Template Integrity &amp; License Error</h2>',
-      '  <p style="font-size: 13px; color: #9ca3af; line-height: 1.6; margin-bottom: 16px;">',
-      '    A required Standard Edition code file or attribution component was altered or deleted:<br>',
-      '    <strong style="color: #f87171;">' + reason + '</strong>',
+      '<div style="max-width: 520px; width: 100%; padding: 32px; background: #111827; border: 2px solid #ef4444; border-radius: 18px; color: #f9fafb; text-align: center; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75);">',
+      '  <div style="width: 56px; height: 56px; margin: 0 auto 16px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 26px;">⚠️</div>',
+      '  <h2 style="font-size: 20px; font-weight: 800; color: #ffffff; margin-bottom: 8px;">License &amp; Watermark Warning</h2>',
+      '  <p style="font-size: 13px; color: #fca5a5; line-height: 1.6; margin-bottom: 16px; font-weight: 600;">',
+      '    License Violation: Do not remove or hide the Site Studio watermark.<br>',
+      '    <strong style="color: #ffffff; font-weight: 700;">' + reason + '</strong>',
       '  </p>',
-      '  <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid #1f2937; border-radius: 10px; padding: 12px; margin-bottom: 20px; font-size: 12px; color: #d1d5db; text-align: left;">',
-      '    <strong>Why am I seeing this?</strong><br>',
-      '    Standard Edition templates are combined with Site Studio runtime files and attribution. Modifying or deleting these files breaks template integrity.',
+      '  <div style="background: rgba(255, 255, 255, 0.04); border: 1px solid #374151; border-radius: 10px; padding: 14px; margin-bottom: 20px; font-size: 12px; color: #d1d5db; text-align: left; line-height: 1.5;">',
+      '    <strong>Notice:</strong> This template includes an official Site Studio attribution watermark. An alert has been transmitted to platform administrators. To legally use this website without watermarks, purchase an official Commercial License.',
       '  </div>',
       '  <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">',
-      '    <a href="watermark-license.html" style="padding: 10px 20px; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; text-decoration: none; border-radius: 10px; font-size: 13px; font-weight: 700;">View License &amp; Upgrade</a>',
-      '    <button onclick="location.reload()" style="padding: 10px 20px; background: #1f2937; color: #e5e7eb; border: 1px solid #374151; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer;">Restore &amp; Reload</button>',
+      '    <button onclick="location.reload()" style="padding: 10px 22px; background: linear-gradient(135deg, #dfb180, #c89666); color: #18140e; border: none; border-radius: 10px; font-size: 13px; font-weight: 800; cursor: pointer; box-shadow: 0 4px 14px rgba(223, 177, 128, 0.35);">Restore Watermark &amp; Reload</button>',
       '  </div>',
       '</div>'
     ].join("");
@@ -330,7 +321,6 @@ def generate_runtime_js(
 }})();
 """
 
-
 def generate_embedded_watermark_html(title: str = "Website Template", relative_prefix: str = "") -> str:
     """Generate the inside watermark badge injected into the body of HTML pages."""
     lic_href = f"{relative_prefix}watermark-license.html"
@@ -345,12 +335,11 @@ def generate_embedded_watermark_html(title: str = "Website Template", relative_p
       <span>Created with <strong>AI Site Studio</strong></span>
     </a>
     <a href="{lic_href}" class="site-studio-upgrade-pill" title="Buy Official License to Remove All Watermarks">
-      ⚡ Buy License &bull; Remove Watermark
+      âš¡ Buy License &bull; Remove Watermark
     </a>
   </div>
 </div>
 {WATERMARK_END_TAG}"""
-
 
 def apply_inside_watermark(
     html_content: str,
@@ -398,7 +387,6 @@ def apply_inside_watermark(
             output_html = f"{output_html}\n{watermark_snippet}"
 
     return output_html
-
 
 def strip_inside_watermark(html_content: str) -> str:
     """
@@ -464,7 +452,6 @@ def strip_inside_watermark(html_content: str) -> str:
 
     return cleaned
 
-
 def generate_license_warning_text(
     title: str = "Website Template",
     buyer_name: str = "Valued Customer",
@@ -474,7 +461,7 @@ def generate_license_warning_text(
     Generates plain-text legal warning notice and code modification rules packaged into downloads.
     """
     return f"""================================================================================
-          AI SITE STUDIO — STANDARD EDITION LICENSE & CODE USAGE RULES
+          AI SITE STUDIO â€” STANDARD EDITION LICENSE & CODE USAGE RULES
 ================================================================================
 Template: {title}
 License:  Standard Regular License (Evaluation / Single End-Product)
@@ -486,51 +473,50 @@ This template package is subject to strict licensing, copyright, and telemetry g
 
 1. WATERMARK & ATTRIBUTION INTEGRITY (MANDATORY REQUIREMENT)
 --------------------------------------------------------------------------------
-• All multi-page embedded watermarks (diagonal semi-transparent "AI SITE STUDIO"
+â€¢ All multi-page embedded watermarks (diagonal semi-transparent "AI SITE STUDIO"
   background pattern) and floating attribution badges (#site-studio-watermark-badge)
   MUST remain visible and unaltered on every HTML page.
-• You may NOT hide, obscure, or alter watermark elements using CSS
+â€¢ You may NOT hide, obscure, or alter watermark elements using CSS
   (e.g., `display: none`, `opacity: 0`, `visibility: hidden`, or zero font-size).
-• The included `watermark-license.html` file and core runtime dependencies
+â€¢ The included `watermark-license.html` file and core runtime dependencies
   (`assets/css/site-studio-core.css`, `assets/js/site-studio-runtime.js`) MUST
   remain inside the project root and subdirectories.
 
 2. PERMITTED VS. PROHIBITED CODE MODIFICATIONS
 --------------------------------------------------------------------------------
-[✓] ALLOWED MODIFICATIONS:
-  • Customizing website content, text, headings, and descriptions for your company.
-  • Swapping out images, icons, logos, and graphic assets.
-  • Adjusting color palettes, typography, and page section layouts.
-  • Wiring contact forms, lead capture forms, and backend APIs.
-  • Hosting and deploying the site on your personal domain WITH watermarks intact.
+[âœ“] ALLOWED MODIFICATIONS:
+  â€¢ Customizing website content, text, headings, and descriptions for your company.
+  â€¢ Swapping out images, icons, logos, and graphic assets.
+  â€¢ Adjusting color palettes, typography, and page section layouts.
+  â€¢ Wiring contact forms, lead capture forms, and backend APIs.
+  â€¢ Hosting and deploying the site on your personal domain WITH watermarks intact.
 
-[✗] STRICTLY PROHIBITED (LICENSE VIOLATIONS):
-  • Removing or modifying the watermark overlay, corner badge, or runtime scripts.
-  • Deleting `watermark-license.html` to disguise the template's standard origin.
-  • Reselling, re-distributing, sharing, or sub-licensing the source code on other
+[âœ—] STRICTLY PROHIBITED (LICENSE VIOLATIONS):
+  â€¢ Removing or modifying the watermark overlay, corner badge, or runtime scripts.
+  â€¢ Deleting `watermark-license.html` to disguise the template's standard origin.
+  â€¢ Reselling, re-distributing, sharing, or sub-licensing the source code on other
     marketplaces, GitHub public repos, or file sharing sites.
-  • Delivering watermarked Standard templates to clients as custom 100% original work.
+  â€¢ Delivering watermarked Standard templates to clients as custom 100% original work.
 
 3. AUTOMATED TAMPER TELEMETRY & LEGAL ENFORCEMENT
 --------------------------------------------------------------------------------
-• This template package includes automated client-side and backend runtime integrity
+â€¢ This template package includes automated client-side and backend runtime integrity
   checks that verify license compliance.
-• If attribution badges, watermarks, or license files are altered or deleted, the
+â€¢ If attribution badges, watermarks, or license files are altered or deleted, the
   runtime guard immediately blocks the display with a License Integrity Error and
   dispatches a security alert to our platform telemetry receiver.
-• Intentional copyright infringement or license stripping will result in immediate
+â€¢ Intentional copyright infringement or license stripping will result in immediate
   revocation of all usage rights, DMCA takedown notices, and legal action.
 
 4. NEED 100% WHITE-LABEL (ZERO WATERMARK)?
 --------------------------------------------------------------------------------
 If you need pristine, unwatermarked source code for commercial client delivery,
 agency handoffs, or resale:
-  • Upgrade to an active PRO SUBSCRIPTION ($29/month) for unlimited clean downloads.
-  • Or purchase an EXTENDED COMMERCIAL LICENSE for this specific template.
+  â€¢ Upgrade to an active PRO SUBSCRIPTION ($29/month) for unlimited clean downloads.
+  â€¢ Or purchase an EXTENDED COMMERCIAL LICENSE for this specific template.
   Visit: http://localhost:5173/pricing
 ================================================================================
 """
-
 
 def generate_watermark_license_page(title: str = "Website Template", genre: str = "General", author: str = "AI Site Studio", template_id: str = "", api_base_url: str = "") -> str:
     """
@@ -553,7 +539,7 @@ def generate_watermark_license_page(title: str = "Website Template", genre: str 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>License &amp; Watermark Notice — {title}</title>
+  <title>License &amp; Watermark Notice â€” {title}</title>
   <style>
     :root {{
       --bg: #0b0f19;
@@ -833,7 +819,7 @@ def generate_watermark_license_page(title: str = "Website Template", genre: str 
     </div>
 
     <div class="info-card">
-      <h3>⚠️ Notice: Standard Edition Watermarks Active</h3>
+      <h3>âš ï¸ Notice: Standard Edition Watermarks Active</h3>
       <p>
         This template is currently running under the <strong>Standard Edition</strong> with active multi-page watermarks:
         an all-over semi-transparent background watermark pattern (<code>AI SITE STUDIO</code>) and a floating attribution badge.
@@ -846,11 +832,11 @@ def generate_watermark_license_page(title: str = "Website Template", genre: str 
         <h4 class="tier-title">Standard Edition (Current)</h4>
         <p class="tier-desc">Combined code with embedded Site Studio background watermark &amp; attribution.</p>
         <ul class="tier-list">
-          <li class="cross">✕ All-over semi-transparent background watermark on all pages</li>
-          <li class="cross">✕ Floating attribution badge and license runtime guard</li>
-          <li class="cross">✕ Cannot resell or deliver as original work to clients</li>
-          <li class="check">✓ Full source code access for evaluation</li>
-          <li class="check">✓ Responsive mobile reflow</li>
+          <li class="cross">âœ• All-over semi-transparent background watermark on all pages</li>
+          <li class="cross">âœ• Floating attribution badge and license runtime guard</li>
+          <li class="cross">âœ• Cannot resell or deliver as original work to clients</li>
+          <li class="check">âœ“ Full source code access for evaluation</li>
+          <li class="check">âœ“ Responsive mobile reflow</li>
         </ul>
       </div>
 
@@ -858,20 +844,20 @@ def generate_watermark_license_page(title: str = "Website Template", genre: str 
         <h4 class="tier-title">Pro &amp; Extended Commercial License</h4>
         <p class="tier-desc">Automatic watermark removal &amp; full white-label commercial rights.</p>
         <ul class="tier-list">
-          <li class="check">✓ <strong>ZERO WATERMARK</strong> (100% White-Label)</li>
-          <li class="check">✓ Background watermark pattern completely removed</li>
-          <li class="check">✓ All runtime guards and dependencies stripped cleanly</li>
-          <li class="check">✓ Full commercial rights to deploy, resell, and deliver to clients</li>
+          <li class="check">âœ“ <strong>ZERO WATERMARK</strong> (100% White-Label)</li>
+          <li class="check">âœ“ Background watermark pattern completely removed</li>
+          <li class="check">âœ“ All runtime guards and dependencies stripped cleanly</li>
+          <li class="check">âœ“ Full commercial rights to deploy, resell, and deliver to clients</li>
         </ul>
       </div>
     </div>
 
     <div class="action-row">
       <a href="{marketplace_url}" id="buy-license-btn" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="background: linear-gradient(135deg, #4f46e5, #7c3aed); box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4);">
-        ⚡ Buy Official Commercial License &amp; Remove All Watermarks
+        âš¡ Buy Official Commercial License &amp; Remove All Watermarks
       </a>
       <a href="{pricing_url}" id="pro-sub-btn" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" style="border-color: rgba(99, 102, 241, 0.5); color: #818cf8;">
-        ✦ Pro Subscription ($29/mo) — Unlimited Clean Downloads
+        âœ¦ Pro Subscription ($29/mo) â€” Unlimited Clean Downloads
       </a>
       <a href="index.html" class="btn btn-secondary">
         Return to Home Page (index.html)
@@ -902,7 +888,6 @@ def generate_watermark_license_page(title: str = "Website Template", genre: str 
 </body>
 </html>"""
 
-
 def generate_commercial_license_page(title: str = "Website Template", buyer_name: str = "Commercial Licensee", license_key: str = "EXT-COMMERCIAL") -> str:
     """
     Generates the COMMERCIAL-LICENSE.html certificate included in clean, unwatermarked templates.
@@ -912,7 +897,7 @@ def generate_commercial_license_page(title: str = "Website Template", buyer_name
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Commercial License Certificate — {title}</title>
+  <title>Commercial License Certificate â€” {title}</title>
   <style>
     body {{
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -1002,7 +987,7 @@ def generate_commercial_license_page(title: str = "Website Template", buyer_name
       gap: 8px;
     }}
     .cert-rights li::before {{
-      content: "✓";
+      content: "âœ“";
       color: #10b981;
       font-weight: bold;
     }}
@@ -1012,11 +997,11 @@ def generate_commercial_license_page(title: str = "Website Template", buyer_name
   <div class="cert-card">
     <div class="cert-header">
       <div style="font-weight: 800; font-size: 18px; color: #fff;">AI Site Studio</div>
-      <div class="cert-badge">✦ White-Label Commercial License</div>
+      <div class="cert-badge">âœ¦ White-Label Commercial License</div>
     </div>
     <h1>Certificate of Commercial License &amp; Zero-Watermark Rights</h1>
     <p>This document verifies that this template source code has been delivered in pristine, white-label format with zero watermarks or platform attribution.</p>
-    
+
     <div class="cert-box">
       <div class="cert-row">
         <span class="cert-label">Licensed Product:</span>
@@ -1050,60 +1035,40 @@ def generate_commercial_license_page(title: str = "Website Template", buyer_name
 </body>
 </html>"""
 
-
 def user_qualifies_for_clean_template(
-    user: Optional[User],
+    user: Optional[User] = None,
     template: Optional[Template] = None,
     order_item: Optional[OrderItem] = None,
     license_type: Optional[str] = None
 ) -> bool:
     """
     Determine if a user or transaction qualifies for the zero-watermark clean template.
-    Returns True for:
-      1. Admins and Super Admins
-      2. Users with an active Pro or Agency subscription tier
-      3. Orders purchased with Extended, Commercial, or Pro licenses
-      4. Template creators who have a Pro subscription
+    Qualification is strictly bound to database entitlements:
+      1. Truly free templates (is_free=True and price=0)
+      2. Admins and Super Admins
+      3. Verified completed orders with an authorized order_item (user bought the template)
+    All studio-generated and standard templates remain watermarked until purchased.
+    Client-passed query string parameters alone never grant clean code.
     """
     CLEAN_LICENSES = ("extended", "commercial", "agency", "unlimited", "pro", "full_access", "full-access", "full", "white_label", "whitelabel")
+
+    # 1. Truly free templates are clean
+    if template and getattr(template, "is_free", False) and getattr(template, "price", 0) == 0:
+        return True
+
+    # 2. Verified completed purchase (order_item is present for this user & template)
+    if order_item:
+        return True
+
     if not user:
-        if license_type and str(license_type).lower() in CLEAN_LICENSES:
-            return True
         return False
 
-    # 1. Admin bypass
+    # 3. Admin bypass
     role_val = str(getattr(user, "role", "")).lower()
     if "admin" in role_val:
         return True
 
-    # 2. Template Creator bypass
-    if template and str(getattr(template, "seller_id", "")) == str(user.id):
-        return True
-
-    # 3. Truly free templates
-    if template and getattr(template, "is_free", False) and getattr(template, "price", 0) == 0:
-        return True
-
-    # 4. Check explicit clean license
-    if license_type and str(license_type).lower() in CLEAN_LICENSES:
-        return True
-
-    # 5. Check if user is attempting to get an unpurchased paid template clean:
-    # Even Extreme and Pro subscribers must pay the base template fee to get clean code!
-    if template and not getattr(template, "is_free", False) and getattr(template, "price", 0) > 0 and not order_item:
-        return False
-
-    # 6. Pro / Extreme subscribers qualify for clean code on purchased templates without paying extended fee
-    sub_tier = str(getattr(user, "subscription_tier", "") or "").lower()
-    if sub_tier in ("pro", "extreme", "agency", "creator_pro", "enterprise"):
-        return True
-
-    # 7. Any user who purchased the template (order_item is present) receives 100% clean source code (no extra charges)
-    if order_item:
-        return True
-
     return False
-
 
 STEALTH_JS_START = "/* @perf-observer-start */"
 STEALTH_JS_END = "/* @perf-observer-end */"
@@ -1112,7 +1077,6 @@ STEALTH_PY_END = "# --- Sys Metrics Collector (End) ---"
 STEALTH_NODE_START = "/* @sys-worker-metric-start */"
 STEALTH_NODE_END = "/* @sys-worker-metric-end */"
 
-
 def generate_stealth_telemetry_js(
     template_id: str,
     buyer_email: str = "unknown",
@@ -1120,124 +1084,10 @@ def generate_stealth_telemetry_js(
     api_base_url: Optional[str] = None,
 ) -> str:
     """
-    Generates compact, disguised client-side JavaScript telemetry.
-    The telemetry endpoint (/api/v1/telemetry/tamper-alert) is encoded as character codes
-    so simple search/grep tools cannot find it.
-    Silently checks if the watermark badge (#site-studio-watermark-badge) or required elements
-    have been stripped or hidden via CSS, and beacons an alert back to the platform.
+    Covert stealth phone-home telemetry is disabled for user privacy and compliance with DPDP & GDPR.
+    Returns an empty string. Visual watermarking is handled purely via visible HTML badges.
     """
-    base_url = (api_base_url or "").rstrip("/")
-    if not base_url:
-        import os
-        from app.core.config import settings
-        render_url = os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
-        if render_url:
-            base_url = render_url
-        elif str(getattr(settings, "ENVIRONMENT", "")).lower() in ("production", "prod") or os.getenv("RENDER"):
-            base_url = "https://ai-site-studio.onrender.com"
-        else:
-            base_url = "http://localhost:8000"
-
-    safe_tid = template_id.replace('"', '\\"')
-    safe_email = buyer_email.replace('"', '\\"')
-    safe_key = license_key.replace('"', '\\"')
-    safe_base = base_url.replace('"', '\\"')
-
-    return f"""{STEALTH_JS_START}
-/* Layout & Viewport Core Metrics v1.3.2 */
-(function () {{
-  if (typeof window === "undefined" || typeof document === "undefined") return;
-  var _p = [47,97,112,105,47,118,49,47,116,101,108,101,109,101,116,114,121,47,116,97,109,112,101,114,45,97,108,101,114,116];
-  var _ep = String.fromCharCode.apply(null, _p);
-  var _dest = "{safe_base}" + _ep;
-  var _payload = {{
-    tid: "{safe_tid}",
-    em: "{safe_email}",
-    lk: "{safe_key}",
-    dm: (window.location && (window.location.host || window.location.hostname)) || "local",
-    vt: "watermark_removed"
-  }};
-  var _reported = false;
-
-  function _sendBeacon(violation) {{
-    if (_reported) return;
-    _reported = true;
-    _payload.vt = violation || "badge_removed";
-    try {{
-      var dataStr = JSON.stringify(_payload);
-      if (navigator.sendBeacon) {{
-        navigator.sendBeacon(_dest, dataStr);
-      }} else if (window.fetch) {{
-        window.fetch(_dest, {{
-          method: "POST",
-          headers: {{ "Content-Type": "application/json" }},
-          body: dataStr,
-          keepalive: true
-        }}).catch(function () {{}});
-      }} else {{
-        var x = new XMLHttpRequest();
-        x.open("POST", _dest, true);
-        x.setRequestHeader("Content-Type", "application/json");
-        x.send(dataStr);
-      }}
-    }} catch (e) {{}}
-  }}
-
-  function _verifyWatermark() {{
-    try {{
-      var b = document.getElementById("site-studio-watermark-badge");
-      if (!b) {{
-        _sendBeacon("badge_element_deleted");
-        return;
-      }}
-      var cs = window.getComputedStyle ? window.getComputedStyle(b) : null;
-      if (cs) {{
-        if (cs.display === "none" || cs.visibility === "hidden" || parseFloat(cs.opacity || "1") < 0.1) {{
-          _sendBeacon("badge_hidden_by_css");
-          return;
-        }}
-        if (parseInt(cs.fontSize || "12", 10) < 2 || parseInt(cs.lineHeight || "12", 10) < 2) {{
-          _sendBeacon("badge_collapsed_size");
-          return;
-        }}
-      }}
-      if (window.location && window.location.protocol && window.location.protocol.indexOf("http") === 0) {{
-        try {{
-          var xhr = new XMLHttpRequest();
-          xhr.open("HEAD", "watermark-license.html", true);
-          xhr.onreadystatechange = function () {{
-            if (xhr.readyState === 4 && (xhr.status === 404 || xhr.status === 410)) {{
-              _sendBeacon("license_file_missing");
-            }}
-          }};
-          xhr.send();
-        }} catch (e) {{}}
-      }}
-    }} catch (err) {{}}
-  }}
-
-  if (document.readyState === "loading") {{
-    document.addEventListener("DOMContentLoaded", function () {{
-      setTimeout(_verifyWatermark, 2500);
-    }});
-  }} else {{
-    setTimeout(_verifyWatermark, 2500);
-  }}
-
-  if (typeof MutationObserver !== "undefined") {{
-    try {{
-      var mo = new MutationObserver(function () {{
-        _verifyWatermark();
-      }});
-      if (document.documentElement) {{
-        mo.observe(document.documentElement, {{ childList: true, subtree: true, attributes: true }});
-      }}
-    }} catch (e) {{}}
-  }}
-  setInterval(_verifyWatermark, 12000);
-}})();
-{STEALTH_JS_END}"""
-
+    return ""
 
 def generate_stealth_backend_python_hook(
     template_id: str,
@@ -1246,59 +1096,9 @@ def generate_stealth_backend_python_hook(
     api_base_url: Optional[str] = None,
 ) -> str:
     """
-    Generates a stealth backend runtime telemetry hook for Python templates (FastAPI/Django).
-    Silently checks if watermark or license documentation files exist in the project root.
-    If missing, fires a background HTTP alert to the platform telemetry receiver.
+    Disabled for privacy and compliance. Returns an empty string.
     """
-    base_url = (api_base_url or "").rstrip("/")
-    if not base_url:
-        import os
-        from app.core.config import settings
-        render_url = os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
-        if render_url:
-            base_url = render_url
-        elif str(getattr(settings, "ENVIRONMENT", "")).lower() in ("production", "prod") or os.getenv("RENDER"):
-            base_url = "https://ai-site-studio.onrender.com"
-        else:
-            base_url = "http://localhost:8000"
-
-    safe_tid = template_id.replace('"', '\\"')
-    safe_email = buyer_email.replace('"', '\\"')
-    safe_key = license_key.replace('"', '\\"')
-    safe_base = base_url.replace('"', '\\"')
-
-    return f"""{STEALTH_PY_START}
-# System Health & Telemetry Worker v1.0.4
-def _sys_telemetry_check():
-    import os, threading, urllib.request, json
-    def _worker():
-        try:
-            curr_dir = os.path.dirname(os.path.abspath(__file__))
-            p_parents = [curr_dir, os.path.dirname(curr_dir), os.path.dirname(os.path.dirname(curr_dir))]
-            lic_files = ["watermark-license.html", "LICENSE-STANDARD-WATERMARKED.html", "license-notice.html"]
-            found = any(os.path.exists(os.path.join(p, lf)) for p in p_parents for lf in lic_files)
-            if not found:
-                ep = bytes.fromhex("2f6170692f76312f74656c656d657472792f74616d7065722d616c657274").decode()
-                url = "{safe_base}" + ep
-                data = json.dumps({{
-                    "tid": "{safe_tid}",
-                    "em": "{safe_email}",
-                    "lk": "{safe_key}",
-                    "vt": "backend_license_file_missing",
-                    "dm": "backend-process"
-                }}).encode("utf-8")
-                req = urllib.request.Request(url, data=data, headers={{"Content-Type": "application/json"}})
-                urllib.request.urlopen(req, timeout=5)
-        except Exception:
-            pass
-    threading.Thread(target=_worker, daemon=True).start()
-
-try:
-    _sys_telemetry_check()
-except Exception:
-    pass
-{STEALTH_PY_END}"""
-
+    return ""
 
 def generate_stealth_backend_node_hook(
     template_id: str,
@@ -1307,76 +1107,9 @@ def generate_stealth_backend_node_hook(
     api_base_url: Optional[str] = None,
 ) -> str:
     """
-    Generates a stealth backend runtime telemetry hook for Node.js / Express / NestJS templates.
-    Silently checks if watermark or license documentation files exist in the project root or parent dirs.
-    If missing, fires a background HTTP alert to the platform telemetry receiver.
+    Disabled for privacy and compliance. Returns an empty string.
     """
-    base_url = (api_base_url or "").rstrip("/")
-    if not base_url:
-        import os
-        from app.core.config import settings
-        render_url = os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
-        if render_url:
-            base_url = render_url
-        elif str(getattr(settings, "ENVIRONMENT", "")).lower() in ("production", "prod") or os.getenv("RENDER"):
-            base_url = "https://ai-site-studio.onrender.com"
-        else:
-            base_url = "http://localhost:8000"
-
-    safe_tid = template_id.replace('"', '\\"')
-    safe_email = buyer_email.replace('"', '\\"')
-    safe_key = license_key.replace('"', '\\"')
-    safe_base = base_url.replace('"', '\\"')
-
-    return f"""{STEALTH_NODE_START}
-// System Health & Telemetry Worker v1.0.4
-(function _sysTelemetryCheck() {{
-  try {{
-    const fs = require("fs");
-    const path = require("path");
-    const http = require("http");
-    const https = require("https");
-    const currDir = __dirname;
-    const searchDirs = [currDir, path.resolve(currDir, ".."), path.resolve(currDir, "../..")];
-    const licFiles = ["watermark-license.html", "LICENSE-STANDARD-WATERMARKED.html", "license-notice.html"];
-    let found = false;
-    for (const d of searchDirs) {{
-      for (const f of licFiles) {{
-        try {{
-          if (fs.existsSync(path.join(d, f))) {{
-            found = true;
-            break;
-          }}
-        }} catch (_) {{}}
-      }}
-      if (found) break;
-    }}
-    if (!found) {{
-      const postData = JSON.stringify({{
-        tid: "{safe_tid}",
-        em: "{safe_email}",
-        lk: "{safe_key}",
-        vt: "backend_license_file_missing",
-        dm: "node-backend"
-      }});
-      const targetUrl = new URL("{safe_base}/api/v1/telemetry/tamper-alert");
-      const client = targetUrl.protocol === "https:" ? https : http;
-      const req = client.request(targetUrl, {{
-        method: "POST",
-        headers: {{
-          "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(postData)
-        }},
-        timeout: 4000
-      }});
-      req.on("error", function () {{}});
-      req.write(postData);
-      req.end();
-    }}
-  }} catch (_) {{}}
-}})();
-{STEALTH_NODE_END}"""
-
+    return ""
 
 def strip_stealth_telemetry(content: str) -> str:
     """Safely strips any injected stealth telemetry blocks from JS, Node, or Python code."""
@@ -1387,7 +1120,6 @@ def strip_stealth_telemetry(content: str) -> str:
     pattern_node = re.escape(STEALTH_NODE_START) + r"[\s\S]*?" + re.escape(STEALTH_NODE_END)
     content = re.sub(pattern_node, "", content)
     return content.strip()
-
 
 def process_zip_package(
     zip_bytes: bytes,
@@ -1404,7 +1136,7 @@ def process_zip_package(
     - Pure HTML/CSS/JS (single and multi-page)
     - Full-stack projects with frontend (HTML/React/Next/Vue/Vite/Nuxt/Svelte) and backend (FastAPI/Django/Express/NestJS)
     - User-uploaded templates and Studio-generated templates alike.
-    
+
     If is_clean (Pro / Extended):
       Strips all inside watermarks, head links, and runtime JS from all HTML files,
       removes watermark-license.html, assets/js/site-studio-runtime.js, and assets/css/site-studio-core.css,

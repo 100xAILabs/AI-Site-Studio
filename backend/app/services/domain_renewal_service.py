@@ -149,13 +149,6 @@ class DomainRenewalService:
             except Exception as e_stripe:
                 logger.warning(f"Stripe off-session charge failed for {domain.domain}: {e_stripe}")
 
-        # Check Razorpay recurring mandate or test mode authorization
-        if not payment_collected:
-            # When user has given authority in development or sandbox, we execute verified automated debit
-            payment_collected = True
-            payment_reference = f"auto-debit-{domain.id.hex[:8]}-{int(datetime.now(timezone.utc).timestamp())}"
-            collection_method = "authorized_mandate_auto_debit"
-
         if not payment_collected:
             # Record failed collection event
             fail_event = SubscriptionEvent(

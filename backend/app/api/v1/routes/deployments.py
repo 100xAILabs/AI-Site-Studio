@@ -21,7 +21,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, require_admin
 from app.models.user import User
 from app.models.deployment import Deployment, DeploymentVersion, Domain, DeploymentLog
 from app.models.hosting_subscription import HostingSubscription
@@ -886,7 +886,7 @@ async def execute_immediate_domain_renewal(
 
 @router.post("/domains/process-due-renewals")
 async def process_due_renewals(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1373,7 +1373,7 @@ async def create_deployment(
             raise HTTPException(status_code=404, detail="Template not found.")
         can_deploy = (
             (template.is_free and template.status == TemplateStatus.PUBLISHED)
-            or template.seller_id == current_user.id
+            or (template.seller_id == current_user.id and getattr(template, "template_origin", "") != "custom_draft")
             or is_extreme
         )
         if not can_deploy:

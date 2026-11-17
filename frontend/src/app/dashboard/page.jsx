@@ -99,6 +99,9 @@ import AdminIncidentsCenter from "@/components/dashboard/AdminIncidentsCenter";
 import ReportIssueModal from "@/components/dashboard/ReportIssueModal";
 import DownloadWarningModal from "@/components/modals/DownloadWarningModal";
 import DeploymentFixConsole from "@/components/dashboard/DeploymentFixConsole";
+import RetailTemplateModal from "@/components/modals/RetailTemplateModal";
+import CreatorStudio from "@/components/dashboard/CreatorStudio";
+import MarketplaceRetailHub from "@/components/dashboard/MarketplaceRetailHub";
 import ThemeToggle from "@/components/layout/ThemeToggle";
 import "./Page.css";
 
@@ -299,6 +302,7 @@ function Dashboard() {
   const [editDemoUrl, setEditDemoUrl] = useState("");
   const [editError, setEditError] = useState("");
   const [reuploadFile, setReuploadFile] = useState(null);
+  const [retailModalTemplate, setRetailModalTemplate] = useState(null);
   const { rates } = useCurrencyStore();
 
   const [purgingDrafts, setPurgingDrafts] = useState(false);
@@ -757,8 +761,13 @@ function Dashboard() {
     }
   };
 
-  const isSeller = user?.role === "seller" || user?.role === "SELLER";
+  const isExtreme =
+    Boolean(user?.can_retail_templates) ||
+    Boolean(user?.is_extreme_subscriber) ||
+    ["extreme", "agency", "enterprise"].includes(String(user?.subscription_tier || "").toLowerCase());
   const isAdmin = user?.role === "admin" || user?.role === "super_admin" || user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
+  const canRetail = isExtreme || isAdmin;
+  const isSeller = canRetail; // Extreme plan subscribers act as authorized marketplace retailers
 
   // Domain Transfer & Registrar Ownership Modal States
   const [transferModalDomain, setTransferModalDomain] = useState(null);
@@ -843,20 +852,16 @@ function Dashboard() {
         if (isAdmin) {
           setActiveTab("admin-users");
         } else if (isSeller) {
-          setActiveTab("seller-home");
+          setActiveTab("creator-studio");
         } else {
           setActiveTab("buyer-home");
         }
       }
       const activateOrderParam = searchParams.get("activate_order");
       if (activateOrderParam && authToken) {
-        api.post(`/payment/activate-token-order/${activateOrderParam}`, {}, authToken)
-          .then((res) => {
-            alert(res?.message || "Studio Credits successfully credited to your account!");
-            qc.invalidateQueries({ queryKey: ["billing-report"] });
-            qc.invalidateQueries({ queryKey: ["orders"] });
-          })
-          .catch((e) => console.error("Error activating order:", e));
+        qc.invalidateQueries({ queryKey: ["billing-report"] });
+        qc.invalidateQueries({ queryKey: ["orders"] });
+        qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
       }
 
       const sessionIdParam = searchParams.get("session_id");
@@ -2727,11 +2732,11 @@ function Dashboard() {
               {templatesSubTab === "uploaded" ? (
                 <button
                   type="button"
-                  onClick={() => setActiveTab("seller-upload")}
+                  onClick={() => setActiveTab("retail-website")}
                   className="mt-cta-btn"
                 >
-                  <Plus className="w-4 h-4" />
-                  <span>Upload Template</span>
+                  <ShoppingBag className="w-4 h-4" />
+                  <span>Retail a Website</span>
                 </button>
               ) : (
                 <Link
@@ -2782,8 +2787,8 @@ function Dashboard() {
                   onClick={() => setTemplatesSubTab("uploaded")}
                   className={cn("mt-tab-btn", templatesSubTab === "uploaded" && "active")}
                 >
-                  <UploadCloud className="w-4 h-4" style={{ color: templatesSubTab === "uploaded" ? "#b5804f" : "#64748b" }} />
-                  <span>Uploaded</span>
+                  <ShoppingBag className="w-4 h-4" style={{ color: templatesSubTab === "uploaded" ? "#b5804f" : "#64748b" }} />
+                  <span>Retail Listings</span>
                   <span className={cn("mt-tab-count", templatesSubTab === "uploaded" ? "active" : "inactive")}>
                     {uploadedItems.length}
                   </span>
@@ -3746,13 +3751,52 @@ function Dashboard() {
                   Welcome back, {user?.fullName ?? user?.firstName ?? "User"}
                 </h1>
                 <p className="db-user-email">{user?.email}</p>
-                <span className="db-user-role-badge">
-                  {user?.role || "buyer"}
-                </span>
+                <div className="flex flex-wrap items-center gap-2 mt-1">
+                  <span className="db-user-role-badge">
+                    {user?.role || "buyer"}
+                  </span>
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
+                      canRetail
+                        ? "bg-[#dfb180]/15 text-[#dfb180] border-[#dfb180]/40 shadow-[0_0_10px_rgba(223,177,128,0.2)]"
+                        : String(user?.subscription_tier || "").toLowerCase() === "pro"
+                        ? "bg-[#8b5cf6]/15 text-[#a78bfa] border-[#8b5cf6]/40"
+                        : "bg-[#27272a] text-[#a1a1aa] border-[#3f3f46]"
+                    }`}
+                  >
+                    {canRetail ? (
+                      <>
+                        <Crown className="w-3 h-3 text-[#dfb180]" />
+                        <span>Extreme Plan • Creator Enabled</span>
+                      </>
+                    ) : String(user?.subscription_tier || "").toLowerCase() === "pro" ? (
+                      <>
+                        <Sparkles className="w-3 h-3 text-[#a78bfa]" />
+                        <span>Pro Plan</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#71717a]" />
+                        <span>Free Plan</span>
+                      </>
+                    )}
+                  </span>
+                </div>
               </div>
             </div>
 
             <div className="db-header-actions flex items-center gap-2.5">
+              {canRetail && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("creator-studio")}
+                  className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#dfb180]/20 to-[#c89666]/20 hover:from-[#dfb180]/30 hover:to-[#c89666]/30 border border-[#dfb180]/60 text-xs font-bold text-[#dfb180] flex items-center gap-1.5 transition cursor-pointer shadow-sm hover:shadow-[0_0_12px_rgba(223,177,128,0.3)]"
+                  title="Open Creator Studio to sell and retail your templates"
+                >
+                  <Crown className="w-3.5 h-3.5 text-[#dfb180]" />
+                  <span>Sell Your Template</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={toggleSidebar}
@@ -3804,7 +3848,7 @@ function Dashboard() {
                     ? [
                       { id: "admin-users", label: "Users", icon: User },
                       { id: "seller-templates", label: "My Templates", icon: Folder },
-                      { id: "seller-upload", label: "Upload Template", icon: Plus },
+                      { id: "retail-website", label: "Retail Websites", icon: ShoppingBag },
                       { id: "admin-payments", label: "Invoices & Ledger", icon: FileText },
                       { id: "admin-categories", label: "Categories", icon: LayoutDashboard },
                       { id: "admin-reports", label: "Reports", icon: HelpCircle },
@@ -3812,21 +3856,7 @@ function Dashboard() {
                       { id: "admin-moderation", label: "Moderation", icon: ShieldCheck },
                       { id: "settings", label: "Profile Settings", icon: Settings },
                     ]
-                    : isSeller
-                      ? [
-                        { id: "seller-home", label: "Dashboard", icon: LayoutDashboard },
-                        { id: "seller-templates", label: "My Templates", icon: Folder },
-                        { id: "seller-upload", label: "Upload Template", icon: Plus },
-                        { id: "seller-analytics", label: "Sales Analytics", icon: BarChart3 },
-                        { id: "seller-earnings", label: "Earnings", icon: Coins },
-                        { id: "seller-orders", label: "Orders", icon: ShoppingBag },
-                        { id: "seller-reviews", label: "Reviews", icon: Star },
-                        { id: "seller-performance", label: "Performance", icon: TrendingUp },
-                        { id: "seller-followers", label: "Followers", icon: Users },
-                        { id: "seller-messages", label: "Customer Messages", icon: MessageSquare },
-                        { id: "seller-payouts", label: "Payouts", icon: Wallet },
-                        { id: "settings", label: "Profile Settings", icon: Settings },
-                      ]
+                    : false ? []
                       : [
                         { id: "buyer-home", label: "Dashboard", icon: LayoutDashboard },
                         { id: "marketplace-redirect", label: "Marketplace", icon: ShoppingBag, isLink: true, url: "/marketplace" },
@@ -3835,6 +3865,7 @@ function Dashboard() {
                         { id: "studio-projects", label: "Studio Projects", icon: Cpu },
                         { id: "my-websites", label: "My Websites", icon: Globe },
                         { id: "deployments", label: "Deployments", icon: Zap },
+                        { id: "creator-studio", label: "Creator Studio", icon: Crown },
                         { id: "wishlist", label: "Wishlist", icon: Heart },
                         { id: "buyer-following", label: "Following", icon: Users },
                         { id: "orders", label: "Orders", icon: CreditCard },
@@ -3925,6 +3956,26 @@ function Dashboard() {
                       >
                         <Cpu className="w-3.5 h-3.5" /> Launch Studio Creator
                       </Link>
+                      {canRetail && (
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab("creator-studio")}
+                          className="db-banner-btn"
+                          style={{
+                            background: "linear-gradient(135deg, #dfb180 0%, #b8860b 100%)",
+                            color: "#18140e",
+                            fontWeight: 700,
+                            border: "none",
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "6px",
+                          }}
+                        >
+                          <Crown className="w-3.5 h-3.5 text-[#18140e]" />
+                          Sell Your Template
+                        </button>
+                      )}
                       <Link
                         href="/marketplace"
                         className="db-banner-btn secondary"
@@ -4614,6 +4665,35 @@ function Dashboard() {
                                         <span style={{ color: "#ffffff" }}>Open in Studio</span>
                                       </Link>
                                     )}
+
+                                    {/* Retail on Marketplace Action */}
+                                    <button
+                                      type="button"
+                                      onClick={() => setRetailModalTemplate(item)}
+                                      className="db-btn-retail"
+                                      title="Retail this generated website on the marketplace"
+                                      style={{
+                                        width: "100%",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        gap: "6px",
+                                        background: item.is_marketplace ? "rgba(16, 185, 129, 0.15)" : "linear-gradient(135deg, rgba(200, 150, 102, 0.2) 0%, rgba(181, 128, 79, 0.2) 100%)",
+                                        border: item.is_marketplace ? "1px solid rgba(16, 185, 129, 0.35)" : "1px solid rgba(200, 150, 102, 0.35)",
+                                        color: item.is_marketplace ? "#34d399" : "#dfb180",
+                                        padding: "7px 12px",
+                                        borderRadius: "8px",
+                                        fontSize: "0.78rem",
+                                        fontWeight: 700,
+                                        cursor: "pointer",
+                                        transition: "all 0.15s ease",
+                                        marginTop: "4px",
+                                        marginBottom: "6px",
+                                      }}
+                                    >
+                                      <ShoppingBag className="w-3.5 h-3.5" />
+                                      <span>{item.is_marketplace ? `Retailed on Marketplace ($${item.price})` : "Retail on Marketplace"}</span>
+                                    </button>
 
                                     {/* Action Grid (2x2) */}
                                     <div className="db-template-btn-grid">
@@ -6329,1996 +6409,38 @@ function Dashboard() {
               )}
 
 
-              {/* === CREATOR / SELLER DASHBOARD HOME === */}
-              {activeTab === "seller-home" && (
-                <div className="sd-container">
-                  {/* Summary Cards */}
-                  <div className="sd-grid-stats">
-                    {[
-                      {
-                        label: "Templates Published",
-                        value: (stats?.uploaded_templates ?? sellerTemplatesList.length).toLocaleString(),
-                        sub: "Active in catalog",
-                        icon: Folder,
-                        iconBg: "#eef2ff",
-                        iconColor: "#b5804f",
-                      },
-                      {
-                        label: "Total Sales",
-                        value: sellerTotalSalesCount.toLocaleString(),
-                        sub: sellerTotalSalesCount === 1 ? "1 order completed" : `${sellerTotalSalesCount} orders completed`,
-                        icon: ShoppingBag,
-                        iconBg: "#ecfdf5",
-                        iconColor: "#059669",
-                      },
-                      {
-                        label: "Total Revenue",
-                        value: formatPrice(earningsSummary?.total_earned || 0),
-                        sub: `Available: ${formatPrice(earningsSummary?.available_balance || 0)}`,
-                        icon: Coins,
-                        iconBg: "#eff6ff",
-                        iconColor: "#2563eb",
-                      },
-                      {
-                        label: "Customer Reviews",
-                        value: sellerReviewsList.length.toLocaleString(),
-                        sub: sellerReviewsList.length === 1 ? "1 verified review" : `${sellerReviewsList.length} verified reviews`,
-                        icon: Star,
-                        iconBg: "#fef3c7",
-                        iconColor: "#d97706",
-                      },
-                      {
-                        label: "Average Rating",
-                        value: sellerActualAvgRating ? `${sellerActualAvgRating} ★` : "0.0 ★",
-                        sub: sellerActualAvgRating ? "Based on buyer reviews" : "No buyer ratings yet",
-                        icon: Sparkles,
-                        iconBg: "#f5f3ff",
-                        iconColor: "#c89666",
-                      },
-                      {
-                        label: "Unique Viewers",
-                        value: sellerTotalViews.toLocaleString(),
-                        sub: "Distinct accounts opened",
-                        icon: Users,
-                        iconBg: "#ecfeff",
-                        iconColor: "#0891b2",
-                      },
-                      {
-                        label: "Followers",
-                        value: followers.length.toLocaleString(),
-                        sub: "Store subscribers",
-                        icon: Users,
-                        iconBg: "#fff1f2",
-                        iconColor: "#e11d48",
-                      },
-                      {
-                        label: "Conversion Rate",
-                        value: sellerConversionRate,
-                        sub: "Sales per view ratio",
-                        icon: TrendingUp,
-                        iconBg: "#ecfdf5",
-                        iconColor: "#059669",
-                      },
-                    ].map(({ label, value, sub, icon: Icon, iconBg, iconColor }) => (
-                      <div key={label} className="sd-stat-card">
-                        <div className="sd-stat-header">
-                          <span className="sd-stat-label">{label}</span>
-                          <div className="sd-stat-icon" style={{ backgroundColor: iconBg, color: iconColor }}>
-                            <Icon className="w-4 h-4" />
-                          </div>
-                        </div>
-                        <div>
-                          <div className="sd-stat-value">{value}</div>
-                          <div className="sd-stat-sub">{sub}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Graphs & Live Overview */}
-                  <div className="sd-graph-grid">
-                    {/* Sales Log Card */}
-                    <div className="sd-card">
-                      <div className="sd-card-title">
-                        <span>Recent Sales & Orders</span>
-                        <span className="text-xs text-slate-500 font-semibold">Live Transactions</span>
-                      </div>
-
-                      {(earningsSummary?.sales || []).length > 0 ? (
-                        <div className="space-y-2">
-                          {(earningsSummary.sales || []).slice(0, 5).map((sale) => (
-                            <div key={sale.id || sale.created_at} className="flex items-center justify-between p-3 rounded-xl bg-slate-800/60 border border-slate-700/50 text-xs">
-                              <div>
-                                <p className="font-extrabold text-foreground">{sale.template_title || "Website Template"}</p>
-                                <p className="text-[11px] text-muted-foreground font-medium">Buyer: {sale.buyer_name || "Verified Customer"}</p>
-                              </div>
-                              <span className="font-black text-emerald-400 font-mono text-sm">+{formatPrice(sale.price || 0)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="sd-empty-box">
-                          <ShoppingBag className="w-8 h-8 text-muted-foreground/60" />
-                          <p className="text-xs font-bold text-foreground">No sales recorded yet</p>
-                          <p className="text-[11px] text-muted-foreground font-medium max-w-xs">
-                            Once buyers purchase your templates on the marketplace, your live transaction log will automatically populate here.
-                          </p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Revenue & Payouts Breakdown */}
-                    <div className="sd-card">
-                      <div className="sd-card-title">
-                        <span>Revenue & Payout Overview</span>
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab("seller-earnings")}
-                          className="text-xs text-[#dfb180] hover:text-[#dfb180] font-extrabold bg-transparent border-none cursor-pointer"
-                        >
-                          Manage Payouts →
-                        </button>
-                      </div>
-
-                      <div className="space-y-4">
-                        <div className="p-4 rounded-xl bg-[#c89666]/15 border border-[#c89666]/30 flex items-center justify-between">
-                          <div>
-                            <span className="text-[11px] font-extrabold text-[#dfb180] uppercase tracking-wider">Gross Platform Earnings</span>
-                            <div className="text-2xl font-black text-foreground font-mono mt-0.5">
-                              {formatPrice(earningsSummary?.total_earned || 0)}
-                            </div>
-                          </div>
-                          <Coins className="w-8 h-8 text-[#dfb180]" />
-                        </div>
-
-                        <div className="grid grid-cols-3 gap-2 text-center">
-                          <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
-                            <span className="text-[10px] text-muted-foreground font-bold block">Available</span>
-                            <span className="text-xs font-black text-emerald-400 font-mono mt-0.5 block">
-                              {formatPrice(earningsSummary?.available_balance || 0)}
-                            </span>
-                          </div>
-                          <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
-                            <span className="text-[10px] text-muted-foreground font-bold block">Pending</span>
-                            <span className="text-xs font-black text-amber-400 font-mono mt-0.5 block">
-                              {formatPrice(earningsSummary?.pending_withdrawal || 0)}
-                            </span>
-                          </div>
-                          <div className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
-                            <span className="text-[10px] text-muted-foreground font-bold block">Withdrawn</span>
-                            <span className="text-xs font-black text-slate-300 font-mono mt-0.5 block">
-                              {formatPrice(earningsSummary?.withdrawn_amount || 0)}
-                            </span>
-                          </div>
-                        </div>
-
-                        <p className="text-[11px] text-muted-foreground font-medium leading-relaxed">
-                          Platform revenue is calculated in real-time based on completed orders. You can request payouts anytime directly from your payouts portal.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* === SELLER MY TEMPLATES === */}
-              {activeTab === "seller-templates" && renderMyTemplatesSection()}
-
-              {/* === SELLER UPLOAD TEMPLATE === */}
-              {activeTab === "seller-upload" && (
-                <div className="glass-premium p-6 sm:p-8 space-y-6">
-                  <div className="flex items-center justify-between pb-1">
-                    <div>
-                      <h3 className="font-extrabold text-xl text-foreground">Upload Website Template</h3>
-                      <p className="text-xs text-muted-foreground font-medium">Submit your ZIP archive, HTML document, or Git repository to register on the platform catalog.</p>
-                    </div>
-                  </div>
-
-                  {/* Reseller Privilege Status Banner */}
-                  {["extreme", "agency", "enterprise"].includes((user?.subscription_tier || "").toLowerCase()) || user?.role === "seller" || user?.role === "admin" ? (
-                    <div className="flex items-center gap-3 p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs">
-                      <Sparkles className="w-4 h-4 shrink-0 text-emerald-400" />
-                      <div className="flex-1">
-                        <strong className="font-bold">⚡ Extreme Plan Reselling Privilege Active:</strong>
-                        <span> You can upload, showcase, and resell unlimited templates on our global marketplace. Standard platform fee applies upon purchase.</span>
-                      </div>
-                      <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
-                        Reseller Active
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-[#c89666]/15 border border-[#c89666]/30 text-[#dfb180] text-xs">
-                      <div className="flex items-center gap-2.5">
-                        <ShieldCheck className="w-4 h-4 shrink-0 text-[#dfb180]" />
-                        <div>
-                          <strong className="font-bold">Template Reselling Marketplace Privilege:</strong>
-                          <span> The <strong>Extreme Plan</strong> unlocks template reselling on our marketplace with automated payouts and standard platform fees.</span>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => navigate("/pricing")}
-                        className="text-[11px] font-bold px-3 py-1 rounded-lg bg-[#c89666]/15 hover:bg-[#c89666]/15 text-white shrink-0 transition-colors cursor-pointer"
-                      >
-                        Upgrade to Extreme
-                      </button>
-                    </div>
-                  )}
-
-                  <>
-                    {/* Multi-step Header */}
-                    <div className="uw-step-nav">
-                      {[
-                        { step: 1, label: "Upload Source" },
-                        { step: 2, label: "Code & Architecture Audit" },
-                        { step: 3, label: "Review & Publish" },
-                      ].map((st) => {
-                        const isCurrent = wizardStep === st.step;
-                        const isCompleted = wizardStep > st.step;
-                        return (
-                          <div key={st.step} className="uw-step-item">
-                            <span className={cn(
-                              "uw-step-badge",
-                              isCurrent
-                                ? "uw-step-badge-active"
-                                : isCompleted
-                                  ? "uw-step-badge-done"
-                                  : "uw-step-badge-pending"
-                            )}>
-                              {isCompleted ? "✓" : st.step}
-                            </span>
-                            <span className={cn(
-                              isCurrent ? "uw-step-text-active" : isCompleted ? "uw-step-text-done" : "uw-step-text-pending"
-                            )}>
-                              {st.label}
-                            </span>
-                            {st.step < 3 && <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <form onSubmit={handleUpload} className="space-y-6">
-                      {/* STEP 1: UPLOAD PROJECT */}
-                      {wizardStep === 1 && (
-                        <div className="space-y-4 animate-in fade-in duration-200">
-                          {/* Tab Switcher */}
-                          <div className="uw-tab-switcher">
-                            <button
-                              type="button"
-                              onClick={() => { setUploadType("zip"); setStoredZipUrl(""); }}
-                              className={cn(
-                                "uw-tab-btn",
-                                uploadType === "zip" ? "uw-tab-btn-active" : "uw-tab-btn-inactive"
-                              )}
-                            >
-                              ZIP File / HTML
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => { setUploadType("git"); setZipFile(null); }}
-                              className={cn(
-                                "uw-tab-btn",
-                                uploadType === "git" ? "uw-tab-btn-active" : "uw-tab-btn-inactive"
-                              )}
-                            >
-                              Git Repository
-                            </button>
-                          </div>
-
-                          {uploadType === "zip" ? (
-                            <div
-                              className="db-upload-dropzone"
-                              onDragOver={(e) => e.preventDefault()}
-                              onDrop={(e) => {
-                                e.preventDefault();
-                                const file = e.dataTransfer.files[0];
-                                if (file && (file.name.endsWith(".zip") || file.name.endsWith(".html") || file.name.endsWith(".htm"))) {
-                                  handleZipAnalysis(file);
-                                } else {
-                                  alert("Please upload a valid ZIP archive (.zip) or HTML document (.html, .htm).");
-                                }
-                              }}
-                            >
-                              <div className="db-upload-dropzone-inner">
-                                <div className="db-upload-icon-circle">
-                                  <FileUp className="w-8 h-8 text-[#dfb180]" />
-                                </div>
-                                <h4 className="font-extrabold text-lg text-white mb-1">
-                                  Upload Website Template or HTML
-                                </h4>
-                                <p className="text-xs mb-4 font-medium text-slate-400">
-                                  Drag & drop ZIP archive (.zip), standalone HTML document (.html, .htm), or click to browse files
-                                </p>
-
-                                <div className="flex flex-wrap items-center justify-center gap-2 mb-5">
-                                  <span className="uw-pill-indigo">
-                                    <Sparkles className="w-3.5 h-3.5 text-[#dfb180]" /> Auto-Detects Version & Framework
-                                  </span>
-                                  <span className="uw-pill-emerald">
-                                    <Code className="w-3.5 h-3.5 text-emerald-400" /> Supports Pure HTML / Static Sites
-                                  </span>
-                                </div>
-
-                                <input
-                                  type="file"
-                                  accept=".zip,.html,.htm"
-                                  id="zip-uploader"
-                                  className="hidden"
-                                  onChange={(e) => {
-                                    const file = e.target.files[0];
-                                    if (file) handleZipAnalysis(file);
-                                  }}
-                                />
-                                <label htmlFor="zip-uploader" className="uw-browse-btn">
-                                  <FileUp className="w-4 h-4" /> Browse Files from Computer
-                                </label>
-                              </div>
-
-                              <div className="db-upload-tech-grid">
-                                <div className="db-upload-tech-title">Supported Frameworks & Standards</div>
-                                <div className="db-upload-tech-badges">
-                                  {["HTML5", "Tailwind CSS", "JavaScript / TS", "React", "Next.js", "Vue", "Nuxt", "Astro", "Angular", "Svelte"].map(tech => (
-                                    <span key={tech} className="tech-chip">✓ {tech}</span>
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            /* ── GIT REPOSITORY TAB ─────────────────────────── */
-                            <div className="space-y-5">
-
-                              {/* STATE A: GitHub NOT connected — one-click OAuth */}
-                              {!user?.has_github_token && (
-                                <div className="uw-github-card">
-                                  <div className="relative">
-                                    <div className="uw-github-logo-box">
-                                      <svg className="w-10 h-10" viewBox="0 0 24 24" fill="#ffffff">
-                                        <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
-                                      </svg>
-                                    </div>
-                                    <div className="absolute -inset-1 rounded-2xl border-2 border-[#c89666]/30 animate-pulse" />
-                                  </div>
-
-                                  <div className="space-y-1.5 max-w-sm">
-                                    <h4 className="uw-github-title">Connect GitHub Account</h4>
-                                    <p className="uw-github-desc">
-                                      Authorize Site Studio on GitHub to seamlessly import and audit your repositories with automated continuous updates.
-                                    </p>
-                                  </div>
-
-                                  <div className="flex flex-col items-center gap-3 w-full max-w-xs">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        window.location.href = `${API_BASE}/auth/github/login?token=${authToken}&redirect=/dashboard?tab=seller-upload`;
-                                      }}
-                                      className="uw-github-btn"
-                                    >
-                                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="#ffffff">
-                                        <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
-                                      </svg>
-                                      Continue with GitHub
-                                    </button>
-
-                                    <div className="flex items-center gap-3">
-                                      <span className="uw-trust-badge"><ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Secure OAuth 2.0</span>
-                                      <span style={{ color: "#94a3b8" }}>·</span>
-                                      <span className="uw-trust-badge"><Key className="w-3.5 h-3.5 text-[#dfb180]" /> No passwords stored</span>
-                                      <span style={{ color: "#94a3b8" }}>·</span>
-                                      <span className="uw-trust-badge"><CheckCircle className="w-3.5 h-3.5 text-blue-600" /> One-time setup</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* STATE B: GitHub connected — repo browser */}
-                              {user?.has_github_token && (
-                                <div className="space-y-4">
-                                  {/* Header row */}
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                      <div className="w-7 h-7 rounded-lg bg-[#0f172a] flex items-center justify-center">
-                                        <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="#ffffff"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" /></svg>
-                                      </div>
-                                      <div>
-                                        <p className="text-sm font-extrabold text-white">Your Repositories</p>
-                                        <p className="text-[11px] font-medium text-slate-400">{fetchedRepos.length} repos found · Click any to import</p>
-                                      </div>
-                                    </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => { setFetchedRepos([]); fetchGithubRepos(); }}
-                                      disabled={fetchingRepos}
-                                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-slate-200 hover:text-white hover:border-[#c89666]/30 transition-all cursor-pointer shadow-2xs"
-                                    >
-                                      <Loader2 className={cn("w-3.5 h-3.5", fetchingRepos && "animate-spin")} />
-                                      Refresh Repos
-                                    </button>
-                                  </div>
-
-                                  {/* STATE B-loading: skeletons */}
-                                  {fetchingRepos && (
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                      {[1, 2, 3, 4].map(i => (
-                                        <div key={i} className="p-4 rounded-xl border border-white/10 bg-slate-900/40 space-y-2 animate-pulse">
-                                          <div className="h-3.5 bg-slate-800 rounded w-2/3" />
-                                          <div className="h-2.5 bg-slate-800 rounded w-full" />
-                                          <div className="h-2.5 bg-slate-800 rounded w-1/2" />
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-
-                                  {/* STATE B-loaded: repo cards */}
-                                  {!fetchingRepos && fetchedRepos.length > 0 && (
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-1">
-                                      {fetchedRepos.map((repo) => (
-                                        <div
-                                          key={repo.id || repo.clone_url}
-                                          className="uw-repo-card"
-                                          onClick={() => { setGitUrl(repo.clone_url); handleGitAnalysis(repo.clone_url); }}
-                                        >
-                                          {/* Repo header */}
-                                          <div className="flex items-start justify-between gap-2">
-                                            <div className="flex items-center gap-1.5 min-w-0">
-                                              <Folder className="w-4 h-4 shrink-0 text-[#dfb180]" />
-                                              <span className="uw-repo-name truncate">{repo.name}</span>
-                                            </div>
-                                            <span className={repo.private ? "uw-repo-badge-private" : "uw-repo-badge-public"}>
-                                              {repo.private ? "Private" : "Public"}
-                                            </span>
-                                          </div>
-
-                                          {/* Description */}
-                                          <p className="uw-repo-desc line-clamp-2 leading-relaxed">
-                                            {repo.description || "No description provided"}
-                                          </p>
-
-                                          {/* Meta chips */}
-                                          <div className="flex items-center gap-2 flex-wrap pt-1">
-                                            {repo.language && (
-                                              <span className="uw-pill-indigo" style={{ padding: "0.2rem 0.6rem", fontSize: "0.6875rem" }}>
-                                                <span className="w-1.5 h-1.5 rounded-full inline-block bg-[#c89666]/15" />
-                                                {repo.language}
-                                              </span>
-                                            )}
-                                            {repo.stargazers_count > 0 && (
-                                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-300">
-                                                <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                                                {repo.stargazers_count}
-                                              </span>
-                                            )}
-                                            {repo.updated_at && (
-                                              <span className="text-[10px] font-medium ml-auto text-slate-400">
-                                                {new Date(repo.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                                              </span>
-                                            )}
-                                          </div>
-
-                                          {/* Import button */}
-                                          <button
-                                            type="button"
-                                            onClick={(e) => { e.stopPropagation(); setGitUrl(repo.clone_url); handleGitAnalysis(repo.clone_url); }}
-                                            className="uw-repo-btn"
-                                          >
-                                            <Zap className="w-3.5 h-3.5" /> Import & Analyze
-                                          </button>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-
-                                  {/* Empty state */}
-                                  {!fetchingRepos && fetchedRepos.length === 0 && (
-                                    <div className="text-center py-8 text-xs font-semibold text-slate-400">
-                                      No repositories found. Click Refresh or check your token permissions.
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-
-                              {/* Manual URL fallback — always visible */}
-                              <div className="space-y-2 p-4 bg-slate-900/60 border border-white/10 rounded-xl">
-                                <label className="uw-label block" style={{ marginBottom: "0.5rem" }}>
-                                  {user?.has_github_token ? "Or paste a public / GitLab / Bitbucket URL:" : "Or paste any public Git URL:"}
-                                </label>
-                                <div className="flex gap-2">
-                                  <input
-                                    type="text"
-                                    placeholder="https://github.com/username/repository-name.git"
-                                    value={gitUrl}
-                                    onChange={(e) => setGitUrl(e.target.value)}
-                                    className="uw-input flex-1"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => handleGitAnalysis()}
-                                    disabled={!gitUrl}
-                                    className="uw-btn-publish shrink-0"
-                                    style={{ padding: "0.625rem 1.25rem" }}
-                                  >
-                                    <Zap className="w-4 h-4" /> Analyze
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-
-                          <div className="uw-specs-box">
-                            <span className="uw-specs-title">Supported Upload Specifications:</span>
-                            <div className="uw-specs-list">
-                              <span>• ZIP Archive (.zip)</span>
-                              <span>• Standalone HTML (.html, .htm)</span>
-                              <span>• GitHub Repository</span>
-                              <span>• Public Git URL</span>
-                            </div>
-                            <span className="text-[11px] font-medium mt-0.5" style={{ color: "#64748b" }}>
-                              Maximum archive size: 2 GB · Auto-extracts & scans components in under 5 seconds
-                            </span>
-                          </div>
-
-                        </div>
-                      )}
-
-                      {/* STEP 2: PROJECT AUDIT LOADING / RESULTS */}
-                      {wizardStep === 2 && (
-                        <div className="space-y-6 animate-in fade-in duration-200">
-                          {analysisLoading ? (
-                            <div className="db-analysis-loading-shell">
-                              <div className="db-scanner-icon-container">
-                                <Sparkles className="w-10 h-10 text-[#dfb180] animate-spin" />
-                              </div>
-                              <div className="text-center space-y-1">
-                                <h4 className="font-extrabold text-base text-white">⚡ Analyzing Project Architecture & Code Quality...</h4>
-                                <p className="text-xs text-slate-400 font-medium">Scanning source files, component hierarchy, dependency versions, and SEO readiness</p>
-                              </div>
-
-                              <div className="db-scanner-progress-bar-container">
-                                <div className="db-scanner-progress-track">
-                                  <div className="db-scanner-progress-fill" style={{ width: `${analysisProgress}%` }} />
-                                </div>
-                                <div className="db-scanner-progress-percentage">{analysisProgress}% Complete</div>
-                              </div>
-
-                              <div className="db-scanner-logs-container">
-                                {analysisLogs.map((log, i) => (
-                                  <div key={i} className="db-scanner-log-line">
-                                    <span className="text-emerald-400 font-bold">✓</span> {log}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ) : analysisResult ? (
-                            <div className="db-studio-report-card">
-                              <div className="db-studio-report-header">
-                                <div className="flex items-center gap-3">
-                                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold shrink-0">
-                                    <Sparkles className="w-5 h-5" />
-                                  </div>
-                                  <div>
-                                    <h3 className="font-extrabold text-base text-white">Code & Architecture Audit</h3>
-                                    <p className="text-xs text-slate-400 font-medium">Automated static code analysis, tech stack detection, and Lighthouse score</p>
-                                  </div>
-                                </div>
-                                <span className="db-studio-badge">✓ Studio-verified</span>
-                              </div>
-
-                              <div className="db-studio-report-grid">
-                                {/* Left Column */}
-                                <div className="space-y-4">
-                                  <div className="db-report-block">
-                                    <div className="flex items-center justify-between pb-1 border-b border-white/10">
-                                      <h4 className="db-report-block-title">Tech Stack & Code Version</h4>
-                                      {framework !== "html" ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setFramework("html");
-                                            setVersion("1.0.0");
-                                            setIsHtmlMode(true);
-                                          }}
-                                          className="text-[11px] px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30 transition-all flex items-center gap-1 cursor-pointer"
-                                          title="Override framework detection and treat as pure static HTML5"
-                                        >
-                                          <Code className="w-3 h-3" /> Use Just HTML
-                                        </button>
-                                      ) : (
-                                        <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/30 flex items-center gap-1">
-                                          ✓ Pure HTML5 Mode
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="db-tech-cards-grid">
-                                      {[
-                                        { label: "Detected Framework", val: isHtmlMode ? "HTML5" : (analysisResult.framework_detected || "HTML"), version: isHtmlMode ? "HTML5" : (analysisResult.framework_version || analysisResult.version) },
-                                        { label: "Code Version", val: isHtmlMode ? "v1.0.0" : (version ? `v${version}` : "v1.0.0") },
-                                        { label: "Language", val: isHtmlMode ? "HTML5 / CSS / JS" : analysisResult.language },
-                                        { label: "CSS System", val: analysisResult.css_system || "Vanilla CSS" },
-                                        { label: "UI Library", val: isHtmlMode ? "Vanilla" : (analysisResult.ui_library || "None") },
-                                        { label: "Animations", val: analysisResult.animation_library || "CSS3" },
-                                      ].map(tech => (
-                                        <div key={tech.label} className="db-tech-report-card">
-                                          <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">{tech.label}</span>
-                                          <span className="text-sm font-extrabold text-white mt-0.5 truncate">{tech.val} {tech.version && tech.version !== "1.0.0" && tech.version !== "HTML5" ? `(${tech.version})` : ""}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-
-                                  <div className="db-report-block">
-                                    <h4 className="db-report-block-title">Pages Included ({analysisResult.pages.length})</h4>
-                                    <div className="db-report-checkbox-list">
-                                      {analysisResult.pages.map((p, i) => (
-                                        <div key={i} className="db-report-checkbox-item">
-                                          <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 font-bold" />
-                                          <span className="truncate">{p}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-
-                                  <div className="db-report-block">
-                                    <h4 className="db-report-block-title">Components Scanned ({analysisResult.components.length})</h4>
-                                    <div className="db-report-checkbox-list">
-                                      {analysisResult.components.map((c, i) => (
-                                        <div key={i} className="db-report-checkbox-item">
-                                          <CheckCircle className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                                          <span className="truncate">{c}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-
-                                  <div className="db-report-block">
-                                    <h4 className="db-report-block-title">Assets Analysis</h4>
-                                    <div className="db-assets-report-grid">
-                                      {[
-                                        { label: "Images", count: analysisResult.assets_count?.images ?? 0 },
-                                        { label: "SVGs", count: analysisResult.assets_count?.svg ?? 0 },
-                                        { label: "Icons", count: analysisResult.assets_count?.icons ?? 0 },
-                                        { label: "Videos", count: analysisResult.assets_count?.videos ?? 0 },
-                                        { label: "Fonts", count: analysisResult.assets_count?.fonts ?? 0 },
-                                      ].map(asset => (
-                                        <div key={asset.label} className="db-asset-report-item">
-                                          <span className="text-xs text-slate-400 font-bold">{asset.label}</span>
-                                          <span className="font-mono text-sm font-extrabold text-[#dfb180]">{asset.count}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Right Column */}
-                                <div className="space-y-4">
-                                  <div className="db-report-block db-studio-score-block">
-                                    <div className="flex justify-between items-center">
-                                      <div>
-                                        <h4 className="db-report-block-title text-amber-400">Overall Quality Rating</h4>
-                                        <div className="flex items-center gap-1 mt-1">
-                                          {[1, 2, 3, 4, 5].map(s => (
-                                            <Star key={s} className="w-4 h-4 fill-amber-400 text-amber-400" />
-                                          ))}
-                                          <span className="text-xs text-amber-300 font-extrabold ml-2">({analysisResult.ai_score} / 100 Index)</span>
-                                        </div>
-                                      </div>
-                                      <div className="db-score-circle-big">{analysisResult.ai_score}</div>
-                                    </div>
-
-                                    <div className="db-lighthouse-grid mt-3 pt-3 border-t border-amber-500/20">
-                                      {[
-                                        { name: "Performance", score: analysisResult.performance_scores?.performance ?? 95 },
-                                        { name: "Accessibility", score: analysisResult.performance_scores?.accessibility ?? 98 },
-                                        { name: "SEO", score: analysisResult.performance_scores?.seo ?? 96 },
-                                        { name: "Best Practices", score: analysisResult.performance_scores?.best_practices ?? 94 },
-                                      ].map(lh => (
-                                        <div key={lh.name} className="flex flex-col items-center">
-                                          <div className="db-score-circle-sm">{lh.score}</div>
-                                          <span className="text-[10px] text-slate-300 font-extrabold mt-1 text-center">{lh.name}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-
-                                  <div className="db-report-block">
-                                    <h4 className="db-report-block-title">Category Detection</h4>
-                                    <div className="space-y-2.5 mt-1">
-                                      {Object.entries(analysisResult.categories || {}).map(([cat, confidence]) => (
-                                        <div key={cat} className="space-y-1">
-                                          <div className="flex justify-between text-xs font-bold text-slate-200">
-                                            <span>{cat}</span>
-                                            <span className="text-[#dfb180] font-extrabold">{confidence}%</span>
-                                          </div>
-                                          <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden border border-white/10">
-                                            <div className="bg-[#c89666]/15 h-full rounded-full" style={{ width: `${confidence}%` }} />
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div className="db-report-block">
-                                      <h4 className="db-report-block-title">Brand Colors</h4>
-                                      <div className="db-palette-row">
-                                        {(analysisResult.color_palette || []).map((color, i) => (
-                                          <div
-                                            key={i}
-                                            className="db-palette-chip"
-                                            style={{ backgroundColor: color }}
-                                            title={color}
-                                          />
-                                        ))}
-                                      </div>
-                                    </div>
-                                    <div className="db-report-block">
-                                      <h4 className="db-report-block-title">Typography</h4>
-                                      <div className="db-typography-row">
-                                        {(analysisResult.typography || []).map((font, i) => (
-                                          <span key={i} className="font-chip">{font}</span>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div className="db-report-block">
-                                      <h4 className="db-report-block-title">SEO Compliance</h4>
-                                      <div className="db-checks-list">
-                                        {[
-                                          { label: "Meta Title", check: analysisResult.seo_analysis?.meta_title },
-                                          { label: "Meta Desc", check: analysisResult.seo_analysis?.meta_description },
-                                          { label: "OG Tags", check: analysisResult.seo_analysis?.og_tags },
-                                          { label: "robots.txt", check: analysisResult.seo_analysis?.robots_txt },
-                                          { label: "sitemap.xml", check: analysisResult.seo_analysis?.sitemap_xml },
-                                        ].map(item => (
-                                          <div key={item.label} className="db-check-item">
-                                            <span className="text-xs text-slate-200 font-bold">{item.label}</span>
-                                            <span className={item.check ? "text-emerald-400 font-extrabold text-xs" : "text-slate-500 font-bold text-xs"}>
-                                              {item.check ? "✓ Pass" : "✗ None"}
-                                            </span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                    <div className="db-report-block">
-                                      <h4 className="db-report-block-title">Accessibility</h4>
-                                      <div className="db-checks-list">
-                                        {[
-                                          { label: "ARIA Labels", check: analysisResult.accessibility?.aria_labels },
-                                          { label: "Alt Tags", check: analysisResult.accessibility?.alt_tags },
-                                          { label: "Keyboard Nav", check: analysisResult.accessibility?.keyboard_navigation },
-                                          { label: "Color Contrast", check: analysisResult.accessibility?.contrast_safe },
-                                        ].map(item => (
-                                          <div key={item.label} className="db-check-item">
-                                            <span className="text-xs text-slate-200 font-bold">{item.label}</span>
-                                            <span className={item.check ? "text-emerald-400 font-extrabold text-xs" : "text-slate-500 font-bold text-xs"}>
-                                              {item.check ? "✓ Pass" : "✗ None"}
-                                            </span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  <div className="db-report-block db-recommendations-block">
-                                    <h4 className="db-report-block-title text-amber-300">💡 Architecture & Code Recommendations</h4>
-                                    <ul className="db-suggestions-list">
-                                      {(analysisResult.ai_suggestions || []).map((sug, i) => (
-                                        <li key={i}>
-                                          <span className="text-amber-600 font-bold shrink-0">→</span>
-                                          <span>{sug}</span>
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="uw-footer">
-                                <button
-                                  type="button"
-                                  onClick={() => setWizardStep(1)}
-                                  className="uw-btn-back"
-                                >
-                                  ← Back to Source Selection
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setWizardStep(3)}
-                                  className="uw-btn-publish"
-                                >
-                                  Continue to Review & Publish →
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="text-center py-8 text-slate-500 font-medium">Analysis error. Please try uploading again.</div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* STEP 3: REVIEW & PUBLISH */}
-                      {wizardStep === 3 && (
-                        <div className="uw-container animate-in fade-in duration-200">
-                          {isIncompleteAnalysis ? (
-                            <div className="uw-alert-warning">
-                              <Info className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-                              <div className="space-y-1">
-                                <p className="text-xs font-extrabold text-amber-300 uppercase tracking-wide">
-                                  ⚠️ Incomplete Auto-Detection — Manual Review Required
-                                </p>
-                                <p className="text-xs text-amber-200 leading-relaxed font-medium">
-                                  Our audit could not fully determine some parameters from your upload. Please review all fields below and fill in any missing details before publishing.
-                                </p>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="uw-alert-autofill">
-                              <Sparkles className="w-5 h-5 text-emerald-400 shrink-0" />
-                              <p className="text-xs text-emerald-200 leading-relaxed font-medium">
-                                <strong className="font-extrabold text-white">✨ Instant Auto-Fill Active:</strong> We have analyzed your project and pre-filled standard catalog details. Please review these parameters and click <strong>Publish Template</strong>.
-                              </p>
-                            </div>
-                          )}
-
-                          {/* ── CARD 1: BASIC INFORMATION & OVERVIEW ── */}
-                          <div className="uw-section-card">
-                            <div className="uw-section-header">
-                              <div className="uw-icon-badge" style={{ backgroundColor: "rgba(200, 150, 102, 0.15)", color: "#dfb180" }}>
-                                <FileText className="w-4 h-4" />
-                              </div>
-                              <div>
-                                <h4 className="uw-section-title">Basic Information & Overview</h4>
-                                <p className="uw-section-subtitle">Main template title, marketplace slug, and marketing descriptions</p>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                              <div>
-                                <label className="uw-label">
-                                  Template Title * {isIncompleteAnalysis && !title && <span className="text-amber-600 normal-case ml-1">(Required)</span>}
-                                </label>
-                                <input
-                                  type="text"
-                                  required
-                                  value={title}
-                                  onChange={(e) => setTitle(e.target.value)}
-                                  placeholder="e.g. Nexus - Modern SaaS Landing Page"
-                                  className="uw-input"
-                                />
-                              </div>
-                              <div>
-                                <label className="uw-label">
-                                  URL Slug *
-                                </label>
-                                <input
-                                  type="text"
-                                  value={slug}
-                                  onChange={(e) => setSlug(e.target.value)}
-                                  placeholder="nexus-modern-saas-landing"
-                                  className="uw-input font-mono"
-                                />
-                              </div>
-                            </div>
-
-                            <div>
-                              <label className="uw-label">
-                                Short Tagline / Summary * {isIncompleteAnalysis && !shortDesc && <span className="text-amber-600 normal-case ml-1">(Required)</span>}
-                              </label>
-                              <input
-                                type="text"
-                                value={shortDesc}
-                                onChange={(e) => setShortDesc(e.target.value)}
-                                placeholder="A high-converting, responsive landing page built with modern standards."
-                                className="uw-input"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="uw-label">
-                                Detailed Product Description * {isIncompleteAnalysis && !desc && <span className="text-amber-600 normal-case ml-1">(Required)</span>}
-                              </label>
-                              <textarea
-                                rows={4}
-                                value={desc}
-                                onChange={(e) => setDesc(e.target.value)}
-                                placeholder="Describe full template features, customization options, responsive views, and technical advantages..."
-                                className="uw-textarea"
-                              />
-                            </div>
-                          </div>
-
-                          {/* ── CARD 2: TECHNICAL & FRAMEWORK ARCHITECTURE ── */}
-                          <div className="uw-section-card">
-                            <div className="uw-section-header">
-                              <div className="uw-icon-badge" style={{ backgroundColor: "rgba(200, 150, 102, 0.15)", color: "#dfb180" }}>
-                                <Code className="w-4 h-4" />
-                              </div>
-                              <div>
-                                <h4 className="uw-section-title">Framework & Technical Specifications</h4>
-                                <p className="uw-section-subtitle">Category, framework engine, semantic code version, and licensing terms</p>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                              <div>
-                                <label className="uw-label">
-                                  Category * {isIncompleteAnalysis && !categoryId && <span className="text-amber-600 normal-case ml-1">(Select)</span>}
-                                </label>
-                                <select
-                                  required
-                                  value={categoryId}
-                                  onChange={(e) => setCategoryId(e.target.value)}
-                                  className="uw-select"
-                                >
-                                  <option value="">Select Category</option>
-                                  {categories.map((c) => (
-                                    <option key={c.id} value={c.id}>{c.name}</option>
-                                  ))}
-                                </select>
-                              </div>
-
-                              <div>
-                                <div className="flex items-center justify-between mb-1.5">
-                                  <label className="uw-label" style={{ marginBottom: 0 }}>
-                                    Framework *
-                                  </label>
-                                  {framework !== "html" && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setFramework("html");
-                                        setVersion("1.0.0");
-                                        setIsHtmlMode(true);
-                                      }}
-                                      className="text-[10px] text-emerald-600 hover:underline font-extrabold cursor-pointer border-none bg-transparent"
-                                    >
-                                      Just HTML?
-                                    </button>
-                                  )}
-                                </div>
-                                <select
-                                  required
-                                  value={framework}
-                                  onChange={(e) => {
-                                    setFramework(e.target.value);
-                                    if (e.target.value === "html") {
-                                      setIsHtmlMode(true);
-                                      if (!version || version === "15.0.0" || version === "19.0.0" || version === "3.0.0" || version === "4.0.0") {
-                                        setVersion("1.0.0");
-                                      }
-                                    } else {
-                                      setIsHtmlMode(false);
-                                    }
-                                  }}
-                                  className="uw-select"
-                                >
-                                  <option value="html">HTML5 (Pure HTML / Static)</option>
-                                  <option value="nextjs">Next.js</option>
-                                  <option value="react">React</option>
-                                  <option value="vue">Vue.js</option>
-                                  <option value="nuxt">Nuxt.js</option>
-                                  <option value="astro">Astro</option>
-                                  <option value="tailwind">Tailwind CSS (HTML)</option>
-                                  <option value="angular">Angular</option>
-                                  <option value="svelte">Svelte</option>
-                                </select>
-                              </div>
-
-                              <div>
-                                <div className="flex items-center justify-between mb-1.5">
-                                  <label className="uw-label" style={{ marginBottom: 0 }}>
-                                    Code Version *
-                                  </label>
-                                  <span className="text-[10px] text-[#dfb180] font-extrabold px-1.5 py-0.5 rounded bg-[#c89666]/15 border border-[#c89666]/30">Auto-detected</span>
-                                </div>
-                                <input
-                                  type="text"
-                                  required
-                                  value={version}
-                                  onChange={(e) => setVersion(e.target.value)}
-                                  placeholder="1.0.0"
-                                  className="uw-input font-mono"
-                                />
-                              </div>
-
-                            </div>
-
-
-                            {/* Sub-Category / Industry Focus */}
-                            <div className="space-y-2 pt-2 border-t border-slate-100">
-                              <div className="flex items-center justify-between">
-                                <label className="uw-label" style={{ marginBottom: 0 }}>
-                                  Sub-Category / Specialization
-                                </label>
-                                {subCategory && (
-                                  <span className="text-xs font-bold text-[#dfb180] px-2 py-0.5 rounded-md bg-[#c89666]/15 border border-[#c89666]/30">
-                                    Selected: {subCategory}
-                                  </span>
-                                )}
-                              </div>
-                              <input
-                                type="text"
-                                value={subCategory}
-                                onChange={(e) => setSubCategory(e.target.value)}
-                                placeholder="e.g. Corporate, Small Business, Dashboard, Cafe, Clinic"
-                                className="uw-input"
-                              />
-                              {categoryId && categories.find(c => c.id === categoryId) && (
-                                <div className="uw-pill-container">
-                                  {(DASHBOARD_SUB_CATEGORIES[categories.find(c => c.id === categoryId)?.slug] || ["General", "Custom"]).map(sub => {
-                                    const isSelected = subCategory.toLowerCase() === sub.toLowerCase();
-                                    return (
-                                      <button
-                                        key={sub}
-                                        type="button"
-                                        onClick={() => {
-                                          setSubCategory(sub);
-                                          if (!tags.toLowerCase().includes(sub.toLowerCase())) {
-                                            setTags(prev => prev ? `${prev}, ${sub.toLowerCase()}` : sub.toLowerCase());
-                                          }
-                                        }}
-                                        className={cn("uw-pill", isSelected && "uw-pill-active")}
-                                      >
-                                        {sub}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* ── CARD 3: PRICING & COMMERCIAL TERMS ── */}
-                          <div className="uw-section-card">
-                            <div className="uw-section-header">
-                              <div className="uw-icon-badge" style={{ backgroundColor: "rgba(16, 185, 129, 0.15)", color: "#34d399" }}>
-                                <CreditCard className="w-4 h-4" />
-                              </div>
-                              <div>
-                                <h4 className="uw-section-title">Pricing & Marketplace Listing</h4>
-                                <p className="uw-section-subtitle">Set catalog currency, listing prices, and monetization tiers</p>
-                              </div>
-                            </div>
-
-                            {user?.country && (
-                              <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-blue-500/10 border border-blue-500/30 text-xs font-semibold text-blue-300">
-                                <Globe className="w-4 h-4 shrink-0 text-blue-400" />
-                                <span>
-                                  Seller Location: <strong>{user.city && user.city !== "Unknown" ? `${user.city}, ` : ""}{user.country}</strong> — Pricing currency auto-selected to <strong>{priceCurrency}</strong> based on location
-                                </span>
-                              </div>
-                            )}
-
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                              <div>
-                                <label className="uw-label">
-                                  Pricing Currency *
-                                </label>
-                                <select
-                                  value={priceCurrency}
-                                  onChange={(e) => setPriceCurrency(e.target.value)}
-                                  className="uw-select"
-                                >
-                                  <option value="USD">USD ($)</option>
-                                  <option value="INR">INR (₹)</option>
-                                  <option value="EUR">EUR (€)</option>
-                                  <option value="GBP">GBP (£)</option>
-                                  <option value="CAD">CAD (CA$)</option>
-                                  <option value="AUD">AUD (A$)</option>
-                                  <option value="JPY">JPY (¥)</option>
-                                  <option value="AED">AED (AED)</option>
-                                </select>
-                              </div>
-                              <div>
-                                <label className="uw-label">
-                                  Regular Price ({priceCurrency}) *
-                                </label>
-                                <input
-                                  type="number"
-                                  required
-                                  min="0"
-                                  value={price}
-                                  onChange={(e) => setPrice(e.target.value)}
-                                  className="uw-input font-mono font-extrabold"
-                                />
-                              </div>
-                              <div>
-                                <label className="uw-label">
-                                  Original Price (Sale Reference)
-                                </label>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={salePrice}
-                                  onChange={(e) => setSalePrice(e.target.value)}
-                                  placeholder="Optional original price"
-                                  className="uw-input font-mono"
-                                />
-                              </div>
-                            </div>
-
-                            {/* Auto USD Conversion Indicator for Sellers */}
-                            {price && Number(price) > 0 && (
-                              <div className="uw-pricing-box">
-                                <div className="flex items-center gap-2.5">
-                                  <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-                                  <span className="text-emerald-950 font-semibold">
-                                    Marketplace Listing Price: <strong className="text-emerald-700 font-extrabold text-sm">${convertToUSD(price, priceCurrency, rates)} USD</strong>
-                                    {priceCurrency !== "USD" && ` (Auto-converted from ${priceCurrency} ${price})`}
-                                  </span>
-                                </div>
-                                <span className="uw-currency-badge">
-                                  USD Catalog
-                                </span>
-                              </div>
-                            )}
-
-                            <label className="uw-checkbox-card">
-                              <input
-                                type="checkbox"
-                                id="premium"
-                                checked={premium}
-                                onChange={(e) => setPremium(e.target.checked)}
-                              />
-                              <div>
-                                <span className="text-xs font-extrabold text-slate-900 uppercase tracking-wider block">
-                                  Mark as Premium Marketplace Template
-                                </span>
-                                <span className="text-[11px] text-slate-500 font-medium">Featured in premium curated collections and seller showcases</span>
-                              </div>
-                            </label>
-                          </div>
-
-                          {/* ── CARD 4: MEDIA & PREVIEW ASSETS ── */}
-                          <div className="uw-section-card">
-                            <div className="uw-section-header">
-                              <div className="uw-icon-badge" style={{ backgroundColor: "rgba(200, 150, 102, 0.15)", color: "#c084fc" }}>
-                                <Palette className="w-4 h-4" />
-                              </div>
-                              <div>
-                                <h4 className="uw-section-title">Media & Visual Assets</h4>
-                                <p className="uw-section-subtitle">Cover photo, live demo URL, screenshot gallery, and video preview</p>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                              <div className="space-y-1">
-                                <label className="uw-label">
-                                  Thumbnail Cover Photo *
-                                </label>
-                                <div className="uw-file-card">
-                                  <label className="uw-file-btn">
-                                    Choose Photo
-                                    <input
-                                      type="file"
-                                      accept="image/*"
-                                      required={!thumbnailFile}
-                                      onChange={(e) => setThumbnailFile(e.target.files[0])}
-                                      className="hidden"
-                                    />
-                                  </label>
-                                  <span className="uw-file-text">
-                                    {thumbnailFile ? `✓ ${thumbnailFile.name} (${(thumbnailFile.size / 1024).toFixed(1)} KB)` : "No cover photo chosen yet"}
-                                  </span>
-                                </div>
-                              </div>
-
-                              <div className="space-y-1">
-                                <label className="uw-label">
-                                  Live Demo URL
-                                </label>
-                                <input
-                                  type="url"
-                                  value={demoUrl}
-                                  onChange={(e) => setDemoUrl(e.target.value)}
-                                  placeholder="https://demotemplate.aisitestudio.com"
-                                  className="uw-input"
-                                />
-                              </div>
-                            </div>
-
-                            {/* Screenshots & Gallery Images Section with + Icon */}
-                            <div className="space-y-2 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <label className="uw-label" style={{ marginBottom: 0 }}>
-                                    Screenshots & Gallery Showcase (Optional)
-                                  </label>
-                                  <p className="text-[11px] text-slate-500 font-medium">
-                                    Add multiple showcase screenshots of pages, responsive views, and components.
-                                  </p>
-                                </div>
-                                <span className="text-xs font-extrabold text-[#dfb180] px-2 py-0.5 rounded-md bg-[#c89666]/15 border border-[#c89666]/30">
-                                  {galleryFiles.length} image{galleryFiles.length !== 1 ? "s" : ""} selected
-                                </span>
-                              </div>
-
-                              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3 pt-1">
-                                {galleryPreviews.map((previewUrl, idx) => (
-                                  <div key={idx} className="relative aspect-video rounded-lg overflow-hidden border border-slate-300 bg-white group shadow-xs">
-                                    <img src={previewUrl} alt={`Gallery ${idx + 1}`} className="w-full h-full object-cover" />
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveDashboardGalleryFile(idx)}
-                                      className="absolute top-1 right-1 p-1 rounded-full bg-red-600 hover:bg-red-700 text-white shadow opacity-90 group-hover:opacity-100 transition-all border-none cursor-pointer"
-                                      title="Remove image"
-                                    >
-                                      <X className="w-3 h-3" />
-                                    </button>
-                                    <span className="absolute bottom-1 left-1 bg-black/75 backdrop-blur-sm text-white text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">
-                                      #{idx + 1}
-                                    </span>
-                                  </div>
-                                ))}
-
-                                {/* + Add Images Card */}
-                                <label className="aspect-video rounded-lg border-2 border-dashed border-[#c89666]/30 hover:border-[#c89666]/30 bg-[#c89666]/15 hover:bg-[#c89666]/15 flex flex-col items-center justify-center gap-1 transition-all cursor-pointer group text-[#dfb180] select-none">
-                                  <input
-                                    type="file"
-                                    accept="image/*"
-                                    multiple
-                                    onChange={handleAddDashboardGalleryFiles}
-                                    className="hidden"
-                                  />
-                                  <div className="w-7 h-7 rounded-full bg-[#c89666]/15 flex items-center justify-center group-hover:scale-110 transition-transform">
-                                    <Plus className="w-4 h-4 text-[#dfb180]" />
-                                  </div>
-                                  <span className="text-[11px] font-bold">Add Images</span>
-                                </label>
-                              </div>
-                            </div>
-
-                            {/* Video Upload or URL */}
-                            <div className="p-3.5 border border-blue-200 bg-blue-50/40 rounded-xl space-y-2">
-                              <label className="text-xs font-bold text-blue-900 uppercase tracking-wider flex items-center gap-1.5">
-                                <Video className="w-4 h-4 text-blue-600" />
-                                Video Walkthrough Preview (Optional)
-                              </label>
-                              <p className="text-[11px] text-slate-500 font-medium">Upload an MP4/WebM video or paste a YouTube / Vimeo / Loom link. Upload size depends on your connection and hosting limits.</p>
-
-                              <div className="space-y-2">
-                                <div className="uw-file-card" style={{ backgroundColor: "#ffffff" }}>
-                                  <label className="uw-file-btn uw-file-btn-blue">
-                                    Choose Video File
-                                    <input
-                                      type="file"
-                                      accept="video/mp4,video/webm,video/quicktime,video/ogg"
-                                      onChange={(e) => {
-                                        const file = e.target.files[0];
-                                        setVideoFile(file);
-                                      }}
-                                      className="hidden"
-                                    />
-                                  </label>
-                                  <span className="uw-file-text">
-                                    {videoFile ? `✓ ${videoFile.name} (${(videoFile.size / (1024 * 1024)).toFixed(2)} MB)` : "No video file selected"}
-                                  </span>
-                                  {videoFile && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setVideoFile(null)}
-                                      className="text-xs text-red-500 hover:text-red-700 ml-2 font-bold cursor-pointer"
-                                    >
-                                      Remove
-                                    </button>
-                                  )}
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[10px] uppercase font-bold text-slate-400">OR</span>
-                                  <input
-                                    type="url"
-                                    value={videoUrl}
-                                    onChange={(e) => setVideoUrl(e.target.value)}
-                                    placeholder="Paste YouTube, Vimeo, Loom or MP4 URL (e.g. https://www.youtube.com/watch?v=...)"
-                                    className="uw-input text-xs"
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* ── CARD 5: SEO & DISCOVERABILITY ── */}
-                          <div className="uw-section-card">
-                            <div className="uw-section-header">
-                              <div className="uw-icon-badge" style={{ backgroundColor: "rgba(245, 158, 11, 0.15)", color: "#fbbf24" }}>
-                                <Tag className="w-4 h-4" />
-                              </div>
-                              <div>
-                                <h4 className="uw-section-title">SEO & Marketplace Discoverability</h4>
-                                <p className="uw-section-subtitle">Tags and keyword metadata to optimize search rankings</p>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                              <div>
-                                <label className="uw-label">
-                                  Tags (Comma-separated)
-                                </label>
-                                <input
-                                  type="text"
-                                  value={tags}
-                                  onChange={(e) => setTags(e.target.value)}
-                                  placeholder="saas, dashboard, admin, tailwind, responsive"
-                                  className="uw-input"
-                                />
-                              </div>
-                              <div>
-                                <label className="uw-label">
-                                  SEO Keywords (Comma-separated)
-                                </label>
-                                <input
-                                  type="text"
-                                  value={keywords}
-                                  onChange={(e) => setKeywords(e.target.value)}
-                                  placeholder="agency website, landing page, custom nextjs template"
-                                  className="uw-input"
-                                />
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* ── FOOTER ACTIONS ── */}
-                          <div className="uw-footer">
-                            <button
-                              type="button"
-                              onClick={() => setWizardStep(2)}
-                              className="uw-btn-back"
-                            >
-                              ← Back to Audit Report
-                            </button>
-                            <button
-                              type="submit"
-                              disabled={uploading}
-                              className="uw-btn-publish"
-                            >
-                              {uploading ? (
-                                <>
-                                  <Loader2 className="w-4 h-4 animate-spin" /> Publishing Template...
-                                </>
-                              ) : (
-                                <>
-                                  Publish Template <Check className="w-4 h-4" />
-                                </>
-                              )}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </form>
-                  </>
-                </div>
-              )}
-
-              {/* === SELLER SALES ANALYTICS === */}
-              {activeTab === "seller-analytics" && (
-                <div className="glass-premium p-6 sm:p-8 space-y-6">
-                  <div>
-                    <h3 className="font-extrabold text-xl text-foreground">Sales Analytics</h3>
-                    <p className="text-xs text-muted-foreground font-medium">Track detailed real-time metrics of your platform product sales.</p>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    {[
-                      { label: "Total Sales", value: (earningsSummary?.sales || []).length.toLocaleString(), sub: "Completed orders", icon: ShoppingBag, color: "#059669", bg: "#ecfdf5" },
-                      { label: "Net Revenue", value: formatPrice(earningsSummary?.total_earned || 0), sub: "Gross income", icon: Coins, color: "#2563eb", bg: "#eff6ff" },
-                      { label: "Unique Accounts", value: sellerTotalViews.toLocaleString(), sub: "Distinct accounts", icon: Users, color: "#0891b2", bg: "#ecfeff" },
-                      { label: "Downloads Count", value: sellerTotalDownloads.toLocaleString(), sub: "Packages retrieved", icon: Download, color: "#b5804f", bg: "#eef2ff" },
-                      { label: "Refund Requests", value: "0", sub: "Disputes logged", icon: ShieldCheck, color: "#64748b", bg: "#f1f5f9" },
-                      { label: "Conversion Rate", value: sellerConversionRate, sub: "Sales / Accounts ratio", icon: TrendingUp, color: "#059669", bg: "#ecfdf5" },
-                    ].map((stat, idx) => {
-                      const Icon = stat.icon;
-                      return (
-                        <div key={idx} className="p-4 border border-border/30 rounded-xl space-y-2 bg-slate-800/40 backdrop-blur-sm">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] text-muted-foreground font-extrabold uppercase tracking-wider">{stat.label}</span>
-                            <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ backgroundColor: stat.bg, color: stat.color }}>
-                              <Icon className="w-3.5 h-3.5" />
-                            </div>
-                          </div>
-                          <div>
-                            <div className="text-2xl font-black text-foreground font-mono">{stat.value}</div>
-                            <div className="text-[10px] text-muted-foreground font-medium">{stat.sub}</div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* === SELLER EARNINGS === */}
-              {activeTab === "seller-earnings" && (
-                <div className="glass-premium p-6 sm:p-8 space-y-6">
-                  <div className="flex justify-between items-center flex-wrap gap-4">
-                    <div>
-                      <h3 className="font-extrabold text-xl text-foreground">Earnings Balance & Transactions</h3>
-                      <p className="text-xs text-muted-foreground font-medium">Current withdrawal balance and payouts metrics.</p>
-                    </div>
-                    <button
-                      onClick={() => setActiveTab("seller-payouts")}
-                      className="mt-cta-btn"
-                    >
-                      Request Payout
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {[
-                      { label: "Current Balance", value: formatPrice(earningsSummary.available_balance || 0), color: "#10b981" },
-                      { label: "Available to Withdraw", value: formatPrice(earningsSummary.available_balance || 0), color: "#10b981" },
-                      { label: "Pending Amount", value: formatPrice(earningsSummary.pending_withdrawal || 0), color: "#f59e0b" },
-                      { label: "Lifetime Earnings", value: formatPrice(earningsSummary.total_earned || 0), color: "#c89666" },
-                    ].map((c, i) => (
-                      <div key={i} className="p-4 border border-border/30 rounded-xl space-y-1 bg-slate-800/40 backdrop-blur-sm">
-                        <div className="text-[10px] text-muted-foreground font-extrabold uppercase tracking-wider">{c.label}</div>
-                        <div className="text-xl font-black font-mono" style={{ color: c.color }}>{c.value}</div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="border-t border-border/20 pt-4 space-y-3">
-                    <h4 className="font-extrabold text-sm text-foreground">Recent Transactions</h4>
-                    <div className="overflow-x-auto rounded-xl border border-border/30">
-                      <table className="w-full text-left text-xs">
-                        <thead>
-                          <tr className="border-b border-border/30 bg-muted/20 text-muted-foreground font-extrabold">
-                            <th className="p-3">Date</th>
-                            <th className="p-3">Template</th>
-                            <th className="p-3">Buyer</th>
-                            <th className="p-3">Amount</th>
-                            <th className="p-3">Net Income</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border/20">
-                          {earningsSummary.sales && earningsSummary.sales.length > 0 ? (
-                            earningsSummary.sales.map((sale, idx) => (
-                              <tr key={idx} className="hover:bg-muted/10 transition-colors text-foreground font-medium">
-                                <td className="p-3 text-muted-foreground">{new Date(sale.date).toLocaleDateString()}</td>
-                                <td className="p-3 font-bold text-foreground">{sale.template_title}</td>
-                                <td className="p-3 text-muted-foreground select-all">{sale.purchaser_email}</td>
-                                <td className="p-3 font-mono text-foreground font-bold">{formatPrice(sale.price)}</td>
-                                <td className="p-3 font-mono text-emerald-400 font-black">{formatPrice(sale.price)}</td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td colSpan={5} className="py-6 text-center text-muted-foreground text-xs font-medium">
-                                No recent earnings transactions found.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* === SELLER ORDERS === */}
-              {activeTab === "seller-orders" && (
-                <div className="glass-premium p-6 sm:p-8 space-y-6">
-                  <div>
-                    <h3 className="font-extrabold text-xl text-foreground">Sales Orders Ledger</h3>
-                    <p className="text-xs text-muted-foreground font-medium">Log of verified purchases made on your templates.</p>
-                  </div>
-                  <div className="overflow-x-auto rounded-xl border border-border/30">
-                    <table className="w-full text-left text-xs">
-                      <thead>
-                        <tr className="border-b border-border/30 bg-muted/20 text-muted-foreground font-extrabold uppercase">
-                          <th className="p-3">Order Number</th>
-                          <th className="p-3">Template Title</th>
-                          <th className="p-3">Buyer</th>
-                          <th className="p-3">License Type</th>
-                          <th className="p-3">Date</th>
-                          <th className="p-3">Amount</th>
-                          <th className="p-3 text-right">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border/20">
-                        {earningsSummary.sales && earningsSummary.sales.length > 0 ? (
-                          earningsSummary.sales.map((sale, idx) => (
-                            <tr key={idx} className="hover:bg-muted/10 transition-colors text-foreground font-medium">
-                              <td className="p-3">
-                                <div className="font-mono font-extrabold text-foreground">#{sale.order_number}</div>
-                                {sale.upi_utr && (
-                                  <div className="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-1.5 py-0.5 rounded mt-0.5">
-                                    UTR: {sale.upi_utr}
-                                  </div>
-                                )}
-                              </td>
-                              <td className="p-3 font-bold text-foreground">{sale.template_title}</td>
-                              <td className="p-3 text-muted-foreground select-all">{sale.purchaser_email}</td>
-                              <td className="p-3">
-                                <span className="inline-block bg-[#c89666]/15 text-[#dfb180] border border-[#c89666]/30 px-2 py-0.5 rounded-full font-extrabold uppercase text-[9px] tracking-wider">
-                                  {sale.license_type || "REGULAR"}
-                                </span>
-                              </td>
-                              <td className="p-3 text-muted-foreground">{new Date(sale.date).toLocaleDateString()}</td>
-                              <td className="p-3 font-mono text-emerald-400 font-black">{formatPrice(sale.price)}</td>
-                              <td className="p-3 text-right">
-                                <a
-                                  href={`/dashboard/receipt/${sale.order_id || sale.orderId || "undefined"}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center text-[11px] font-bold bg-[#c89666]/15 text-[#dfb180] border border-[#c89666]/30 px-2.5 py-1 rounded-lg hover:bg-[#c89666]/15 transition-all text-decoration-none shadow-xs"
-                                >
-                                  Receipt
-                                </a>
-                              </td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan={7} className="py-6 text-center text-slate-500 text-xs font-medium">
-                              No recent sales orders found.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* === SELLER REVIEWS === */}
-              {activeTab === "seller-reviews" && (
-                <div className="glass-premium p-6 sm:p-8 space-y-6">
-                  <div className="space-y-1">
-                    <h3 className="font-extrabold text-xl text-foreground">Client Template Reviews</h3>
-                    <p className="text-xs text-muted-foreground font-medium">Monitor product feedback and reviews received on your templates.</p>
-                  </div>
-
-                  {sellerReviewsLoading ? (
-                    <div className="text-center py-10">
-                      <Loader2 className="w-8 h-8 animate-spin mx-auto text-[#dfb180]" />
-                    </div>
-                  ) : sellerReviewsList.length === 0 ? (
-                    <div className="mt-empty-card">
-                      <div className="mt-empty-icon">
-                        <Star className="w-7 h-7" />
-                      </div>
-                      <h4 className="mt-empty-title">No Customer Reviews Yet</h4>
-                      <p className="mt-empty-desc">
-                        When buyers purchase and review your uploaded templates, their verified comments and ratings will automatically appear here.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {sellerReviewsList.map((review) => (
-                        <div key={review.id} className="p-5 border border-border/30 rounded-2xl space-y-4 bg-slate-800/40 backdrop-blur-sm shadow-sm">
-                          <div className="flex justify-between items-start gap-4">
-                            <div className="flex items-center gap-3.5">
-                              <div className="follower-avatar-wrap">
-                                {review.user?.avatar_url ? (
-                                  <img
-                                    src={resolveMediaUrl(review.user.avatar_url)}
-                                    alt=""
-                                    className="follower-avatar-img"
-                                    onError={(e) => {
-                                      e.currentTarget.style.setProperty('display', 'none', 'important');
-                                      const fb = e.currentTarget.parentElement?.querySelector('.follower-avatar-fallback');
-                                      if (fb) fb.style.setProperty('display', 'flex', 'important');
-                                    }}
-                                  />
-                                ) : null}
-                                <span
-                                  className="follower-avatar-fallback"
-                                  style={{ display: review.user?.avatar_url ? "none" : "flex" }}
-                                >
-                                  {(review.user?.fullName?.[0] || review.user?.username?.[0] || "U").toUpperCase()}
-                                </span>
-                              </div>
-                              <div className="space-y-1">
-                                <div className="font-extrabold text-sm text-foreground">
-                                  {review.user?.fullName || review.user?.username || "Anonymous Client"}
-                                </div>
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <div className="flex items-center gap-0.5">
-                                    {[1, 2, 3, 4, 5].map((s) => {
-                                      const ratingVal = Number(review.rating || 0);
-                                      const isFilled = s <= (ratingVal > 0 ? ratingVal : 5);
-                                      return (
-                                        <Star
-                                          key={s}
-                                          className={`w-3.5 h-3.5 ${isFilled ? "fill-amber-400 text-amber-400" : "fill-slate-800 text-slate-700"}`}
-                                        />
-                                      );
-                                    })}
-                                  </div>
-                                  <span className="text-xs text-muted-foreground font-medium flex items-center gap-1">
-                                    <span>on</span>
-                                    <strong className="text-foreground font-bold">{review.template?.title || "Template"}</strong>
-                                    <span>·</span>
-                                    <span>{review.created_at ? new Date(review.created_at).toLocaleDateString(undefined, { dateStyle: "medium" }) : "Recently"}</span>
-                                  </span>
-                                  {review.is_verified_purchase && (
-                                    <span className="text-[9px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-extrabold uppercase tracking-wider ml-1">
-                                      Verified Purchase
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="pt-3 border-t border-border/20 space-y-1">
-                            <h5 className="font-extrabold text-sm text-foreground">{review.title}</h5>
-                            <p className="text-xs text-muted-foreground font-medium leading-relaxed">{review.body}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* === SELLER PERFORMANCE === */}
-              {activeTab === "seller-performance" && (
-                <div className="glass-premium p-6 sm:p-8 space-y-6">
-                  <div>
-                    <h3 className="font-extrabold text-xl text-foreground">Detailed Performance</h3>
-                    <p className="text-xs text-muted-foreground font-medium">Check unique account visits and conversion metrics per template.</p>
-                  </div>
-                  {!sellerTemplatesList || sellerTemplatesList.length === 0 ? (
-                    <div className="mt-empty-card">
-                      <div className="mt-empty-icon">
-                        <BarChart3 className="w-7 h-7" />
-                      </div>
-                      <h4 className="mt-empty-title">No Templates Found</h4>
-                      <p className="mt-empty-desc">Upload templates to start tracking detailed item-by-item analytics.</p>
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto rounded-xl border border-border/30">
-                      <table className="w-full text-left text-xs">
-                        <thead>
-                          <tr className="border-b border-border/30 bg-muted/20 text-muted-foreground font-extrabold uppercase">
-                            <th className="p-3">Template Title</th>
-                            <th className="p-3">Unique Accounts</th>
-                            <th className="p-3">Downloads</th>
-                            <th className="p-3">Rating</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border/20">
-                          {sellerTemplatesList.map((perf, idx) => (
-                            <tr key={idx} className="hover:bg-muted/10 transition-colors text-foreground font-medium">
-                              <td className="p-3 font-bold text-foreground">{perf.title}</td>
-                              <td className="p-3 font-mono text-muted-foreground font-bold">{perf.views_count || 0}</td>
-                              <td className="p-3 font-mono text-muted-foreground font-bold">{perf.downloads_count || 0}</td>
-                              <td className="p-3 font-semibold text-amber-400">
-                                {perf.rating_count > 0 ? `${(perf.rating_avg || 0).toFixed(1)} ★ (${perf.rating_count})` : "No ratings yet"}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* === SELLER FOLLOWERS === */}
-              {activeTab === "seller-followers" && (
-                <div className="glass-premium p-6 sm:p-8 space-y-6">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/20 pb-5">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2.5">
-                        <h3 className="font-extrabold text-xl text-foreground">Followers</h3>
-                        {Array.isArray(followers) && followers.length > 0 && (
-                          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#c89666]/15 text-[#dfb180] border border-[#c89666]/30">
-                            {followers.length}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground font-medium">Users and community members who follow your updates.</p>
-                    </div>
-                  </div>
-
-                  {followersLoading && (!followers || followers.length === 0) ? (
-                    <div className="text-center py-12">
-                      <Loader2 className="w-8 h-8 animate-spin mx-auto text-[#dfb180]" />
-                      <p className="text-xs text-muted-foreground mt-2 font-medium">Loading followers...</p>
-                    </div>
-                  ) : !followers || followers.length === 0 ? (
-                    <div className="mt-empty-card">
-                      <div className="mt-empty-icon">
-                        <Users className="w-7 h-7" />
-                      </div>
-                      <h4 className="mt-empty-title">No Followers Yet</h4>
-                      <p className="mt-empty-desc">
-                        When clients and users follow your profile from template pages, they will appear here.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {followers.map((follower) => {
-                        const avatarSrc = resolveMediaUrl(follower.avatar_url);
-                        const displayName = follower.full_name || follower.username || "Community Member";
-                        const initial = (follower.full_name || follower.username || "U").charAt(0).toUpperCase();
-
-                        return (
-                          <div key={follower.id} className="follower-card">
-                            <div className="flex items-center gap-3.5 min-w-0">
-                              <div className="follower-avatar-wrap">
-                                {avatarSrc ? (
-                                  <img
-                                    src={avatarSrc}
-                                    alt=""
-                                    className="follower-avatar-img"
-                                    onError={(e) => {
-                                      e.currentTarget.style.setProperty('display', 'none', 'important');
-                                      const fb = e.currentTarget.parentElement?.querySelector('.follower-avatar-fallback');
-                                      if (fb) fb.style.setProperty('display', 'flex', 'important');
-                                    }}
-                                  />
-                                ) : null}
-                                <span
-                                  className="follower-avatar-fallback"
-                                  style={{ display: avatarSrc ? "none" : "flex" }}
-                                >
-                                  {initial}
-                                </span>
-                              </div>
-                              <div className="space-y-0.5 min-w-0">
-                                <div className="font-extrabold text-sm text-foreground truncate">
-                                  {displayName}
-                                </div>
-                                <span className="text-xs text-muted-foreground font-medium truncate block">
-                                  @{follower.username || "user"}
-                                </span>
-                              </div>
-                            </div>
-                            <span className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white/5 text-slate-300 border border-white/10 shrink-0">
-                              Follower
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                </div>
-              )}
-
-
-              {/* === SELLER CUSTOMER MESSAGES === */}
-              {activeTab === "seller-messages" && (
-                <div className="glass border border-border/40 rounded-2xl p-8 space-y-6">
-                  <div>
-                    <h3 className="font-bold text-lg">Creator Support Messages</h3>
-                    <p className="text-sm text-muted-foreground">Respond to client questions, bug reports, and features suggestions.</p>
-                  </div>
-
-                  <div className="grid md:grid-cols-3 gap-6">
-                    {/* Inbox List */}
-                    <div className="md:col-span-1 border-r border-border/50 pr-4 space-y-2">
-                      {messages.map((m) => (
-                        <button
-                          key={m.id}
-                          onClick={() => setActiveMessageId(m.id)}
-                          className={cn(
-                            "w-full text-left p-3 rounded-xl border border-border/40 transition-all space-y-1 block",
-                            activeMessageId === m.id ? "bg-primary/20 border-primary" : "hover:bg-muted/10"
-                          )}
-                        >
-                          <div className="flex justify-between items-start text-xs font-semibold text-foreground">
-                            <span>{m.sender}</span>
-                            <span className={cn(
-                              "px-1.5 py-0.5 rounded text-[8px]",
-                              m.isReplied ? "bg-green-500/10 text-green-500" : "bg-yellow-500/10 text-yellow-500"
-                            )}>{m.isReplied ? "Replied" : "New"}</span>
-                          </div>
-                          <div className="text-xs font-bold text-white truncate">{m.subject}</div>
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Chat Reader */}
-                    <div className="md:col-span-2 space-y-4">
-                      {(() => {
-                        const msg = messages.find(m => m.id === activeMessageId);
-                        if (!msg) return <div className="text-center py-10 text-xs text-muted-foreground">Select a message from the list.</div>;
-                        return (
-                          <div className="space-y-4">
-                            <div className="border-b border-border/50 pb-3">
-                              <div className="text-xs text-muted-foreground uppercase font-semibold">{msg.type} &bull; Received {msg.date}</div>
-                              <h4 className="font-bold text-base text-foreground mt-0.5">{msg.subject}</h4>
-                            </div>
-                            <div className="p-4 bg-muted/20 border border-border/50 rounded-xl text-xs text-foreground">
-                              {msg.content}
-                            </div>
-                            {msg.isReplied && (
-                              <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl text-xs text-foreground space-y-1">
-                                <div className="font-bold text-primary">Your Reply:</div>
-                                <p>{msg.replyText}</p>
-                              </div>
-                            )}
-                            {!msg.isReplied && (
-                              <form onSubmit={handleReplyMessage} className="space-y-2">
-                                <textarea
-                                  required
-                                  rows={3}
-                                  value={replyText}
-                                  onChange={(e) => setReplyText(e.target.value)}
-                                  placeholder="Type your reply message..."
-                                  className="w-full px-3 py-2 rounded-xl glass border border-border/50 text-xs focus:outline-none focus:border-primary bg-card"
-                                />
-                                <button type="submit" className="px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl">Send Reply</button>
-                              </form>
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* === SELLER PAYOUTS === */}
-              {activeTab === "seller-payouts" && (
-                <div className="glass border border-border/40 rounded-2xl p-6 sm:p-8 space-y-6">
-                  <div>
-                    <h3 className="font-bold text-lg">Earnings Payout Setup</h3>
-                    <p className="text-sm text-muted-foreground">Review your earnings, request a withdrawal, and manage your payout method.</p>
-                  </div>
-
-                  <div className="relative overflow-hidden rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/20 via-card from-[#c89666] to-[#b5804f]/10 p-6 sm:p-8">
-                    <div className="absolute -right-12 -top-16 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
-                    <div className="relative flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-                      <div>
-                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Available to withdraw</p>
-                        <p className="mt-2 text-4xl font-black tracking-tight text-foreground sm:text-5xl">{formatPrice(earningsSummary.available_balance)}</p>
-                        <p className="mt-2 text-sm text-muted-foreground">Your cleared seller earnings, ready for a payout request.</p>
-                      </div>
-                      <div className="flex gap-6 border-t border-border/40 pt-4 sm:border-l sm:border-t-0 sm:pl-6 sm:pt-0">
-                        <div><p className="text-xs text-muted-foreground">Pending</p><p className="mt-1 font-bold text-foreground">{formatPrice(earningsSummary.pending_withdrawal || 0)}</p></div>
-                        <div><p className="text-xs text-muted-foreground">Paid out</p><p className="mt-1 font-bold text-foreground">{formatPrice(earningsSummary.withdrawn_amount || 0)}</p></div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="seller-payout-layout">
-                    <section className="seller-payout-card rounded-2xl border border-border/50 bg-muted/5">
-                      <div className="seller-payout-card-heading">
-                        <h4 className="font-bold text-base text-foreground">Request a withdrawal</h4>
-                        <p className="mt-1 text-sm text-muted-foreground">Choose how much of your available balance you want to withdraw.</p>
-                      </div>
-                      <div className="seller-payout-withdraw-controls">
-                        <div className="seller-payout-amount-field">
-                          <label className="block text-xs font-semibold text-muted-foreground uppercase">Withdrawal amount</label>
-                          <div className="seller-payout-amount-input-wrap">
-                            <span className="seller-payout-currency">$</span>
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0.01"
-                              max={earningsSummary.available_balance}
-                              value={withdrawAmount}
-                              onChange={(e) => setWithdrawAmount(e.target.value)}
-                              placeholder="0.00"
-                              className="seller-payout-amount-input rounded-xl border border-border/50 bg-card text-lg font-semibold text-foreground focus:border-primary focus:outline-none"
-                            />
-                          </div>
-                          <p className="text-xs text-muted-foreground">Maximum: {formatPrice(earningsSummary.available_balance)}</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!withdrawAmount) { alert("Please enter a withdrawal amount."); return; }
-                            const amt = parseFloat(withdrawAmount);
-                            if (isNaN(amt) || amt <= 0) { alert("Please enter a valid amount."); return; }
-                            if (amt > earningsSummary.available_balance) { alert(`Insufficient balance. You only have ${formatPrice(earningsSummary.available_balance)} available.`); return; }
-                            const bName = (payoutBankName || user?.payout_bank_name || "").trim();
-                            const aNum = (payoutAccountNumber || user?.payout_account_number || "").trim();
-                            const iCode = (payoutIfscCode || user?.payout_ifsc_code || "").trim();
-                            const hName = (payoutAccountHolderName || user?.payout_account_holder_name || "").trim();
-                            if (!bName || !aNum || !iCode || !hName) { alert("Add your payout bank details before requesting a withdrawal."); return; }
-                            createWithdrawal.mutate({ amount: amt, bank_name: bName, account_number: aNum, ifsc_code: iCode, account_holder_name: hName });
-                          }}
-                          disabled={createWithdrawal.isPending || earningsSummary.available_balance <= 0}
-                          className="seller-payout-withdraw-button rounded-xl bg-primary text-sm font-bold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {createWithdrawal.isPending ? <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Submitting...</span> : "Withdraw funds"}
-                        </button>
-                      </div>
-                    </section>
-
-                    {(() => {
-                      const hasPayoutDetails = Boolean(user?.is_payout_setup_completed && user?.payout_bank_name && user?.payout_account_number);
-                      const maskedAccount = user?.payout_account_number ? `•••• ${String(user.payout_account_number).slice(-4)}` : "";
-                      return (
-                        <section className="seller-payout-card rounded-2xl border border-border/50 bg-muted/5">
-                          <div className="seller-payout-method-header">
-                            <div className="seller-payout-method-info">
-                              <div className="rounded-xl border border-primary/20 bg-primary/10 p-2.5 text-primary"><CreditCard className="h-5 w-5" /></div>
-                              <div>
-                                <h4 className="font-bold text-base text-foreground">Payout bank details</h4>
-                                {hasPayoutDetails && !payoutEditing ? (
-                                  <p className="mt-1 text-sm text-muted-foreground">{user.payout_bank_name} <span className="px-1">·</span> {maskedAccount} <span className="px-1">·</span> {user.payout_account_holder_name}</p>
-                                ) : (
-                                  <p className="mt-1 text-sm text-muted-foreground">{hasPayoutDetails ? "Update the bank account used for withdrawal requests." : "Add a bank account to receive your withdrawals."}</p>
-                                )}
-                              </div>
-                            </div>
-                            {hasPayoutDetails && !payoutEditing && (
-                              <div className="seller-payout-method-actions">
-                                <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500/10 px-3 py-1.5 text-xs font-semibold text-green-500"><ShieldCheck className="h-3.5 w-3.5" /> Setup active</span>
-                                <button type="button" onClick={() => setPayoutEditing(true)} className="inline-flex items-center gap-2 rounded-lg border border-border/60 px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-muted/20"><Pencil className="h-3.5 w-3.5" /> Edit</button>
-                              </div>
-                            )}
-                          </div>
-
-                          {(!hasPayoutDetails || payoutEditing) && (
-                            <form onSubmit={handleUpdatePayout} className="seller-payout-edit-form">
-                              <div className="seller-payout-fields-grid">
-                                <div><label className="mb-1.5 block text-xs font-semibold uppercase text-muted-foreground">Account holder name</label><input type="text" required placeholder="e.g. John Doe" value={payoutAccountHolderName} onChange={(e) => setPayoutAccountHolderName(e.target.value)} className="w-full rounded-lg border border-border/50 bg-card px-3 py-2.5 text-sm focus:border-primary focus:outline-none" /></div>
-                                <div><label className="mb-1.5 block text-xs font-semibold uppercase text-muted-foreground">Bank name</label><input type="text" required placeholder="e.g. HDFC Bank" value={payoutBankName} onChange={(e) => setPayoutBankName(e.target.value)} className="w-full rounded-lg border border-border/50 bg-card px-3 py-2.5 text-sm focus:border-primary focus:outline-none" /></div>
-                                <div><label className="mb-1.5 block text-xs font-semibold uppercase text-muted-foreground">Account number / IBAN</label><input type="text" required placeholder="Enter account number" value={payoutAccountNumber} onChange={(e) => setPayoutAccountNumber(e.target.value)} className="w-full rounded-lg border border-border/50 bg-card px-3 py-2.5 text-sm focus:border-primary focus:outline-none" /></div>
-                                <div><label className="mb-1.5 block text-xs font-semibold uppercase text-muted-foreground">IFSC / SWIFT / routing code</label><input type="text" required placeholder="e.g. HDFC0001234" value={payoutIfscCode} onChange={(e) => setPayoutIfscCode(e.target.value)} className="w-full rounded-lg border border-border/50 bg-card px-3 py-2.5 text-sm focus:border-primary focus:outline-none" /></div>
-                              </div>
-                              <div className="seller-payout-form-actions">
-                                <button type="submit" disabled={savingPayout} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50">{savingPayout ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving...</> : "Save payout details"}</button>
-                                {hasPayoutDetails && <button type="button" onClick={() => { setPayoutAccountHolderName(user?.payout_account_holder_name || ""); setPayoutBankName(user?.payout_bank_name || ""); setPayoutAccountNumber(user?.payout_account_number || ""); setPayoutIfscCode(user?.payout_ifsc_code || ""); setPayoutEditing(false); }} className="rounded-lg border border-border/60 px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-muted/20">Cancel</button>}
-                              </div>
-                            </form>
-                          )}
-                        </section>
-                      );
-                    })()}
-
-                    <div className="seller-payout-stripe-connect rounded-xl border border-[#c89666]/30 bg-[#c89666]/15">
-                      <div><div className="flex items-center gap-2"><span className="text-sm font-bold text-foreground">Stripe Connect</span><span className="rounded-full bg-[#c89666]/15 px-2 py-0.5 text-[10px] font-bold text-[#dfb180]">Automatic payouts</span></div><p className="mt-1 text-xs text-muted-foreground">Connect Stripe to receive automatic payouts for template sales.</p></div>
-                      <button type="button" onClick={async () => { try { const res = await api.post("/payouts/stripe-connect/onboard", {}, authToken ?? undefined); if (res?.onboarding_url) window.location.href = res.onboarding_url; } catch (err) { alert("Stripe Connect onboarding error: " + (err.message || err)); } }} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-[#c89666]/15 px-4 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-[#c89666]/15"><Zap className="h-4 w-4" /> Connect account</button>
-                    </div>
-                  </div>
-
-                  <div className="border-t border-border/50 pt-4">
-                    <h4 className="font-bold text-sm text-foreground mb-3">Withdrawal Requests History</h4>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs">
-                        <thead>
-                          <tr className="border-b border-border/50 text-foreground font-bold">
-                            <th className="pb-2.5 text-foreground font-bold">Request ID</th>
-                            <th className="pb-2.5 text-foreground font-bold">Date</th>
-                            <th className="pb-2.5 text-foreground font-bold">Amount</th>
-                            <th className="pb-2.5 text-foreground font-bold">Method</th>
-                            <th className="pb-2.5 text-foreground font-bold">Status</th>
-                            <th className="pb-2.5 text-right text-foreground font-bold">Action</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {withdrawalRequests && withdrawalRequests.length > 0 ? (
-                            withdrawalRequests.map((h, idx) => (
-                              <tr key={idx} className="border-b border-border/40 hover:bg-muted/10 text-foreground">
-                                <td className="py-2.5 font-mono font-bold text-foreground">{h.id.slice(0, 8).toUpperCase()}</td>
-                                <td className="py-2.5 text-foreground/80 font-medium">{new Date(h.created_at).toLocaleDateString()}</td>
-                                <td className="py-2.5 font-mono font-bold text-foreground">{formatPrice(h.amount)}</td>
-                                <td className="py-2.5 font-semibold text-foreground/90">{h.bank_name || "Bank Direct"}</td>
-                                <td className="py-2.5 font-bold text-primary capitalize">{h.status}</td>
-                                <td className="py-2.5 text-right">
-                                  <a
-                                    href={`/dashboard/payout-receipt/${h.id}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center text-[11px] font-bold bg-[#c89666]/15 dark:bg-[#c89666]/15 text-[#dfb180] border border-[#c89666]/30 dark:border-[#c89666]/30 px-2.5 py-1 rounded-lg hover:bg-[#c89666]/15 dark:hover:bg-[#c89666]/15 transition-all text-decoration-none shadow-sm"
-                                  >
-                                    View Receipt
-                                  </a>
-                                </td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td colSpan={6} className="py-4 text-center text-muted-foreground text-xs">
-                                No withdrawal requests found.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
+              {/* === CREATOR STUDIO (UPGRADED CREATOR MARKETPLACE) === */}
+              {(
+                activeTab === "creator-studio" ||
+                activeTab === "seller-home" ||
+                activeTab === "retail-website" ||
+                activeTab === "seller-upload" ||
+                activeTab === "seller-analytics" ||
+                activeTab === "seller-earnings" ||
+                activeTab === "seller-orders" ||
+                activeTab === "seller-payouts" ||
+                activeTab === "seller-templates"
+              ) && (
+                <CreatorStudio
+                  user={user}
+                  authToken={authToken}
+                  onOpenPreview={(tmpl) => setPreviewTemplate(tmpl)}
+                  initialTab={
+                    activeTab === "retail-website" || activeTab === "seller-upload"
+                      ? "add-template"
+                      : activeTab === "seller-payouts"
+                      ? "payouts"
+                      : activeTab === "seller-earnings"
+                      ? "earnings"
+                      : activeTab === "seller-analytics"
+                      ? "analytics"
+                      : activeTab === "seller-orders"
+                      ? "orders"
+                      : activeTab === "seller-templates"
+                      ? "templates"
+                      : "overview"
+                  }
+                />
               )}
 
               {/* === ADMIN USERS LEDGER === */}
@@ -8823,16 +6945,16 @@ function Dashboard() {
                                 setUserCurrencyPref(e.target.value);
                                 useCurrencyStore.getState().setUserCurrency(e.target.value);
                               }}
-                              className="db-form-input text-xs font-extrabold bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-xl cursor-pointer"
+                              className="db-form-input text-xs font-extrabold bg-card border-2 border-border text-foreground rounded-xl cursor-pointer"
                             >
-                              <option value="USD" style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>USD ($)</option>
-                              <option value="INR" style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>INR (₹)</option>
-                              <option value="EUR" style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>EUR (€)</option>
-                              <option value="GBP" style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>GBP (£)</option>
-                              <option value="CAD" style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>CAD (CA$)</option>
-                              <option value="AUD" style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>AUD (A$)</option>
-                              <option value="JPY" style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>JPY (¥)</option>
-                              <option value="AED" style={{ backgroundColor: "#ffffff", color: "#0f172a" }}>AED (AED)</option>
+                              <option value="USD">USD ($)</option>
+                              <option value="INR">INR (₹)</option>
+                              <option value="EUR">EUR (€)</option>
+                              <option value="GBP">GBP (£)</option>
+                              <option value="CAD">CAD (CA$)</option>
+                              <option value="AUD">AUD (A$)</option>
+                              <option value="JPY">JPY (¥)</option>
+                              <option value="AED">AED (AED)</option>
                             </select>
                           </div>
                         </div>
@@ -8841,7 +6963,7 @@ function Dashboard() {
                       <button
                         type="submit"
                         disabled={savingProfile}
-                        className="px-5 py-2.5 bg-[#c89666]/20 hover:bg-[#c89666]/30 text-white font-extrabold text-xs rounded-xl transition-all shadow-xs border border-[#c89666]/40 cursor-pointer inline-flex items-center justify-center gap-1.5"
+                        className="px-5 py-2.5 bg-primary hover:bg-primary/90 text-primary-foreground font-extrabold text-xs rounded-xl transition-all shadow-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
                       >
                         {savingProfile && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                         {savingProfile ? "Saving..." : "Save Changes"}
@@ -8944,9 +7066,9 @@ function Dashboard() {
                         >
                           {/* Studio & Custom Draft Projects */}
                           {studioList.length > 0 && (
-                            <optgroup label="✨ Studio &amp; Custom Projects" style={{ backgroundColor: "#121216", color: "#dfb180" }}>
+                            <optgroup label="✨ Studio &amp; Custom Projects">
                               {studioList.map(t => (
-                                <option key={t.id} value={t.id} style={{ backgroundColor: "#09090b", color: "#ffffff" }}>
+                                <option key={t.id} value={t.id}>
                                   {t.title} ({t.framework || "HTML"}) — [Studio Project]
                                 </option>
                               ))}
@@ -8955,9 +7077,9 @@ function Dashboard() {
 
                           {/* Seller Uploaded Marketplace Templates */}
                           {uploadedList.length > 0 && (
-                            <optgroup label="📦 My Uploaded Marketplace Templates" style={{ backgroundColor: "#121216", color: "#c89666" }}>
+                            <optgroup label="📦 My Uploaded Marketplace Templates">
                               {uploadedList.map(t => (
-                                <option key={t.id} value={t.id} style={{ backgroundColor: "#09090b", color: "#ffffff" }}>
+                                <option key={t.id} value={t.id}>
                                   {t.title} ({t.framework || "HTML"}) — [Uploaded Template]
                                 </option>
                               ))}
@@ -8966,9 +7088,9 @@ function Dashboard() {
 
                           {/* Downloaded & Purchased Templates */}
                           {downloadedList.length > 0 && (
-                            <optgroup label="📥 Downloaded &amp; Purchased Templates" style={{ backgroundColor: "#121216", color: "#34d399" }}>
+                            <optgroup label="📥 Downloaded &amp; Purchased Templates">
                               {downloadedList.map(t => (
-                                <option key={t.id} value={t.id} style={{ backgroundColor: "#09090b", color: "#ffffff" }}>
+                                <option key={t.id} value={t.id}>
                                   {t.title} ({t.framework || "HTML"}) — [Downloaded Template]
                                 </option>
                               ))}
@@ -8976,13 +7098,13 @@ function Dashboard() {
                           )}
 
                           {availableTemplatesForDeployment.length === 0 && (
-                            <option value="" disabled style={{ backgroundColor: "#121216", color: "#71717a" }}>
+                            <option value="" disabled>
                               -- No templates or projects found --
                             </option>
                           )}
                         </select>
                         {availableTemplatesForDeployment.length === 0 && (
-                          <div className="p-3 bg-[#18181d] border border-[#33333a] rounded-xl flex items-center justify-between text-xs text-[#dfb180]">
+                          <div className="p-3 bg-muted/50 border border-border rounded-xl flex items-center justify-between text-xs text-foreground">
                             <span>You have not downloaded any templates yet.</span>
                             <Link to="/marketplace" className="px-3 py-1.5 bg-[#c89666] hover:bg-[#dfb180] text-[#09090b] font-black rounded-lg text-[11px] text-decoration-none shadow-sm">
                               Browse Marketplace
@@ -10062,6 +8184,21 @@ function Dashboard() {
         authToken={authToken}
         onUpdateSuccess={() => refetchDeployments()}
       />
+
+      {/* Retail Generated Website on Marketplace Modal */}
+      {retailModalTemplate && (
+        <RetailTemplateModal
+          isOpen={!!retailModalTemplate}
+          onClose={() => setRetailModalTemplate(null)}
+          template={retailModalTemplate}
+          user={user}
+          authToken={authToken}
+          onSuccess={() => {
+            qc.invalidateQueries(["seller-templates"]);
+            qc.invalidateQueries(["templates"]);
+          }}
+        />
+      )}
 
       {/* Mandatory License & Code Usage Warning Modal */}
       <DownloadWarningModal

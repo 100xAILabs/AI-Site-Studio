@@ -364,7 +364,7 @@ class ProjectAnalyzer:
             # 1. Run a shallow Git clone without putting credentials in the URL
             import subprocess
             import base64
-            cmd = ["git", "clone", "--depth", "1", "--single-branch", "--no-tags", git_url, str(clone_dir)]
+            cmd = ["git", "-c", "core.symlinks=false", "clone", "--depth", "1", "--single-branch", "--no-tags", git_url, str(clone_dir)]
             clone_env = {
                 "PATH": os.environ.get("PATH", ""),
                 "SYSTEMROOT": os.environ.get("SYSTEMROOT", "C:\\Windows"),
@@ -417,6 +417,13 @@ class ProjectAnalyzer:
                         continue
                     for file in f:
                         file_path = Path(r) / file
+                        if file_path.is_symlink():
+                            continue
+                        try:
+                            if not file_path.resolve().is_relative_to(clone_dir.resolve()):
+                                continue
+                        except (ValueError, RuntimeError):
+                            continue
                         arcname = file_path.relative_to(clone_dir)
                         zip_file.write(file_path, arcname)
 

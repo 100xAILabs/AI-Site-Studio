@@ -23,6 +23,7 @@ export const PLANS = {
     autoHealSites: 0,
     maxAutoHealRepairs: 0,
     tokenDiscountPercent: 0,
+    canRetailTemplates: false,
     versionsRetained: 1,
     backupRetentionDays: 1,
     features: [
@@ -57,6 +58,7 @@ export const PLANS = {
     autoHealSites: 1,
     maxAutoHealRepairs: 10,
     tokenDiscountPercent: 40,
+    canRetailTemplates: false,
     versionsRetained: 10,
     backupRetentionDays: 7,
     features: [
@@ -91,9 +93,11 @@ export const PLANS = {
     autoHealSites: 3,
     maxAutoHealRepairs: 30,
     tokenDiscountPercent: 60,
+    canRetailTemplates: true,
     versionsRetained: 30,
     backupRetentionDays: 30,
     features: [
+      { text: "Exclusive Marketplace Retailer License: Sell & retail your AI-generated websites directly to global buyers", highlight: true, icon: "gemini" },
       { text: "1,000 Gemini AI Credits / billing month included", highlight: true, icon: "gemini" },
       { text: "3 Active Hosted Websites included in plan (No separate hosting charges)", highlight: true },
       { text: "Custom Domain connections for up to 3 included hosted sites", highlight: true },

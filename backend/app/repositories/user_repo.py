@@ -5,7 +5,7 @@ User repository — database access layer for User entities.
 import uuid
 from typing import Optional, List
 
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
@@ -21,7 +21,9 @@ class UserRepository:
         return result.scalar_one_or_none()
 
     async def get_by_email(self, email: str) -> Optional[User]:
-        result = await self.db.execute(select(User).where(User.email == email))
+        if not email:
+            return None
+        result = await self.db.execute(select(User).where(func.lower(User.email) == email.strip().lower()))
         return result.scalar_one_or_none()
 
     async def get_by_google_id(self, google_id: str) -> Optional[User]:
@@ -37,7 +39,10 @@ class UserRepository:
         return result.scalar_one_or_none()
 
     async def create(self, data: UserCreate) -> User:
-        user = User(**data.model_dump(exclude_unset=True))
+        user_dict = data.model_dump(exclude_unset=True)
+        if "email" in user_dict and user_dict["email"]:
+            user_dict["email"] = user_dict["email"].strip().lower()
+        user = User(**user_dict)
         self.db.add(user)
         await self.db.flush()
         await self.db.refresh(user)
@@ -79,9 +84,15 @@ class UserRepository:
             user = await self.get_by_github_id(provider_id)
 
         if not user:
-            # Fallback to email lookup ONLY if user exists and does not use password auth
+            # Fallback to email lookup ONLY if user does not use password auth (prevent account takeover)
             existing_user_by_email = await self.get_by_email(email)
             if existing_user_by_email:
+                if existing_user_by_email.hashed_password:
+                    from fastapi import HTTPException
+                    raise HTTPException(
+                        status_code=409,
+                        detail="An account with this email already exists with password authentication. Please sign in with email/password to link external accounts."
+                    )
                 user = existing_user_by_email
 
         if user:

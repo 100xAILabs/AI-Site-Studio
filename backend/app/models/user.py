@@ -107,9 +107,46 @@ class User(UUIDMixin, TimestampMixin, Base):
                 return False
         return True
 
+    @property
+    def is_extreme_subscriber(self) -> bool:
+        tier = (self.subscription_tier or "").lower()
+        if tier not in ("extreme", "agency", "enterprise"):
+            return False
+        if self.subscription_expires_at:
+            now = datetime.now(timezone.utc)
+            expires = (
+                self.subscription_expires_at
+                if self.subscription_expires_at.tzinfo
+                else self.subscription_expires_at.replace(tzinfo=timezone.utc)
+            )
+            if now > expires:
+                return False
+        return True
+
+    @property
+    def can_retail_templates(self) -> bool:
+        """Only Extreme plan subscribers or platform admins can retail generated templates."""
+        role_str = self.role.value if hasattr(self.role, "value") else str(self.role)
+        if role_str.lower() in ("admin", "super_admin"):
+            return True
+        return self.is_extreme_subscriber
+
     # Payout details for Sellers
     payout_bank_name: Mapped[Optional[str]] = mapped_column(String(255))
-    payout_account_number: Mapped[Optional[str]] = mapped_column(String(100))
+    _payout_account_number: Mapped[Optional[str]] = mapped_column("payout_account_number", String(255), nullable=True)
+
+    @property
+    def payout_account_number(self) -> Optional[str]:
+        if not self._payout_account_number:
+            return None
+        from app.core.security import decrypt_oauth_token
+        return decrypt_oauth_token(self._payout_account_number)
+
+    @payout_account_number.setter
+    def payout_account_number(self, value: Optional[str]) -> None:
+        from app.core.security import encrypt_oauth_token
+        self._payout_account_number = encrypt_oauth_token(value) if value else None
+
     payout_ifsc_code: Mapped[Optional[str]] = mapped_column(String(50))
     payout_account_holder_name: Mapped[Optional[str]] = mapped_column(String(255))
     is_payout_setup_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

@@ -68,19 +68,27 @@ def extract_client_ip(request: Optional[Request]) -> Optional[str]:
     return None
 
 
+def mask_ip(ip: Optional[str]) -> str:
+    """Mask IP address for privacy compliance in logs."""
+    if not ip:
+        return "unknown"
+    parts = ip.split(".")
+    if len(parts) == 4:
+        return f"{parts[0]}.{parts[1]}.***.***"
+    return "masked_ip"
+
+
 async def detect_location(request: Optional[Request] = None, explicit_ip: Optional[str] = None) -> Dict[str, Any]:
     """
     Detect user location (country, country_code, city, currency, ip) via external IP geolocation API.
+    Uses encrypted HTTPS queries to prevent transmitting user IP addresses over unencrypted HTTP.
     Handles localhost/development gracefully by querying public WAN IP.
     """
     target_ip = explicit_ip or extract_client_ip(request)
     use_specific_ip = target_ip and not is_private_or_local_ip(target_ip)
 
-    url = (
-        f"http://ip-api.com/json/{target_ip}?fields=status,message,country,countryCode,city,currency,query"
-        if use_specific_ip
-        else "http://ip-api.com/json/?fields=status,message,country,countryCode,city,currency,query"
-    )
+    # Use secure HTTPS geolocation endpoint
+    url = f"https://ipapi.co/{target_ip}/json/" if use_specific_ip else "https://ipapi.co/json/"
 
     result = {
         "country": "United States",
@@ -92,23 +100,21 @@ async def detect_location(request: Optional[Request] = None, explicit_ip: Option
 
     try:
         async with httpx.AsyncClient(timeout=4.0) as client:
-            response = await client.get(url)
+            response = await client.get(url, headers={"User-Agent": "AISiteStudio/2.0"})
             if response.status_code == 200:
                 data = response.json()
-                if data.get("status") == "success":
-                    country_code = (data.get("countryCode") or "US").upper()
-                    result["country"] = data.get("country") or "United States"
-                    result["country_code"] = country_code
-                    result["city"] = data.get("city") or "Unknown"
-                    result["detected_ip"] = data.get("query") or target_ip or "127.0.0.1"
+                country_code = (data.get("country_code") or data.get("countryCode") or "US").upper()
+                result["country"] = data.get("country_name") or data.get("country") or "United States"
+                result["country_code"] = country_code
+                result["city"] = data.get("city") or "Unknown"
+                result["detected_ip"] = data.get("ip") or data.get("query") or target_ip or "127.0.0.1"
 
-                    # Determine currency: mapped > API currency > default USD
-                    mapped_currency = COUNTRY_TO_CURRENCY.get(country_code)
-                    api_currency = (data.get("currency") or "").upper()
-                    result["currency"] = mapped_currency or (api_currency if len(api_currency) == 3 else "USD")
+                mapped_currency = COUNTRY_TO_CURRENCY.get(country_code)
+                api_currency = (data.get("currency") or "").upper()
+                result["currency"] = mapped_currency or (api_currency if len(api_currency) == 3 else "USD")
 
-                    logger.info(f"[LOCATION DETECTED] IP: {result['detected_ip']} | Country: {result['country']} ({result['country_code']}) | Currency: {result['currency']}")
-                    return result
+                logger.info(f"[LOCATION DETECTED] IP: {mask_ip(result['detected_ip'])} | Country: {result['country']} ({result['country_code']}) | Currency: {result['currency']}")
+                return result
     except Exception as err:
         logger.warning(f"Primary IP geolocation failed ({err}). Trying fallback service...")
 

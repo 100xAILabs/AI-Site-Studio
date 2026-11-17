@@ -126,6 +126,12 @@ async def verify_stripe_subscription_session(
         return {"status": "pending", "message": "Payment not yet confirmed by Stripe."}
         
     metadata = checkout.get("metadata") or {}
+    meta_user_id = metadata.get("user_id") or checkout.get("client_reference_id")
+    if not meta_user_id or str(meta_user_id).strip() != str(current_user.id).strip():
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: This checkout session does not belong to your account.",
+        )
     plan_id = metadata.get("plan_id") or "pro"
     billing_cycle = metadata.get("billing_cycle") or "monthly"
     provider_sub_id = checkout.get("subscription")

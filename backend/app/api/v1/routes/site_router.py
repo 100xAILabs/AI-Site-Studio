@@ -115,30 +115,31 @@ async def serve_tenant_workload(
     target_id = None
 
     if cached and (now - cached[2] < _CACHE_TTL_SECONDS):
+        trial_exp_ts = cached[3] if len(cached) > 3 else None
+        if trial_exp_ts and now > trial_exp_ts:
+            return HTMLResponse(
+                "<!doctype html><html><head><meta charset='utf-8'><title>Trial Expired — AI Site Studio</title>"
+                "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                "<style>body{background:#09090b;color:#f4f4f5;font-family:sans-serif;margin:0;padding:2rem;display:flex;align-items:center;justify-content:center;min-height:100vh} "
+                ".card{background:#121216;border:1px solid #27272a;border-radius:1rem;padding:2.5rem;max-width:540px;width:100%;text-align:center} "
+                "h1{color:#dfb180;font-size:1.5rem;margin:0 0 0.75rem} .btn{display:inline-block;background:#c89666;color:#09090b;font-weight:800;text-decoration:none;padding:0.75rem 1.75rem;border-radius:0.75rem;font-size:0.875rem}</style></head>"
+                "<body><div class='card'><h1>7-Day Free Trial Expired</h1><p>Upgrade to Studio Pro to restore permanent live cloud edge hosting.</p><a class='btn' href='/pricing'>Upgrade to Pro</a></div></body></html>",
+                status_code=402,
+            )
         target_id = cached[0]
         cached_path = Path(cached[1])
         if cached_path.exists():
             site_dir = cached_path
 
-    # If not cached, fast check local deployments directory on disk
-    if not site_dir:
-        direct_site_dir = _DEPLOYMENTS_ROOT / clean_site_id / "current"
-        if direct_site_dir.is_dir():
-            target_id = clean_site_id
-            site_dir = direct_site_dir
-            _SITE_RESOLUTION_CACHE[clean_identifier] = (target_id, str(site_dir), now)
-            _SITE_RESOLUTION_CACHE[clean_site_id] = (target_id, str(site_dir), now)
-
-    # If still not found, check DB for matching site_id, subdomain, or custom_domain
+    # If still not found or not cached, check DB for matching site_id, subdomain, or verified custom_domain
     if not site_dir:
         resolved_site_id = None
+        trial_exp_timestamp = None
         try:
             async with AsyncSessionLocal() as session:
                 stmt = select(Deployment).where(
                     (Deployment.site_id == clean_site_id) |
                     (Deployment.subdomain == clean_identifier) |
-                    (Deployment.custom_domain == clean_identifier) |
-                    (Deployment.custom_domain == domain_lookup) |
                     (Deployment.subdomain == f"{clean_identifier}.aisitestudio.com") |
                     (select(Domain.id).where(
                         Domain.deployment_id == Deployment.id,
@@ -195,13 +196,15 @@ async def serve_tenant_workload(
                                 )
                     # 3. Free tier has a 7-day trial window
                     else:
-                        now = datetime.now(timezone.utc)
+                        now_utc = datetime.now(timezone.utc)
                         trial_exp = (
                             deployment.trial_expires_at
                             if (deployment.trial_expires_at and deployment.trial_expires_at.tzinfo)
                             else (deployment.trial_expires_at.replace(tzinfo=timezone.utc) if deployment.trial_expires_at else None)
                         )
-                        if trial_exp and now > trial_exp:
+                        if trial_exp:
+                            trial_exp_timestamp = trial_exp.timestamp()
+                        if trial_exp and now_utc > trial_exp:
                             return HTMLResponse(
                                 "<!doctype html><html><head><meta charset='utf-8'><title>Trial Expired — AI Site Studio</title>"
                                 "<meta name='viewport' content='width=device-width, initial-scale=1'>"
@@ -240,21 +243,12 @@ async def serve_tenant_workload(
                 deep_dir = _resolve_site_current_dir(deployment, target_id)
                 if deep_dir and deep_dir.exists():
                     site_dir = deep_dir
-                elif _DEPLOYMENTS_ROOT.exists():
-                    for item in _DEPLOYMENTS_ROOT.iterdir():
-                        if item.is_dir():
-                            for cand in [item / "current", item / "v1.0" / "dist", item]:
-                                if cand.exists() and (cand / "index.html").exists():
-                                    site_dir = cand
-                                    break
-                            if site_dir and site_dir.exists():
-                                break
 
         if not site_dir or not site_dir.exists():
             raise HTTPException(status_code=404, detail=f"Tenant website deployment '{site_identifier}' not found or inactive.")
 
-        _SITE_RESOLUTION_CACHE[clean_identifier] = (target_id, str(site_dir), now)
-        _SITE_RESOLUTION_CACHE[clean_site_id] = (target_id, str(site_dir), now)
+        _SITE_RESOLUTION_CACHE[clean_identifier] = (target_id, str(site_dir), now, trial_exp_timestamp)
+        _SITE_RESOLUTION_CACHE[clean_site_id] = (target_id, str(site_dir), now, trial_exp_timestamp)
 
     client_ip = request.client.host if request and request.client else ""
 

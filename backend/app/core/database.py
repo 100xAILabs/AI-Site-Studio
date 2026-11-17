@@ -130,6 +130,14 @@ async def init_db() -> None:
             await conn.execute(text("ALTER TYPE paymentgateway ADD VALUE IF NOT EXISTS 'upi';"))
         except Exception:
             pass
+        for status_val in [
+            'DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'PUBLISHED', 'SUSPENDED', 'ARCHIVED',
+            'draft', 'submitted', 'under_review', 'approved', 'rejected', 'published', 'suspended', 'archived',
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TYPE templatestatus ADD VALUE IF NOT EXISTS '{status_val}';"))
+            except Exception:
+                pass
         try:
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
         except Exception:
@@ -203,6 +211,12 @@ async def init_db() -> None:
         template_columns_to_add = [
             ("is_marketplace", "BOOLEAN DEFAULT TRUE"),
             ("template_origin", "VARCHAR(50) DEFAULT 'marketplace'"),
+            ("rejection_reason", "TEXT"),
+            ("admin_notes", "TEXT"),
+            ("reviewed_by_id", "UUID"),
+            ("reviewed_at", "TIMESTAMP WITH TIME ZONE"),
+            ("submitted_at", "TIMESTAMP WITH TIME ZONE"),
+            ("source_project_id", "UUID"),
         ]
         for col_name, col_type in template_columns_to_add:
             try:
@@ -257,6 +271,21 @@ async def init_db() -> None:
                 db.add(cat)
             await db.commit()
             print(f"Auto-seeded {len(CATEGORIES)} categories on database initialization.")
+
+        # Auto-seed default MarketplaceSetting if missing
+        from decimal import Decimal
+        from app.models.marketplace import MarketplaceSetting
+        setting_res = await db.execute(select(MarketplaceSetting).where(MarketplaceSetting.id == "default"))
+        if not setting_res.scalar_one_or_none():
+            db.add(MarketplaceSetting(
+                id="default",
+                platform_commission_percent=Decimal("20.00"),
+                payout_holding_days=7,
+                min_payout_amount=Decimal("10.00"),
+                is_marketplace_active=True,
+            ))
+            await db.commit()
+            print("Auto-seeded default marketplace settings (commission=20%, hold=7 days).")
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

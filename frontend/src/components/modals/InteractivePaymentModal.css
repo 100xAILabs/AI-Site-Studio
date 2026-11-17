@@ -1,0 +1,432 @@
+/* ==========================================================================
+   Interactive Payment Modal Stylesheet (Razorpay & Stripe Simulation)
+   ========================================================================== */
+
+.ipm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  animation: ipmFadeIn 0.2s ease-out;
+}
+
+@keyframes ipmFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.ipm-modal {
+  width: 100%;
+  max-width: 480px;
+  background: hsl(var(--card, 224 71% 4%));
+  color: hsl(var(--foreground, 210 40% 98%));
+  border: 1px solid hsl(var(--border, 215 28% 17%));
+  border-radius: 1.25rem;
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: ipmSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes ipmSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Header */
+.ipm-header {
+  padding: 1.25rem 1.5rem;
+  background: hsl(var(--muted, 215 28% 10%) / 0.6);
+  border-bottom: 1px solid hsl(var(--border, 215 28% 17%));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ipm-brand-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.ipm-brand-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 0.65rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ipm-brand-icon.razorpay {
+  background: linear-gradient(135deg, #0c2340 0%, #0052cc 100%);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.ipm-brand-icon.stripe {
+  background: linear-gradient(135deg, #635bff 0%, #4338ca 100%);
+  color: #ffffff;
+  border: 1px solid rgba(99, 91, 255, 0.3);
+}
+
+.ipm-brand-title {
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: hsl(var(--foreground));
+  margin: 0;
+}
+
+.ipm-brand-sub {
+  font-size: 0.725rem;
+  color: hsl(var(--muted-foreground));
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
+}
+
+.ipm-close-btn {
+  background: transparent;
+  border: none;
+  color: hsl(var(--muted-foreground));
+  padding: 0.4rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.ipm-close-btn:hover {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+/* Order Summary Box */
+.ipm-order-strip {
+  padding: 1rem 1.5rem;
+  background: hsl(var(--background));
+  border-bottom: 1px solid hsl(var(--border));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ipm-order-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.ipm-order-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+}
+
+.ipm-order-meta {
+  font-size: 0.725rem;
+  color: hsl(var(--muted-foreground));
+  margin-top: 0.15rem;
+}
+
+.ipm-order-price {
+  text-align: right;
+}
+
+.ipm-order-amount {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #10b981;
+  letter-spacing: -0.01em;
+}
+
+.ipm-order-currency {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: hsl(var(--muted-foreground));
+  text-transform: uppercase;
+}
+
+/* Body & Method Tabs */
+.ipm-body {
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+}
+
+.ipm-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+  background: hsl(var(--muted) / 0.5);
+  padding: 0.25rem;
+  border-radius: 0.65rem;
+  border: 1px solid hsl(var(--border));
+}
+
+.ipm-tab-btn {
+  background: transparent;
+  border: none;
+  padding: 0.5rem 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: hsl(var(--muted-foreground));
+  border-radius: 0.5rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  transition: all 0.15s ease;
+}
+
+.ipm-tab-btn.active {
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* Form Fields */
+.ipm-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.ipm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ipm-label {
+  font-size: 0.725rem;
+  font-weight: 700;
+  color: hsl(var(--muted-foreground));
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ipm-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ipm-input {
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.55rem;
+  font-size: 0.875rem;
+  color: hsl(var(--foreground));
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ipm-input:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.ipm-input.with-icon {
+  padding-right: 2.5rem;
+}
+
+.ipm-input-icon {
+  position: absolute;
+  right: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  pointer-events: none;
+}
+
+.ipm-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+/* Test Fill Pill */
+.ipm-test-fill-pill {
+  background: transparent;
+  border: 1px solid hsl(var(--border));
+  color: #38bdf8;
+  font-size: 0.675rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ipm-test-fill-pill:hover {
+  background: rgba(56, 189, 248, 0.1);
+  border-color: #38bdf8;
+}
+
+/* UPI QR Section */
+.ipm-upi-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.85rem;
+  padding: 0.5rem 0;
+}
+
+.ipm-qr-box {
+  background: #ffffff;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  display: inline-block;
+}
+
+.ipm-upi-apps {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.725rem;
+  font-weight: 700;
+  color: hsl(var(--muted-foreground));
+}
+
+.ipm-upi-app-badge {
+  padding: 0.25rem 0.5rem;
+  background: hsl(var(--muted) / 0.6);
+  border-radius: 0.4rem;
+  border: 1px solid hsl(var(--border));
+}
+
+/* NetBanking Grid */
+.ipm-banks-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+}
+
+.ipm-bank-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.55rem;
+  font-size: 0.775rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.ipm-bank-btn:hover {
+  border-color: #38bdf8;
+  background: hsl(var(--muted) / 0.5);
+}
+
+.ipm-bank-btn.active {
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.08);
+}
+
+/* Security Notice */
+.ipm-security-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.7rem;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted) / 0.35);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid hsl(var(--border) / 0.6);
+}
+
+/* Footer & Action Buttons */
+.ipm-footer {
+  padding: 1.25rem 1.5rem;
+  background: hsl(var(--muted) / 0.4);
+  border-top: 1px solid hsl(var(--border));
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ipm-submit-btn {
+  width: 100%;
+  padding: 0.85rem 1.25rem;
+  border: none;
+  border-radius: 0.65rem;
+  font-size: 0.925rem;
+  font-weight: 800;
+  color: #ffffff;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+  transition: all 0.15s ease;
+}
+
+.ipm-submit-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.45);
+}
+
+.ipm-submit-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.ipm-submit-btn.razorpay-btn {
+  background: linear-gradient(135deg, #0052cc 0%, #0c2340 100%);
+  box-shadow: 0 4px 14px rgba(0, 82, 204, 0.3);
+}
+
+.ipm-submit-btn.razorpay-btn:hover:not(:disabled) {
+  box-shadow: 0 6px 18px rgba(0, 82, 204, 0.45);
+}
+
+.ipm-badges-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  font-size: 0.675rem;
+  color: hsl(var(--muted-foreground));
+  margin-top: 0.25rem;
+}
+
+.ipm-badge-item {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}

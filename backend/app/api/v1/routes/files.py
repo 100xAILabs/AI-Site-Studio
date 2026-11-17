@@ -27,6 +27,7 @@ async def get_stored_file(
     signature: Optional[str] = Query(None),
     token: Optional[str] = Query(None),
     license: Optional[str] = Query(None),
+    template_id: Optional[str] = Query(None),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
@@ -104,11 +105,14 @@ async def get_stored_file(
                                 authorized = True
                                 break
 
-                        # 2b. Check if user has an authorized download record for this template
-                        if not authorized:
+                        # 2b. Check if user has an authorized download record for this specific template
+                        if not authorized and matched_template:
                             dl_check = await db.execute(
                                 select(Download.id)
-                                .where(Download.user_id == current_user.id)
+                                .where(
+                                    Download.user_id == current_user.id,
+                                    Download.template_id == matched_template.id
+                                )
                                 .limit(1)
                             )
                             if dl_check.scalar_one_or_none():
@@ -198,11 +202,19 @@ async def get_stored_file(
 
             try:
                 # Find template linked to this file
-                t_stmt = select(Template).where(
-                    (Template.source_file_id == file_uuid) | (Template.id == file_uuid)
-                ).limit(1)
-                t_res = await db.execute(t_stmt)
-                matched_template = t_res.scalar_one_or_none()
+                if template_id:
+                    try:
+                        t_uuid = uuid.UUID(template_id)
+                        matched_template = await db.get(Template, t_uuid)
+                    except Exception:
+                        pass
+
+                if not matched_template:
+                    t_stmt = select(Template).where(
+                        (Template.source_file_id == file_uuid) | (Template.id == file_uuid)
+                    ).limit(1)
+                    t_res = await db.execute(t_stmt)
+                    matched_template = t_res.scalar_one_or_none()
 
                 if not matched_template:
                     all_tmpls = await db.execute(select(Template))
@@ -238,14 +250,12 @@ async def get_stored_file(
                 pass
 
             req_lic = license or (request.query_params.get("license") if request else None)
-            is_clean = (
-                (req_lic and str(req_lic).lower() in ("extended", "commercial", "agency", "unlimited", "pro", "full_access", "full-access", "full", "white_label", "whitelabel"))
-                or user_qualifies_for_clean_template(
-                    user=current_user,
-                    template=matched_template,
-                    order_item=matched_order_item,
-                    license_type=req_lic
-                )
+            # License qualification is strictly evaluated server-side based on actual purchase or subscription
+            is_clean = user_qualifies_for_clean_template(
+                user=current_user,
+                template=matched_template,
+                order_item=matched_order_item,
+                license_type=req_lic
             )
 
             # Lifetime download access: no time-based expiration for purchased or acquired templates
@@ -414,8 +424,8 @@ async def upload_file(
     if detected_mime != "application/zip":
         return {"url": url}
 
-    # ZIP template packages use signed URLs valid for lifetime access
-    expires = int(datetime.now(timezone.utc).timestamp()) + 86400 * 3650
+    # ZIP template packages use short-lived signed URLs (15 minutes)
+    expires = int(datetime.now(timezone.utc).timestamp()) + 900  # 15 minutes validity
     signature = generate_file_signature(file_id, expires)
     signed_url = f"{url}?expires={expires}&signature={signature}"
 

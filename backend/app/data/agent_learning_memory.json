@@ -1,7 +1,7 @@
 {
   "version": "1.0",
-  "updated_at": "2026-11-16T12:30:52.845408+00:00",
-  "total_mistakes_logged": 45,
+  "updated_at": "2026-11-17T15:41:01.761195+00:00",
+  "total_mistakes_logged": 46,
   "lessons": [
     {
       "id": "lesson_multi_page_nav_hashes",
@@ -10,8 +10,8 @@
       "rule": "In multi-page websites, NEVER use bare anchor hashes (e.g. href=\"#featured\", href=\"#services\", href=\"#about\") in the navigation of secondary pages. All cross-page links must be relative (e.g. href=\"about.html\", href=\"projects.html\", href=\"skills.html\", or href=\"index.html#featured\").",
       "mistake_trigger": "navigation_hash_anchor",
       "severity": "high",
-      "occurrence_count": 4,
-      "last_seen": "2026-11-11T11:03:55.259044+00:00",
+      "occurrence_count": 5,
+      "last_seen": "2026-11-17T15:41:01.761195+00:00",
       "last_file": "index.html"
     },
     {

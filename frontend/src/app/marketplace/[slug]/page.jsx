@@ -1332,13 +1332,13 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
 
         {/* 2. Unified Commercial License Inclusions — No Extra Charges */}
         {!isFree && !hasPurchased && (
-          <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 my-3 text-xs space-y-1.5">
+          <div className="commercial-license-card p-3 rounded-xl border my-3 text-xs space-y-1.5">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-emerald-400 flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              <span className="commercial-license-title font-bold flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 shrink-0" />
                 Commercial License Included
               </span>
-              <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 whitespace-nowrap inline-flex items-center leading-normal">
+              <span className="commercial-license-badge whitespace-nowrap inline-flex items-center leading-normal">
                 White-Label
               </span>
             </div>
@@ -1361,20 +1361,20 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
           </div>
           <div className="grid grid-cols-2 gap-y-1.5 text-[11px] text-muted-foreground">
             <div className="flex items-center gap-1.5">
-              <Check className="w-3 h-3 text-emerald-400 shrink-0" />
-              <span>Full Source Code (ZIP)</span>
+              <Check className="w-3 h-3 shrink-0" style={{ color: '#10b981' }} />
+              <span className="text-foreground/90 font-medium">Full Source Code (ZIP)</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <Check className="w-3 h-3 text-emerald-400 shrink-0" />
-              <span>{template?.is_responsive !== false ? "100% Mobile Ready" : "Desktop Ready"}</span>
+              <Check className="w-3 h-3 shrink-0" style={{ color: '#10b981' }} />
+              <span className="text-foreground/90 font-medium">{template?.is_responsive !== false ? "100% Mobile Ready" : "Desktop Ready"}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <Check className="w-3 h-3 text-emerald-400 shrink-0" />
-              <span>{template?.has_dark_mode ? "Dark & Light Mode" : "Light Mode UI"}</span>
+              <Check className="w-3 h-3 shrink-0" style={{ color: '#10b981' }} />
+              <span className="text-foreground/90 font-medium">{template?.has_dark_mode ? "Dark & Light Mode" : "Light Mode UI"}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <Check className="w-3 h-3 text-emerald-400 shrink-0" />
-              <span>{template?.pages_count || template?.included_pages?.length || 1} Pages Included</span>
+              <Check className="w-3 h-3 shrink-0" style={{ color: '#10b981' }} />
+              <span className="text-foreground/90 font-medium">{template?.pages_count || template?.included_pages?.length || 1} Pages Included</span>
             </div>
           </div>
         </div>
@@ -1389,7 +1389,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                   setEditModalTab("general");
                   setIsEditModalOpen(true);
                 }}
-                className="w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] shadow-md shadow-black/40 transition-all text-sm cursor-pointer border-0"
+                className="details-buy-now-btn w-full py-3.5 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all text-sm cursor-pointer"
               >
                 <Edit3 className="w-4 h-4" /> Edit Template Details
               </button>
@@ -1397,7 +1397,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                 type="button"
                 onClick={startDownloadFlow}
                 disabled={isDownloading}
-                className="details-purchase-btn w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-muted hover:bg-muted/80 text-foreground border border-border shadow-sm transition-all text-sm disabled:opacity-60 cursor-pointer"
+                className="details-secondary-btn w-full py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all text-sm disabled:opacity-60 cursor-pointer"
               >
                 {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                 {isDownloading ? "Preparing package…" : "Download Source ZIP (Owner Access)"}
@@ -1408,7 +1408,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
               type="button"
               onClick={startDownloadFlow}
               disabled={isDownloading}
-              className="details-purchase-btn w-full py-3.5 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 text-white shadow-lg shadow-emerald-500/20 transition-all text-sm cursor-pointer border-0"
+              className="details-purchased-btn w-full py-3.5 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all text-sm cursor-pointer"
             >
               {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
               <span>{isDownloading ? "Preparing Clean Package…" : "Download Source Code (Purchased ✓)"}</span>
@@ -1418,7 +1418,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
               type="button"
               onClick={startDownloadFlow}
               disabled={isDownloading}
-              className="details-purchase-btn w-full py-3.5 px-4 rounded-xl font-bold flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 transition-all text-sm cursor-pointer border-0"
+              className="details-free-btn w-full py-3.5 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all text-sm cursor-pointer"
             >
               {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
               <span>{isDownloading ? "Preparing Download…" : "Download Free Template"}</span>
@@ -1478,21 +1478,21 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
             Marketplace Guarantees
           </span>
           <div className="trust-badges-grid grid grid-cols-2 gap-2 text-[11px]">
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              <span>Lifetime Updates</span>
+            <div className="flex items-center gap-1.5 text-foreground/80">
+              <Check className="w-3.5 h-3.5 shrink-0" style={{ color: '#10b981' }} />
+              <span className="font-medium">Lifetime Updates</span>
             </div>
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <Shield className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              <span>256-Bit SSL Checkout</span>
+            <div className="flex items-center gap-1.5 text-foreground/80">
+              <Shield className="w-3.5 h-3.5 shrink-0" style={{ color: '#10b981' }} />
+              <span className="font-medium">256-Bit SSL Checkout</span>
             </div>
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <Download className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              <span>Instant ZIP Delivery</span>
+            <div className="flex items-center gap-1.5 text-foreground/80">
+              <Download className="w-3.5 h-3.5 shrink-0" style={{ color: '#10b981' }} />
+              <span className="font-medium">Instant ZIP Delivery</span>
             </div>
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <FileText className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              <span>Full Documentation</span>
+            <div className="flex items-center gap-1.5 text-foreground/80">
+              <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: '#10b981' }} />
+              <span className="font-medium">Full Documentation</span>
             </div>
           </div>
         </div>

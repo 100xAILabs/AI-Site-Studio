@@ -312,7 +312,7 @@ class SecurityScanner:
         return {
             "X-Content-Type-Options": "nosniff",
             "Referrer-Policy": "strict-origin-when-cross-origin",
-            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Origin": frontend_origin if frontend.netloc else "*",
             "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
             "Content-Security-Policy": (
@@ -324,7 +324,7 @@ class SecurityScanner:
                 "connect-src 'self' https: http: wss: ws:; "
                 "object-src 'none'; base-uri 'self' https: http:; form-action 'self' https: http:; "
                 f"frame-ancestors {frame_ancestors}; "
-                "sandbox allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox;"
+                "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox;"
             )
         }
 

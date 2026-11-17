@@ -4,7 +4,7 @@ Multi-Tenant Control Plane architecture.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
 from sqlalchemy import ForeignKey, String, Text, Uuid, Boolean, JSON, DateTime, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -168,7 +168,7 @@ class DeploymentLog(UUIDMixin, Base):
     )
     level: Mapped[str] = mapped_column(String(20), default="INFO", nullable=False)  # INFO, WARN, ERROR, SUCCESS
     message: Mapped[str] = mapped_column(Text, nullable=False)
-    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
     # Relationship
     deployment: Mapped["Deployment"] = relationship("Deployment", back_populates="deployment_logs")

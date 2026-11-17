@@ -40,8 +40,8 @@ class Project(UUIDMixin, TimestampMixin, Base):
     configuration: Mapped[Optional[dict]] = mapped_column(JSON, default=dict, nullable=True)
 
     # Relationships
-    user: Mapped["User"] = relationship(lazy="select")
-    template: Mapped[Optional["Template"]] = relationship(lazy="select")
+    user: Mapped["User"] = relationship(foreign_keys=[user_id], lazy="select")
+    template: Mapped[Optional["Template"]] = relationship(foreign_keys=[template_id], lazy="select")
 
     def __repr__(self) -> str:
         return f"<Project {self.name} [{self.status}] user={self.user_id}>"

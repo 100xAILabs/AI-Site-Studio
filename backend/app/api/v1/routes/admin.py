@@ -7,7 +7,7 @@ from math import ceil
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_, and_
 
 from app.core.database import get_db
 from app.core.dependencies import require_admin
@@ -1298,3 +1298,315 @@ async def get_subscription_profitability(
         "highest_cost_subscribers": subscribers_data[:10],
         "loss_making_subscribers": [s for s in subscribers_data if s["health_status"] == "loss_making"],
     }
+
+
+# =========================================================================
+# CREATOR MARKETPLACE MANAGEMENT & MODERATION (PHASE 9)
+# =========================================================================
+
+@router.get("/marketplace/settings")
+async def get_marketplace_settings(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """[Admin] Get global platform commission rate, holding days, and marketplace state."""
+    from app.models.marketplace import MarketplaceSetting
+    from decimal import Decimal
+    result = await db.execute(select(MarketplaceSetting).where(MarketplaceSetting.id == "default"))
+    setting = result.scalar_one_or_none()
+    if not setting:
+        setting = MarketplaceSetting(
+            id="default",
+            platform_commission_percent=Decimal("20.00"),
+            payout_holding_days=7,
+            min_payout_amount=Decimal("10.00"),
+            is_marketplace_active=True,
+        )
+        db.add(setting)
+        await db.commit()
+        await db.refresh(setting)
+
+    return {
+        "platform_commission_percent": float(setting.platform_commission_percent),
+        "payout_holding_days": setting.payout_holding_days,
+        "min_payout_amount": float(setting.min_payout_amount),
+        "is_marketplace_active": setting.is_marketplace_active,
+        "updated_at": setting.updated_at.isoformat() if setting.updated_at else None,
+    }
+
+
+@router.put("/marketplace/settings")
+async def update_marketplace_settings(
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """[Admin] Update platform commission percentage and payout holding duration."""
+    from app.models.marketplace import MarketplaceSetting
+    from decimal import Decimal
+    from datetime import datetime, timezone
+    result = await db.execute(select(MarketplaceSetting).where(MarketplaceSetting.id == "default"))
+    setting = result.scalar_one_or_none()
+    if not setting:
+        setting = MarketplaceSetting(id="default")
+        db.add(setting)
+
+    if "platform_commission_percent" in payload and payload["platform_commission_percent"] is not None:
+        setting.platform_commission_percent = Decimal(str(payload["platform_commission_percent"]))
+    if "payout_holding_days" in payload and payload["payout_holding_days"] is not None:
+        setting.payout_holding_days = int(payload["payout_holding_days"])
+    if "min_payout_amount" in payload and payload["min_payout_amount"] is not None:
+        setting.min_payout_amount = Decimal(str(payload["min_payout_amount"]))
+    if "is_marketplace_active" in payload and payload["is_marketplace_active"] is not None:
+        setting.is_marketplace_active = bool(payload["is_marketplace_active"])
+
+    setting.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(setting)
+
+    return {
+        "message": "Marketplace settings updated successfully.",
+        "platform_commission_percent": float(setting.platform_commission_percent),
+        "payout_holding_days": setting.payout_holding_days,
+        "min_payout_amount": float(setting.min_payout_amount),
+        "is_marketplace_active": setting.is_marketplace_active,
+    }
+
+
+@router.get("/marketplace/submissions")
+async def list_marketplace_submissions(
+    status_filter: Optional[str] = Query(None, description="submitted, under_review, rejected, published"),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """[Admin] List all creator template submissions pending review or moderation."""
+    from sqlalchemy.orm import selectinload
+    from app.models.template import Template, TemplateStatus
+
+    query = (
+        select(Template)
+        .options(selectinload(Template.category), selectinload(Template.seller))
+        .where(
+            Template.seller_id.isnot(None),
+            Template.slug.notlike("%-custom-%"),
+            Template.title.notlike("%(Customized)%"),
+        )
+        .order_by(Template.created_at.desc())
+    )
+
+    if status_filter:
+        try:
+            st = TemplateStatus(status_filter.lower())
+            query = query.where(Template.status == st)
+        except ValueError:
+            pass
+
+    res = await db.execute(query)
+    templates = res.scalars().all()
+
+    items = []
+    for t in templates:
+        seller_tier = t.seller.subscription_tier if t.seller else "free"
+        is_extreme = (
+            getattr(t.seller, "can_retail_templates", False) or
+            getattr(t.seller, "is_extreme_subscriber", False) or
+            seller_tier.lower() in ("extreme", "agency", "enterprise")
+        ) if t.seller else False
+
+        items.append({
+            "id": str(t.id),
+            "title": t.title,
+            "slug": t.slug,
+            "price": float(t.price),
+            "status": t.status.value if hasattr(t.status, "value") else str(t.status),
+            "thumbnail_url": t.thumbnail_url,
+            "preview_url": t.preview_url,
+            "short_description": t.short_description,
+            "description": t.description,
+            "category": t.category.name if t.category else "General",
+            "category_id": str(t.category_id) if t.category_id else None,
+            "tags": t.tags or [],
+            "included_pages": t.included_pages or [],
+            "rejection_reason": t.rejection_reason,
+            "admin_notes": t.admin_notes,
+            "submitted_at": t.submitted_at.isoformat() if t.submitted_at else (t.created_at.isoformat() if t.created_at else None),
+            "reviewed_at": t.reviewed_at.isoformat() if t.reviewed_at else None,
+            "creator": {
+                "id": str(t.seller.id) if t.seller else None,
+                "name": t.seller.full_name or t.seller.username or "Creator",
+                "email": t.seller.email if t.seller else None,
+                "subscription_tier": seller_tier,
+                "is_extreme_eligible": is_extreme,
+            } if t.seller else None,
+        })
+
+    return items
+
+
+@router.post("/marketplace/templates/{template_id}/review")
+async def review_marketplace_template(
+    template_id: uuid.UUID,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """
+    [Admin] Review a creator template submission:
+    - approve / publish: moves template to PUBLISHED so it appears on global marketplace.
+    - reject: moves to REJECTED with mandatory rejection_reason.
+    - suspend: moves to SUSPENDED to halt sales.
+    - under_review: moves to UNDER_REVIEW while inspecting files.
+    """
+    from datetime import datetime, timezone
+    from app.models.template import Template, TemplateStatus
+    from app.services.fast_catalog import fast_catalog
+    from app.core.redis import cache_delete_pattern
+
+    action = str(payload.get("status") or payload.get("action") or "").lower()
+    rejection_reason = payload.get("rejection_reason")
+    admin_notes = payload.get("admin_notes")
+
+    res = await db.execute(select(Template).where(Template.id == template_id))
+    template = res.scalar_one_or_none()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    if action in ("approve", "approved", "publish", "published"):
+        template.status = TemplateStatus.PUBLISHED
+        template.rejection_reason = None
+    elif action in ("reject", "rejected"):
+        template.status = TemplateStatus.REJECTED
+        template.rejection_reason = rejection_reason or "Template did not meet marketplace quality guidelines."
+    elif action in ("suspend", "suspended"):
+        template.status = TemplateStatus.SUSPENDED
+        if rejection_reason:
+            template.rejection_reason = rejection_reason
+    elif action in ("under_review", "review"):
+        template.status = TemplateStatus.UNDER_REVIEW
+    elif action in ("draft",):
+        template.status = TemplateStatus.DRAFT
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid review decision: {action}")
+
+    if admin_notes:
+        template.admin_notes = admin_notes
+    template.reviewed_by_id = _admin.id
+    template.reviewed_at = datetime.now(timezone.utc)
+    template.updated_at = datetime.now(timezone.utc)
+
+    try:
+        await db.commit()
+    except Exception as db_err:
+        err_msg = str(db_err)
+        if "templatestatus" in err_msg or "InvalidTextRepresentationError" in err_msg:
+            await db.rollback()
+            from app.core.database import engine
+            from sqlalchemy import text
+            async with engine.connect() as patch_conn:
+                patch_conn = await patch_conn.execution_options(isolation_level="AUTOCOMMIT")
+                for s_val in [
+                    'DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'PUBLISHED', 'SUSPENDED', 'ARCHIVED',
+                    'draft', 'submitted', 'under_review', 'approved', 'rejected', 'published', 'suspended', 'archived',
+                ]:
+                    try:
+                        await patch_conn.execute(text(f"ALTER TYPE templatestatus ADD VALUE IF NOT EXISTS '{s_val}';"))
+                    except Exception:
+                        pass
+            await db.commit()
+        else:
+            raise
+    await db.refresh(template)
+
+    fast_catalog.invalidate()
+    await cache_delete_pattern("templates:*")
+
+    return {
+        "id": str(template.id),
+        "title": template.title,
+        "status": template.status.value if hasattr(template.status, "value") else str(template.status),
+        "rejection_reason": template.rejection_reason,
+        "admin_notes": template.admin_notes,
+        "reviewed_at": template.reviewed_at.isoformat() if template.reviewed_at else None,
+    }
+
+
+@router.get("/marketplace/creators")
+async def list_marketplace_creators(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """[Admin] Overview of all active creators, their Extreme plan status, templates, and revenue."""
+    from app.models.template import Template, TemplateStatus
+    from app.models.order import Order, OrderItem, OrderStatus
+    from app.models.payment import Payment, PaymentStatus
+    from app.models.withdrawal_request import WithdrawalRequest, WithdrawalStatus
+    from decimal import Decimal
+
+    # Find all users who have created templates or have seller role
+    users_stmt = (
+        select(User)
+        .where(
+            or_(
+                User.role.in_([UserRole.SELLER, UserRole.ADMIN]),
+                User.subscription_tier.in_(["extreme", "agency", "enterprise"]),
+                User.id.in_(select(Template.seller_id).where(Template.seller_id.isnot(None)))
+            )
+        )
+        .order_by(User.created_at.desc())
+    )
+    users_res = await db.execute(users_stmt)
+    creators = users_res.scalars().all()
+
+    creators_data = []
+    for c in creators:
+        # Templates count
+        t_count_stmt = select(
+            func.count(Template.id).label("total"),
+            func.count(Template.id).filter(Template.status == TemplateStatus.PUBLISHED).label("published"),
+            func.count(Template.id).filter(Template.status.in_([TemplateStatus.SUBMITTED, TemplateStatus.UNDER_REVIEW])).label("pending"),
+        ).where(Template.seller_id == c.id)
+        t_res = await db.execute(t_count_stmt)
+        t_counts = t_res.one()
+
+        # Gross sales
+        sales_stmt = (
+            select(func.coalesce(func.sum(OrderItem.price), Decimal("0.00")))
+            .select_from(OrderItem)
+            .join(Order, OrderItem.order_id == Order.id)
+            .join(Payment, Payment.order_id == Order.id)
+            .join(Template, OrderItem.template_id == Template.id)
+            .where(
+                Order.status == OrderStatus.COMPLETED,
+                Payment.status == PaymentStatus.CAPTURED,
+                Template.seller_id == c.id,
+                Order.user_id != c.id,
+            )
+        )
+        sales_res = await db.execute(sales_stmt)
+        gross_sales = sales_res.scalar_one()
+
+        # Paid payouts
+        paid_stmt = select(func.coalesce(func.sum(WithdrawalRequest.amount), Decimal("0.00"))).where(
+            WithdrawalRequest.seller_id == c.id,
+            WithdrawalRequest.status == WithdrawalStatus.PAID,
+        )
+        paid_res = await db.execute(paid_stmt)
+        total_paid_out = paid_res.scalar_one()
+
+        creators_data.append({
+            "id": str(c.id),
+            "name": c.full_name or c.username or "Creator",
+            "email": c.email,
+            "subscription_tier": c.subscription_tier or "free",
+            "is_extreme": bool(c.can_retail_templates or c.is_extreme_subscriber),
+            "total_templates": t_counts.total,
+            "published_templates": t_counts.published,
+            "pending_templates": t_counts.pending,
+            "gross_sales": float(gross_sales),
+            "total_paid_out": float(total_paid_out),
+            "is_active": c.is_active,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+        })
+
+    return creators_data
+

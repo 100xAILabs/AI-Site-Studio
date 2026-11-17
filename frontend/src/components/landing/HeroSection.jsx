@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import Link from "@/components/Link";
 import { useAuthStore } from "@/store/authStore";
+import { useAppUser } from "@/lib/auth";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowRight,
@@ -15,6 +16,7 @@ import {
   Sliders,
   CloudUpload,
   RotateCcw,
+  Crown,
   X,
 } from "lucide-react";
 import {
@@ -179,12 +181,26 @@ const FEATURE_BAR_ITEMS = [
 
 export default function HeroSection() {
   const navigate = useNavigate();
-  const signOut = useAuthStore((s) => s.signOut);
+  const { isSignedIn, user } = useAppUser();
+
+  const isExtreme =
+    isSignedIn &&
+    (Boolean(user?.can_retail_templates) ||
+      Boolean(user?.is_extreme_subscriber) ||
+      ["extreme", "agency", "enterprise"].includes(String(user?.subscription_tier || "").toLowerCase()) ||
+      user?.role === "admin" ||
+      user?.role === "super_admin");
+
+  const subTier = String(user?.subscription_tier || "free").toLowerCase();
+  const isPro = subTier === "pro";
 
   const handleSellTemplateClick = (e) => {
     if (e) e.preventDefault();
-    signOut();
-    navigate("/sign-in?role=seller&from=/dashboard");
+    if (isExtreme) {
+      navigate("/dashboard?tab=creator-studio");
+    } else {
+      navigate("/pricing");
+    }
   };
 
   const [isFlipped, setIsFlipped] = useState(false);
@@ -240,16 +256,51 @@ export default function HeroSection() {
         <div className="hero-split-grid hero-grid-card-right">
           {/* LEFT COLUMN: Headlines, CTAs, Social Proof */}
           <div className="hero-text-column">
-            {/* Pill Badge */}
-            <motion.div
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4 }}
-              className="hero-pill-badge"
-            >
-              <span className="badge-sparkle-dot">✦</span>
-              <span className="badge-text">Build • Customize • Launch</span>
-            </motion.div>
+            {/* User Subscription Status Pill if Signed In, otherwise standard badge */}
+            {isSignedIn ? (
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4 }}
+                className={`hero-subscription-banner ${
+                  isExtreme ? "hero-sub-extreme" : isPro ? "hero-sub-pro" : "hero-sub-free"
+                }`}
+              >
+                {isExtreme ? (
+                  <div className="hero-sub-inner">
+                    <Crown className="w-4 h-4 text-[#dfb180] animate-pulse" />
+                    <span className="hero-sub-title">Extreme Creator Active</span>
+                    <span className="hero-sub-badge">Selling Enabled</span>
+                  </div>
+                ) : isPro ? (
+                  <div className="hero-sub-inner">
+                    <Sparkles className="w-4 h-4 text-[#a78bfa]" />
+                    <span className="hero-sub-title">Pro Plan Active</span>
+                    <Link href="/pricing" className="hero-sub-upgrade-link">
+                      Upgrade to Extreme to Sell →
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="hero-sub-inner">
+                    <span className="hero-sub-free-dot" />
+                    <span className="hero-sub-title">Free Plan Active</span>
+                    <Link href="/pricing" className="hero-sub-upgrade-link">
+                      Upgrade to Extreme to Sell →
+                    </Link>
+                  </div>
+                )}
+              </motion.div>
+            ) : (
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4 }}
+                className="hero-pill-badge"
+              >
+                <span className="badge-sparkle-dot">✦</span>
+                <span className="badge-text">Build • Customize • Launch</span>
+              </motion.div>
+            )}
 
             {/* Main Headline */}
             <motion.h1
@@ -285,16 +336,19 @@ export default function HeroSection() {
                 <ArrowRight className="w-4 h-4 hero-btn-arrow" />
               </Link>
 
-              <button
-                type="button"
-                onClick={handleSellTemplateClick}
-                className="hero-btn-seller"
-                title="Go to Seller Login & Portal"
-              >
-                <ShoppingBag className="w-4 h-4 text-[#dfb180]" />
-                <span>Sell Your Template</span>
-                <ArrowRight className="w-3.5 h-3.5 hero-btn-seller-arrow" />
-              </button>
+              {/* ONLY Extreme plan users can see the Sell Your Template button */}
+              {isExtreme && (
+                <button
+                  type="button"
+                  onClick={handleSellTemplateClick}
+                  className="hero-btn-seller"
+                  title="Open Creator Studio to sell your template"
+                >
+                  <Crown className="w-4 h-4 text-[#dfb180]" />
+                  <span>Sell Your Template</span>
+                  <ArrowRight className="w-3.5 h-3.5 hero-btn-seller-arrow" />
+                </button>
+              )}
             </motion.div>
 
           </div>
