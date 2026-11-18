@@ -6,6 +6,7 @@ for React JSX/TSX, Vue, Svelte, Astro, HTML, and full-stack source files.
 import os
 import re
 import json
+import tempfile
 import logging
 import asyncio
 import subprocess

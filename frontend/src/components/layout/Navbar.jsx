@@ -324,17 +324,26 @@ function NavbarComponent() {
           {/* Sign In & Get Started Free or User Profile */}
           {isSignedIn ? (
             <div className="navbar-auth-group">
-              {/* Extreme Creator Quick Retailing Link */}
-              {isExtreme && (
-                <Link
-                  href="/dashboard?tab=creator-studio"
-                  className="navbar-sell-btn"
-                  title="Open Creator Studio to Sell Templates"
-                >
-                  <ShoppingBag className="w-3.5 h-3.5 text-[#dfb180]" />
-                  <span className="hidden md:inline">Sell Templates</span>
-                </Link>
-              )}
+              {/* Creator Selling / Storefront Link */}
+              <Link
+                href={
+                  isExtreme
+                    ? (user?.is_creator_onboarding_completed
+                        ? "/dashboard?tab=creator-studio"
+                        : "/creator/setup")
+                    : "/creator/setup"
+                }
+                className="navbar-sell-btn"
+                title={isExtreme ? "Sell Templates & Manage Storefront" : "Sell Templates (Extreme Plan)"}
+              >
+                <ShoppingBag className="w-3.5 h-3.5 text-[#dfb180]" />
+                <span className="hidden md:inline">Sell Templates</span>
+                {!isExtreme && (
+                  <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 font-semibold uppercase">
+                    Extreme
+                  </span>
+                )}
+              </Link>
 
               <Link
                 href="/dashboard"
@@ -496,14 +505,33 @@ function NavbarComponent() {
                         {isExtreme ? "Extreme" : subTier === "pro" ? "Pro" : "Free Plan"}
                       </span>
                     </div>
-                    {isExtreme && (
+                    {isExtreme ? (
+                      <>
+                        <Link
+                          href="/dashboard?tab=creator-studio"
+                          className="mobile-link text-[#dfb180] font-bold flex items-center gap-2"
+                          onClick={() => setMobileOpen(false)}
+                        >
+                          <Crown className="w-4 h-4 text-[#dfb180]" />
+                          <span>Creator Studio (Sell Templates)</span>
+                        </Link>
+                        <Link
+                          href={user?.creator_store_slug ? `/creator/${user.creator_store_slug}` : "/creator/setup"}
+                          className="mobile-link text-zinc-300 flex items-center gap-2"
+                          onClick={() => setMobileOpen(false)}
+                        >
+                          <ShoppingBag className="w-4 h-4 text-[#dfb180]" />
+                          <span>{user?.creator_store_slug ? "My Storefront" : "Storefront Setup"}</span>
+                        </Link>
+                      </>
+                    ) : (
                       <Link
-                        href="/dashboard?tab=creator-studio"
-                        className="mobile-link text-[#dfb180] font-bold flex items-center gap-2"
+                        href="/creator/setup"
+                        className="mobile-link text-zinc-300 flex items-center gap-2"
                         onClick={() => setMobileOpen(false)}
                       >
-                        <Crown className="w-4 h-4 text-[#dfb180]" />
-                        <span>Creator Studio (Sell Templates)</span>
+                        <Crown className="w-4 h-4 text-amber-400" />
+                        <span>Sell Templates (Extreme Plan)</span>
                       </Link>
                     )}
                     <Link href="/dashboard" className="mobile-link" onClick={() => setMobileOpen(false)}>

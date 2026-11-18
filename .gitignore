@@ -103,3 +103,4 @@ scratch/
 generated-sites/
 .tmp_*
 generated_projects/
+backend/qdrant_*/

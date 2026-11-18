@@ -6,6 +6,7 @@ Audits uploaded templates, AI-generated codebases, and live preview executions.
 import io
 import re
 import os
+import json
 import shutil
 import zipfile
 import logging
@@ -312,9 +313,6 @@ class SecurityScanner:
         return {
             "X-Content-Type-Options": "nosniff",
             "Referrer-Policy": "strict-origin-when-cross-origin",
-            "Access-Control-Allow-Origin": frontend_origin if frontend.netloc else "*",
-            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
             "Content-Security-Policy": (
                 "default-src 'self' https: data: blob: http:; "
                 "script-src 'self' https: http: 'unsafe-inline' 'unsafe-eval' blob:; "

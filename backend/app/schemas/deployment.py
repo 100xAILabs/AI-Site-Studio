@@ -38,6 +38,21 @@ class DeploymentBase(BaseModel):
             raise ValueError("Output directory must be a safe relative path inside the project.")
         return value
 
+    @field_validator("build_command")
+    @classmethod
+    def validate_build_command(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            return "npm run build"
+        # Disallow shell metacharacters and command chaining
+        disallowed = [";", "&&", "||", "|", "&", ">", "<", "`", "$", "\n", "\r", "\\"]
+        if any(char in value for char in disallowed):
+            raise ValueError("Build command contains illegal characters or command chaining.")
+        parts = value.split()
+        if not parts or parts[0] not in ("npm", "pnpm", "yarn", "npx"):
+            raise ValueError("Build command must invoke a supported package manager (npm, pnpm, yarn, npx).")
+        return value
+
 
 class DeploymentCreate(DeploymentBase):
     pass

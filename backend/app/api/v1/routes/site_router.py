@@ -8,6 +8,7 @@ Strict Data Plane Isolation:
 """
 
 import os
+import html
 import time
 import asyncio
 import mimetypes
@@ -21,7 +22,7 @@ from app.services.security_scanner import security_scanner
 from app.core.database import AsyncSessionLocal
 from app.models.deployment import Deployment, DeploymentLog, Domain
 from app.models.hosting_subscription import HostingSubscription
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 router = APIRouter(tags=["Tenant Workload Sites"])
 
@@ -135,6 +136,7 @@ async def serve_tenant_workload(
     if not site_dir:
         resolved_site_id = None
         trial_exp_timestamp = None
+        deployment = None
         try:
             async with AsyncSessionLocal() as session:
                 stmt = select(Deployment).where(
@@ -216,7 +218,7 @@ async def serve_tenant_workload(
                                 ".btn:hover{background:#dfb180}</style></head>"
                                 "<body><div class='card'>"
                                 "<h1>7-Day Free Trial Expired</h1>"
-                                f"<p>The 7-day free trial period for <strong>{deployment.project_name or 'this website'}</strong> has ended. Upgrade to <strong>Studio Pro</strong> to restore permanent live cloud edge hosting and connect custom domains.</p>"
+                                f"<p>The 7-day free trial period for <strong>{html.escape(str(deployment.project_name or 'this website'))}</strong> has ended. Upgrade to <strong>Studio Pro</strong> to restore permanent live cloud edge hosting and connect custom domains.</p>"
                                 "<a class='btn' href='/pricing'>Upgrade to Pro &amp; Restore Live Site</a>"
                                 "</div></body></html>",
                                 status_code=402,
@@ -226,23 +228,17 @@ async def serve_tenant_workload(
             if settings.ENVIRONMENT == "production":
                 return HTMLResponse("Hosting status is temporarily unavailable.", status_code=503)
 
+        if not deployment:
+            raise HTTPException(status_code=404, detail=f"Tenant website deployment '{site_identifier}' not found or inactive.")
+
         target_id = (resolved_site_id or clean_site_id).upper()
         site_dir = _DEPLOYMENTS_ROOT / target_id / "current"
 
         if not site_dir.exists():
-            matching_site = None
-            if _DEPLOYMENTS_ROOT.exists():
-                for folder in _DEPLOYMENTS_ROOT.iterdir():
-                    if folder.is_dir() and (folder.name.upper() == target_id or folder.name.upper() == clean_site_id):
-                        matching_site = folder / "current"
-                        break
-            if matching_site and matching_site.exists():
-                site_dir = matching_site
-            else:
-                from app.services.deployment_deep_analyzer import _resolve_site_current_dir
-                deep_dir = _resolve_site_current_dir(deployment, target_id)
-                if deep_dir and deep_dir.exists():
-                    site_dir = deep_dir
+            from app.services.deployment_deep_analyzer import _resolve_site_current_dir
+            deep_dir = _resolve_site_current_dir(deployment, target_id)
+            if deep_dir and deep_dir.exists():
+                site_dir = deep_dir
 
         if not site_dir or not site_dir.exists():
             raise HTTPException(status_code=404, detail=f"Tenant website deployment '{site_identifier}' not found or inactive.")

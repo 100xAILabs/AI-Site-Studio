@@ -4,6 +4,7 @@ Templates routes — public browsing and admin CRUD.
 
 import uuid
 import os
+import io
 import tempfile
 import logging
 from pathlib import Path
@@ -225,11 +226,71 @@ async def list_my_templates(
     query = (
         select(Template)
         .options(selectinload(Template.category).selectinload(Category.children))
-        .where(Template.seller_id == current_user.id)
+        .where(
+            Template.seller_id == current_user.id,
+            Template.is_deleted.is_(False),
+        )
         .order_by(Template.created_at.desc())
     )
     result = await db.execute(query)
     return result.scalars().all()
+
+
+@router.get("/trash")
+async def get_user_trash(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get soft-deleted templates/drafts belonging to the current user (retained for 7 days).
+    """
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import select, or_
+    from app.models.template import Template
+
+    now = datetime.now(timezone.utc)
+    seven_days_ago = now - timedelta(days=7)
+    stmt = (
+        select(Template)
+        .where(
+            Template.is_deleted.is_(True),
+            Template.deleted_at >= seven_days_ago,
+            or_(
+                Template.seller_id == current_user.id,
+                getattr(Template, "creator_id", Template.seller_id) == current_user.id
+            )
+        )
+        .order_by(Template.deleted_at.desc())
+    )
+    res = await db.execute(stmt)
+    items = res.scalars().all()
+
+    result = []
+    for item in items:
+        del_at = item.deleted_at or now
+        if del_date := getattr(item, "deleted_at", None):
+            if del_date.tzinfo is None:
+                del_at = del_date.replace(tzinfo=timezone.utc)
+            else:
+                del_at = del_date
+        expires_at = del_at + timedelta(days=7)
+        seconds_left = max(0, int((expires_at - now).total_seconds()))
+        days_left = max(0, int(seconds_left / 86400))
+        result.append({
+            "id": str(item.id),
+            "title": item.title,
+            "slug": item.slug,
+            "thumbnail_url": item.thumbnail_url,
+            "preview_url": item.preview_url,
+            "price": float(item.price) if item.price else 0.0,
+            "framework": item.framework.value if hasattr(item.framework, "value") else str(item.framework or "HTML"),
+            "template_origin": getattr(item, "template_origin", "custom_draft"),
+            "deleted_at": del_at.isoformat(),
+            "expires_at": expires_at.isoformat(),
+            "days_left": days_left,
+            "seconds_left": seconds_left,
+        })
+    return result
 
 
 @router.get("/git-repos")
@@ -302,8 +363,8 @@ async def get_template(
     """Get full template details by slug or ID with Redis multi-tier caching."""
     cache_key = CacheKeys.template(slug)
     cached = await cache_get(cache_key)
-    if cached is not None and str(cached.get("status", "")).lower() != TemplateStatus.PUBLISHED.value:
-        # Never let a prior cache entry bypass owner checks for a private AI Studio draft.
+    if cached is not None and (str(cached.get("status", "")).lower() != TemplateStatus.PUBLISHED.value or cached.get("is_deleted")):
+        # Never let a prior cache entry bypass owner checks for a private AI Studio draft or soft-deleted template.
         cached = None
     if cached is not None:
         try:
@@ -654,9 +715,14 @@ async def retail_generated_template(
         template.submitted_at = datetime.now(timezone.utc)
         template.rejection_reason = None
 
-    template.is_marketplace = True
-    template.developer_name = current_user.full_name or current_user.username or "Studio Creator"
-    if current_user.avatar_url:
+    dist = (current_user.storefront_distribution or "both").lower()
+    template.is_marketplace = (dist != "storefront")
+    template.developer_name = (
+        current_user.creator_brand_name or current_user.full_name or current_user.username or "Studio Creator"
+    )
+    if current_user.creator_logo_url:
+        template.developer_avatar = current_user.creator_logo_url
+    elif current_user.avatar_url:
         template.developer_avatar = current_user.avatar_url
     template.updated_at = datetime.now(timezone.utc)
 
@@ -922,18 +988,13 @@ async def purge_custom_drafts(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Deletes all customized draft templates, studio creator projects, and edited files
-    created by the current user.
+    Soft-deletes all customized draft templates and studio creator projects
+    owned by the current user. Items are moved to Trash for 7 days (1 month for admin recovery).
     """
-    import shutil
+    from datetime import datetime, timezone
     from sqlalchemy import or_, select
 
-    service = TemplateService(db)
-
-    # 1. Query all draft/custom templates
-    role_val = getattr(current_user.role, "value", str(current_user.role)).lower()
-    is_admin = role_val in ("admin", "super_admin")
-
+    # Strictly scope to caller's own account to prevent inadvertent cross-tenant deletion
     filters = [
         or_(
             Template.status == TemplateStatus.DRAFT,
@@ -943,68 +1004,34 @@ async def purge_custom_drafts(
             Template.title.like("%(Customized)%"),
             Template.is_marketplace.is_(False),
             Template.template_origin.in_(["studio", "custom_draft"]),
-        )
+        ),
+        Template.is_deleted.is_(False),
+        or_(
+            Template.seller_id == current_user.id,
+            getattr(Template, "creator_id", Template.seller_id) == current_user.id,
+        ),
     ]
-    if not is_admin:
-        filters.append(
-            or_(
-                Template.seller_id == current_user.id,
-                getattr(Template, "creator_id", Template.seller_id) == current_user.id
-            )
-        )
 
     stmt = select(Template).where(*filters)
     res = await db.execute(stmt)
     drafts_to_delete = res.scalars().all()
 
+    now = datetime.now(timezone.utc)
     deleted_ids = []
     for d in drafts_to_delete:
+        d.is_deleted = True
+        d.deleted_at = now
+        d.deleted_by_id = current_user.id
         deleted_ids.append(str(d.id))
-        try:
-            await service.delete_template(d.id, current_user)
-        except Exception as del_err:
-            logger.warning(f"Error deleting draft {d.id}: {del_err}")
 
-    # 2. Delete local project directories for drafts from generated_projects/
-    possible_roots = [
-        Path(__file__).resolve().parents[4],
-        Path(__file__).resolve().parents[5] if len(Path(__file__).resolve().parents) > 5 else None,
-        Path.cwd(),
-    ]
-    seen_dirs = set()
-    for r in possible_roots:
-        if r and (r / "generated_projects").is_dir():
-            gen_proj_dir = (r / "generated_projects").resolve()
-            if gen_proj_dir in seen_dirs:
-                continue
-            seen_dirs.add(gen_proj_dir)
-            for entry in os.listdir(gen_proj_dir):
-                if any(d_id in entry for d_id in deleted_ids):
-                    try:
-                        full_p = gen_proj_dir / entry
-                        if full_p.is_dir():
-                            shutil.rmtree(full_p, ignore_errors=True)
-                        elif full_p.is_file():
-                            full_p.unlink(missing_ok=True)
-                    except Exception:
-                        pass
-
-    # 3. Clean up temp live previews
-    temp_dirs = [
-        os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews"),
-        os.path.join(tempfile.gettempdir(), "ai_site_studio_previews"),
-    ]
-    for temp_prev_dir in temp_dirs:
-        if os.path.isdir(temp_prev_dir):
-            for entry in os.listdir(temp_prev_dir):
-                if any(d_id in entry for d_id in deleted_ids):
-                    try:
-                        shutil.rmtree(os.path.join(temp_prev_dir, entry), ignore_errors=True)
-                    except Exception:
-                        pass
-
+    await db.commit()
     fast_catalog.invalidate()
-    return {"status": "success", "deleted_count": len(deleted_ids), "deleted_ids": deleted_ids}
+    return {
+        "status": "success",
+        "deleted_count": len(deleted_ids),
+        "deleted_ids": deleted_ids,
+        "message": "Custom draft projects moved to trash. Retained for 7 days (30 days for admin recovery).",
+    }
 
 
 @router.delete("/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1013,10 +1040,37 @@ async def delete_template(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Delete a template or studio project. Admins can delete any template; users can delete their own."""
+    """
+    Soft-delete a template or studio project into Trash.
+    Users can recover their deleted items within 7 days.
+    Admins can recover within 30 days or delete permanently.
+    """
+    t_uuid = uuid.UUID(str(template_id))
     service = TemplateService(db)
-    await service.delete_template(template_id, current_user)
+    await service.delete_template(t_uuid, current_user)
     fast_catalog.invalidate()
+
+
+@router.post("/{template_id}/restore")
+async def restore_template(
+    template_id: str | uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Restore a soft-deleted template or draft from Trash.
+    Users can restore their items within 7 days.
+    Admins can restore any item within 30 days.
+    """
+    t_uuid = uuid.UUID(str(template_id))
+    service = TemplateService(db)
+    restored = await service.restore_template(t_uuid, current_user)
+    return {
+        "status": "success",
+        "message": f"Successfully restored '{restored.title}' from trash.",
+        "id": str(restored.id),
+        "slug": restored.slug,
+    }
 
 
 @router.post("/{template_id}/download")
@@ -1053,7 +1107,7 @@ async def download_template(
         .where(
             Order.user_id == current_user.id,
             Order.status == OrderStatus.COMPLETED,
-            OrderItem.template_id == template_id,
+            OrderItem.template_id == template.id,
         )
         .order_by(Order.created_at.desc())
         .limit(1)
@@ -1066,32 +1120,29 @@ async def download_template(
     selected_lic = str(license or "regular").lower()
     from app.services.watermark_service import user_qualifies_for_clean_template
 
-    CLEAN_LICENSES = ("extended", "commercial", "agency", "unlimited", "pro", "full_access", "full-access", "full", "white_label", "whitelabel")
-    is_authorized = is_admin or is_authorized_creator or bool(template.is_free) or has_purchased
+    # Free downloads are completely removed: only verified purchasers, creators, or platform admins can download source packages.
+    # Non-purchasers can freely evaluate templates via the interactive Live Demo canvas.
+    is_authorized = is_admin or is_authorized_creator or has_purchased
 
     if not is_authorized:
-        # All users can download with watermark for evaluation.
-        # But to get clean code without watermark, they MUST pay the template fee (even Extreme users).
-        if selected_lic in CLEAN_LICENSES:
-            raise HTTPException(
-                status_code=403,
-                detail="Purchase required to download clean source code without watermark. All users can download with watermark for free evaluation, or purchase the template to unlock the clean version."
-            )
-        is_clean = False
-    else:
-        # User purchased the template or has admin/creator access:
-        is_clean = user_qualifies_for_clean_template(
-            user=current_user,
-            template=template,
-            order_item=order_item_obj,
-            license_type=selected_lic
+        raise HTTPException(
+            status_code=403,
+            detail="Source code download is restricted: You must purchase this template to download its clean source code. Try our interactive free live demo to preview and evaluate all features."
         )
 
-    await template_repo.increment_downloads(template_id)
+    # User purchased the template or has admin/creator access -> receives 100% clean, watermarkless source code:
+    is_clean = user_qualifies_for_clean_template(
+        user=current_user,
+        template=template,
+        order_item=order_item_obj,
+        license_type=selected_lic
+    )
+
+    await template_repo.increment_downloads(template.id)
 
     download_log = Download(
         user_id=current_user.id,
-        template_id=template_id,
+        template_id=template.id,
     )
     db.add(download_log)
     await db.flush()
@@ -1117,13 +1168,15 @@ async def download_template(
         expires_delta=timedelta(minutes=30),
         role=getattr(current_user.role, "value", str(current_user.role))
     )
+    target_edition = "clean" if is_clean else "watermarked"
+    edition_param = f"&edition={target_edition}"
     token_param = f"&token={quote_plus(download_jwt)}"
-    extra_params = f"{lic_param}{tmpl_param}{token_param}"
+    extra_params = f"{lic_param}{tmpl_param}{edition_param}{token_param}"
 
     if file_uuid:
         file_id_str = str(file_uuid)
         expires = int(datetime.now(timezone.utc).timestamp()) + 900  # 15 minutes download validity
-        signature = generate_file_signature(file_id_str, expires)
+        signature = generate_file_signature(file_id_str, expires, edition=target_edition)
 
         # Build clean download URL using current request host or configured storage URL
         if request and request.base_url:
@@ -1146,7 +1199,7 @@ async def download_template(
         f_uuid = uuid.UUID(raw_id)
         file_id_str = str(f_uuid)
         expires = int(datetime.now(timezone.utc).timestamp()) + 900  # 15 minutes download validity
-        signature = generate_file_signature(file_id_str, expires)
+        signature = generate_file_signature(file_id_str, expires, edition=target_edition)
         if request and request.base_url:
             base_url = str(request.base_url).rstrip("/")
             download_url = f"{base_url}/api/v1/files/{file_id_str}?expires={expires}&signature={signature}{extra_params}"

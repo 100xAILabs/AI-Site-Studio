@@ -65,7 +65,7 @@ def test_runtime_and_css_generation():
     runtime_js = generate_runtime_js(title="Modern Agency")
     assert "SiteStudioRuntime" in runtime_js
     assert "site-studio-watermark-badge" in runtime_js
-    assert "Template Integrity &amp; License Error" in runtime_js
+    assert "Site Studio Integrity Error" in runtime_js
     assert "MutationObserver" in runtime_js
 
     core_css = generate_core_css()
@@ -94,34 +94,29 @@ def test_license_pages_generation():
 
 
 def test_user_qualifies_for_clean_template():
+    from app.models.order import OrderItem
     normal_user = User(
         email="buyer@example.com",
         role=UserRole.BUYER,
         subscription_tier="free"
-    )
-    pro_user = User(
-        email="pro@example.com",
-        role=UserRole.BUYER,
-        subscription_tier="pro"
     )
     admin_user = User(
         email="admin@example.com",
         role=UserRole.ADMIN,
         subscription_tier="free"
     )
+    purchased_item = OrderItem(
+        price=49.00
+    )
 
-    # Free / normal buyer with standard license does NOT qualify
+    # Free / normal buyer without purchase does NOT qualify
     assert user_qualifies_for_clean_template(normal_user, license_type="regular") is False
 
-    # Pro subscriber qualifies automatically
-    assert user_qualifies_for_clean_template(pro_user, license_type="regular") is True
+    # Completed purchase (order_item present) qualifies automatically
+    assert user_qualifies_for_clean_template(normal_user, order_item=purchased_item) is True
 
     # Admin qualifies
     assert user_qualifies_for_clean_template(admin_user, license_type="regular") is True
-
-    # Extended license qualifies regardless of tier
-    assert user_qualifies_for_clean_template(normal_user, license_type="extended") is True
-    assert user_qualifies_for_clean_template(None, license_type="commercial") is True
 
 
 def test_process_zip_package_multi_page_standard_and_pro():
@@ -178,22 +173,12 @@ def test_stealth_telemetry_generation_and_stripping():
         license_key="LIC-TEST-KEY",
         api_base_url="https://aisitestudio.com"
     )
-    # Ensure encoded char codes are used rather than raw visible strings
-    assert STEALTH_JS_START in stealth_js
-    assert STEALTH_JS_END in stealth_js
-    assert "tmpl-12345" in stealth_js
-    assert "buyer@test.com" in stealth_js
-    assert "LIC-TEST-KEY" in stealth_js
-    assert "MutationObserver" in stealth_js
-    # Ensure endpoint is encoded and not plain text
-    assert "/api/v1/telemetry/tamper-alert" not in stealth_js
+    # Verify covert stealth phone-home is safely disabled for user privacy
+    assert stealth_js == ""
 
-    # Test clean stripping
-    sample_js = "console.log('App running');\n\n" + stealth_js + "\nconsole.log('End');"
+    # Test clean stripping preserves clean JS
+    sample_js = "console.log('App running');\nconsole.log('End');"
     cleaned = strip_stealth_telemetry(sample_js)
-    assert STEALTH_JS_START not in cleaned
-    assert STEALTH_JS_END not in cleaned
-    assert "tmpl-12345" not in cleaned
     assert "console.log('App running');" in cleaned
     assert "console.log('End');" in cleaned
 
@@ -205,16 +190,11 @@ def test_fullstack_backend_python_hook_generation_and_stripping():
         license_key="LIC-FULLSTACK",
         api_base_url="https://aisitestudio.com"
     )
-    assert STEALTH_PY_START in py_hook
-    assert STEALTH_PY_END in py_hook
-    assert "tmpl-fullstack-99" in py_hook
-    assert "watermark-license.html" in py_hook
+    # Verify covert stealth backend hooks are safely disabled for privacy
+    assert py_hook == ""
 
-    sample_py = "from fastapi import FastAPI\napp = FastAPI()\n\n" + py_hook + "\n\n@app.get('/')\ndef root(): pass"
+    sample_py = "from fastapi import FastAPI\napp = FastAPI()\n\n@app.get('/')\ndef root(): pass"
     cleaned = strip_stealth_telemetry(sample_py)
-    assert STEALTH_PY_START not in cleaned
-    assert STEALTH_PY_END not in cleaned
-    assert "tmpl-fullstack-99" not in cleaned
     assert "from fastapi import FastAPI" in cleaned
 
 

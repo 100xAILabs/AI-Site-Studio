@@ -4,13 +4,14 @@ Accepts client-side crash diagnostics from the React Error Boundary
 and stealth tamper alerts from watermarked template runtime guards.
 """
 
+import uuid
 import datetime
 import json
 import logging
 from typing import Any, List, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -162,13 +163,15 @@ async def receive_tamper_alert(
     # Look up template title if available
     template_title = None
     try:
-        stmt = select(Template.title).where(
-            (Template.id == template_id) | (Template.slug == template_id)
-        )
-        t_res = await db.execute(stmt)
-        template_title = t_res.scalar_one_or_none()
-    except Exception:
-        pass
+        t_uuid = uuid.UUID(str(template_id))
+    except (ValueError, TypeError, AttributeError):
+        t_uuid = None
+    conditions = [Template.slug == str(template_id)]
+    if t_uuid:
+        conditions.append(Template.id == t_uuid)
+    stmt = select(Template.title).where(or_(*conditions))
+    t_res = await db.execute(stmt)
+    template_title = t_res.scalar_one_or_none()
 
     # Save to tamper_alerts table
     alert = TamperAlert(

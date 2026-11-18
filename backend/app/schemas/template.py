@@ -131,11 +131,6 @@ class TemplateUpdate(BaseModel):
     compatibility: Optional[List[str]] = None
     version: Optional[str] = None
     license_type: Optional[TemplateLicense] = None
-    status: Optional[TemplateStatus] = None
-    is_featured: Optional[bool] = None
-    is_bestseller: Optional[bool] = None
-    developer_name: Optional[str] = None
-    developer_avatar: Optional[str] = None
     download_assets: Optional[Dict[str, str]] = None
     changelog: Optional[Dict[str, Any]] = None
     included_pages: Optional[List[str]] = None
@@ -152,6 +147,15 @@ class TemplateUpdate(BaseModel):
         if "extended" in s or "unlimited" in s:
             return TemplateLicense.EXTENDED
         return TemplateLicense.REGULAR
+
+
+class TemplateAdminUpdate(TemplateUpdate):
+    status: Optional[TemplateStatus] = None
+    is_featured: Optional[bool] = None
+    is_bestseller: Optional[bool] = None
+    developer_name: Optional[str] = None
+    developer_avatar: Optional[str] = None
+    seller_id: Optional[uuid.UUID] = None
 
 
 class TemplateResponse(BaseModel):

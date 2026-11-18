@@ -4,7 +4,8 @@ WebSocket Live Session endpoint for real-time multi-account connection monitorin
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
-from app.core.security import decode_token
+from app.core.security import authenticate_token
+from app.core.database import async_session_maker
 from jose import JWTError
 
 router = APIRouter()
@@ -42,14 +43,15 @@ async def websocket_session_endpoint(
         auth_frame = await asyncio.wait_for(websocket.receive_text(), timeout=10)
         auth_message = json.loads(auth_frame)
         token = auth_message.get("token", "") if auth_message.get("type") == "auth" else ""
-        payload = decode_token(token)
-        user_id = payload.get("sub")
-        if not user_id:
+        if not token:
             try:
                 await websocket.close(code=4001)
             except Exception:
                 pass
             return
+        async with async_session_maker() as db:
+            user = await authenticate_token(db, token, expected_type="access")
+            user_id = str(user.id)
     except WebSocketDisconnect:
         return
     except Exception:

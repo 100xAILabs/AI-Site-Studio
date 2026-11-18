@@ -230,12 +230,45 @@ function AdminPanel() {
     },
   });
 
-  // Delete Template Mutation
+  // Delete Template Mutation (moves to trash with 30-day retention)
   const deleteTemplateMutation = useMutation({
     mutationFn: (templateId) => api.delete(`/templates/${templateId}`, authToken ?? undefined),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-templates"] });
+      qc.invalidateQueries({ queryKey: ["admin-trash"] });
       qc.invalidateQueries({ queryKey: ["admin-stats"] });
+    },
+  });
+
+  // Admin Trash Query & Recovery / Permanent Delete Mutations (30-day retention)
+  const { data: adminTrash = [], isLoading: adminTrashLoading, refetch: refetchAdminTrash } = useQuery({
+    queryKey: ["admin-trash"],
+    queryFn: () => api.get("/admin/templates/trash", authToken ?? undefined),
+    enabled: !!authToken && activeTab === "trash",
+  });
+
+  const restoreAdminTemplateMutation = useMutation({
+    mutationFn: (templateId) => api.post(`/admin/templates/${templateId}/restore`, {}, authToken ?? undefined),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-trash"] });
+      qc.invalidateQueries({ queryKey: ["admin-templates"] });
+      qc.invalidateQueries({ queryKey: ["admin-stats"] });
+      alert("Template restored successfully!");
+    },
+    onError: (err) => {
+      alert("Failed to restore: " + (err.message || "Please try again"));
+    },
+  });
+
+  const permanentDeleteAdminTemplateMutation = useMutation({
+    mutationFn: (templateId) => api.delete(`/admin/templates/${templateId}/permanent`, authToken ?? undefined),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-trash"] });
+      qc.invalidateQueries({ queryKey: ["admin-stats"] });
+      alert("Template permanently purged from database and storage.");
+    },
+    onError: (err) => {
+      alert("Failed to permanently delete: " + (err.message || "Please try again"));
     },
   });
 
@@ -335,6 +368,7 @@ function AdminPanel() {
               { id: "users", label: "Users & Usage", icon: Users },
               { id: "moderation", label: "Moderation & Payouts", icon: Layers },
               { id: "templates", label: "Templates", icon: FileCode },
+              { id: "trash", label: "Trash & Recovery", icon: Trash2 },
               { id: "categories", label: "Categories", icon: Layers },
             ].map((tab) => {
               const Icon = tab.icon;
@@ -760,7 +794,7 @@ function AdminPanel() {
                                 </button>
                                 <button
                                   onClick={() => {
-                                    if (window.confirm(`Delete "${item.title}"? This cannot be undone.`)) {
+                                    if (window.confirm(`Move "${item.title}" to trash? You can recover it within 30 days.`)) {
                                       deleteTemplateMutation.mutate(item.id);
                                     }
                                   }}
@@ -773,6 +807,119 @@ function AdminPanel() {
                                   ) : (
                                     <Trash2 className="w-4 h-4" />
                                   )}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* TRASH & RECOVERY (30 DAYS) */}
+            {activeTab === "trash" && (
+              <div className="admin-table-container">
+                <div className="p-6 flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-base flex items-center gap-2">
+                      <Trash2 className="w-5 h-5 text-rose-400" />
+                      Trash &amp; Retention Archive (30 Days)
+                    </h3>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Templates and drafts soft-deleted across the platform. Stored for 30 days before automatic cleanup. You can recover or permanently purge them.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => refetchAdminTrash()}
+                    className="admin-btn-secondary flex items-center gap-1.5 text-xs px-3 py-1.5"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Refresh
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="admin-table">
+                    <thead>
+                      <tr className="admin-tr">
+                        <th className="admin-th">Template Title</th>
+                        <th className="admin-th">Creator / Seller</th>
+                        <th className="admin-th">Framework</th>
+                        <th className="admin-th">Deleted At</th>
+                        <th className="admin-th">Days Left</th>
+                        <th className="admin-th text-right" style={{ textAlign: "right" }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50 text-sm">
+                      {adminTrashLoading ? (
+                        <tr>
+                          <td colSpan={6} className="p-8 text-center text-muted-foreground">
+                            <Loader2 className="w-5 h-5 animate-spin mx-auto text-primary" />
+                          </td>
+                        </tr>
+                      ) : adminTrash?.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="p-8 text-center text-muted-foreground">
+                            No soft-deleted templates in trash.
+                          </td>
+                        </tr>
+                      ) : (
+                        adminTrash.map((item) => (
+                          <tr key={item.id} className="admin-tr">
+                            <td className="admin-td font-semibold">
+                              <div>{item.title}</div>
+                              <div className="text-xs text-muted-foreground font-mono">{item.slug}</div>
+                            </td>
+                            <td className="admin-td text-xs">
+                              <div>{item.seller_name || "Platform Creator"}</div>
+                              <div className="text-muted-foreground">{item.seller_email || "N/A"}</div>
+                            </td>
+                            <td className="admin-td font-mono text-xs uppercase">{item.framework ?? "HTML"}</td>
+                            <td className="admin-td text-xs text-muted-foreground">
+                              {item.deleted_at ? new Date(item.deleted_at).toLocaleDateString() : "Recently"}
+                            </td>
+                            <td className="admin-td">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                <Clock className="w-3 h-3" />
+                                {item.days_left}d left
+                              </span>
+                            </td>
+                            <td className="admin-td text-right">
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  onClick={() => {
+                                    if (window.confirm(`Recover "${item.title}" back to active status?`)) {
+                                      restoreAdminTemplateMutation.mutate(item.id);
+                                    }
+                                  }}
+                                  disabled={restoreAdminTemplateMutation.isPending}
+                                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 transition-colors disabled:opacity-40 cursor-pointer"
+                                  title="Restore template"
+                                >
+                                  {restoreAdminTemplateMutation.isPending ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <RefreshCw className="w-3.5 h-3.5" />
+                                  )}
+                                  <span>Recover</span>
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    if (window.confirm(`Permanently delete "${item.title}"? This will purge all database records, previews, and storage assets immediately.`)) {
+                                      permanentDeleteAdminTemplateMutation.mutate(item.id);
+                                    }
+                                  }}
+                                  disabled={permanentDeleteAdminTemplateMutation.isPending}
+                                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 flex items-center gap-1 transition-colors disabled:opacity-40 cursor-pointer"
+                                  title="Delete permanently"
+                                >
+                                  {permanentDeleteAdminTemplateMutation.isPending ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  )}
+                                  <span>Purge Now</span>
                                 </button>
                               </div>
                             </td>

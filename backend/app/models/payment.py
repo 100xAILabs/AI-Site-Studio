@@ -53,7 +53,7 @@ class Payment(UUIDMixin, TimestampMixin, Base):
 
     # Gateway-specific IDs
     gateway_payment_id: Mapped[Optional[str]] = mapped_column(String(255), index=True)
-    gateway_order_id: Mapped[Optional[str]] = mapped_column(String(255))
+    gateway_order_id: Mapped[Optional[str]] = mapped_column(String(255), index=True)
     gateway_signature: Mapped[Optional[str]] = mapped_column(String(500))
 
     amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)

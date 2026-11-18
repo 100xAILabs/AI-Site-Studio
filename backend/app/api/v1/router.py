@@ -8,7 +8,8 @@ from app.api.v1.routes import (
     auth, templates, categories, search,
     orders, payment, reviews, favorites,
     wishlist, dashboard, admin, preview, ai, files, follows, deployments,
-    payouts, ws, incidents, telemetry, storefront, studio, subscriptions,
+    payouts, ws, incidents, telemetry, storefront, studio, subscriptions, creator,
+    workload_receiver,
 )
 
 api_router = APIRouter()
@@ -36,4 +37,6 @@ api_router.include_router(ws.router,          prefix="/ws",          tags=["WebS
 api_router.include_router(incidents.router,   prefix="/incidents",   tags=["Incidents"])
 api_router.include_router(telemetry.router,   prefix="/telemetry",   tags=["Telemetry"])
 api_router.include_router(storefront.router,  prefix="/storefront",  tags=["Storefront"])
+api_router.include_router(creator.router,     prefix="/creator",     tags=["Creator"])
+api_router.include_router(workload_receiver.router, prefix="",       tags=["Workload Node Receiver"])
 

@@ -178,6 +178,19 @@ export default function RetailTemplateModal({
             </div>
 
             <div className="rtm-actions-row">
+              {user?.creator_store_slug && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    navigate(`/creator/${user.creator_store_slug}`);
+                  }}
+                  className="rtm-btn-secondary"
+                >
+                  <span>View on My Storefront</span>
+                  <ExternalLink className="w-4 h-4 ml-1.5" />
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -186,7 +199,7 @@ export default function RetailTemplateModal({
                 }}
                 className="rtm-btn-primary"
               >
-                <span>View Live Marketplace Listing</span>
+                <span>View Marketplace Listing</span>
                 <ExternalLink className="w-4 h-4 ml-1.5" />
               </button>
               <button type="button" onClick={onClose} className="rtm-btn-secondary">

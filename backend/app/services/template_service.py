@@ -6,6 +6,7 @@ import uuid
 import os
 from typing import List, Optional, Tuple
 from math import ceil
+from datetime import datetime, timezone, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -258,10 +259,20 @@ class TemplateService:
         response.is_purchased = is_purchased
         return response
 
-    async def is_purchased_by_user(self, user_id: uuid.UUID, template_id: uuid.UUID) -> bool:
+    async def is_purchased_by_user(self, user_id: uuid.UUID | str, template_id: uuid.UUID | str) -> bool:
         """Check if user has an active completed order for this template."""
         from app.models.order import Order, OrderItem, OrderStatus
         from sqlalchemy import select
+        if isinstance(user_id, str):
+            try:
+                user_id = uuid.UUID(user_id)
+            except (ValueError, TypeError):
+                return False
+        if isinstance(template_id, str):
+            try:
+                template_id = uuid.UUID(template_id)
+            except (ValueError, TypeError):
+                return False
         stmt = (
             select(Order.id)
             .join(OrderItem, OrderItem.order_id == Order.id)
@@ -309,7 +320,7 @@ class TemplateService:
     async def delete_template(
         self, template_id: uuid.UUID, current_user: Optional[User] = None
     ) -> None:
-        template = await self.repo.get_by_id(template_id)
+        template = await self.repo.get_by_id(template_id, include_deleted=True)
         if not template:
             raise HTTPException(status_code=404, detail="Template not found")
 
@@ -327,16 +338,116 @@ class TemplateService:
                         detail="You can only delete your own templates or studio projects.",
                     )
 
+        # Soft delete: move to trash for retention (1 week user, 30 days admin)
+        template.is_deleted = True
+        template.deleted_at = datetime.now(timezone.utc)
+        template.deleted_by_id = current_user.id if current_user else None
+        await self.db.commit()
+
+        # Invalidate caches
+        try:
+            from app.core.redis import cache_delete, cache_delete_pattern, CacheKeys
+            from app.services.fast_catalog import fast_catalog
+            if hasattr(template, "slug") and template.slug:
+                await cache_delete(CacheKeys.template(template.slug))
+            await cache_delete(CacheKeys.template(str(template_id)))
+            await cache_delete_pattern("templates:featured:*")
+            fast_catalog.invalidate()
+        except Exception:
+            pass
+
+    async def restore_template(
+        self, template_id: uuid.UUID, current_user: Optional[User] = None
+    ) -> Template:
+        template = await self.repo.get_by_id(template_id, include_deleted=True)
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        if not template.is_deleted:
+            return template
+
+        is_admin = False
+        if current_user:
+            role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+            is_admin = str(role_val).lower() in ("admin", "super_admin")
+
+        now = datetime.now(timezone.utc)
+        del_date = template.deleted_at or now
+        if del_date.tzinfo is None:
+            del_date = del_date.replace(tzinfo=timezone.utc)
+
+        if not is_admin:
+            # Regular user must be the owner
+            creator_id = getattr(template, "creator_id", None)
+            seller_id = getattr(template, "seller_id", None)
+            user_id_str = str(current_user.id) if current_user else ""
+            if str(seller_id or "") != user_id_str and str(creator_id or "") != user_id_str:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You can only recover your own templates or drafts.",
+                )
+
+            # 7-day user recovery window
+            if (now - del_date).total_seconds() > 7 * 86400:
+                raise HTTPException(
+                    status_code=status.HTTP_410_GONE,
+                    detail="Draft recovery window has expired (7 days limit). Please contact an administrator to recover within 30 days.",
+                )
+        else:
+            # 30-day admin recovery window
+            if (now - del_date).total_seconds() > 30 * 86400:
+                raise HTTPException(
+                    status_code=status.HTTP_410_GONE,
+                    detail="Template retention window has expired (30 days limit).",
+                )
+
+        template.is_deleted = False
+        template.deleted_at = None
+        template.deleted_by_id = None
+        await self.db.commit()
+
+        # Invalidate caches
+        try:
+            from app.core.redis import cache_delete, cache_delete_pattern, CacheKeys
+            from app.services.fast_catalog import fast_catalog
+            if hasattr(template, "slug") and template.slug:
+                await cache_delete(CacheKeys.template(template.slug))
+            await cache_delete(CacheKeys.template(str(template_id)))
+            await cache_delete_pattern("templates:featured:*")
+            fast_catalog.invalidate()
+        except Exception:
+            pass
+
+        return template
+
+    async def permanent_delete_template(
+        self, template_id: uuid.UUID, current_user: Optional[User] = None
+    ) -> None:
+        template = await self.repo.get_by_id(template_id, include_deleted=True)
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        if current_user:
+            role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+            if str(role_val).lower() not in ("admin", "super_admin"):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only administrators can permanently delete templates.",
+                )
+
         # 1. Clean preview cache if exists
         try:
             import tempfile, shutil
             preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
             if os.path.exists(preview_dir):
                 shutil.rmtree(preview_dir, ignore_errors=True)
+            preview_dir_2 = os.path.join(tempfile.gettempdir(), "ai_site_studio_previews", str(template_id))
+            if os.path.exists(preview_dir_2):
+                shutil.rmtree(preview_dir_2, ignore_errors=True)
         except Exception:
             pass
 
-        # 2. Clean up associated stored ZIP / file assets in PostgreSQL
+        # 2. Clean up associated stored ZIP / file assets
         try:
             from app.core.storage import storage
             if template.download_assets and isinstance(template.download_assets, dict):
@@ -346,7 +457,26 @@ class TemplateService:
         except Exception:
             pass
 
-        # 3. Clean up Qdrant vector index if available
+        # 3. Clean up generated_projects directory if exists (exact matching)
+        try:
+            import shutil
+            from pathlib import Path
+            possible_roots = [
+                Path(__file__).resolve().parents[3],
+                Path.cwd(),
+            ]
+            for r in possible_roots:
+                gen_proj_dir = r / "generated_projects"
+                if gen_proj_dir.is_dir():
+                    for entry in os.listdir(gen_proj_dir):
+                        if entry == str(template.id) or (template.slug and entry == template.slug):
+                            full_p = gen_proj_dir / entry
+                            if full_p.is_dir():
+                                shutil.rmtree(full_p, ignore_errors=True)
+        except Exception:
+            pass
+
+        # 4. Clean up Qdrant vector index if available
         try:
             from app.services.search_service import SearchService
             ss = SearchService(self.db)
@@ -356,6 +486,18 @@ class TemplateService:
 
         await self.repo.delete(template)
         await self.db.commit()
+
+        # Invalidate caches
+        try:
+            from app.core.redis import cache_delete, cache_delete_pattern, CacheKeys
+            from app.services.fast_catalog import fast_catalog
+            if hasattr(template, "slug") and template.slug:
+                await cache_delete(CacheKeys.template(template.slug))
+            await cache_delete(CacheKeys.template(str(template_id)))
+            await cache_delete_pattern("templates:featured:*")
+            fast_catalog.invalidate()
+        except Exception:
+            pass
 
     async def get_featured_templates(self, limit: int = 8) -> List[TemplateCardResponse]:
         templates = await self.repo.get_featured(limit)

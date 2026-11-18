@@ -57,7 +57,7 @@ class Deployment(UUIDMixin, TimestampMixin, Base):
     # Deployment Outputs & Security
     logs: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     live_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    custom_domain: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    custom_domain: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     deployment_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     env_vars: Mapped[Optional[dict]] = mapped_column(JSON, default=dict, nullable=True)
     is_suspended: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

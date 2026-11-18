@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import {
   ShoppingBag,
+  Store,
   Sparkles,
   ExternalLink,
   Crown,
@@ -140,8 +141,8 @@ export default function CreatorStudio({
       return await api.post(`/templates/${templateId}/submit-review`, {}, authToken);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(["creator-templates"]);
-      queryClient.invalidateQueries(["creator-earnings"]);
+      queryClient.invalidateQueries({ queryKey: ["creator-templates"] });
+      queryClient.invalidateQueries({ queryKey: ["creator-earnings"] });
     },
   });
 
@@ -334,6 +335,14 @@ export default function CreatorStudio({
         </div>
 
         <div className="cs-header-actions">
+          <Link
+            href={user?.creator_store_slug ? `/creator/${user.creator_store_slug}` : "/creator/setup"}
+            className="cs-btn-secondary"
+            title="View Your Dedicated Storefront on Our Domain"
+          >
+            <Store className="w-4 h-4 text-[#dfb180]" />
+            <span>{user?.creator_store_slug ? "My Storefront" : "Storefront Setup"}</span>
+          </Link>
           <button
             type="button"
             onClick={() => setActiveTab("add-template")}
@@ -524,6 +533,55 @@ export default function CreatorStudio({
               </div>
               <div className="cs-metric-value">{totalPurchases}</div>
               <div className="cs-metric-subtext">Completed orders</div>
+            </div>
+          </div>
+
+          {/* Dedicated Creator Storefront Banner */}
+          <div className="p-5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-zinc-900/80 to-zinc-900 border border-[#dfb180]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#dfb180]/15 flex items-center justify-center shrink-0 border border-[#dfb180]/30">
+                <Store className="w-5 h-5 text-[#dfb180]" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="font-bold text-sm text-foreground">
+                    Your Dedicated Storefront on Our Domain
+                  </h4>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#dfb180]/20 text-[#dfb180] font-semibold uppercase tracking-wider">
+                    {user?.creator_brand_name || "Branded"}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {user?.creator_store_slug ? (
+                    <>
+                      Live at: <code className="text-[#dfb180] font-medium">/creator/{user.creator_store_slug}</code> • Payout Gateway:{" "}
+                      <span className="capitalize text-zinc-300 font-medium">{user.payout_method || "Stripe"}</span> • Distribution:{" "}
+                      <span className="capitalize text-zinc-300 font-medium">{user.storefront_distribution || "Dual (Both)"}</span>
+                    </>
+                  ) : (
+                    "Set up your studio name, logo, banner, and payout gateways (Stripe, Razorpay, PayPal, Bank) to activate your live storefront URL on our domain."
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
+              {user?.creator_store_slug ? (
+                <Link
+                  href={`/creator/${user.creator_store_slug}`}
+                  className="cs-btn-primary"
+                >
+                  <Store className="w-3.5 h-3.5" />
+                  <span>Visit Storefront</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </Link>
+              ) : null}
+              <Link
+                href="/creator/setup"
+                className="cs-btn-secondary"
+              >
+                <Settings className="w-3.5 h-3.5" />
+                <span>{user?.creator_store_slug ? "Edit Setup" : "Setup Storefront"}</span>
+              </Link>
             </div>
           </div>
 

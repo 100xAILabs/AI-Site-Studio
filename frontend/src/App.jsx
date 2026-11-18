@@ -40,6 +40,9 @@ import DeployedWebsiteDetailsPage from './app/deployments/[id]/page.jsx'
 import DomainPurchasePage from './app/domains/buy/page.jsx'
 import PrivacyPolicyPage from './app/privacy/page.jsx'
 import TermsPage from './app/terms/page.jsx'
+import CreatorSetupPage from './app/creator/setup/page.jsx'
+import CreatorStorefrontPage from './app/creator/[slug]/page.jsx'
+import AuthCompletePage from './app/auth/complete/page.jsx'
 
 
 import SupportButton from './components/support/SupportButton.jsx';
@@ -111,6 +114,7 @@ function AppRouteContent() {
           <Route path="/register" element={<Register />} />
           <Route path="/verify-otp" element={<VerifyOTPPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/auth/complete" element={<AuthCompletePage />} />
           <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/preview" element={<PreviewPage />} />
           <Route path="/storybook" element={<StorybookPage />} />
@@ -123,6 +127,9 @@ function AppRouteContent() {
           <Route path="/dashboard/receipt/:orderId" element={<ReceiptPage />} />
           <Route path="/dashboard/payout-receipt/:withdrawalId" element={<PayoutReceiptPage />} />
           <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPanel /></ProtectedRoute>} />
+          <Route path="/creator" element={<Navigate to="/creator/setup" replace />} />
+          <Route path="/creator/setup" element={<ProtectedRoute><CreatorSetupPage /></ProtectedRoute>} />
+          <Route path="/creator/:slug" element={<CreatorStorefrontPage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/terms" element={<TermsPage />} />
         </Routes>

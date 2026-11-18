@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Enum as SAEnum, ForeignKey, String, Text, Uuid
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, ForeignKey, String, Text, Uuid, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -28,6 +28,9 @@ class License(UUIDMixin, TimestampMixin, Base):
     """License key issued to a user after purchasing a template."""
 
     __tablename__ = "licenses"
+    __table_args__ = (
+        UniqueConstraint("order_id", "template_id", name="uq_licenses_order_template"),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True

@@ -1,13 +1,18 @@
 """
-Auth routes — OAuth with Google and Facebook.
+Auth routes — OAuth with Google and GitHub.
 """
 
 from typing import Optional
 import secrets
 import time
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+import hmac
+import hashlib
+import uuid
+from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from authlib.integrations.starlette_client import OAuth, OAuthError
 
@@ -15,13 +20,16 @@ from pydantic import BaseModel
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.core.security import create_access_token
+from app.core.security import create_access_token, create_refresh_token, authenticate_token
 from app.models.user import User
 from app.repositories.user_repo import UserRepository
 from app.schemas.user import UserResponse, PayoutSetupRequest
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# In-memory fallback for OAuth authorization codes if Redis is temporarily unreachable
+_oauth_codes: dict[str, tuple[str, float]] = {}
 
 class VerifyOTPRequest(BaseModel):
     email: str
@@ -112,15 +120,15 @@ def send_smtp_email_sync(to_email: str, subject: str, body: str) -> bool:
             with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as server:
                 server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
                 server.sendmail(msg["From"], [to_email], msg.as_string())
-        print(f"\n[EMAIL SENT] OTP successfully sent to {to_email}\n")
+        logger.info("[EMAIL SENT] OTP successfully sent to %s", to_email)
         return True
     except Exception as e:
-        print(f"\n[EMAIL ERROR] Failed to send email via SMTP to {to_email}: {e}\n")
+        logger.error("[EMAIL ERROR] Failed to send email via SMTP to %s: %s", to_email, e)
         return False
 
 async def send_otp_email(to_email: str, otp: str) -> bool:
     if not to_email or "@" not in to_email or is_dummy_or_test_email(to_email):
-        print(f"\n[SIMULATION/SKIP] Email to {to_email} skipped.\n")
+        logger.info("[SIMULATION/SKIP] Email to %s skipped.", to_email)
         return False
 
     subject = f"Your OTP Verification Code - Site Studio"
@@ -158,12 +166,12 @@ async def send_otp_email(to_email: str, otp: str) -> bool:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.post("https://api.brevo.com/v3/smtp/email", headers=headers, json=payload)
                 if resp.status_code in (200, 201):
-                    print(f"\n[EMAIL SENT] OTP successfully sent via Brevo API to {to_email}\n", flush=True)
+                    logger.info("[EMAIL SENT] OTP successfully sent via Brevo API to %s", to_email)
                     return True
                 else:
-                    print(f"\n[EMAIL ERROR] Brevo API error ({resp.status_code}): {resp.text}\n", flush=True)
+                    logger.warning("[EMAIL ERROR] Brevo API error (%s): %s", resp.status_code, resp.text)
         except Exception as err:
-            print(f"\n[EMAIL ERROR] Brevo API exception: {err}\n", flush=True)
+            logger.error("[EMAIL ERROR] Brevo API exception: %s", err)
 
     # 2. If RESEND_API_KEY is configured, send via Resend REST API (HTTPS port 443 — never blocked on Render)
     if getattr(settings, "RESEND_API_KEY", ""):
@@ -182,12 +190,12 @@ async def send_otp_email(to_email: str, otp: str) -> bool:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.post("https://api.resend.com/emails", headers=headers, json=payload)
                 if resp.status_code in (200, 201):
-                    print(f"\n[EMAIL SENT] OTP successfully sent via Resend API to {to_email}\n", flush=True)
+                    logger.info("[EMAIL SENT] OTP successfully sent via Resend API to %s", to_email)
                     return True
                 else:
-                    print(f"\n[EMAIL ERROR] Resend API error ({resp.status_code}): {resp.text}\n", flush=True)
+                    logger.warning("[EMAIL ERROR] Resend API error (%s): %s", resp.status_code, resp.text)
         except Exception as err:
-            print(f"\n[EMAIL ERROR] Resend API exception: {err}\n", flush=True)
+            logger.error("[EMAIL ERROR] Resend API exception: %s", err)
 
     # 3. Fallback to standard SMTP
     try:
@@ -195,7 +203,7 @@ async def send_otp_email(to_email: str, otp: str) -> bool:
         sent = await loop.run_in_executor(None, send_smtp_email_sync, to_email, subject, body)
         return bool(sent)
     except Exception as e:
-        print(f"Error sending email in executor: {e}")
+        logger.error("Error sending email in executor: %s", e)
         return False
 
 import hashlib
@@ -280,17 +288,6 @@ if settings.GOOGLE_CLIENT_ID:
         client_kwargs={'scope': 'openid email profile'},
     )
 
-if settings.FACEBOOK_CLIENT_ID:
-    oauth.register(
-        name='facebook',
-        api_base_url='https://graph.facebook.com/v19.0/',
-        access_token_url='https://graph.facebook.com/v19.0/oauth/access_token',
-        authorize_url='https://www.facebook.com/v19.0/dialog/oauth',
-        client_id=settings.FACEBOOK_CLIENT_ID,
-        client_secret=settings.FACEBOOK_CLIENT_SECRET,
-        client_kwargs={'scope': 'email public_profile'},
-    )
-
 if settings.GITHUB_CLIENT_ID:
     oauth.register(
         name='github',
@@ -312,16 +309,19 @@ async def login(
     request: Request,
     role: str = "buyer",
     redirect: Optional[str] = None,
-    token: Optional[str] = None,
-    origin: Optional[str] = None
+    origin: Optional[str] = None,
 ):
     """Redirects to the OAuth provider."""
-    # github is allowed only when 'token' param is present (connect-to-existing-user flow)
+    # github is allowed only when 'auth_current_user_id' is already in session (connect-to-existing-user flow)
     # It should NOT be a standalone login method — the sign-in page only shows Google.
     if provider not in ["google", "github"]:
         raise HTTPException(status_code=404, detail="Provider not supported")
-    if provider == "github" and not token:
-        raise HTTPException(status_code=403, detail="GitHub OAuth is only available for connecting to an existing account. Please sign in with Google first.")
+    if provider == "github":
+        if not request.session.get("auth_current_user_id"):
+            raise HTTPException(
+                status_code=403,
+                detail="GitHub OAuth is only available for connecting to an existing account. Please sign in with Google first."
+            )
     
     client = oauth.create_client(provider)
     if not client:
@@ -344,17 +344,20 @@ async def login(
         except Exception:
             pass
             
-    if token:
-        try:
-            from app.core.security import decode_token
-            payload = decode_token(token)
-            user_id = payload.get("sub")
-            if user_id:
-                request.session['auth_current_user_id'] = user_id
-        except Exception:
-            pass
-            
     return await client.authorize_redirect(request, redirect_uri)
+
+
+@router.post("/github/connect-start")
+async def github_connect_start(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Initiates GitHub OAuth account connection by setting session context.
+    Prevents CSRF and token leakage in URL.
+    """
+    request.session["auth_current_user_id"] = str(current_user.id)
+    return {"url": "/api/v1/auth/github/login"}
 
 
 @router.get("/{provider}/callback")
@@ -382,16 +385,6 @@ async def auth_callback(provider: str, request: Request, db: AsyncSession = Depe
         provider_id = user_info.get("sub")
         full_name = user_info.get("name")
         avatar_url = user_info.get("picture")
-    elif provider == "facebook":
-        resp = await client.get('me?fields=id,name,email,picture')
-        user_info = resp.json()
-        email = user_info.get("email")
-        provider_id = user_info.get("id")
-        full_name = user_info.get("name")
-        avatar_url = user_info.get("picture", {}).get("data", {}).get("url")
-        if not email:
-            # Facebook might not return an email if the user didn't allow it, but we need it.
-            email = f"{provider_id}@facebook.placeholder.com"
     elif provider == "github":
         access_token_val = token.get("access_token")
         resp = await client.get('user', token=token)
@@ -420,7 +413,9 @@ async def auth_callback(provider: str, request: Request, db: AsyncSession = Depe
         raise HTTPException(status_code=400, detail="Could not retrieve email or ID from provider")
 
     current_user_id = request.session.pop('auth_current_user_id', None)
-    
+    if provider == "github" and not current_user_id:
+        raise HTTPException(status_code=403, detail="GitHub OAuth is only available for connecting to an existing account.")
+
     repo = UserRepository(db)
     if current_user_id:
         from uuid import UUID
@@ -430,12 +425,13 @@ async def auth_callback(provider: str, request: Request, db: AsyncSession = Depe
         
         # Link GitHub details
         if provider == "github":
+            existing_gh_user = await repo.get_by_github_id(provider_id)
+            if existing_gh_user and existing_gh_user.id != user.id:
+                raise HTTPException(status_code=409, detail="This GitHub account is already linked to another user.")
             user.github_id = provider_id
             user.github_access_token = access_token_val
         elif provider == "google":
             user.google_id = provider_id
-        elif provider == "facebook":
-            user.facebook_id = provider_id
             
         await db.flush()
         await db.refresh(user)
@@ -465,9 +461,6 @@ async def auth_callback(provider: str, request: Request, db: AsyncSession = Depe
     except Exception as err:
         print(f"Location update notice on OAuth callback: {err}")
 
-    user_role_for_token = user.role.value if hasattr(user.role, "value") else str(user.role)
-    access_token = create_access_token(subject=str(user.id), role=user_role_for_token)
-    
     redirect_path = request.session.pop('auth_redirect', None)
     # If this was a GitHub connect operation, send the user back to the upload tab
     if not redirect_path and current_user_id and provider == "github":
@@ -477,9 +470,160 @@ async def auth_callback(provider: str, request: Request, db: AsyncSession = Depe
         redirect_path = "/dashboard" if user_role_str.lower() == "seller" else "/"
 
     from urllib.parse import quote_plus
+    from app.core.redis import get_redis
     frontend_base = request.session.pop('auth_frontend_url', None) or settings.FRONTEND_URL
-    redirect_url = f"{str(frontend_base).rstrip('/')}/?token={access_token}&redirect={quote_plus(redirect_path)}"
+    code = secrets.token_urlsafe(32)
+    redis_client = await get_redis()
+    if redis_client:
+        await redis_client.set(f"oauth_code:{code}", str(user.id), ex=60)
+    else:
+        _oauth_codes[code] = (str(user.id), time.time() + 60.0)
+    request.session["oauth_code"] = code
+    redirect_url = f"{str(frontend_base).rstrip('/')}/auth/complete?code={code}&redirect={quote_plus(redirect_path)}"
     return RedirectResponse(url=redirect_url)
+
+
+class OAuthExchangeRequest(BaseModel):
+    code: str
+
+
+@router.post("/exchange")
+async def exchange_oauth_code(
+    request_data: OAuthExchangeRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Exchange single-use OAuth authorization code for session JWT.
+    Enforces browser session binding and immediately burns code to prevent replay/brute-force.
+    """
+    code = request_data.code.strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="Authorization code is required")
+
+    from app.core.redis import get_redis
+    redis_client = await get_redis()
+    stored_user_id = None
+    if redis_client:
+        stored_user_id = await redis_client.get(f"oauth_code:{code}")
+        await redis_client.delete(f"oauth_code:{code}")
+    else:
+        entry = _oauth_codes.pop(code, None)
+        if entry and entry[1] > time.time():
+            stored_user_id = entry[0]
+
+    session_code = request.session.pop("oauth_code", None)
+    if not stored_user_id or session_code != code:
+        raise HTTPException(status_code=400, detail="Invalid authorization code or session expired")
+
+    from uuid import UUID
+    try:
+        user_uuid = UUID(str(stored_user_id))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid user reference in authorization code")
+
+    repo = UserRepository(db)
+    user = await repo.get_by_id(user_uuid)
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="User account not found or deactivated")
+
+    user_role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
+    tv = getattr(user, "token_version", 0)
+    access_token = create_access_token(subject=str(user.id), role=user_role_str, tv=tv)
+    refresh_token = create_refresh_token(subject=str(user.id), tv=tv)
+
+    is_secure = (request.url.scheme == "https" or settings.ENVIRONMENT == "production")
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=is_secure,
+        samesite="lax",
+        path="/api/v1/auth",
+        max_age=30 * 86400,
+    )
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "username": user.username,
+            "role": user_role_str,
+            "full_name": user.full_name,
+            "avatar_url": user.avatar_url,
+        },
+    }
+
+
+@router.post("/refresh")
+async def refresh_access_token(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Refresh access token using httpOnly refresh cookie.
+    Validates token version against user model to respect global revocation.
+    """
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        auth_hdr = request.headers.get("authorization", "")
+        if auth_hdr.lower().startswith("bearer "):
+            refresh_token = auth_hdr[7:].strip()
+
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Refresh token missing")
+
+    from app.core.security import authenticate_token
+    user = await authenticate_token(db, refresh_token, expected_type="refresh")
+
+    user_role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
+    tv = getattr(user, "token_version", 0)
+    new_access_token = create_access_token(subject=str(user.id), role=user_role_str, tv=tv)
+    new_refresh_token = create_refresh_token(subject=str(user.id), tv=tv)
+
+    is_secure = (request.url.scheme == "https" or settings.ENVIRONMENT == "production")
+    response.set_cookie(
+        key="refresh_token",
+        value=new_refresh_token,
+        httponly=True,
+        secure=is_secure,
+        samesite="lax",
+        path="/api/v1/auth",
+        max_age=30 * 86400,
+    )
+
+    return {
+        "access_token": new_access_token,
+        "token_type": "bearer",
+    }
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    """Clear session refresh token cookie."""
+    response.delete_cookie(key="refresh_token", path="/api/v1/auth")
+    return {"message": "Logged out successfully"}
+
+
+@router.post("/logout-all")
+async def logout_all(
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Revoke all active sessions and refresh tokens across all devices
+    by incrementing user's token version in PostgreSQL.
+    """
+    current_user.token_version = (getattr(current_user, "token_version", 0) or 0) + 1
+    await db.flush()
+    await db.commit()
+    response.delete_cookie(key="refresh_token", path="/api/v1/auth")
+    return {"message": "All sessions revoked successfully"}
 
 
 class ConnectGithubRequest(BaseModel):
@@ -515,6 +659,11 @@ async def connect_github(
             user_data = resp.json()
             github_id = str(user_data.get("id"))
             github_username = user_data.get("login")
+
+            repo = UserRepository(db)
+            existing_user = await repo.get_by_github_id(github_id)
+            if existing_user and existing_user.id != current_user.id:
+                raise HTTPException(status_code=409, detail="This GitHub account is already linked to another user.")
             
             # Save the token and username to the user profile
             current_user.github_id = github_id
@@ -640,6 +789,7 @@ async def register(
 @router.post("/login")
 async def login_email(
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db)
 ):
     """Login with email and password."""
@@ -702,7 +852,20 @@ async def login_email(
             print(f"Location update notice on login: {err}")
 
         user_role_for_token = user.role.value if hasattr(user.role, "value") else str(user.role)
-        access_token = create_access_token(subject=str(user.id), role=user_role_for_token)
+        tv = getattr(user, "token_version", 0)
+        access_token = create_access_token(subject=str(user.id), role=user_role_for_token, tv=tv)
+        refresh_token = create_refresh_token(subject=str(user.id), tv=tv)
+
+        is_secure = (request.url.scheme == "https" or settings.ENVIRONMENT == "production")
+        response.set_cookie(
+            key="refresh_token",
+            value=refresh_token,
+            httponly=True,
+            secure=is_secure,
+            samesite="lax",
+            path="/api/v1/auth",
+            max_age=30 * 86400,
+        )
         return {"access_token": access_token, "token_type": "bearer"}
     except HTTPException:
         raise
@@ -714,6 +877,7 @@ async def login_email(
 @router.post("/verify-otp")
 async def verify_otp(
     request: Request,
+    response: Response,
     request_data: VerifyOTPRequest,
     db: AsyncSession = Depends(get_db)
 ):
@@ -763,10 +927,23 @@ async def verify_otp(
     try:
         await update_user_location(user, db, request=request)
     except Exception as err:
-        print(f"Location update notice on OTP verify: {err}")
+        logger.info("Location update notice on OTP verify: %s", err)
     
     user_role_for_token = user.role.value if hasattr(user.role, "value") else str(user.role)
-    access_token = create_access_token(subject=str(user.id), role=user_role_for_token)
+    tv = getattr(user, "token_version", 0)
+    access_token = create_access_token(subject=str(user.id), role=user_role_for_token, tv=tv)
+    refresh_token = create_refresh_token(subject=str(user.id), tv=tv)
+
+    is_secure = (request.url.scheme == "https" or settings.ENVIRONMENT == "production")
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=is_secure,
+        samesite="lax",
+        path="/api/v1/auth",
+        max_age=30 * 86400,
+    )
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -902,6 +1079,7 @@ async def reset_password(
     from app.core.security import hash_password
     user.hashed_password = hash_password(new_password)
     user.is_email_verified = True  # Implicitly verify email since they proved ownership via OTP
+    user.token_version = (getattr(user, "token_version", 0) or 0) + 1
     await db.flush()
     await db.commit()
     await db.refresh(user)

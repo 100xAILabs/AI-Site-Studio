@@ -571,10 +571,8 @@ function Marketplace() {
                                 <div className="amazon-matches-list">
                                   {matchingSuggestions.map((item, idx) => {
                                     const isSelected = selectedSuggestionIndex === idx + 1;
-                                    const priceText =
-                                      item.is_free || item.price === 0
-                                        ? "FREE"
-                                        : `$${item.price}`;
+                                    const effectivePrice = Number(item.price) > 0 ? Number(item.price) : 49;
+                                    const priceText = `$${effectivePrice}`;
                                     return (
                                       <div
                                         key={item.id}
@@ -605,12 +603,7 @@ function Marketplace() {
                                           </span>
                                         </div>
                                         <div className="amazon-match-right">
-                                          <span
-                                            className={cn(
-                                              "amazon-match-price",
-                                              (item.is_free || item.price === 0) && "is-free"
-                                            )}
-                                          >
+                                          <span className="amazon-match-price">
                                             {priceText}
                                           </span>
                                           <button

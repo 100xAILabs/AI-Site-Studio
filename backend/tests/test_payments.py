@@ -149,3 +149,13 @@ async def test_complete_payment_flow(auth_client: AsyncClient, db: AsyncSession)
     assert get_res.status_code == 200
     assert get_res.json()["status"] == "completed"
 
+
+@pytest.mark.asyncio
+async def test_activate_token_order_route_removed(auth_client: AsyncClient, db: AsyncSession):
+    """F-04: Ensure the unverified client activation endpoint is removed and returns 404."""
+    import uuid
+    random_id = uuid.uuid4()
+    res = await auth_client.post(f"/api/v1/payment/activate-token-order/{random_id}")
+    assert res.status_code in (404, 405)
+
+

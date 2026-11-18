@@ -137,10 +137,6 @@ export default function Checkout() {
         const res = await api.post(`/templates/${item.template_id}/download?format=zip`, {}, authToken);
         if (res?.download_url) {
           let downloadUrl = res.download_url;
-          if (authToken && !downloadUrl.includes("token=")) {
-            const sep = downloadUrl.includes("?") ? "&" : "?";
-            downloadUrl = `${downloadUrl}${sep}token=${encodeURIComponent(authToken)}`;
-          }
           const link = document.createElement("a");
           link.href = downloadUrl;
           link.download = "";
@@ -322,23 +318,42 @@ export default function Checkout() {
     setIsProcessing(true);
 
     try {
-      // 1. Direct Compute Token Pack Checkout via Razorpay
+      // 1. Direct Compute Token Pack Checkout (Razorpay or Stripe)
       if (directCheckoutItem?.type === "pack") {
         const payInfo = await api.post("/payment/purchase-tokens", {
           pack_id: directCheckoutItem.id,
-          gateway: "razorpay",
+          gateway: paymentGateway,
         }, authToken);
 
-        const orderObj = { id: payInfo.order_id, order_number: payInfo.order_number, total: payInfo.price };
+        const orderObj = { id: payInfo.order_id, order_number: payInfo.order_number, total: payInfo.price, gateway: paymentGateway };
         setInitiatedOrder(orderObj);
         setInitiatedPayment(payInfo);
+
+        if (paymentGateway === "stripe") {
+          if (payInfo.checkout_url && !payInfo.checkout_url.includes("mock_stripe=true")) {
+            window.location.href = payInfo.checkout_url;
+            return;
+          }
+          setModalPaymentData({
+            order: orderObj,
+            payInfo,
+            gateway: "stripe",
+            orderNumber: orderObj.order_number,
+            amountFormatted: `$${Number(payInfo.amount_usd || directCheckoutItem.price).toFixed(2)} USD`,
+            amountSubtext: `${payInfo.credits || 100} Compute Tokens`,
+            title: `Stripe Checkout for ${payInfo.title || "AI Tokens"}`,
+          });
+          setIsProcessing(false);
+          return;
+        }
 
         await handleOpenRazorpay(orderObj, payInfo);
         return;
       }
 
-      // 2. Regular Marketplace Templates Checkout via Razorpay
+      // 2. Regular Marketplace Templates Checkout (Razorpay or Stripe)
       const order = await createOrderMutation.mutateAsync();
+      order.gateway = paymentGateway;
       setInitiatedOrder(order);
 
       // If order is free or completed, skip payment gateway entirely
@@ -351,13 +366,31 @@ export default function Checkout() {
 
       const payInfo = await initiatePaymentMutation.mutateAsync({
         orderId: order.id,
-        gateway: "razorpay",
+        gateway: paymentGateway,
       });
       setInitiatedPayment(payInfo);
 
       if (payInfo?.status === "completed" || payInfo?.free) {
         clearCart();
         setPaymentStep("success");
+        setIsProcessing(false);
+        return;
+      }
+
+      if (paymentGateway === "stripe") {
+        if (payInfo.checkout_url && !payInfo.checkout_url.includes("mock_stripe=true")) {
+          window.location.href = payInfo.checkout_url;
+          return;
+        }
+        setModalPaymentData({
+          order,
+          payInfo,
+          gateway: "stripe",
+          orderNumber: order.order_number || order.id?.slice(0, 8),
+          amountFormatted: formattedTotalString,
+          amountSubtext: `${items?.length || 1} template item(s)`,
+          title: `Stripe Checkout for Order #${order.order_number || order.id?.slice(0, 8)}`,
+        });
         setIsProcessing(false);
         return;
       }
@@ -802,15 +835,15 @@ export default function Checkout() {
                     </p>
                   </div>
                 ) : hasCartItems && (
-                  <div className="cart-glass-card cart-payment-methods-card p-5 rounded-2xl border border-primary/30 bg-primary/5 space-y-3">
+                  <div className="cart-glass-card cart-payment-methods-card p-5 rounded-2xl border border-primary/30 bg-primary/5 space-y-4">
                     <div className="flex items-center justify-between pb-3 border-b border-border/50">
                       <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-lg bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                        <div className="w-8 h-8 rounded-lg bg-primary/15 border border-primary/30 flex items-center justify-center text-primary">
                           <CreditCard className="w-4 h-4" />
                         </div>
                         <div>
-                          <h4 className="text-sm font-bold text-foreground">Razorpay Secure Checkout</h4>
-                          <p className="text-[11px] text-muted-foreground">Domestic &amp; International Payment Processing</p>
+                          <h4 className="text-sm font-bold text-foreground">Select Payment Gateway</h4>
+                          <p className="text-[11px] text-muted-foreground">Domestic &amp; International Payment Gateways</p>
                         </div>
                       </div>
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
@@ -818,27 +851,74 @@ export default function Checkout() {
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-xs text-muted-foreground">
+                    {/* Gateway Switcher: Razorpay vs Stripe */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setPaymentGateway("razorpay")}
+                        className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                          paymentGateway === "razorpay"
+                            ? "border-[#c89666] bg-[#c89666]/15 ring-1 ring-[#c89666]"
+                            : "border-border/60 bg-background/40 hover:border-border"
+                        }`}
+                      >
+                        <div className="w-9 h-9 rounded-lg bg-[#0c2340] border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0">
+                          <Zap className="w-5 h-5 text-[#dfb180]" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <strong className="text-sm text-foreground">Razorpay</strong>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">UPI · Cards</span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">UPI (GPay / PhonePe), NetBanking, Debit &amp; Credit Cards</p>
+                          <span className="text-xs font-bold text-emerald-400 block mt-1.5">{inrAmountString}</span>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setPaymentGateway("stripe")}
+                        className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                          paymentGateway === "stripe"
+                            ? "border-indigo-500 bg-indigo-500/15 ring-1 ring-indigo-500"
+                            : "border-border/60 bg-background/40 hover:border-border"
+                        }`}
+                      >
+                        <div className="w-9 h-9 rounded-lg bg-[#635bff]/20 border border-[#635bff]/40 flex items-center justify-center text-[#635bff] shrink-0">
+                          <Globe className="w-5 h-5 text-indigo-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <strong className="text-sm text-foreground">Stripe</strong>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">USD · Global</span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">Visa, Mastercard, Amex, Apple Pay, Google Pay &amp; SEPA</p>
+                          <span className="text-xs font-bold text-indigo-400 block mt-1.5">{formattedTotalString} USD</span>
+                        </div>
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 text-xs text-muted-foreground">
                       <div className="flex items-center gap-1.5 p-2 rounded-lg bg-background/50 border border-border/60">
                         <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                         <span>Credit / Debit Cards</span>
                       </div>
                       <div className="flex items-center gap-1.5 p-2 rounded-lg bg-background/50 border border-border/60">
                         <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        <span>UPI (GPay / PhonePe)</span>
+                        <span>UPI &amp; NetBanking</span>
                       </div>
                       <div className="flex items-center gap-1.5 p-2 rounded-lg bg-background/50 border border-border/60">
                         <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        <span>NetBanking (50+ Banks)</span>
+                        <span>Apple / Google Pay</span>
                       </div>
                       <div className="flex items-center gap-1.5 p-2 rounded-lg bg-background/50 border border-border/60">
                         <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        <span>Digital Wallets</span>
+                        <span>Instant Download</span>
                       </div>
                     </div>
 
                     <p className="text-[11px] text-muted-foreground leading-relaxed pt-1">
-                      Clicking <strong>Pay with Razorpay</strong> will securely launch the Razorpay modal. All purchases instantly unlock 100% clean, watermark-free source code with full commercial rights.
+                      Clicking <strong>{paymentGateway === "stripe" ? "Pay with Stripe" : "Pay with Razorpay"}</strong> will securely open the payment gateway. All purchases instantly unlock 100% clean, watermark-free source code with full commercial rights.
                     </p>
                   </div>
                 )}
@@ -997,7 +1077,11 @@ export default function Checkout() {
                     ) : (
                       <>
                         <Lock size={16} />
-                        <span>Pay with Razorpay ({formattedTotalString})</span>
+                        <span>
+                          {paymentGateway === "stripe"
+                            ? `Pay with Stripe (${formattedTotalString})`
+                            : `Pay with Razorpay (${inrAmountString})`}
+                        </span>
                         <ChevronRight size={16} />
                       </>
                     )}

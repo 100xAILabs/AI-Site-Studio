@@ -38,70 +38,13 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    try:
-        payload = decode_token(credentials.credentials)
-        if payload.get("type") != "access":
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Access token required",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        user_id: str = payload.get("sub")
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token payload",
-            )
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token is invalid or expired",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    try:
-        user_uuid = UUID(user_id)
-    except (ValueError, TypeError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid user token format.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # Check session revocation (e.g. after password reset or global logout)
-    try:
-        from app.core.redis import get_redis_client
-        redis_c = await get_redis_client()
-        if redis_c:
-            revoked_before = await redis_c.get(f"auth:revoked_before:{user_id}")
-            if revoked_before:
-                iat_val = payload.get("iat")
-                if isinstance(iat_val, (int, float)) and iat_val < int(revoked_before):
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Session has been revoked. Please sign in again.",
-                        headers={"WWW-Authenticate": "Bearer"},
-                    )
-    except HTTPException:
-        raise
-    except Exception:
-        pass
-
-    repo = UserRepository(db)
-    user = await repo.get_by_id(user_uuid)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User account not found or deleted.",
-        )
-    # Authentication is a read-only lookup. End its transaction before a request
-    # performs long-running AI generation so its pooled DB connection is released.
+    from app.core.security import authenticate_token
+    user = await authenticate_token(db, credentials.credentials, "access")
     await db.commit()
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Account is deactivated.",
-        )
+    return user
+    from app.core.security import authenticate_token
+    user = await authenticate_token(db, credentials.credentials, "access")
+    await db.commit()
     return user
 
 

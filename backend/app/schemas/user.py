@@ -4,7 +4,7 @@ Pydantic schemas for User entity.
 
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 import re
@@ -55,9 +55,16 @@ class UserAdminUpdate(UserUpdate):
 
 class PayoutSetupRequest(BaseModel):
     payout_bank_name: str = Field(..., min_length=2, max_length=255)
-    payout_account_number: str = Field(..., min_length=5, max_length=100)
+    payout_account_number: str = Field(..., pattern=r"^[0-9A-Za-z]{5,34}$")
     payout_ifsc_code: str = Field(..., min_length=4, max_length=50)
     payout_account_holder_name: str = Field(..., min_length=2, max_length=255)
+
+    @field_validator("payout_account_number")
+    @classmethod
+    def validate_not_masked(cls, v: str) -> str:
+        if "*" in v or "•" in v:
+            raise ValueError("Masked account numbers cannot be submitted. Please provide the real account number.")
+        return v
 
 
 class UserResponse(UserBase):
@@ -81,6 +88,21 @@ class UserResponse(UserBase):
     is_pro_subscriber: bool = False
     is_extreme_subscriber: bool = False
     can_retail_templates: bool = False
+    creator_brand_name: Optional[str] = None
+    creator_store_slug: Optional[str] = None
+    creator_logo_url: Optional[str] = None
+    creator_banner_url: Optional[str] = None
+    creator_tagline: Optional[str] = None
+    creator_bio: Optional[str] = None
+    creator_support_email: Optional[str] = None
+    creator_website: Optional[str] = None
+    creator_social_links: Optional[Dict[str, Any]] = None
+    payout_method: Optional[str] = "stripe"
+    payout_stripe_email: Optional[str] = None
+    payout_paypal_email: Optional[str] = None
+    payout_razorpay_vpa: Optional[str] = None
+    storefront_distribution: Optional[str] = "both"
+    is_creator_onboarding_completed: bool = False
     country: Optional[str] = None
     country_code: Optional[str] = None
     city: Optional[str] = None
@@ -93,10 +115,15 @@ class UserResponse(UserBase):
             return None
         clean = str(v).strip()
         if len(clean) <= 4:
-            return "******"
-        return f"{'*' * (len(clean) - 4)}{clean[-4:]}"
+            return "****"
+        return f"****{clean[-4:]}"
 
     model_config = {"from_attributes": True}
+
+
+class AdminUserResponse(UserResponse):
+    """Admin view of user profile: strictly suppresses bank account holder names for privacy."""
+    payout_account_holder_name: Optional[str] = Field(None, exclude=True)
 
 
 class UserPublicResponse(BaseModel):

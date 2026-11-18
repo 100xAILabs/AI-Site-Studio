@@ -59,6 +59,7 @@ AsyncSessionLocal = async_sessionmaker(
     autocommit=False,
     autoflush=False,
 )
+async_session_maker = AsyncSessionLocal
 
 
 async def _ensure_db_service_running() -> None:
@@ -197,6 +198,7 @@ async def init_db() -> None:
             ("currency", "VARCHAR(10) DEFAULT 'USD'"),
             ("detected_ip", "VARCHAR(45)"),
             ("subscription_tier", "VARCHAR(50) DEFAULT 'free'"),
+            ("token_version", "INTEGER DEFAULT 0 NOT NULL"),
         ]
         for col_name, col_type in user_columns_to_add:
             try:
@@ -217,6 +219,10 @@ async def init_db() -> None:
             ("reviewed_at", "TIMESTAMP WITH TIME ZONE"),
             ("submitted_at", "TIMESTAMP WITH TIME ZONE"),
             ("source_project_id", "UUID"),
+            ("is_deleted", "BOOLEAN DEFAULT FALSE"),
+            ("deleted_at", "TIMESTAMP WITH TIME ZONE"),
+            ("deleted_by_id", "UUID"),
+            ("forked_from_template_id", "UUID"),
         ]
         for col_name, col_type in template_columns_to_add:
             try:
@@ -227,16 +233,23 @@ async def init_db() -> None:
             except Exception:
                 pass
 
-        if conn.dialect.name != "sqlite":
-            indexes_to_add = [
-                "CREATE INDEX IF NOT EXISTS ix_templates_is_marketplace ON templates (is_marketplace);",
-                "CREATE INDEX IF NOT EXISTS ix_templates_template_origin ON templates (template_origin);",
-            ]
-            for idx_sql in indexes_to_add:
-                try:
-                    await conn.execute(text(idx_sql))
-                except Exception:
-                    pass
+        indexes_to_add = [
+            "CREATE INDEX IF NOT EXISTS ix_templates_is_marketplace ON templates (is_marketplace);",
+            "CREATE INDEX IF NOT EXISTS ix_templates_template_origin ON templates (template_origin);",
+            "CREATE INDEX IF NOT EXISTS ix_templates_forked_from_template_id ON templates (forked_from_template_id);",
+            "CREATE INDEX IF NOT EXISTS ix_deployments_custom_domain ON deployments (custom_domain);",
+            "CREATE INDEX IF NOT EXISTS ix_payments_gateway_order_id ON payments (gateway_order_id);",
+            "CREATE INDEX IF NOT EXISTS ix_tamper_alerts_buyer_email ON tamper_alerts (buyer_email);",
+            "CREATE INDEX IF NOT EXISTS ix_orders_user_id_status ON orders (user_id, status);",
+            "CREATE INDEX IF NOT EXISTS ix_deployments_user_id ON deployments (user_id);",
+            "CREATE INDEX IF NOT EXISTS ix_hosting_subscriptions_user_id ON hosting_subscriptions (user_id, status);",
+            "CREATE INDEX IF NOT EXISTS ix_usage_ledger_user_id_created_at ON usage_ledger (user_id, created_at);",
+        ]
+        for idx_sql in indexes_to_add:
+            try:
+                await conn.execute(text(idx_sql))
+            except Exception:
+                pass
 
     print("Database connected and tables verified")
 

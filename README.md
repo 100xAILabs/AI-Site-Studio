@@ -17,7 +17,7 @@
 | Backend | FastAPI, SQLAlchemy (asyncpg), Alembic, Pydantic, Celery |
 | Database | PostgreSQL (Supabase) |
 | Cache | Redis |
-| Auth | Custom OAuth (Google / Facebook / GitHub) + JWT Database Authentication |
+| Auth | Custom OAuth (Google / GitHub) + JWT Database Authentication |
 | Storage | Database-backed Binary Storage / Cloudflare R2 |
 | AI | Gemini (1.5-flash) / OpenAI (GPT-4o) |
 | Vector DB | Qdrant |
@@ -98,7 +98,6 @@ npm run dev   # Runs on http://localhost:5173
 | `REDIS_URL` | Redis connection string |
 | `SECRET_KEY` | JWT signing secret |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth app credentials |
-| `FACEBOOK_CLIENT_ID` / `FACEBOOK_CLIENT_SECRET` | Facebook OAuth app credentials |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub OAuth app credentials |
 | `GEMINI_API_KEY` | Gemini API key |
 | `OPENAI_API_KEY` | OpenAI API key |

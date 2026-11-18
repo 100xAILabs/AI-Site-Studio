@@ -16,7 +16,12 @@ class UserRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def get_by_id(self, user_id: uuid.UUID) -> Optional[User]:
+    async def get_by_id(self, user_id: uuid.UUID | str) -> Optional[User]:
+        if isinstance(user_id, str):
+            try:
+                user_id = uuid.UUID(user_id)
+            except (ValueError, TypeError):
+                return None
         result = await self.db.execute(select(User).where(User.id == user_id))
         return result.scalar_one_or_none()
 
@@ -28,10 +33,6 @@ class UserRepository:
 
     async def get_by_google_id(self, google_id: str) -> Optional[User]:
         result = await self.db.execute(select(User).where(User.google_id == google_id))
-        return result.scalar_one_or_none()
-
-    async def get_by_facebook_id(self, facebook_id: str) -> Optional[User]:
-        result = await self.db.execute(select(User).where(User.facebook_id == facebook_id))
         return result.scalar_one_or_none()
 
     async def get_by_github_id(self, github_id: str) -> Optional[User]:
@@ -78,8 +79,6 @@ class UserRepository:
         user = None
         if provider == "google":
             user = await self.get_by_google_id(provider_id)
-        elif provider == "facebook":
-            user = await self.get_by_facebook_id(provider_id)
         elif provider == "github":
             user = await self.get_by_github_id(provider_id)
 
@@ -93,14 +92,19 @@ class UserRepository:
                         status_code=409,
                         detail="An account with this email already exists with password authentication. Please sign in with email/password to link external accounts."
                     )
+                # GitHub accounts must not silently link to existing user by email
+                if provider == "github":
+                    from fastapi import HTTPException
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Silent account linking with GitHub is disabled. Please connect your GitHub account from profile settings."
+                    )
                 user = existing_user_by_email
 
         if user:
             # Link account and update details
             if provider == "google":
                 user.google_id = provider_id
-            elif provider == "facebook":
-                user.facebook_id = provider_id
             elif provider == "github":
                 user.github_id = provider_id
             # Keep existing user role intact (same email cannot switch roles)
@@ -126,8 +130,6 @@ class UserRepository:
             }
             if provider == "google":
                 kwargs["google_id"] = provider_id
-            elif provider == "facebook":
-                kwargs["facebook_id"] = provider_id
             elif provider == "github":
                 kwargs["github_id"] = provider_id
                 
@@ -144,9 +146,10 @@ class UserRepository:
             cleaned = "user"
         username = cleaned
         counter = 1
-        while True:
+        while counter < 100:
             result = await self.db.execute(select(User).where(User.username == username))
             if not result.scalar_one_or_none():
                 return username
             username = f"{cleaned}_{counter}"
             counter += 1
+        return f"{cleaned}_{uuid.uuid4().hex[:6]}"

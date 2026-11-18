@@ -517,6 +517,12 @@ class EntitlementService:
                 "AI Auto-Heal is disabled on the Free Starter tier. Upgrade to Studio Pro (1 registered website) or Extreme (up to 3 websites) to enable autonomous healing.",
             )
 
+        if isinstance(deployment_id, str):
+            try:
+                deployment_id = uuid.UUID(deployment_id)
+            except (ValueError, TypeError):
+                return False, "Invalid deployment ID format."
+
         now = datetime.now(timezone.utc)
         period_start = sub.current_period_start or (now - timedelta(days=30))
         if period_start.tzinfo is None:

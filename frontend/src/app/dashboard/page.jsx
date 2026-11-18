@@ -330,16 +330,17 @@ function Dashboard() {
   };
 
   const handlePurgeAllDrafts = async () => {
-    if (!window.confirm("Are you sure you want to permanently delete all customized draft templates, studio creator projects, and edited files? This will clear them completely.")) {
+    if (!window.confirm("Move all customized draft projects to trash? You can recover them within 7 days.")) {
       return;
     }
     setPurgingDrafts(true);
     try {
       const res = await api.post("/templates/purge-custom-drafts", {}, authToken ?? undefined);
-      qc.invalidateQueries(["seller-templates"]);
-      qc.invalidateQueries(["templates"]);
-      qc.invalidateQueries(["my-templates"]);
-      alert(`Deleted ${res?.deleted_count ?? 0} customized draft projects and temporary files.`);
+      qc.invalidateQueries({ queryKey: ["seller-templates"] });
+      qc.invalidateQueries({ queryKey: ["templates"] });
+      qc.invalidateQueries({ queryKey: ["my-templates"] });
+      qc.invalidateQueries({ queryKey: ["user-trash"] });
+      alert(`Moved ${res?.deleted_count ?? 0} customized draft projects to Trash. You can recover them within 7 days.`);
     } catch (err) {
       alert("Failed to purge drafts: " + (err.message || "Please try again"));
     } finally {
@@ -348,17 +349,31 @@ function Dashboard() {
   };
 
   const handleDeleteCustomDraft = async (id, title) => {
-    if (!window.confirm(`Delete "${title || 'this project'}"? This cannot be undone.`)) {
+    if (!window.confirm(`Move "${title || 'this project'}" to trash? You can recover it within 7 days.`)) {
       return;
     }
     try {
       await api.delete(`/templates/${id}`, authToken ?? undefined);
-      qc.invalidateQueries(["seller-templates"]);
-      qc.invalidateQueries(["templates"]);
-      qc.invalidateQueries(["my-templates"]);
-      alert("Custom project deleted successfully.");
+      qc.invalidateQueries({ queryKey: ["seller-templates"] });
+      qc.invalidateQueries({ queryKey: ["templates"] });
+      qc.invalidateQueries({ queryKey: ["my-templates"] });
+      qc.invalidateQueries({ queryKey: ["user-trash"] });
+      alert("Project moved to Trash. You can recover it within 7 days.");
     } catch (err) {
       alert("Failed to delete project: " + (err.message || "Please try again"));
+    }
+  };
+
+  const handleRestoreDraft = async (id, title) => {
+    try {
+      await api.post(`/templates/${id}/restore`, {}, authToken ?? undefined);
+      qc.invalidateQueries({ queryKey: ["seller-templates"] });
+      qc.invalidateQueries({ queryKey: ["templates"] });
+      qc.invalidateQueries({ queryKey: ["my-templates"] });
+      qc.invalidateQueries({ queryKey: ["user-trash"] });
+      alert(`"${title || 'Project'}" restored successfully from Trash!`);
+    } catch (err) {
+      alert("Failed to restore project: " + (err.message || "Please try again"));
     }
   };
 
@@ -440,8 +455,8 @@ function Dashboard() {
       return res;
     },
     onSuccess: () => {
-      qc.invalidateQueries(["seller-templates"]);
-      qc.invalidateQueries(["templates"]);
+      qc.invalidateQueries({ queryKey: ["seller-templates"] });
+      qc.invalidateQueries({ queryKey: ["templates"] });
       setEditTemplateModalOpen(false);
       setEditingTemplate(null);
       setEditError("");
@@ -470,9 +485,9 @@ function Dashboard() {
       return res.json();
     },
     onSuccess: (data) => {
-      qc.invalidateQueries(["seller-templates"]);
-      qc.invalidateQueries(["templates"]);
-      qc.invalidateQueries(["my-templates"]);
+      qc.invalidateQueries({ queryKey: ["seller-templates"] });
+      qc.invalidateQueries({ queryKey: ["templates"] });
+      qc.invalidateQueries({ queryKey: ["my-templates"] });
       if (data) {
         if (data.framework) setEditFramework(data.framework);
         if (data.version) setEditVersion(data.version);
@@ -857,12 +872,6 @@ function Dashboard() {
           setActiveTab("buyer-home");
         }
       }
-      const activateOrderParam = searchParams.get("activate_order");
-      if (activateOrderParam && authToken) {
-        qc.invalidateQueries({ queryKey: ["billing-report"] });
-        qc.invalidateQueries({ queryKey: ["orders"] });
-        qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
-      }
 
       const sessionIdParam = searchParams.get("session_id");
       if (sessionIdParam && authToken && (searchParams.get("status") === "success" || searchParams.get("tab") === "billing")) {
@@ -891,12 +900,12 @@ function Dashboard() {
   useEffect(() => {
     if (activeTab === "seller-templates") {
       setTemplatesSubTab("uploaded");
-      qc.invalidateQueries(["seller-templates"]);
+      qc.invalidateQueries({ queryKey: ["seller-templates"] });
     } else if (activeTab === "buyer-templates") {
       setTemplatesSubTab("purchased");
     } else if (activeTab === "customized-files") {
       setTemplatesSubTab("customized");
-      qc.invalidateQueries(["seller-templates"]);
+      qc.invalidateQueries({ queryKey: ["seller-templates"] });
     }
   }, [activeTab, qc]);
 
@@ -916,7 +925,7 @@ function Dashboard() {
         if (status.verification_status === "verified") {
           stopped = true;
           if (interval) clearInterval(interval);
-          qc.invalidateQueries(["deployments"]);
+          qc.invalidateQueries({ queryKey: ["deployments"] });
           const expiry = status.expires_at ? ` It expires on ${new Date(status.expires_at).toLocaleDateString()}; auto-renew is off, so contact Studio to arrange renewal or transfer before then.` : " Auto-renew is off, so contact Studio to arrange renewal or transfer before the domain expires.";
           const tls = status.ssl_status === "managed"
             ? " Studio manages HTTPS certificates; the first secure visit can take a short time while DNS and certificate issuance complete."
@@ -1056,6 +1065,13 @@ function Dashboard() {
     placeholderData: (prev) => prev,
   });
 
+  // Fetch User Trash (7-day retention)
+  const { data: userTrash = [], isLoading: userTrashLoading } = useQuery({
+    queryKey: ["user-trash"],
+    queryFn: () => api.get("/templates/trash", authToken ?? undefined),
+    enabled: !!authToken,
+  });
+
   // Fetch Buyer Reviews
   const { data: buyerReviewsData, isLoading: buyerReviewsLoading } = useQuery({
     queryKey: ["buyer-reviews"],
@@ -1098,9 +1114,9 @@ function Dashboard() {
   const deleteReviewMutation = useMutation({
     mutationFn: (reviewId) => api.delete(`/reviews/${reviewId}`, authToken ?? undefined),
     onSuccess: () => {
-      qc.invalidateQueries(["buyer-reviews"]);
-      qc.invalidateQueries(["seller-reviews"]);
-      qc.invalidateQueries(["dashboard-stats"]);
+      qc.invalidateQueries({ queryKey: ["buyer-reviews"] });
+      qc.invalidateQueries({ queryKey: ["seller-reviews"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
       alert("Review deleted successfully!");
     },
   });
@@ -1109,9 +1125,9 @@ function Dashboard() {
   const createReviewMutation = useMutation({
     mutationFn: (data) => api.post("/reviews", data, authToken ?? undefined),
     onSuccess: () => {
-      qc.invalidateQueries(["buyer-reviews"]);
-      qc.invalidateQueries(["seller-reviews"]);
-      qc.invalidateQueries(["dashboard-stats"]);
+      qc.invalidateQueries({ queryKey: ["buyer-reviews"] });
+      qc.invalidateQueries({ queryKey: ["seller-reviews"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
       alert("Review submitted successfully!");
       setReviewModalOpen(false);
       // Reset form fields
@@ -1131,7 +1147,7 @@ function Dashboard() {
     mutationFn: ({ deploymentId, customDomain }) =>
       api.patch(`/deployments/${deploymentId}/domain?custom_domain=${encodeURIComponent(customDomain)}`, {}, authToken ?? undefined),
     onSuccess: () => {
-      qc.invalidateQueries(["deployments"]);
+      qc.invalidateQueries({ queryKey: ["deployments"] });
       alert("Custom domain linked successfully!");
       setLinkDomainModalOpen(false);
       setCustomDomainInput("");
@@ -1147,7 +1163,7 @@ function Dashboard() {
     mutationFn: (deploymentId) =>
       api.post(`/deployments/domains/disconnect`, { deployment_id: deploymentId }, authToken ?? undefined),
     onSuccess: () => {
-      qc.invalidateQueries(["deployments"]);
+      qc.invalidateQueries({ queryKey: ["deployments"] });
       refetchDeployments();
       alert("Custom domain disconnected successfully!");
     },
@@ -1161,7 +1177,7 @@ function Dashboard() {
     mutationFn: ({ domain, autoRenew }) =>
       api.post(`/deployments/domains/auto-renew`, { domain, auto_renew: autoRenew }, authToken ?? undefined),
     onSuccess: (res) => {
-      qc.invalidateQueries(["deployments"]);
+      qc.invalidateQueries({ queryKey: ["deployments"] });
       refetchDeployments();
       alert(res.message || "Domain auto-renewal authority updated successfully!");
     },
@@ -1373,7 +1389,7 @@ function Dashboard() {
 
       if (res?.success) {
         setOwnershipMessage({ type: "success", text: res.message || `Domain "${clean}" ownership verified & connected successfully!` });
-        qc.invalidateQueries(["deployments"]);
+        qc.invalidateQueries({ queryKey: ["deployments"] });
         setConnectDomainName("");
         setDomainChallengeData(null);
       } else {
@@ -1572,10 +1588,10 @@ function Dashboard() {
   const deleteMutation = useMutation({
     mutationFn: (id) => api.delete(`/templates/${id}`, authToken ?? undefined),
     onSuccess: () => {
-      qc.invalidateQueries(["seller-templates"]);
-      qc.invalidateQueries(["admin-all-templates"]);
-      qc.invalidateQueries(["templates"]);
-      qc.invalidateQueries(["buyer-templates"]);
+      qc.invalidateQueries({ queryKey: ["seller-templates"] });
+      qc.invalidateQueries({ queryKey: ["admin-all-templates"] });
+      qc.invalidateQueries({ queryKey: ["templates"] });
+      qc.invalidateQueries({ queryKey: ["buyer-templates"] });
       alert("Project deleted successfully!");
     },
     onError: (err) => {
@@ -1612,8 +1628,8 @@ function Dashboard() {
     mutationFn: ({ templateId, status }) =>
       api.patch(`/admin/templates/${templateId}/status?status=${status}`, {}, authToken ?? undefined),
     onSuccess: () => {
-      qc.invalidateQueries(["admin-all-templates"]);
-      qc.invalidateQueries(["dashboard-stats"]);
+      qc.invalidateQueries({ queryKey: ["admin-all-templates"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
       alert("Template review status updated!");
     },
   });
@@ -1623,8 +1639,8 @@ function Dashboard() {
     mutationFn: ({ templateId, status }) =>
       api.patch(`/admin/templates/${templateId}/status?status=${status}`, {}, authToken ?? undefined),
     onSuccess: () => {
-      qc.invalidateQueries(["admin-all-templates"]);
-      qc.invalidateQueries(["dashboard-stats"]);
+      qc.invalidateQueries({ queryKey: ["admin-all-templates"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
     },
   });
 
@@ -1633,8 +1649,8 @@ function Dashboard() {
     mutationFn: ({ templateIds, status }) =>
       api.post(`/admin/templates/batch-status`, { template_ids: templateIds, status }, authToken ?? undefined),
     onSuccess: () => {
-      qc.invalidateQueries(["admin-all-templates"]);
-      qc.invalidateQueries(["dashboard-stats"]);
+      qc.invalidateQueries({ queryKey: ["admin-all-templates"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
     },
   });
 
@@ -1642,10 +1658,10 @@ function Dashboard() {
   const adminDeleteTemplateMutation = useMutation({
     mutationFn: (templateId) => api.delete(`/templates/${templateId}`, authToken ?? undefined),
     onSuccess: () => {
-      qc.invalidateQueries(["seller-templates"]);
-      qc.invalidateQueries(["admin-all-templates"]);
-      qc.invalidateQueries(["templates"]);
-      qc.invalidateQueries(["buyer-templates"]);
+      qc.invalidateQueries({ queryKey: ["seller-templates"] });
+      qc.invalidateQueries({ queryKey: ["admin-all-templates"] });
+      qc.invalidateQueries({ queryKey: ["templates"] });
+      qc.invalidateQueries({ queryKey: ["buyer-templates"] });
     },
   });
 
@@ -1662,10 +1678,6 @@ function Dashboard() {
         let downloadUrl = data.download_url;
         if (downloadUrl.startsWith("/")) {
           downloadUrl = `${window.location.origin}${downloadUrl}`;
-        }
-        if (authToken && !downloadUrl.includes("token=")) {
-          const sep = downloadUrl.includes("?") ? "&" : "?";
-          downloadUrl = `${downloadUrl}${sep}token=${encodeURIComponent(authToken)}`;
         }
 
         try {
@@ -2541,7 +2553,7 @@ function Dashboard() {
       }
 
       alert("Template submitted successfully for platform review!");
-      qc.invalidateQueries(["seller-templates"]);
+      qc.invalidateQueries({ queryKey: ["seller-templates"] });
 
       // Reset form
       setTitle("");
@@ -2770,7 +2782,7 @@ function Dashboard() {
                 type="button"
                 onClick={() => {
                   setTemplatesSubTab("customized");
-                  qc.invalidateQueries(["seller-templates"]);
+                  qc.invalidateQueries({ queryKey: ["seller-templates"] });
                 }}
                 className={cn("mt-tab-btn", templatesSubTab === "customized" && "active")}
               >
@@ -4488,6 +4500,18 @@ function Dashboard() {
                               {purchasedStudioProjects.length}
                             </span>
                           </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setStudioProjectsSubTab("trash")}
+                            className={cn("mt-tab-btn", studioProjectsSubTab === "trash" && "active")}
+                          >
+                            <Trash2 className="w-4 h-4" style={{ color: studioProjectsSubTab === "trash" ? "#f43f5e" : "#64748b" }} />
+                            <span>Trash (7d)</span>
+                            <span className={cn("mt-tab-count", studioProjectsSubTab === "trash" ? "active" : "inactive")}>
+                              {userTrash.length}
+                            </span>
+                          </button>
                         </div>
 
                         {/* Search & Grid / Table Toggle */}
@@ -4862,6 +4886,75 @@ function Dashboard() {
                                   </tr>
                                 );
                               })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )
+                    ) : studioProjectsSubTab === "trash" ? (
+                      /* Soft-Deleted Projects Trash View (7 days user retention) */
+                      userTrash.length === 0 ? (
+                        <div className="mt-empty-card">
+                          <div className="mt-empty-icon">
+                            <Trash2 className="w-7 h-7 text-muted-foreground" />
+                          </div>
+                          <h4 className="mt-empty-title">Trash is Empty</h4>
+                          <p className="mt-empty-desc">
+                            When you delete a custom project or purge drafts, it is retained here for 7 days before permanent removal.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto rounded-2xl border border-border/50 bg-card">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-border/40 bg-muted/40 font-bold uppercase text-muted-foreground text-[10px] tracking-wider">
+                                <th className="p-4">Deleted Project</th>
+                                <th className="p-4">Framework</th>
+                                <th className="p-4">Deleted At</th>
+                                <th className="p-4">Recovery Window</th>
+                                <th className="p-4 text-right">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border/40">
+                              {userTrash.map((item) => (
+                                <tr key={item.id} className="hover:bg-muted/20 transition-colors">
+                                  <td className="p-4">
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-9 h-9 rounded-xl border border-border/50 bg-muted/40 overflow-hidden flex items-center justify-center shrink-0">
+                                        {item.thumbnail_url ? (
+                                          <img src={item.thumbnail_url} alt="" className="w-full h-full object-cover" />
+                                        ) : (
+                                          <Cpu className="w-4 h-4 text-muted-foreground" />
+                                        )}
+                                      </div>
+                                      <div>
+                                        <div className="font-bold text-foreground">{item.title}</div>
+                                        <div className="text-[11px] text-muted-foreground font-mono">{item.slug}</div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="p-4 font-mono text-muted-foreground uppercase">{item.framework || "HTML"}</td>
+                                  <td className="p-4 text-muted-foreground">
+                                    {item.deleted_at ? new Date(item.deleted_at).toLocaleDateString() : "Recently"}
+                                  </td>
+                                  <td className="p-4">
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                      <Clock className="w-3 h-3" />
+                                      {item.days_left}d left
+                                    </span>
+                                  </td>
+                                  <td className="p-4 text-right">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRestoreDraft(item.id, item.title)}
+                                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                                      title="Restore Project"
+                                    >
+                                      <RefreshCw className="w-3.5 h-3.5" />
+                                      <span>Restore</span>
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
                             </tbody>
                           </table>
                         </div>
@@ -6757,7 +6850,7 @@ function Dashboard() {
                     await batchUpdateTemplateStatusMutation.mutateAsync({ templateIds, status });
                   }}
                   onRefresh={() => {
-                    qc.invalidateQueries(["admin-all-templates"]);
+                    qc.invalidateQueries({ queryKey: ["admin-all-templates"] });
                   }}
                   formatPrice={formatPrice}
                 />
@@ -8194,8 +8287,8 @@ function Dashboard() {
           user={user}
           authToken={authToken}
           onSuccess={() => {
-            qc.invalidateQueries(["seller-templates"]);
-            qc.invalidateQueries(["templates"]);
+            qc.invalidateQueries({ queryKey: ["seller-templates"] });
+            qc.invalidateQueries({ queryKey: ["templates"] });
           }}
         />
       )}

@@ -116,24 +116,33 @@ export const useAuthStore = create(
       // ── Actions ────────────────────────────────────────
       /** Called once on app mount to mark as hydrated */
       setLoaded: async () => {
-        // Check URL for token only after verified OAuth flow (prevent login CSRF)
+        // Look for one-time OAuth authorization code in URL (prevent tokens in URL / login CSRF)
         const urlParams = new URLSearchParams(window.location.search);
-        const urlToken = urlParams.get('token');
+        const urlCode = urlParams.get('code');
         const urlRedirect = urlParams.get('redirect');
-        const isOAuthReturn = typeof window !== 'undefined' && sessionStorage.getItem('oauth_in_progress');
-        if (urlToken && isOAuthReturn) {
-          try { sessionStorage.removeItem('oauth_in_progress'); } catch (e) { }
-          get().setToken(urlToken);
-          await get().fetchProfile();
-          // Store redirect path for the React app to handle (avoids hard page reload)
-          if (urlRedirect && urlRedirect.startsWith('/') && !urlRedirect.startsWith('//') && !urlRedirect.includes('://')) {
-            set({ pendingRedirect: urlRedirect });
+
+        if (urlCode) {
+          try {
+            const res = await fetch(`${API_BASE}/auth/exchange`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ code: urlCode }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.access_token) {
+                get().setToken(data.access_token);
+                await get().fetchProfile();
+                if (urlRedirect && urlRedirect.startsWith('/') && !urlRedirect.startsWith('//') && !urlRedirect.includes('://')) {
+                  set({ pendingRedirect: urlRedirect });
+                }
+              }
+            }
+          } catch (e) {
+            console.warn("OAuth code exchange failed:", e);
           }
-          // Clean up URL
-          window.history.replaceState({}, document.title, window.location.pathname);
-          set({ isLoaded: true });
-        } else if (urlToken && !isOAuthReturn) {
-          // Discard unrequested third-party token in URL to prevent Login CSRF
+          // Clean authorization code from URL
           window.history.replaceState({}, document.title, window.location.pathname);
           set({ isLoaded: true });
         } else if (get().token) {
@@ -458,8 +467,6 @@ export const useAuthStore = create(
       storage: tabIsolatedStorage,
       partialize: (state) => ({
         token: state.token,
-        user: state.user,
-        isSignedIn: state.isSignedIn,
       }),
     }
   )

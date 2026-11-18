@@ -13,7 +13,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.plans import get_plan_config, normalize_plan_id
+from app.core.plans import get_plan_config, normalize_plan_id, FAIR_USE_POLICY
 from app.models.user import User
 from app.models.subscription import UserSubscription, SubscriptionEvent, UsageLedger
 from app.services.entitlement_service import EntitlementService

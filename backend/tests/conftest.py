@@ -29,6 +29,9 @@ class FakeRedis:
         self.store[key] = str(val)
         return val
 
+    async def expire(self, key: str, seconds: int) -> bool:
+        return True
+
 global_fake_redis = FakeRedis()
 
 async def mock_get_redis(*args, **kwargs):
@@ -195,6 +198,7 @@ async def seller_client(db: AsyncSession, fake_redis: FakeRedis) -> AsyncGenerat
         username="testseller",
         full_name="Test Seller",
         role=UserRole.SELLER,
+        subscription_tier="extreme",
         is_active=True,
         is_email_verified=True,
         is_payout_setup_completed=False,

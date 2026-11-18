@@ -8,6 +8,9 @@ import smtplib
 import email.mime.text
 import email.mime.multipart
 import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 from app.core.celery_app import celery_app
 from app.core.config import settings

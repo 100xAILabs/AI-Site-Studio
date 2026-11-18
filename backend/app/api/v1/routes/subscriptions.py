@@ -101,6 +101,7 @@ async def create_subscription_checkout(
 
 
 @router.post("/verify-stripe-session/{session_id}")
+@router.get("/verify-stripe-session/{session_id}")
 async def verify_stripe_subscription_session(
     session_id: str,
     current_user: User = Depends(get_current_user),
@@ -119,27 +120,36 @@ async def verify_stripe_subscription_session(
     
     try:
         checkout = stripe.checkout.Session.retrieve(session_id)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Could not retrieve Stripe session: {e}")
+    except Exception:
+        raise HTTPException(status_code=404, detail="Stripe checkout session not found")
         
-    if checkout.get("status") != "complete" and checkout.get("payment_status") != "paid":
+    if checkout.get("status") != "complete" or checkout.get("payment_status") not in ("paid", "no_payment_required"):
         return {"status": "pending", "message": "Payment not yet confirmed by Stripe."}
         
     metadata = checkout.get("metadata") or {}
-    meta_user_id = metadata.get("user_id") or checkout.get("client_reference_id")
-    if not meta_user_id or str(meta_user_id).strip() != str(current_user.id).strip():
+    meta_user_id = metadata.get("user_id")
+    client_ref_id = checkout.get("client_reference_id")
+    uid = str(current_user.id)
+    if meta_user_id != uid or (client_ref_id not in (None, uid)):
         raise HTTPException(
             status_code=403,
-            detail="Forbidden: This checkout session does not belong to your account.",
+            detail="This checkout session belongs to another account.",
         )
-    plan_id = metadata.get("plan_id") or "pro"
+
+    mode = checkout.get("mode")
+    purchase_type = metadata.get("purchase_type")
+    plan_id = metadata.get("plan_id")
+    from app.core.plans import PLANS
+    if mode != "subscription" or purchase_type != "user_subscription" or plan_id not in PLANS:
+        raise HTTPException(status_code=400, detail="Not a subscription checkout session.")
+
     billing_cycle = metadata.get("billing_cycle") or "monthly"
     provider_sub_id = checkout.get("subscription")
     
     sub_service = SubscriptionService(db)
     res = await sub_service.handle_subscription_payment_success(
         provider="stripe",
-        event_id=f"direct_return_{session_id}",
+        event_id=f"stripe_checkout:{session_id}",
         user_id=current_user.id,
         user_email=current_user.email,
         plan_id=plan_id,

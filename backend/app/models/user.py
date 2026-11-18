@@ -7,7 +7,7 @@ import enum
 from datetime import datetime, timezone
 from typing import Optional, List, TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Integer, String, Text, Uuid
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Integer, String, Text, Uuid, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -77,6 +77,7 @@ class User(UUIDMixin, TimestampMixin, Base):
 
     # AI Credits
     ai_credits: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
+    token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
     # Billing, Subscriptions & Stripe Connect
     subscription_tier: Mapped[Optional[str]] = mapped_column(String(50), default="free", server_default="free", nullable=True)
@@ -148,8 +149,39 @@ class User(UUIDMixin, TimestampMixin, Base):
         self._payout_account_number = encrypt_oauth_token(value) if value else None
 
     payout_ifsc_code: Mapped[Optional[str]] = mapped_column(String(50))
-    payout_account_holder_name: Mapped[Optional[str]] = mapped_column(String(255))
+    _payout_account_holder_name: Mapped[Optional[str]] = mapped_column("payout_account_holder_name", String(255), nullable=True)
+
+    @property
+    def payout_account_holder_name(self) -> Optional[str]:
+        if not self._payout_account_holder_name:
+            return None
+        from app.core.security import decrypt_oauth_token
+        return decrypt_oauth_token(self._payout_account_holder_name)
+
+    @payout_account_holder_name.setter
+    def payout_account_holder_name(self, value: Optional[str]) -> None:
+        from app.core.security import encrypt_oauth_token
+        self._payout_account_holder_name = encrypt_oauth_token(value) if value else None
+
     is_payout_setup_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # ── Extreme Plan Creator Storefront & Multi-Gateway Payouts ──────────────
+    creator_brand_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    creator_store_slug: Mapped[Optional[str]] = mapped_column(String(100), unique=True, index=True, nullable=True)
+    creator_logo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    creator_banner_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    creator_tagline: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    creator_bio: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    creator_support_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    creator_website: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    creator_social_links: Mapped[Optional[dict]] = mapped_column(JSON, default=dict, nullable=True)
+    payout_method: Mapped[Optional[str]] = mapped_column(String(50), default="stripe", nullable=True) # stripe, razorpay, paypal, bank
+    payout_stripe_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    payout_paypal_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    payout_razorpay_vpa: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    creator_payout_details: Mapped[Optional[dict]] = mapped_column(JSON, default=dict, nullable=True)
+    storefront_distribution: Mapped[Optional[str]] = mapped_column(String(50), default="both", nullable=True) # marketplace, storefront, both
+    is_creator_onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
 
 
     # Relationships

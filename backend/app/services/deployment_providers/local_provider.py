@@ -11,6 +11,8 @@ import platform
 import logging
 import uuid
 import subprocess
+import io
+import zipfile
 from collections import deque
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Dict, Any, Tuple, Optional
@@ -341,12 +343,70 @@ class LocalDeploymentProvider(DeploymentProvider):
             shutil.copytree(version_dir, current_stage)
             self._activate_directory(current_stage, current_dir)
 
-            # Generate canonical live URL through local reverse proxy
-            live_url = f"{self.base_url}/sites/{site_id}/"
+            # If Oracle Instance 2 (User Workload Edge Server) is enabled, sync bundle remotely
+            if settings.USER_WORKLOAD_MODE == "remote_oracle" and settings.USER_WORKLOAD_SERVER_URL:
+                try:
+                    await self._sync_to_remote_workload_node(artifact_path, site_id, version)
+                except Exception as sync_err:
+                    logger.warning(f"Remote workload node sync warning: {sync_err}")
+
+            # Generate canonical live URL (pointing to User Workload Server if configured)
+            if settings.USER_WORKLOAD_SERVER_URL:
+                live_url = f"{settings.USER_WORKLOAD_SERVER_URL.rstrip('/')}/sites/{site_id}/"
+            else:
+                live_url = f"{self.base_url}/sites/{site_id}/"
             return True, live_url
         except Exception as e:
             logger.exception(f"Failed to deploy artifact for site {site_id}: {e}")
             return False, str(e)
+
+    async def _sync_to_remote_workload_node(self, artifact_path: str, site_id: str, version: str) -> bool:
+        """
+        Zips compiled artifact and dispatches it via authenticated HTTP POST to Oracle Cloud Instance 2
+        (User Workload Edge Server). Ensures user workloads run fully isolated from the platform core.
+        """
+        if not settings.USER_WORKLOAD_SERVER_URL:
+            return False
+
+        endpoint = f"{settings.USER_WORKLOAD_SERVER_URL.rstrip('/')}/api/v1/workload/sync-artifact"
+        secret = settings.USER_WORKLOAD_SYNC_SECRET or ""
+
+        # Package artifact_path into in-memory zip buffer
+        zip_buffer = io.BytesIO()
+        source_dir = Path(artifact_path)
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, _, files in os.walk(source_dir):
+                for file in files:
+                    file_path = Path(root) / file
+                    arcname = file_path.relative_to(source_dir)
+                    zf.write(file_path, arcname)
+
+        zip_bytes = zip_buffer.getvalue()
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                files = {
+                    "artifact_zip": ("artifact.zip", zip_bytes, "application/zip"),
+                }
+                data = {
+                    "site_id": site_id,
+                    "version": version,
+                }
+                headers = {
+                    "X-Workload-Secret": secret,
+                }
+                resp = await client.post(endpoint, data=data, files=files, headers=headers)
+                if resp.status_code in (200, 201):
+                    logger.info(f"Successfully synced artifact for site {site_id} to remote workload node.")
+                    return True
+                else:
+                    logger.error(
+                        f"Failed to sync artifact to workload node: HTTP {resp.status_code} - {resp.text}"
+                    )
+                    return False
+        except Exception as e:
+            logger.exception(f"Exception syncing artifact to remote workload node {endpoint}: {e}")
+            return False
 
     async def health_check(self, live_url: str, site_id: Optional[str] = None) -> Tuple[bool, int, str]:
         """Performs non-blocking HTTP and filesystem availability verification against the deployed site."""

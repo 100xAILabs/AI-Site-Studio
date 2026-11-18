@@ -100,10 +100,15 @@ class ReviewRepository:
         return round(avg, 2), count
 
     async def get_by_seller(
-        self, seller_id: uuid.UUID, page: int = 1, page_size: int = 20
+        self, seller_id: uuid.UUID | str, page: int = 1, page_size: int = 20
     ) -> Tuple[List[Review], int]:
         """Get reviews for templates uploaded by a specific seller."""
         from app.models.template import Template
+        if isinstance(seller_id, str):
+            try:
+                seller_id = uuid.UUID(seller_id)
+            except (ValueError, TypeError):
+                return [], 0
         
         count_result = await self.db.execute(
             select(func.count(Review.id))

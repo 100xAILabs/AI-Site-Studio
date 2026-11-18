@@ -56,8 +56,7 @@ export default function TemplateCard({
   const { userCurrency, rates } = useCurrencyStore();
 
   const isSeller = isSignedIn && (user?.role === "seller" || user?.role === "SELLER");
-  const effectivePrice = Number(template.price) > 0 ? Number(template.price) : (template.is_free ? 0 : 49);
-  const isTemplateFree = Boolean(template.is_free && effectivePrice === 0);
+  const effectivePrice = Number(template.price) > 0 ? Number(template.price) : 49;
 
   const handleAddToCart = (e) => {
     e.preventDefault();
@@ -122,12 +121,12 @@ export default function TemplateCard({
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  window.location.href = `/marketplace/${templateSlug}`;
+                  window.location.href = `/preview?template=${template.id || templateSlug}`;
                 }}
                 className="overlay-btn-preview"
               >
                 <Eye className="overlay-icon" />
-                Preview
+                Live Demo
               </button>
               {!isSeller && (
                 <button
@@ -258,9 +257,9 @@ export default function TemplateCard({
             <div className="card-price-row">
               <div className="price-val-container">
                 <span className="price-val">
-                  {isTemplateFree ? "Free" : formatPrice(template.price, "USD")}
+                  {formatPrice(effectivePrice, "USD")}
                 </span>
-                {!isTemplateFree && template.original_price && template.original_price > template.price && (
+                {template.original_price && template.original_price > effectivePrice && (
                   <span className="original-price-val">
                     {formatPrice(template.original_price, "USD")}
                   </span>

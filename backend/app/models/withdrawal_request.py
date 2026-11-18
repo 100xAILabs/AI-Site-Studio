@@ -11,6 +11,7 @@ from sqlalchemy import Enum as SAEnum, ForeignKey, Numeric, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.core.security import EncryptedText
 from app.models.base import UUIDMixin, TimestampMixin
 
 if TYPE_CHECKING:
@@ -43,9 +44,9 @@ class WithdrawalRequest(UUIDMixin, TimestampMixin, Base):
 
     # Snapshot of bank details at the time the request was made
     bank_name: Mapped[Optional[str]] = mapped_column(String(255))
-    account_number: Mapped[Optional[str]] = mapped_column(String(100))
+    account_number: Mapped[Optional[str]] = mapped_column(EncryptedText, nullable=True)
     ifsc_code: Mapped[Optional[str]] = mapped_column(String(50))
-    account_holder_name: Mapped[Optional[str]] = mapped_column(String(255))
+    account_holder_name: Mapped[Optional[str]] = mapped_column(EncryptedText, nullable=True)
 
     # Relationships
     seller: Mapped["User"] = relationship(

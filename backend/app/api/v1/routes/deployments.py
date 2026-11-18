@@ -49,7 +49,10 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("/hosting-price")
-async def get_hosting_price(current_user: User = Depends(get_current_user)):
+async def get_hosting_price(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     user_tier = str(getattr(current_user, "subscription_tier", "free") or "free").lower()
     is_admin = getattr(current_user.role, "value", current_user.role) == "admin"
     if user_tier in ("extreme", "agency", "enterprise") or is_admin:
@@ -941,6 +944,7 @@ async def suggest_domains(query: str, limit: int = 8, current_user: User = Depen
 async def quote_domain_registration(
     payload: DomainRegistrationQuoteRequest,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Collect registrant details and fetch GoDaddy's exact, short-lived price quote."""
     quote = await godaddy_domain_service.quote(payload.domain, payload.period)

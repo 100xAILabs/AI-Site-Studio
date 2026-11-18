@@ -3,6 +3,7 @@ Payouts and withdrawals routes.
 """
 
 import uuid
+import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import List
@@ -25,12 +26,14 @@ from app.schemas.payout import (
     SaleItemResponse,
     WithdrawalCreateRequest,
     WithdrawalResponse,
+    AdminWithdrawalResponse,
     WithdrawalStatusUpdateRequest,
     MarketplaceSettingsResponse,
     MarketplaceSettingsUpdate,
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 async def calculate_seller_earnings(db: AsyncSession, seller_id: uuid.UUID) -> dict:
@@ -51,7 +54,9 @@ async def calculate_seller_earnings(db: AsyncSession, seller_id: uuid.UUID) -> d
     setting_res = await db.execute(select(MarketplaceSetting).where(MarketplaceSetting.id == "default"))
     m_setting = setting_res.scalar_one_or_none()
     commission_rate = m_setting.platform_commission_percent if m_setting else Decimal("20.00")
-    holding_days = m_setting.payout_holding_days if m_setting else 7
+    from app.core.config import settings
+    default_holding = getattr(settings, "SELLER_PAYOUT_HOLD_DAYS", 14)
+    holding_days = m_setting.payout_holding_days if (m_setting and m_setting.payout_holding_days) else default_holding
 
     # 2. Completed sales query
     stmt = (
@@ -496,17 +501,46 @@ async def get_withdrawal_receipt(
 
 # ── Admin Endpoints ───────────────────────────────────────────────────────────
 
-@router.get("/admin/withdrawals", response_model=List[WithdrawalResponse])
+@router.get("/admin/withdrawals", response_model=List[AdminWithdrawalResponse])
 async def list_all_withdrawals(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
     """
     [Admin] List all withdrawal requests submitted on the platform.
+    Suppresses account holder names from broad list for privacy.
     """
     stmt = select(WithdrawalRequest).order_by(WithdrawalRequest.created_at.desc())
     res = await db.execute(stmt)
     return res.scalars().all()
+
+
+@router.get("/admin/withdrawals/{withdrawal_id}/bank-details")
+async def get_withdrawal_bank_details(
+    withdrawal_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """
+    [Admin Only] Secure endpoint to inspect unmasked bank details for manual wire processing.
+    Emits an audit log warning for every invocation.
+    """
+    stmt = select(WithdrawalRequest).where(WithdrawalRequest.id == withdrawal_id)
+    res = await db.execute(stmt)
+    w = res.scalar_one_or_none()
+    if not w:
+        raise HTTPException(status_code=404, detail="Withdrawal request not found")
+
+    logger.warning("bank_details_viewed admin=%s withdrawal=%s", current_user.id, w.id)
+    return {
+        "id": str(w.id),
+        "seller_id": str(w.seller_id),
+        "amount": float(w.amount),
+        "bank_name": w.bank_name,
+        "account_number": w.account_number,
+        "ifsc_code": w.ifsc_code,
+        "account_holder_name": w.account_holder_name,
+    }
 
 
 @router.patch("/admin/withdrawals/{withdrawal_id}", response_model=WithdrawalResponse)
@@ -700,10 +734,10 @@ async def transfer_seller_earnings(
             WithdrawalRequest.seller_id == current_user.id,
             WithdrawalRequest.status == WithdrawalStatus.PENDING,
             WithdrawalRequest.ifsc_code == "STRIPE-CONNECT",
-            WithdrawalRequest.account_number == account_id,
         ).order_by(WithdrawalRequest.created_at.desc()).with_for_update()
     )
-    w_req = pending_result.scalars().first()
+    candidates = pending_result.scalars().all()
+    w_req = next((c for c in candidates if c.account_number == account_id), None)
     if w_req:
         if w_req.amount != amount:
             raise HTTPException(
@@ -742,63 +776,98 @@ async def transfer_seller_earnings(
         db.add(w_req)
         await db.flush()
 
-    if not settings.STRIPE_SECRET_KEY or account_id.startswith("acct_mock_"):
-        if settings.ENVIRONMENT.lower() not in ("development", "local", "test"):
-            await db.rollback()
-            raise HTTPException(status_code=503, detail="Mock Stripe Connect accounts cannot receive payouts in non-local environments.")
-        w_req.status = WithdrawalStatus.PAID
-        await db.commit()
-        return {
-            "status": "PAID",
-            "transfer_id": f"tr_mock_{uuid.uuid4().hex[:12]}",
-            "amount": float(amount),
-            "message": "Direct Stripe Transfer completed successfully (Development Mode).",
-        }
-
-    # Persist the reservation before making the external transfer. If Stripe or
-    # the database response is uncertain, a retry can resume this same request.
+    # PENDING reservation is safely stored and queued for admin execution
     await db.commit()
     await db.refresh(w_req)
-    payout_request_id = str(w_req.id)
+
+    return {
+        "status": "PENDING_APPROVAL",
+        "withdrawal_id": str(w_req.id),
+        "amount": float(amount),
+        "destination": account_id,
+        "message": "Payout request submitted for administrator review and Stripe transfer execution.",
+    }
+
+
+@router.post("/admin/withdrawals/{withdrawal_id}/stripe-transfer")
+async def execute_admin_stripe_transfer(
+    withdrawal_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_admin),
+):
+    """
+    Admin-only endpoint to approve and execute a queued Stripe Connect payout.
+    Enforces the dual-control principle to prevent unauthorized immediate fund drains.
+    """
+    stmt = (
+        select(WithdrawalRequest)
+        .where(
+            WithdrawalRequest.id == withdrawal_id,
+            WithdrawalRequest.status == WithdrawalStatus.PENDING,
+            WithdrawalRequest.ifsc_code == "STRIPE-CONNECT",
+        )
+        .with_for_update()
+    )
+    res = await db.execute(stmt)
+    w_req = res.scalar_one_or_none()
+    if not w_req:
+        raise HTTPException(status_code=404, detail="Pending Stripe Connect withdrawal request not found.")
+
+    # Re-verify seller available balance
+    earnings = await calculate_seller_earnings(db, w_req.seller_id)
+    if earnings["available_balance"] + w_req.amount < w_req.amount:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient seller balance ({earnings['available_balance']}) for withdrawal."
+        )
+
+    account_id = w_req.account_number
+    amount_in_cents = int(w_req.amount * 100)
+
+    from app.core.config import settings
+    import stripe
+
+    if not settings.STRIPE_SECRET_KEY or account_id.startswith("acct_mock_"):
+        if settings.ENVIRONMENT.lower() not in ("development", "local", "test"):
+            raise HTTPException(status_code=503, detail="Mock Stripe Connect accounts cannot receive payouts in non-local environments.")
+        w_req.status = WithdrawalStatus.PAID
+        w_req.processed_at = datetime.now(timezone.utc)
+        w_req.admin_notes = f"Approved & processed (Mock Mode) by {admin_user.email}"
+        await db.commit()
+        return {
+            "success": True,
+            "withdrawal_id": str(w_req.id),
+            "transfer_id": f"tr_mock_{uuid.uuid4().hex[:12]}",
+            "message": "Stripe Transfer executed successfully (Development Mock).",
+            "amount": float(w_req.amount),
+        }
 
     stripe.api_key = settings.STRIPE_SECRET_KEY
     try:
-        amount_cents = int(amount * 100)
         transfer = stripe.Transfer.create(
-            amount=amount_cents,
+            amount=amount_in_cents,
             currency="usd",
             destination=account_id,
-            description=f"AI Site Studio Seller Payout #{payout_request_id}",
-            idempotency_key=f"seller-payout-{payout_request_id}",
+            description=f"Creator Earnings Payout #{w_req.id} (Approved by {admin_user.email})",
+            metadata={
+                "withdrawal_id": str(w_req.id),
+                "seller_id": str(w_req.seller_id),
+                "admin_id": str(admin_user.id),
+            },
+            idempotency_key=f"transfer_{w_req.id}",
         )
-
         w_req.status = WithdrawalStatus.PAID
+        w_req.processed_at = datetime.now(timezone.utc)
+        w_req.admin_notes = f"Approved & processed via Stripe Transfer {transfer.id} by {admin_user.email}"
         await db.commit()
-
         return {
-            "status": "PAID",
+            "success": True,
+            "withdrawal_id": str(w_req.id),
             "transfer_id": transfer.id,
-            "amount": float(amount),
-            "destination": account_id,
+            "message": "Direct Stripe Transfer completed successfully.",
+            "amount": float(w_req.amount),
         }
     except Exception as e:
-        definite_failure_types = tuple(
-            error_type for error_type in (
-                getattr(stripe.error, "InvalidRequestError", None),
-                getattr(stripe.error, "AuthenticationError", None),
-                getattr(stripe.error, "PermissionError", None),
-            ) if error_type is not None
-        )
-        if definite_failure_types and isinstance(e, definite_failure_types):
-            w_req.status = WithdrawalStatus.REJECTED
-            await db.commit()
-            raise HTTPException(status_code=400, detail="Stripe rejected this payout request; the reserved balance has been released.") from e
-
-        await db.rollback()
-        # Keep the committed PENDING reservation on every error. The client can
-        # retry the same amount, reusing this request's Stripe idempotency key.
-        raise HTTPException(
-            status_code=502,
-            detail=f"Stripe payout status is not confirmed. Payout request {payout_request_id} remains pending; retry the same amount to safely check it again.",
-        ) from e
+        logger.error("Admin Stripe transfer execution failed for %s: %s", w_req.id, e)
+        raise HTTPException(status_code=502, detail=f"Stripe transfer execution failed: {str(e)}")
 

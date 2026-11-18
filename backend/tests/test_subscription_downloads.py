@@ -29,7 +29,7 @@ def _make_template(status=TemplateStatus.PUBLISHED, is_free=False, price=Decimal
 
 @pytest.mark.asyncio
 async def test_any_user_can_download_watermarked_for_evaluation():
-    """All users (Free, Pro, Extreme) can download an unpurchased template with a watermark for evaluation."""
+    """Unpurchased source code download is blocked for all users (Free, Pro, Extreme) with 403."""
     user = User(
         id=uuid4(),
         email="evaluser@test.com",
@@ -39,6 +39,7 @@ async def test_any_user_can_download_watermarked_for_evaluation():
     template = _make_template(is_free=False, price=Decimal("29.00"))
 
     mock_db = AsyncMock()
+    mock_db.add = MagicMock()
     mock_request = MagicMock()
     mock_request.base_url = "http://testserver"
 
@@ -54,18 +55,18 @@ async def test_any_user_can_download_watermarked_for_evaluation():
 
         mock_db.execute.return_value = purchase_result
 
-        res = await download_template(
-            template_id=template.id,
-            request=mock_request,
-            format="zip",
-            license="regular",
-            db=mock_db,
-            current_user=user,
-        )
+        with pytest.raises(HTTPException) as exc_info:
+            await download_template(
+                template_id=template.id,
+                request=mock_request,
+                format="zip",
+                license="regular",
+                db=mock_db,
+                current_user=user,
+            )
 
-        assert res["is_clean"] is False
-        assert res["watermark_status"] == "watermarked"
-        assert "mock_sig" in res["download_url"]
+        assert exc_info.value.status_code == 403
+        assert "Source code download is restricted" in exc_info.value.detail
 
 
 @pytest.mark.asyncio
@@ -99,7 +100,7 @@ async def test_unpurchased_clean_download_rejected_for_all_users():
             )
 
         assert exc_info.value.status_code == 403
-        assert "Purchase required to download clean source code" in exc_info.value.detail
+        assert "Source code download is restricted" in exc_info.value.detail
 
 
 @pytest.mark.asyncio
@@ -114,6 +115,7 @@ async def test_pro_user_with_purchase_gets_clean_without_extended_fee():
     template = _make_template(is_free=False, price=Decimal("39.00"))
 
     mock_db = AsyncMock()
+    mock_db.add = MagicMock()
     mock_request = MagicMock()
     mock_request.base_url = "http://testserver"
 
@@ -157,6 +159,7 @@ async def test_extreme_user_with_purchase_gets_clean_code():
     template = _make_template(is_free=False, price=Decimal("50.00"))
 
     mock_db = AsyncMock()
+    mock_db.add = MagicMock()
     mock_request = MagicMock()
     mock_request.base_url = "http://testserver"
 
@@ -200,6 +203,7 @@ async def test_standard_buyer_with_purchase_gets_clean_code_no_extra_charges():
     template = _make_template(is_free=False, price=Decimal("49.00"))
 
     mock_db = AsyncMock()
+    mock_db.add = MagicMock()
     mock_request = MagicMock()
     mock_request.base_url = "http://testserver"
 

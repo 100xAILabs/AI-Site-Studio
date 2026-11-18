@@ -8,6 +8,7 @@ from PIL import Image
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Response, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, or_
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -25,8 +26,8 @@ async def get_stored_file(
     file_id: str,
     expires: Optional[int] = Query(None),
     signature: Optional[str] = Query(None),
-    token: Optional[str] = Query(None),
     license: Optional[str] = Query(None),
+    edition: Optional[str] = Query(None),
     template_id: Optional[str] = Query(None),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
@@ -36,22 +37,6 @@ async def get_stored_file(
     Stream a file from PostgreSQL storage.
     Requires authentication via token or a valid HMAC URL signature.
     """
-    # 0. Support token authentication from query param (e.g. for browser window/link downloads)
-    if current_user is None and token:
-        try:
-            from app.core.security import decode_token
-            from app.repositories.user_repo import UserRepository
-            clean_token = str(token).replace("Bearer ", "").strip()
-            payload = decode_token(clean_token)
-            sub = payload.get("sub")
-            if sub:
-                user_repo = UserRepository(db)
-                db_user = await user_repo.get_by_id(uuid.UUID(str(sub)))
-                if db_user and db_user.is_active:
-                    current_user = db_user
-        except Exception:
-            pass
-
     try:
         file_uuid = uuid.UUID(file_id)
     except ValueError:
@@ -69,14 +54,24 @@ async def get_stored_file(
 
     # 1. Authorize: check for valid URL signature first
     authorized = False
+    signature_validated_clean = False
     if expires is not None and signature is not None:
         file_id_normalized = str(file_uuid)
         clean_sig = str(signature).strip().lower()
+        # Check if signature specifically validated clean edition
         if (
-            verify_file_signature(file_id_normalized, expires, signature)
-            or verify_file_signature(file_id, expires, signature)
-            or verify_file_signature(file_id_normalized, expires, clean_sig)
-            or verify_file_signature(file_id, expires, clean_sig)
+            verify_file_signature(file_id_normalized, expires, signature, edition="clean")
+            or verify_file_signature(file_id, expires, signature, edition="clean")
+            or verify_file_signature(file_id_normalized, expires, clean_sig, edition="clean")
+            or verify_file_signature(file_id, expires, clean_sig, edition="clean")
+        ):
+            authorized = True
+            signature_validated_clean = True
+        elif (
+            verify_file_signature(file_id_normalized, expires, signature, edition=edition)
+            or verify_file_signature(file_id, expires, signature, edition=edition)
+            or verify_file_signature(file_id_normalized, expires, clean_sig, edition=edition)
+            or verify_file_signature(file_id, expires, clean_sig, edition=edition)
         ):
             authorized = True
 
@@ -91,7 +86,6 @@ async def get_stored_file(
                 else:
                     try:
                         from app.models.template import Template
-                        from app.models.download import Download
                         from app.models.order import Order, OrderItem, OrderStatus
                         from sqlalchemy import select, or_
 
@@ -101,31 +95,26 @@ async def get_stored_file(
                         )
                         for t in tmpl_res.scalars().all():
                             d_assets = t.download_assets or {}
-                            if t.source_file_id == file_uuid or str(file_uuid) in str(list(d_assets.values())):
+                            if getattr(t, "source_project_id", None) == file_uuid or str(file_uuid) in str(list(d_assets.values())):
                                 authorized = True
                                 break
 
-                        # 2b. Check if user has an authorized download record for this specific template
-                        if not authorized and matched_template:
-                            dl_check = await db.execute(
-                                select(Download.id)
-                                .where(
-                                    Download.user_id == current_user.id,
-                                    Download.template_id == matched_template.id
-                                )
-                                .limit(1)
-                            )
-                            if dl_check.scalar_one_or_none():
-                                authorized = True
+                        # Find matching template for this file
+                        t_match_res = await db.execute(
+                            select(Template).where(
+                                or_(Template.id == file_uuid, Template.source_project_id == file_uuid)
+                            ).limit(1)
+                        )
+                        matched_template = t_match_res.scalar_one_or_none()
 
-                        # 2c. Check if buyer purchased this template or template is free
+                        # 2b. Check if buyer purchased this template or template is free
                         if not authorized:
                             ord_res = await db.execute(
                                 select(Template.id)
                                 .outerjoin(OrderItem, OrderItem.template_id == Template.id)
                                 .outerjoin(Order, OrderItem.order_id == Order.id)
                                 .where(
-                                    (Template.source_file_id == file_uuid) | (Template.id == file_uuid),
+                                    or_(Template.id == file_uuid, Template.source_project_id == file_uuid),
                                     or_(
                                         Template.is_free == True,
                                         (Order.user_id == current_user.id) & (Order.status.in_([OrderStatus.COMPLETED, OrderStatus.PROCESSING])),
@@ -211,7 +200,7 @@ async def get_stored_file(
 
                 if not matched_template:
                     t_stmt = select(Template).where(
-                        (Template.source_file_id == file_uuid) | (Template.id == file_uuid)
+                        or_(Template.id == file_uuid, Template.source_project_id == file_uuid)
                     ).limit(1)
                     t_res = await db.execute(t_stmt)
                     matched_template = t_res.scalar_one_or_none()
@@ -250,8 +239,8 @@ async def get_stored_file(
                 pass
 
             req_lic = license or (request.query_params.get("license") if request else None)
-            # License qualification is strictly evaluated server-side based on actual purchase or subscription
-            is_clean = user_qualifies_for_clean_template(
+            # License qualification is evaluated based on verified purchase, subscription, or clean signed URL
+            is_clean = signature_validated_clean or user_qualifies_for_clean_template(
                 user=current_user,
                 template=matched_template,
                 order_item=matched_order_item,

@@ -1,5 +1,5 @@
 /**
- * Onboarding page — collects profile details after social (Google/Facebook) login.
+ * Onboarding page — collects profile details after social (Google) login.
  * Forces even OAuth users to provide their full name, phone, and role before proceeding.
  */
 

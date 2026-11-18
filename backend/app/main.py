@@ -35,6 +35,7 @@ if sys.platform == "win32":
         pass
 
 import uuid
+import re
 
 from contextlib import asynccontextmanager
 
@@ -639,41 +640,57 @@ def create_application() -> FastAPI:
 
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
+    _PREVIEW_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
+
     @app.get("/assets/{filepath:path}", include_in_schema=False)
     async def serve_preview_root_assets(filepath: str, request: Request):
         """
         Safety net for SPA preview assets requested at root /assets/... due to absolute paths.
         Inspects Referer to route to the correct live preview directory.
+        F-01: Strict containment preventing directory traversal.
         """
         import tempfile
         import mimetypes
+        import urllib.parse
         from pathlib import Path
         from fastapi.responses import FileResponse
 
         referer = request.headers.get("referer", "")
         match = re.search(r"/preview/live/([^/?#]+)", referer)
-        if match:
-            target_id = match.group(1)
-            # Validate target_id is a safe identifier
-            clean_target = re.sub(r"[^a-zA-Z0-9_\-]", "", target_id)
-            if not clean_target:
-                return Response(status_code=404, content=b"Invalid preview target")
+        if not match:
+            return Response(status_code=404, content=b"Asset not found")
 
-            live_root = Path(tempfile.gettempdir()) / "ai_site_studio" / "live_previews"
-            base_dir = (live_root / clean_target).resolve()
-            if not base_dir.is_dir() or not base_dir.is_relative_to(live_root.resolve()):
+        target_id = match.group(1)
+        if not _PREVIEW_ID_RE.match(target_id):
+            return Response(status_code=400, content=b"Invalid preview target identifier")
+
+        # Decode URL encoding to prevent %2e%2e traversal bypasses
+        unquoted = urllib.parse.unquote(filepath)
+        if "\x00" in unquoted or ".." in unquoted.replace("\\", "/").split("/"):
+            return Response(status_code=403, content=b"Access denied: Path traversal detected")
+
+        # Normalize relative path
+        clean_rel = unquoted.lstrip("/\\")
+        if not clean_rel or clean_rel.startswith(("/", "\\")):
+            return Response(status_code=403, content=b"Access denied: Invalid asset path")
+
+        live_root = (Path(tempfile.gettempdir()) / "ai_site_studio" / "live_previews").resolve()
+        base_dir = (live_root / target_id).resolve()
+
+        try:
+            if not base_dir.is_relative_to(live_root) or not base_dir.is_dir():
                 return Response(status_code=404, content=b"Preview directory not found")
+        except (ValueError, RuntimeError):
+            return Response(status_code=404, content=b"Preview directory not found")
 
-            # Clean path from directory traversal sequences
-            clean_rel = filepath.lstrip("/\\")
-            if ".." in clean_rel.split("/") or ".." in clean_rel.split("\\"):
-                return Response(status_code=403, content=b"Access denied: Path traversal detected")
-
-            for sub in ["dist/assets", "frontend/dist/assets", "build/assets", "assets"]:
-                candidate = (base_dir / sub / clean_rel).resolve()
+        for sub in ["dist/assets", "frontend/dist/assets", "build/assets", "assets"]:
+            candidate = (base_dir / sub / clean_rel).resolve()
+            try:
                 if candidate.is_file() and candidate.is_relative_to(base_dir):
                     mime, _ = mimetypes.guess_type(str(candidate))
                     return FileResponse(str(candidate), media_type=mime or "application/octet-stream")
+            except (ValueError, RuntimeError):
+                continue
 
         return Response(status_code=404, content=b"Asset not found")
 

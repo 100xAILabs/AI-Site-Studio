@@ -27,6 +27,7 @@ from app.models.template_view import TemplateAccountView
 from app.models.studio_build import StudioBuild, StudioBuildMessage, StudioBuildEvent
 from app.models.demo_session import DemoSession
 from app.models.tamper_alert import TamperAlert
+from app.models.webhook_event import WebhookEvent
 from app.models.subscription import (
     UserSubscription,
     SubscriptionEvent,

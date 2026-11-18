@@ -17,7 +17,7 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.models.user import User
-from app.models.template import TemplateStatus
+from app.models.template import Template, TemplateStatus
 from app.models.order import Order, OrderItem, OrderStatus
 from app.repositories.template_repo import TemplateRepository
 from app.schemas.order import OrderCreate, OrderResponse
@@ -59,12 +59,28 @@ async def create_order(
     current_user: User = Depends(get_current_user),
 ):
     """Create a new order. Returns the order with PENDING status ready for payment."""
-    template_repo = TemplateRepository(db)
+    from app.models.license import License
     subtotal = Decimal("0")
     order_items = []
 
+    # Batch prefetch templates and licenses to eliminate query loops
+    template_ids = [item.template_id for item in data.items]
+    t_res = await db.execute(
+        select(Template).where(Template.id.in_(template_ids), Template.is_deleted.is_(False))
+    )
+    tmpls_by_id = {t.id: t for t in t_res.scalars().all()}
+
+    lics_res = await db.execute(
+        select(License.template_id).where(
+            License.user_id == current_user.id,
+            License.template_id.in_(template_ids),
+            License.is_active == True,
+        )
+    )
+    owned_ids = set(lics_res.scalars().all())
+
     for item_data in data.items:
-        template = await template_repo.get_by_id(item_data.template_id)
+        template = tmpls_by_id.get(item_data.template_id)
         if not template:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -76,15 +92,7 @@ async def create_order(
             raise HTTPException(status_code=400, detail="You cannot purchase your own template.")
 
         # Prevent duplicate purchase of already owned template
-        from app.models.license import License
-        existing_license = await db.execute(
-            select(License).where(
-                License.user_id == current_user.id,
-                License.template_id == template.id,
-                License.is_active == True,
-            )
-        )
-        if existing_license.scalar_one_or_none():
+        if template.id in owned_ids:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"You already own '{template.title}'. Access it anytime in your My Purchases library.",

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from decimal import Decimal
 from datetime import datetime
 from uuid import UUID
@@ -49,9 +49,16 @@ class EarningsSummaryResponse(BaseModel):
 class WithdrawalCreateRequest(BaseModel):
     amount: Decimal = Field(..., gt=0)
     bank_name: Optional[str] = None
-    account_number: Optional[str] = None
+    account_number: Optional[str] = Field(None, pattern=r"^[0-9A-Za-z]{5,34}$")
     ifsc_code: Optional[str] = None
     account_holder_name: Optional[str] = None
+
+    @field_validator("account_number")
+    @classmethod
+    def validate_not_masked(cls, v: Optional[str]) -> Optional[str]:
+        if v and ("*" in v or "•" in v):
+            raise ValueError("Masked account numbers cannot be submitted. Please provide the real account number.")
+        return v
 
 
 class WithdrawalResponse(BaseModel):
@@ -66,7 +73,22 @@ class WithdrawalResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @field_validator("account_number", mode="before")
+    @classmethod
+    def mask_account_number(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return None
+        clean = str(v).strip()
+        if len(clean) <= 4:
+            return "****"
+        return f"****{clean[-4:]}"
+
     model_config = {"from_attributes": True}
+
+
+class AdminWithdrawalResponse(WithdrawalResponse):
+    """Admin view of withdrawal requests: suppresses holder names in broad lists for privacy."""
+    account_holder_name: Optional[str] = Field(None, exclude=True)
 
 
 class WithdrawalStatusUpdateRequest(BaseModel):

@@ -6,8 +6,8 @@ and trigger autonomous zero-downtime healing via the AI Site Doctor.
 
 import uuid
 from typing import List, Optional
-from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from datetime import datetime, timezone, timedelta
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -32,6 +32,7 @@ router = APIRouter()
 async def report_broken_website(
     deployment_id: uuid.UUID,
     payload: IncidentCreate,
+    request: Request,
     current_user: Optional[User] = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ):
@@ -39,6 +40,26 @@ async def report_broken_website(
     Submits a broken website report for a deployment.
     Optionally triggers the AI Site Doctor immediately if auto_heal_with_ai is True.
     """
+    # Rate limit incident reports: max 10 reports per minute per IP / deployment
+    client_ip = request.client.host if request.client else "unknown"
+    rate_key = f"rate:incident_report:{client_ip}:{deployment_id}"
+    try:
+        from app.core.redis import get_redis
+        redis = await get_redis()
+        if redis:
+            current_cnt = await redis.incr(rate_key)
+            if current_cnt == 1:
+                await redis.expire(rate_key, 60)
+            if current_cnt > 10:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Too many incident reports submitted. Please wait a minute before reporting again."
+                )
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
     stmt = select(Deployment).where(Deployment.id == deployment_id)
     res = await db.execute(stmt)
     deployment = res.scalar_one_or_none()
@@ -169,6 +190,7 @@ async def report_broken_website(
 async def report_broken_website_by_site_id(
     site_id: str,
     payload: IncidentCreate,
+    request: Request,
     current_user: Optional[User] = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ):
@@ -189,6 +211,7 @@ async def report_broken_website_by_site_id(
     return await report_broken_website(
         deployment_id=deployment.id,
         payload=payload,
+        request=request,
         current_user=current_user,
         db=db,
     )

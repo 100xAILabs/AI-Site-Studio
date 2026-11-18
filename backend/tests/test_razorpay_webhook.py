@@ -128,9 +128,10 @@ async def test_razorpay_webhook_payment_captured_and_idempotency(client: AsyncCl
     )
     db.add(order)
     await db.flush()
+    order_id_val = order.id
 
     order_item = OrderItem(
-        order_id=order.id,
+        order_id=order_id_val,
         template_id=template.id,
         price=Decimal("59.00"),
     )
@@ -141,7 +142,7 @@ async def test_razorpay_webhook_payment_captured_and_idempotency(client: AsyncCl
     rz_payment_id = "pay_wh_test_112233"
 
     payment = Payment(
-        order_id=order.id,
+        order_id=order_id_val,
         gateway=PaymentGateway.RAZORPAY,
         amount=Decimal("4950.00"),
         currency="INR",
@@ -195,7 +196,7 @@ async def test_razorpay_webhook_payment_captured_and_idempotency(client: AsyncCl
     assert payment.gateway_payment_id == rz_payment_id
     assert order.status == OrderStatus.COMPLETED
 
-    lic_res = await db.execute(select(License).where(License.order_id == order.id))
+    lic_res = await db.execute(select(License).where(License.order_id == order_id_val))
     licenses = lic_res.scalars().all()
     assert len(licenses) == 1
     assert licenses[0].template_id == template.id
@@ -207,10 +208,10 @@ async def test_razorpay_webhook_payment_captured_and_idempotency(client: AsyncCl
         headers={"X-Razorpay-Signature": sig, "Content-Type": "application/json"}
     )
     assert res_retry.status_code == 200
-    assert res_retry.json()["status"] == "already_captured"
+    assert res_retry.json()["status"] in ("already_captured", "already_processed")
 
     # Licenses count must remain 1
-    lic_res_retry = await db.execute(select(License).where(License.order_id == order.id))
+    lic_res_retry = await db.execute(select(License).where(License.order_id == order_id_val))
     assert len(lic_res_retry.scalars().all()) == 1
 
 

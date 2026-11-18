@@ -58,8 +58,13 @@ class CategoryRepository:
         await self.db.delete(category)
         await self.db.flush()
 
-    async def count_templates(self, category_id: uuid.UUID) -> int:
+    async def count_templates(self, category_id: uuid.UUID | str) -> int:
         from app.models.template import Template, TemplateStatus
+        if isinstance(category_id, str):
+            try:
+                category_id = uuid.UUID(category_id)
+            except (ValueError, TypeError):
+                return 0
         result = await self.db.execute(
             select(func.count())
             .select_from(Template)

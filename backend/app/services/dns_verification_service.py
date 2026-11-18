@@ -6,7 +6,10 @@ Prevents domain hijacking, fake domain claims (e.g. 'google.com'), and subdomain
 import logging
 import socket
 from typing import Dict, Any, List, Optional
+from urllib.parse import urlparse
 import httpx
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +31,30 @@ PROTECTED_SYSTEM_DOMAINS = {
     "localhost",
 }
 
-EDGE_SERVER_IPS = {"149.28.243.12", "127.0.0.1"}
-EDGE_CNAME_TARGETS = {"site-studio.live", "aisitestudio.com"}
+
+def get_edge_server_ips() -> set[str]:
+    """Dynamically returns allowed A-record IP addresses including the User Workload Server (Oracle 2)."""
+    ips = {"149.28.243.12", "127.0.0.1"}
+    if getattr(settings, "USER_WORKLOAD_PUBLIC_IP", None):
+        ips.add(settings.USER_WORKLOAD_PUBLIC_IP.strip())
+    if getattr(settings, "DEPLOYMENT_HOST_IP", None):
+        ips.add(settings.DEPLOYMENT_HOST_IP.strip())
+    return ips
+
+
+def get_edge_cname_targets() -> set[str]:
+    """Dynamically returns allowed CNAME host targets."""
+    targets = {"site-studio.live", "aisitestudio.com", "sites.aisitestudio.com"}
+    if getattr(settings, "USER_WORKLOAD_SERVER_URL", None):
+        netloc = urlparse(settings.USER_WORKLOAD_SERVER_URL).netloc
+        if netloc:
+            targets.add(netloc.split(":")[0])
+    return targets
+
+
+# Retain module-level sets for backward compatibility
+EDGE_SERVER_IPS = get_edge_server_ips()
+EDGE_CNAME_TARGETS = get_edge_cname_targets()
 
 
 async def query_public_dns_records(domain: str, record_type: str = "TXT") -> List[str]:
@@ -121,9 +146,8 @@ async def verify_domain_dns_ownership(domain: str, expected_token: str) -> Dict[
                 "records": list(all_txts),
             }
 
-    # An A record or CNAME points traffic to Studio Edge, but domain ownership strictly requires
-    # the unique cryptographic TXT challenge token at _studio-challenge.<domain> to prevent
-    # cross-tenant domain hijacking on shared edge infrastructure.
+    # Check 3: Query A-records for diagnostic guidance
+    a_records = await query_public_dns_records(clean, record_type="A")
     found_info = f"Current A-records point to: {', '.join(a_records)}" if a_records else "Domain has no active A records"
     return {
         "verified": False,

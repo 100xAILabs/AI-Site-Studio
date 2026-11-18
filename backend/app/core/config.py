@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production-must-be-at-least-32-characters"
     OLD_SECRET_KEYS: str = ""  # Comma-separated list of older keys for token rotation
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200  # 30 days (prevents premature session logout)
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     @model_validator(mode="after")
@@ -90,11 +90,9 @@ class Settings(BaseSettings):
         return self
 
 
-    # -- OAuth (Google / Facebook) ---------------------------------------------
+    # -- OAuth (Google / GitHub) -----------------------------------------------
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
-    FACEBOOK_CLIENT_ID: str = ""
-    FACEBOOK_CLIENT_SECRET: str = ""
     GITHUB_CLIENT_ID: str = ""
     GITHUB_CLIENT_SECRET: str = ""
     # Anthropic (Claude) - primary code-generation model for full-stack builds
@@ -289,6 +287,17 @@ class Settings(BaseSettings):
     LOCAL_DEPLOYMENT_ENABLED: bool = False
     VERCEL_TOKEN: str = ""
     VERCEL_TEAM_ID: str = ""
+
+    # -- Dual Oracle Cloud Workload Isolation (Mine vs Users) ------------------
+    # "local" for dev / single server; "remote_oracle" when running separate user workload server
+    USER_WORKLOAD_MODE: str = "local"
+    # Public URL of Oracle Cloud Instance 2 (e.g. "https://sites.aisitestudio.com" or "http://203.0.113.50:8000")
+    USER_WORKLOAD_SERVER_URL: str = ""
+    # Public IPv4 of Oracle Cloud Instance 2 (used for DNS A-record verification of customer custom domains)
+    USER_WORKLOAD_PUBLIC_IP: str = ""
+    # Secure pre-shared sync secret for shipping compiled website bundles from Oracle 1 to Oracle 2
+    USER_WORKLOAD_SYNC_SECRET: str = "oracle-workload-sync-secret-change-in-production"
+
     # GoDaddy Domains API v3 Personal Access Token (domains.domain:read,
     # domains.domain:create, domains.dns:update). Never expose to the frontend.
     GODADDY_PAT: str = ""

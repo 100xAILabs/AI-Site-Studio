@@ -15,7 +15,7 @@ from app.models.user import User
 from app.models.template import Template
 from app.models.order import Order
 from app.repositories.user_repo import UserRepository
-from app.schemas.user import UserResponse, UserAdminUpdate
+from app.schemas.user import UserResponse, AdminUserResponse, UserAdminUpdate
 from app.schemas.common import PaginatedResponse
 from pydantic import BaseModel
 from typing import Literal
@@ -108,6 +108,7 @@ async def admin_stats(
     _admin: User = Depends(require_admin),
 ):
     """[Admin] Platform-wide statistics and revenue calculations."""
+    from app.models.user import User, UserRole
     from app.models.template import Template, TemplateStatus
     from app.models.user import User as UserModel
     from app.models.order import Order as OrderModel, OrderStatus
@@ -116,6 +117,7 @@ async def admin_stats(
         Template.slug.notlike("%-custom-%"),
         Template.title.notlike("%(Customized)%"),
         Template.title.notlike("Customized %"),
+        Template.is_deleted.is_(False),
     ]
 
     total_users = (await db.execute(select(func.count(UserModel.id)))).scalar_one()
@@ -159,6 +161,7 @@ async def list_templates(
         select(Template)
         .options(selectinload(Template.category), selectinload(Template.seller))
         .where(
+            Template.is_deleted.is_(False),
             Template.slug.notlike("%-custom-%"),
             Template.title.notlike("%(Customized)%"),
             Template.title.notlike("Customized %"),
@@ -275,7 +278,94 @@ async def batch_update_template_status(
     }
 
 
-@router.get("/users", response_model=PaginatedResponse[UserResponse])
+@router.get("/templates/trash")
+async def get_admin_trash(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """
+    [Admin] Get all soft-deleted templates across the platform (retained for 30 days).
+    """
+    from sqlalchemy.orm import selectinload
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    thirty_days_ago = now - timedelta(days=30)
+    stmt = (
+        select(Template)
+        .options(selectinload(Template.category), selectinload(Template.seller))
+        .where(
+            Template.is_deleted.is_(True),
+            Template.deleted_at >= thirty_days_ago,
+        )
+        .order_by(Template.deleted_at.desc())
+    )
+    res = await db.execute(stmt)
+    items = res.scalars().all()
+
+    result = []
+    for item in items:
+        del_at = item.deleted_at or now
+        if del_at.tzinfo is None:
+            del_at = del_at.replace(tzinfo=timezone.utc)
+        expires_at = del_at + timedelta(days=30)
+        seconds_left = max(0, int((expires_at - now).total_seconds()))
+        days_left = max(0, int(seconds_left / 86400))
+        result.append({
+            "id": str(item.id),
+            "title": item.title,
+            "slug": item.slug,
+            "price": float(item.price) if item.price else 0.0,
+            "framework": item.framework.value if hasattr(item.framework, "value") else str(item.framework or "HTML"),
+            "seller_id": str(item.seller_id) if item.seller_id else None,
+            "seller_email": item.seller.email if item.seller else None,
+            "seller_name": item.seller.full_name or item.seller.username if item.seller else None,
+            "deleted_at": del_at.isoformat(),
+            "expires_at": expires_at.isoformat(),
+            "days_left": days_left,
+            "seconds_left": seconds_left,
+            "deleted_by_id": str(item.deleted_by_id) if item.deleted_by_id else None,
+        })
+    return result
+
+
+@router.post("/templates/{template_id}/restore")
+async def admin_restore_template(
+    template_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """[Admin] Recover a soft-deleted template within 30 days."""
+    from app.services.template_service import TemplateService
+
+    service = TemplateService(db)
+    restored = await service.restore_template(template_id, admin)
+    return {
+        "status": "success",
+        "message": f"Successfully restored '{restored.title}'",
+        "id": str(restored.id),
+    }
+
+
+@router.delete("/templates/{template_id}/permanent")
+async def admin_permanent_delete_template(
+    template_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """[Admin] Permanently delete a template, purging storage files, previews, vectors, and database record."""
+    from app.services.template_service import TemplateService
+
+    service = TemplateService(db)
+    await service.permanent_delete_template(template_id, admin)
+    return {
+        "status": "success",
+        "message": f"Template {template_id} permanently deleted.",
+        "id": str(template_id),
+    }
+
+
+@router.get("/users", response_model=PaginatedResponse[AdminUserResponse])
 async def list_users(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -288,7 +378,7 @@ async def list_users(
     users = await repo.list_all(skip=skip, limit=page_size)
     total = await repo.count()
     return PaginatedResponse(
-        items=[UserResponse.model_validate(u) for u in users],
+        items=[AdminUserResponse.model_validate(u) for u in users],
         total=total,
         page=page,
         page_size=page_size,
@@ -296,7 +386,7 @@ async def list_users(
     )
 
 
-@router.patch("/users/{user_id}", response_model=UserResponse)
+@router.patch("/users/{user_id}", response_model=AdminUserResponse)
 async def update_user(
     user_id: uuid.UUID,
     data: UserAdminUpdate,
@@ -493,49 +583,73 @@ async def list_users_usage(
     users_res = await db.execute(select(UserModel).order_by(UserModel.created_at.desc()))
     users = users_res.scalars().all()
 
+    if not users:
+        return []
+
+    user_ids = [u.id for u in users]
+    user_emails = [u.email for u in users if u.email]
+
+    # Batch Query 1: Orders count and total spend
+    orders_res = await db.execute(
+        select(
+            OrderModel.user_id,
+            func.count(OrderModel.id).label("orders_count"),
+            func.coalesce(func.sum(OrderModel.total), 0).label("total_spent"),
+        )
+        .where(OrderModel.user_id.in_(user_ids), OrderModel.status == OrderStatus.COMPLETED)
+        .group_by(OrderModel.user_id)
+    )
+    orders_by_user = {row.user_id: (row.orders_count, float(row.total_spent)) for row in orders_res.all()}
+
+    # Batch Query 2: Purchased templates for clean download verification
+    purchased_res = await db.execute(
+        select(OrderModel.user_id, OrderItem.template_id)
+        .join(OrderModel, OrderItem.order_id == OrderModel.id)
+        .where(OrderModel.user_id.in_(user_ids), OrderModel.status == OrderStatus.COMPLETED)
+    )
+    purchased_by_user = {}
+    for uid, tid in purchased_res.all():
+        purchased_by_user.setdefault(uid, set()).add(tid)
+
+    # Batch Query 3: Download template IDs
+    downloads_res = await db.execute(
+        select(DownloadModel.user_id, DownloadModel.template_id).where(DownloadModel.user_id.in_(user_ids))
+    )
+    downloads_by_user = {}
+    for uid, tid in downloads_res.all():
+        downloads_by_user.setdefault(uid, []).append(tid)
+
+    # Batch Query 4: Deployments count
+    dep_res = await db.execute(
+        select(DeploymentModel.user_id, func.count(DeploymentModel.id).label("cnt"))
+        .where(DeploymentModel.user_id.in_(user_ids))
+        .group_by(DeploymentModel.user_id)
+    )
+    deployments_by_user = {row.user_id: row.cnt for row in dep_res.all()}
+
+    # Batch Query 5: Tamper alerts count
+    tamper_by_email = {}
+    if user_emails:
+        try:
+            tamper_res = await db.execute(
+                select(TamperAlert.buyer_email, func.count(TamperAlert.id).label("cnt"))
+                .where(TamperAlert.buyer_email.in_(user_emails))
+                .group_by(TamperAlert.buyer_email)
+            )
+            tamper_by_email = {row.buyer_email: row.cnt for row in tamper_res.all()}
+        except Exception:
+            tamper_by_email = {}
+
     usage_list = []
     for u in users:
-        # Orders & Spend
-        orders_res = await db.execute(
-            select(
-                func.count(OrderModel.id),
-                func.coalesce(func.sum(OrderModel.total), 0)
-            )
-            .where(OrderModel.user_id == u.id, OrderModel.status == OrderStatus.COMPLETED)
-        )
-        orders_count, total_spent = orders_res.first() or (0, 0)
-
-        # Purchased templates for clean download verification
-        purchased_res = await db.execute(
-            select(OrderItem.template_id)
-            .join(OrderModel, OrderItem.order_id == OrderModel.id)
-            .where(OrderModel.user_id == u.id, OrderModel.status == OrderStatus.COMPLETED)
-        )
-        purchased_template_ids = set(purchased_res.scalars().all())
-
-        # Downloads count
-        downloads_res = await db.execute(
-            select(DownloadModel.template_id).where(DownloadModel.user_id == u.id)
-        )
-        download_template_ids = downloads_res.scalars().all()
+        orders_count, total_spent = orders_by_user.get(u.id, (0, 0.0))
+        purchased_template_ids = purchased_by_user.get(u.id, set())
+        download_template_ids = downloads_by_user.get(u.id, [])
         total_downloads = len(download_template_ids)
         clean_downloads = sum(1 for tid in download_template_ids if tid in purchased_template_ids)
         watermarked_downloads = total_downloads - clean_downloads
-
-        # Deployments count
-        dep_res = await db.execute(
-            select(func.count(DeploymentModel.id)).where(DeploymentModel.user_id == u.id)
-        )
-        deployments_count = dep_res.scalar_one() or 0
-
-        # Tamper alerts count
-        try:
-            tamper_res = await db.execute(
-                select(func.count(TamperAlert.id)).where(TamperAlert.user_id == u.id)
-            )
-            tamper_count = tamper_res.scalar_one() or 0
-        except Exception:
-            tamper_count = 0
+        deployments_count = deployments_by_user.get(u.id, 0)
+        tamper_count = tamper_by_email.get(u.email, 0) if u.email else 0
 
         usage_list.append({
             "id": str(u.id),
@@ -568,7 +682,7 @@ async def get_user_usage_details(
     [Admin] Deep usage drilldown for a single user.
     """
     from app.models.user import User as UserModel
-    from app.models.order import Order as OrderModel, OrderItem
+    from app.models.order import Order as OrderModel, OrderItem, OrderStatus
     from app.models.download import Download as DownloadModel
     from app.models.deployment import Deployment as DeploymentModel
     from app.models.tamper_alert import TamperAlert
@@ -614,22 +728,27 @@ async def get_user_usage_details(
 
     # Tamper alerts
     tamper_alerts = []
-    try:
-        t_res = await db.execute(
-            select(TamperAlert)
-            .where(TamperAlert.user_id == user.id)
-            .order_by(TamperAlert.created_at.desc())
-        )
-        tamper_alerts = [{
-            "id": str(t.id),
-            "template_slug": t.template_slug,
-            "event_type": t.event_type,
-            "details": t.details,
-            "ip_address": t.ip_address,
-            "created_at": t.created_at.isoformat() if t.created_at else None,
-        } for t in t_res.scalars().all()]
-    except Exception:
-        pass
+    if user.email:
+        try:
+            t_res = await db.execute(
+                select(TamperAlert)
+                .where(TamperAlert.buyer_email == user.email)
+                .order_by(TamperAlert.created_at.desc())
+            )
+            tamper_alerts = [{
+                "id": str(t.id),
+                "template_id": t.template_id,
+                "template_slug": t.template_title or t.template_id,
+                "template_title": t.template_title,
+                "violation_type": t.violation_type,
+                "event_type": t.violation_type,
+                "details": t.details,
+                "domain": t.domain,
+                "ip_address": t.ip_address,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+            } for t in t_res.scalars().all()]
+        except Exception:
+            tamper_alerts = []
 
     return {
         "user": {
@@ -1135,6 +1254,73 @@ async def get_subscription_profitability(
     loss_making_count = 0
     margin_warning_count = 0
 
+    subscriber_ids = [u.id for u in subscribers]
+
+    # Batch Query 1: Paid hosting add-on counts
+    hosting_addons_by_user = {}
+    if subscriber_ids:
+        h_stmt = (
+            select(HostingSubscription.user_id, func.count(HostingSubscription.id).label("cnt"))
+            .where(
+                HostingSubscription.user_id.in_(subscriber_ids),
+                HostingSubscription.status.in_(["active", "trialing"]),
+            )
+            .group_by(HostingSubscription.user_id)
+        )
+        h_res = await db.execute(h_stmt)
+        hosting_addons_by_user = {row.user_id: row.cnt for row in h_res.all()}
+
+    # Batch Query 2: Variable costs from UsageLedger in past 30 days
+    usage_by_user = {}
+    if subscriber_ids:
+        ledger_stmt = (
+            select(
+                UsageLedger.user_id,
+                UsageLedger.operation,
+                func.sum(UsageLedger.estimated_provider_cost).label("cost"),
+                func.sum(UsageLedger.credits_consumed).label("credits"),
+            )
+            .where(
+                UsageLedger.user_id.in_(subscriber_ids),
+                UsageLedger.created_at >= thirty_days_ago,
+            )
+            .group_by(UsageLedger.user_id, UsageLedger.operation)
+        )
+        ledger_res = await db.execute(ledger_stmt)
+        for row in ledger_res.all():
+            usage_by_user.setdefault(row.user_id, []).append((row.operation, row.cost, row.credits))
+
+    # Batch Query 3: Active sites hosting compute cost
+    live_sites_by_user = {}
+    if subscriber_ids:
+        dep_stmt = (
+            select(Deployment.user_id, func.count(Deployment.id).label("cnt"))
+            .where(
+                Deployment.user_id.in_(subscriber_ids),
+                Deployment.status == "live",
+            )
+            .group_by(Deployment.user_id)
+        )
+        dep_res = await db.execute(dep_stmt)
+        live_sites_by_user = {row.user_id: row.cnt for row in dep_res.all()}
+
+    # Batch Query 4: Promotional domain subsidy cost
+    domain_subsidy_by_user = {}
+    if subscriber_ids:
+        dom_stmt = (
+            select(
+                PromotionalDomainCredit.user_id,
+                func.sum(PromotionalDomainCredit.credit_used_usd).label("cost"),
+            )
+            .where(
+                PromotionalDomainCredit.user_id.in_(subscriber_ids),
+                PromotionalDomainCredit.created_at >= thirty_days_ago,
+            )
+            .group_by(PromotionalDomainCredit.user_id)
+        )
+        dom_res = await db.execute(dom_stmt)
+        domain_subsidy_by_user = {row.user_id: (row.cost or Decimal("0.00")) for row in dom_res.all()}
+
     for u in subscribers:
         plan_id = normalize_plan_id(u.subscription_tier or "free")
         plan_cfg = get_plan_config(plan_id)
@@ -1143,28 +1329,12 @@ async def get_subscription_profitability(
         base_rev = plan_cfg["monthly_price_usd"]
 
         # Paid hosting add-on revenue ($12/mo each)
-        h_res = await db.execute(
-            select(func.count(HostingSubscription.id)).where(
-                HostingSubscription.user_id == u.id,
-                HostingSubscription.status.in_(["active", "trialing"]),
-            )
-        )
-        hosting_addons = h_res.scalar() or 0
+        hosting_addons = hosting_addons_by_user.get(u.id, 0)
         hosting_addon_rev = Decimal(hosting_addons) * Decimal("12.00")
         user_total_revenue = base_rev + hosting_addon_rev
 
         # Variable costs from UsageLedger in past 30 days
-        ledger_res = await db.execute(
-            select(
-                UsageLedger.operation,
-                func.sum(UsageLedger.estimated_provider_cost),
-                func.sum(UsageLedger.credits_consumed),
-            )
-            .where(UsageLedger.user_id == u.id, UsageLedger.created_at >= thirty_days_ago)
-            .group_by(UsageLedger.operation)
-        )
-        usage_by_op = ledger_res.all()
-
+        usage_by_op = usage_by_user.get(u.id, [])
         ai_cost = Decimal("0.000000")
         auto_heal_cost = Decimal("0.000000")
         build_cost = Decimal("0.000000")
@@ -1181,23 +1351,11 @@ async def get_subscription_profitability(
                 ai_cost += c
 
         # Active sites hosting compute cost (~$0.15/site/mo)
-        dep_res = await db.execute(
-            select(func.count(Deployment.id)).where(
-                Deployment.user_id == u.id,
-                Deployment.status == "live",
-            )
-        )
-        live_sites = dep_res.scalar() or 0
+        live_sites = live_sites_by_user.get(u.id, 0)
         hosting_cost = Decimal(live_sites) * Decimal("0.150000")
 
         # Promotional domain subsidy cost
-        dom_res = await db.execute(
-            select(func.sum(PromotionalDomainCredit.credit_used_usd)).where(
-                PromotionalDomainCredit.user_id == u.id,
-                PromotionalDomainCredit.created_at >= thirty_days_ago,
-            )
-        )
-        domain_subsidy_cost = dom_res.scalar() or Decimal("0.00")
+        domain_subsidy_cost = domain_subsidy_by_user.get(u.id, Decimal("0.00"))
 
         user_var_cost = (ai_cost + auto_heal_cost + build_cost + hosting_cost + domain_subsidy_cost).quantize(Decimal("0.01"))
         user_gross_profit = (user_total_revenue - user_var_cost).quantize(Decimal("0.01"))
@@ -1381,6 +1539,7 @@ async def list_marketplace_submissions(
 ):
     """[Admin] List all creator template submissions pending review or moderation."""
     from sqlalchemy.orm import selectinload
+    from app.models.user import User, UserRole
     from app.models.template import Template, TemplateStatus
 
     query = (
@@ -1458,6 +1617,7 @@ async def review_marketplace_template(
     - under_review: moves to UNDER_REVIEW while inspecting files.
     """
     from datetime import datetime, timezone
+    from app.models.user import User, UserRole
     from app.models.template import Template, TemplateStatus
     from app.services.fast_catalog import fast_catalog
     from app.core.redis import cache_delete_pattern
@@ -1536,6 +1696,7 @@ async def list_marketplace_creators(
     _admin: User = Depends(require_admin),
 ):
     """[Admin] Overview of all active creators, their Extreme plan status, templates, and revenue."""
+    from app.models.user import User, UserRole
     from app.models.template import Template, TemplateStatus
     from app.models.order import Order, OrderItem, OrderStatus
     from app.models.payment import Payment, PaymentStatus
@@ -1558,19 +1719,36 @@ async def list_marketplace_creators(
     creators = users_res.scalars().all()
 
     creators_data = []
-    for c in creators:
-        # Templates count
-        t_count_stmt = select(
-            func.count(Template.id).label("total"),
-            func.count(Template.id).filter(Template.status == TemplateStatus.PUBLISHED).label("published"),
-            func.count(Template.id).filter(Template.status.in_([TemplateStatus.SUBMITTED, TemplateStatus.UNDER_REVIEW])).label("pending"),
-        ).where(Template.seller_id == c.id)
-        t_res = await db.execute(t_count_stmt)
-        t_counts = t_res.one()
+    if not creators:
+        return []
 
-        # Gross sales
+    creator_ids = [c.id for c in creators]
+
+    # Batch Query 1: Template counts by seller_id
+    t_counts_by_seller = {}
+    if creator_ids:
+        t_count_stmt = (
+            select(
+                Template.seller_id,
+                func.count(Template.id).label("total"),
+                func.count(Template.id).filter(Template.status == TemplateStatus.PUBLISHED).label("published"),
+                func.count(Template.id).filter(Template.status.in_([TemplateStatus.SUBMITTED, TemplateStatus.UNDER_REVIEW])).label("pending"),
+            )
+            .where(Template.seller_id.in_(creator_ids))
+            .group_by(Template.seller_id)
+        )
+        t_res = await db.execute(t_count_stmt)
+        for row in t_res.all():
+            t_counts_by_seller[row.seller_id] = (row.total, row.published, row.pending)
+
+    # Batch Query 2: Gross sales by seller_id
+    sales_by_seller = {}
+    if creator_ids:
         sales_stmt = (
-            select(func.coalesce(func.sum(OrderItem.price), Decimal("0.00")))
+            select(
+                Template.seller_id,
+                func.coalesce(func.sum(OrderItem.price), Decimal("0.00")).label("gross_sales"),
+            )
             .select_from(OrderItem)
             .join(Order, OrderItem.order_id == Order.id)
             .join(Payment, Payment.order_id == Order.id)
@@ -1578,20 +1756,35 @@ async def list_marketplace_creators(
             .where(
                 Order.status == OrderStatus.COMPLETED,
                 Payment.status == PaymentStatus.CAPTURED,
-                Template.seller_id == c.id,
-                Order.user_id != c.id,
+                Template.seller_id.in_(creator_ids),
+                Order.user_id != Template.seller_id,
             )
+            .group_by(Template.seller_id)
         )
         sales_res = await db.execute(sales_stmt)
-        gross_sales = sales_res.scalar_one()
+        sales_by_seller = {row.seller_id: row.gross_sales for row in sales_res.all()}
 
-        # Paid payouts
-        paid_stmt = select(func.coalesce(func.sum(WithdrawalRequest.amount), Decimal("0.00"))).where(
-            WithdrawalRequest.seller_id == c.id,
-            WithdrawalRequest.status == WithdrawalStatus.PAID,
+    # Batch Query 3: Paid payouts by seller_id
+    payouts_by_seller = {}
+    if creator_ids:
+        paid_stmt = (
+            select(
+                WithdrawalRequest.seller_id,
+                func.coalesce(func.sum(WithdrawalRequest.amount), Decimal("0.00")).label("total_paid"),
+            )
+            .where(
+                WithdrawalRequest.seller_id.in_(creator_ids),
+                WithdrawalRequest.status == WithdrawalStatus.PAID,
+            )
+            .group_by(WithdrawalRequest.seller_id)
         )
         paid_res = await db.execute(paid_stmt)
-        total_paid_out = paid_res.scalar_one()
+        payouts_by_seller = {row.seller_id: row.total_paid for row in paid_res.all()}
+
+    for c in creators:
+        total_t, pub_t, pend_t = t_counts_by_seller.get(c.id, (0, 0, 0))
+        gross_sales = sales_by_seller.get(c.id, Decimal("0.00"))
+        total_paid_out = payouts_by_seller.get(c.id, Decimal("0.00"))
 
         creators_data.append({
             "id": str(c.id),
@@ -1599,9 +1792,9 @@ async def list_marketplace_creators(
             "email": c.email,
             "subscription_tier": c.subscription_tier or "free",
             "is_extreme": bool(c.can_retail_templates or c.is_extreme_subscriber),
-            "total_templates": t_counts.total,
-            "published_templates": t_counts.published,
-            "pending_templates": t_counts.pending,
+            "total_templates": total_t,
+            "published_templates": pub_t,
+            "pending_templates": pend_t,
             "gross_sales": float(gross_sales),
             "total_paid_out": float(total_paid_out),
             "is_active": c.is_active,

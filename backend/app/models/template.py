@@ -172,7 +172,13 @@ class Template(UUIDMixin, TimestampMixin, Base):
     # Originating Site Studio user project
     source_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid(as_uuid=True),
-        ForeignKey("projects.id", ondelete="SET NULL"),
+        ForeignKey("projects.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+        index=True,
+    )
+    # Originating marketplace template for customized/forked drafts (rights root)
+    forked_from_template_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid(as_uuid=True),
         nullable=True,
         index=True,
     )
@@ -197,6 +203,15 @@ class Template(UUIDMixin, TimestampMixin, Base):
     # Qdrant vector ID (stored for sync)
     vector_id: Mapped[Optional[str]] = mapped_column(String(100))
     seo_keywords: Mapped[Optional[List[str]]] = mapped_column(StringList)
+
+    # ── Soft-Delete / Trash Lifecycle ──────────────────────────────────────────
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", index=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     # ── Relationships ─────────────────────────────────────────────────────────
     category: Mapped["Category"] = relationship(back_populates="templates")

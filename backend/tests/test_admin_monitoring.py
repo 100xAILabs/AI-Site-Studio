@@ -65,3 +65,23 @@ async def test_admin_user_usage_details(admin_client: AsyncClient, db: AsyncSess
     assert "deployments" in data
     assert "tamper_alerts" in data
     assert data["user"]["id"] == str(admin_user.id)
+
+
+@pytest.mark.asyncio
+async def test_admin_profitability_dashboard(admin_client: AsyncClient):
+    res = await admin_client.get("/api/v1/admin/profitability")
+    assert res.status_code == 200
+    data = res.json()
+    assert "gross_revenue" in data
+    assert "variable_costs" in data
+    assert "gross_profit" in data
+    assert "gross_margin_percent" in data
+    assert "summary" in data
+
+
+@pytest.mark.asyncio
+async def test_admin_creators_overview(admin_client: AsyncClient):
+    res = await admin_client.get("/api/v1/admin/marketplace/creators")
+    assert res.status_code == 200
+    data = res.json()
+    assert isinstance(data, list)

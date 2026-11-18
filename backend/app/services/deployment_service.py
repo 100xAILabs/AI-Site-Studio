@@ -143,11 +143,16 @@ class DeploymentService:
         return deployment
 
     @staticmethod
-    async def run_deployment_pipeline(deployment_id: uuid.UUID, version_str: str = "v1.0"):
+    async def run_deployment_pipeline(deployment_id: uuid.UUID | str, version_str: str = "v1.0"):
         """
         Background worker pipeline that executes compilation, testing, health checking,
         and atomic deployment for an isolated tenant workload.
         """
+        if isinstance(deployment_id, str):
+            try:
+                deployment_id = uuid.UUID(deployment_id)
+            except (ValueError, TypeError):
+                return
         async with AsyncSessionLocal() as db:
             service = DeploymentService(db)
             res = await db.execute(select(Deployment).where(Deployment.id == deployment_id))

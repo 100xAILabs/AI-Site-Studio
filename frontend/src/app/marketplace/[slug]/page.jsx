@@ -325,10 +325,6 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
       const result = await api.post(`/templates/${template.id}/download?format=zip&license=${encodeURIComponent(selectedLicenseType)}`, {}, authToken);
       if (!result?.download_url) throw new Error("The download file is not available yet.");
       let downloadUrl = result.download_url;
-      if (authToken && !downloadUrl.includes("token=")) {
-        const sep = downloadUrl.includes("?") ? "&" : "?";
-        downloadUrl = `${downloadUrl}${sep}token=${encodeURIComponent(authToken)}`;
-      }
       const link = document.createElement("a");
       link.href = downloadUrl;
       link.target = "_blank";
@@ -730,8 +726,8 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
   };
 
   const isSeller = isSignedIn && (user?.role === "seller" || user?.role === "SELLER");
-  const effectivePrice = Number(template?.price) > 0 ? Number(template.price) : (template?.is_free ? 0 : 49);
-  const isTemplateFree = Boolean(template?.is_free && effectivePrice === 0);
+  const effectivePrice = Number(template?.price) > 0 ? Number(template.price) : 49;
+  const isTemplateFree = false;
 
   // Fetch related templates of the same category
   const categorySlug = template?.category?.slug || template?.category_id || "";
@@ -801,7 +797,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
       // If user arrived with ?buy=1 or ?action=buy, directly add to cart and route to checkout
       const buyParam = searchParams.get("buy");
       const actionParam = searchParams.get("action");
-      if (!isTemplateFree && (buyParam === "1" || actionParam === "buy" || buyParam === "true")) {
+      if (buyParam === "1" || actionParam === "buy" || buyParam === "true") {
         const isUserPro = Boolean(
           user?.is_pro_subscriber ||
           ["pro", "agency", "creator_pro", "enterprise"].includes(String(user?.subscription_tier || "").toLowerCase())
@@ -832,11 +828,11 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
 
   const basePrice = effectivePrice > 0 ? effectivePrice : 49;
   const activeLicense = "commercial";
-  const activePrice = isTemplateFree ? 0 : basePrice;
+  const activePrice = basePrice;
 
   const handleAddToCart = () => {
     if (!template) return;
-    if (isTemplateFree || hasPurchased) {
+    if (hasPurchased) {
       startDownloadFlow();
       return;
     }
@@ -857,7 +853,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
   const handleBuyNow = (e) => {
     if (e && e.preventDefault) e.preventDefault();
     if (!template) return;
-    if (isTemplateFree || hasPurchased) {
+    if (hasPurchased) {
       startDownloadFlow();
       return;
     }
@@ -1268,8 +1264,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
     const isMarketplaceListing = template?.is_marketplace !== false && template?.template_origin === "marketplace" && template?.status === "published";
     const isOwner = Boolean(isMarketplaceListing && user?.id && user?.id === template?.seller_id);
     const rawPrice = Number(template?.price) > 0 ? Number(template.price) : 0;
-    const isFree = Boolean(template?.is_free && rawPrice === 0);
-    const templatePrice = isFree ? 0 : (rawPrice > 0 ? rawPrice : 49);
+    const templatePrice = rawPrice > 0 ? rawPrice : 49;
     const origPrice = Number(template?.original_price) > templatePrice ? Number(template.original_price) : null;
     const discountPct = origPrice ? Math.round(((origPrice - templatePrice) / origPrice) * 100) : 0;
 
@@ -1292,9 +1287,9 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
           <div className="flex items-baseline justify-between gap-2 mb-1">
             <div className="flex items-baseline gap-2.5">
               <span className="details-price-value text-3xl font-extrabold text-foreground tracking-tight">
-                {isFree ? "Free" : formatPrice(templatePrice, "USD")}
+                {formatPrice(templatePrice, "USD")}
               </span>
-              {!isFree && origPrice && (
+              {origPrice && (
                 <span className="text-sm font-semibold text-muted-foreground line-through">
                   {formatPrice(origPrice, "USD")}
                 </span>
@@ -1302,11 +1297,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
             </div>
 
             {/* Status / Plan Badge */}
-            {isFree ? (
-              <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
-                Free Community
-              </span>
-            ) : hasPurchased ? (
+            {hasPurchased ? (
               <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full flex items-center gap-1">
                 <Check className="w-3 h-3" /> License Active
               </span>
@@ -1324,14 +1315,12 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
           <p className="text-xs text-muted-foreground font-medium mt-1">
             {hasPurchased
               ? "You own this template. Instant clean source code download available."
-              : isFree
-                ? "Open-source community edition. Free to inspect and customize."
-                : "Full commercial license with clean source code, zero watermarks & lifetime updates."}
+              : "Full commercial license with clean source code, zero watermarks & lifetime updates. Free interactive live demo available."}
           </p>
         </div>
 
         {/* 2. Unified Commercial License Inclusions — No Extra Charges */}
-        {!isFree && !hasPurchased && (
+        {!hasPurchased && (
           <div className="commercial-license-card p-3 rounded-xl border my-3 text-xs space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="commercial-license-title font-bold flex items-center gap-1.5">
@@ -1413,16 +1402,6 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
               {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
               <span>{isDownloading ? "Preparing Clean Package…" : "Download Source Code (Purchased ✓)"}</span>
             </button>
-          ) : isFree ? (
-            <button
-              type="button"
-              onClick={startDownloadFlow}
-              disabled={isDownloading}
-              className="details-free-btn w-full py-3.5 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all text-sm cursor-pointer"
-            >
-              {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              <span>{isDownloading ? "Preparing Download…" : "Download Free Template"}</span>
-            </button>
           ) : (
             <>
               {/* Primary: Buy Now */}
@@ -1435,7 +1414,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                 <span>Buy Now • {formatPrice(templatePrice, "USD")}</span>
               </button>
 
-              {/* Secondary: Add to Cart & Watermarked Download for all users */}
+              {/* Secondary: Add to Cart & Free Live Demo */}
               <div className="grid grid-cols-2 gap-2 pt-0.5">
                 <button
                   type="button"
@@ -1449,26 +1428,26 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                   <span>{isInCart ? "In Cart (Checkout)" : "Add to Cart"}</span>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={startDownloadFlow}
+                <Link
+                  href={`/preview?template=${template.id}`}
                   className="details-secondary-btn py-2.5 px-3 rounded-xl font-semibold flex items-center justify-center gap-1.5 transition-all text-xs cursor-pointer"
+                  style={{ textDecoration: 'none' }}
                 >
-                  <Download className="w-3.5 h-3.5 text-primary" />
-                  <span>Get Watermarked (Free)</span>
-                </button>
+                  <Eye className="w-3.5 h-3.5 text-primary" />
+                  <span>Free Live Demo</span>
+                </Link>
               </div>
             </>
           )}
 
-          {/* Tertiary: Live Preview */}
+          {/* Tertiary: Interactive Canvas */}
           <Link
             href={`/preview?template=${template.id}`}
             className="details-canvas-launch-btn w-full py-2.5 text-xs text-center transition-all rounded-xl font-medium flex items-center justify-center gap-1.5 mt-2"
             style={{ textDecoration: 'none' }}
           >
             <Sparkles className="w-3.5 h-3.5 text-primary" />
-            <span>Launch Live Interactive Canvas</span>
+            <span>Launch Free Interactive Live Demo</span>
           </Link>
         </div>
 
@@ -1703,9 +1682,9 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                 </div>
                 <div className="details-info-price hidden lg:block">
                   <div className="text-2xl font-bold text-foreground">
-                    {isTemplateFree ? "Free" : formatPrice(template.price, "USD")}
+                    {formatPrice(basePrice, "USD")}
                   </div>
-                  <span className="text-xs text-muted-foreground">Lifetime Access • Complete Source Code</span>
+                  <span className="text-xs text-muted-foreground">Lifetime Access • Complete Clean Source Code</span>
                 </div>
               </div>
 
@@ -3451,28 +3430,29 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
       <div className="details-mobile-bottom-bar">
         <div className="details-mobile-bottom-info">
           <span className="details-mobile-bottom-price">
-            {isTemplateFree ? "Free" : formatPrice(template.price, "USD")}
+            {formatPrice(basePrice, "USD")}
           </span>
           <span className="details-mobile-bottom-license">Lifetime License</span>
         </div>
         <div className="details-mobile-bottom-actions">
-          <a
-            href={previewSrc}
-            target="_blank"
-            rel="noopener noreferrer"
+          <Link
+            href={`/preview?template=${template.id}`}
             className="details-mobile-bottom-btn demo"
+            style={{ textDecoration: 'none' }}
           >
-            <Globe className="w-3.5 h-3.5" /> Demo
-          </a>
+            <Globe className="w-3.5 h-3.5" /> Free Demo
+          </Link>
           <button
             type="button"
-            onClick={handleAddToCart}
+            onClick={hasPurchased ? startDownloadFlow : handleAddToCart}
             className={cn(
               "details-mobile-bottom-btn cart",
               isInCart && "in-cart"
             )}
           >
-            {isInCart ? (
+            {hasPurchased ? (
+              <><Download className="w-3.5 h-3.5" /> Download</>
+            ) : isInCart ? (
               <><Check className="w-3.5 h-3.5" /> Added</>
             ) : (
               <><ShoppingCart className="w-3.5 h-3.5" /> Add to Cart</>

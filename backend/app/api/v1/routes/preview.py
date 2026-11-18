@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Body, Response, Request, UploadFile, File, Form
-from sqlalchemy import select
+from sqlalchemy import select, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -34,23 +34,44 @@ from app.services.preview_service import PreviewService
 from app.services.ai_service import ai_service
 from app.services.security_scanner import security_scanner
 from app.repositories.template_repo import TemplateRepository
-from pydantic import BaseModel, Field
+from typing import Annotated
+from pydantic import BaseModel, Field, StringConstraints
 
 router = APIRouter()
+
+ShortStr = Annotated[str, StringConstraints(max_length=200)]
+LongStr = Annotated[str, StringConstraints(max_length=4000)]
+
+_DENY_DIRS = {"src", "node_modules", "backend", "server", "api", ".git"}
+_DENY_EXT = (".jsx", ".tsx", ".ts", ".vue", ".svelte", ".py", ".map", ".md", ".lock", ".env")
+_DENY_NAMES = {"package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "composer.json", "requirements.txt"}
+
+def _is_raw_source_path(rel: str) -> bool:
+    parts = [p.lower() for p in rel.replace("\\", "/").split("/") if p]
+    if not parts:
+        return False
+    name = parts[-1]
+    return (
+        any(p.startswith(".") or p in _DENY_DIRS for p in parts)
+        or name in _DENY_NAMES
+        or name.startswith("tsconfig")
+        or ".config." in name
+        or name.endswith(_DENY_EXT)
+    )
 
 
 class PreviewRequest(BaseModel):
     template_id: str | uuid.UUID
-    business_name: str
-    industry: str
-    primary_color: Optional[str] = "#6366f1"
-    secondary_color: Optional[str] = "#8b5cf6"
-    about: Optional[str] = None
-    services: Optional[list] = None
+    business_name: ShortStr
+    industry: ShortStr
+    primary_color: Optional[ShortStr] = "#6366f1"
+    secondary_color: Optional[ShortStr] = "#8b5cf6"
+    about: Optional[LongStr] = None
+    services: Optional[List[ShortStr]] = Field(default=None, max_length=30)
     contact: Optional[dict] = None
-    location: Optional[str] = None
+    location: Optional[ShortStr] = None
     social_links: Optional[dict] = None
-    logo_url: Optional[str] = None
+    logo_url: Optional[ShortStr] = None
     ai_fill: bool = False  # If True, auto-generate content via AI
 
 
@@ -60,19 +81,22 @@ class PreviewResponse(BaseModel):
     business_data: dict
     generated_content: Optional[dict] = None
     template_id: str | uuid.UUID
+
+
 class ManualEditRequest(BaseModel):
-    business_name: str
-    about: str
-    primary_color: str
-    secondary_color: str
-    contact_email: Optional[str] = None
-    contact_phone: Optional[str] = None
-    page_edits: Optional[dict] = None
+    business_name: ShortStr
+    about: LongStr
+    primary_color: ShortStr
+    secondary_color: ShortStr
+    contact_email: Optional[ShortStr] = None
+    contact_phone: Optional[ShortStr] = None
+    page_edits: Optional[Dict[ShortStr, Dict[ShortStr, LongStr]]] = Field(None, max_length=20)
     use_ai: bool = False
 
 
 class AIEditRequest(BaseModel):
-    prompt: str = Field(min_length=1, max_length=4000)
+    prompt: LongStr = Field(min_length=1, max_length=4000)
+    model: Optional[ShortStr] = None
 
 
 
@@ -110,17 +134,35 @@ async def create_preview(
     }
 
     generated_content = None
-    if request.ai_fill and ai_service.client:
-        try:
-            generated_content = await ai_service.generate_business_content(
-                business_name=request.business_name,
-                industry=request.industry,
-                template_type=template.category.name if template.category else "business",
-            )
-            # Merge AI content into business_data
-            business_data.update(generated_content)
-        except Exception:
-            pass  # AI fill optional — continue without it
+    if request.ai_fill:
+        if not current_user:
+            raise HTTPException(status_code=401, detail="Authentication required to use AI generation")
+        from app.core.request_limits import enforce_user_limit
+        from app.services.entitlement_service import EntitlementService
+        await enforce_user_limit(str(current_user.id), "ai-content-generate")
+        ent_svc = EntitlementService(db)
+        can_op, reason, _ = await ent_svc.check_ai_generation_entitlement(current_user, "content_generation")
+        if not can_op:
+            raise HTTPException(status_code=402, detail=reason or "Insufficient AI credits")
+        if ai_service.client:
+            try:
+                generated_content = await ai_service.generate_business_content(
+                    business_name=request.business_name,
+                    industry=request.industry,
+                    template_type=template.category.name if template.category else "business",
+                )
+                await ent_svc.deduct_ai_credits(
+                    user=current_user,
+                    operation="content_generation",
+                    provider="gemini",
+                    model_name="gemini-1.5-flash",
+                    metadata={"business": request.business_name},
+                )
+                business_data.update(generated_content)
+            except HTTPException:
+                raise
+            except Exception:
+                pass  # AI fill optional — continue without it
 
     user_email = current_user.email if current_user else None
 
@@ -220,6 +262,7 @@ def invalidate_preview_template_cache(template_id: str):
 async def list_live_preview_assets(
     template_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """
     List all image and media assets detected in this template preview,
@@ -227,16 +270,28 @@ async def list_live_preview_assets(
     """
     from app.core.local_project_manager import local_project_manager
     from app.repositories.template_repo import TemplateRepository
+    from app.core.security import check_preview_token
+    from app.models.user import UserRole
     import time
 
+    raw_id, _, cap = template_id.partition("~")
     template_repo = TemplateRepository(db)
-    template = await template_repo.get_by_id_or_slug(template_id)
-    slug = template.slug if (template and template.slug) else template_id
+    template = await template_repo.get_by_id_or_slug(raw_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    cap_clean = check_preview_token(str(template.id), cap) if cap else None
+    if template.status != TemplateStatus.PUBLISHED and cap_clean is None:
+        auth_ok = current_user and (current_user.id == template.seller_id or current_user.role == UserRole.ADMIN)
+        if not auth_ok:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+    slug = template.slug if (template and template.slug) else raw_id
 
     # 1. First check local_project_manager (generated projects)
     assets = local_project_manager.list_project_assets(slug)
-    if not assets and slug != template_id:
-        assets = local_project_manager.list_project_assets(template_id)
+    if not assets and slug != raw_id:
+        assets = local_project_manager.list_project_assets(raw_id)
 
     # 2. Fallback: check tempfile preview directory if any
     if not assets:
@@ -498,12 +553,24 @@ async def restore_live_preview_asset(
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
-    target_rel_path = request.target_rel_path.lstrip("/\\").replace("\\", "/")
+    is_admin = getattr(current_user, "is_admin", False) or getattr(current_user, "role", None) in ("admin", "super_admin")
+    if template.seller_id != current_user.id and not is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized to restore assets for this template")
+
+    # Path traversal validation on target_rel_path
+    clean_target = request.target_rel_path.replace("\\", "/").strip()
+    if not clean_target or ".." in clean_target.split("/") or clean_target.startswith("/") or "\x00" in clean_target:
+        raise HTTPException(status_code=400, detail="Invalid target path: Path traversal detected")
+
+    target_rel_path = clean_target.lstrip("/")
     slug = template.slug if (template and template.slug) else template_id
 
-    backup_root = Path(tempfile.gettempdir()) / "ai_site_studio" / "asset_backups" / str(template.id)
+    backup_root = (Path(tempfile.gettempdir()) / "ai_site_studio" / "asset_backups" / str(template.id)).resolve()
     backup_orig = (backup_root / f"{target_rel_path}.orig").resolve()
     backup_file = (backup_root / target_rel_path).resolve()
+
+    if not backup_orig.is_relative_to(backup_root) or not backup_file.is_relative_to(backup_root):
+        raise HTTPException(status_code=400, detail="Invalid target path: Traversal out of backup root")
 
     original_bytes = None
 
@@ -662,7 +729,8 @@ async def restore_live_preview_asset(
 @router.get("/live/{template_id}/extracted-data")
 async def get_live_preview_extracted_data(
     template_id: str,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """
     Dynamically extract the real template content directly from its source files:
@@ -676,11 +744,22 @@ async def get_live_preview_extracted_data(
     from app.models.template import Template
     from app.models.stored_file import StoredFile
     from app.repositories.template_repo import TemplateRepository
+    from app.core.security import check_preview_token
+    from app.models.user import UserRole
     
+    raw_id, _, cap = template_id.partition("~")
     template_repo = TemplateRepository(db)
-    template = await template_repo.get_by_id(template_id)
+    template = await template_repo.get_by_id(raw_id)
     if not template:
-        template = await template_repo.get_by_slug(template_id)
+        template = await template_repo.get_by_slug(raw_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    cap_clean = check_preview_token(str(template.id), cap) if cap else None
+    if template.status != TemplateStatus.PUBLISHED and cap_clean is None:
+        auth_ok = current_user and (current_user.id == template.seller_id or current_user.role == UserRole.ADMIN)
+        if not auth_ok:
+            raise HTTPException(status_code=404, detail="Template not found")
         
     title = (template.title if template else None) or "Web Template"
     clean_brand = title.split("—")[0].split("-")[0].split("|")[0].strip()
@@ -1811,7 +1890,7 @@ async def fork_live_preview_draft(
         }
 
     # Create new draft copy
-    new_slug = f"{slug_base}-draft-{uuid.uuid4().hex[:6]}"
+    new_slug = f"{slug_base}-draft-{uuid.uuid4().hex}"
     new_title = f"{template.title} (Draft)"
     new_template = Template(
         title=new_title,
@@ -1826,6 +1905,7 @@ async def fork_live_preview_draft(
         status=TemplateStatus.DRAFT,
         is_marketplace=False,
         template_origin="custom_draft",
+        forked_from_template_id=getattr(template, "forked_from_template_id", None) or template.id,
         seller_id=current_user.id,
         thumbnail_url=template.thumbnail_url,
         preview_url=template.preview_url,
@@ -1878,7 +1958,7 @@ async def edit_live_preview_manual(
     template_id: str,
     request: ManualEditRequest,
     raw_request: Request,
-    current_user: Optional[User] = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     import zipfile
@@ -1887,20 +1967,6 @@ async def edit_live_preview_manual(
     import tempfile
     from app.models.template import Template, TemplateStatus
     from app.core.storage import storage
-    
-    # Try recovering current_user from raw request Authorization header if dependency didn't resolve
-    if not current_user:
-        auth_hdr = raw_request.headers.get("authorization") or raw_request.headers.get("Authorization")
-        if auth_hdr and auth_hdr.startswith("Bearer "):
-            try:
-                from app.core.security import decode_token
-                payload = decode_token(auth_hdr[7:].strip())
-                if payload and payload.get("sub"):
-                    from app.repositories.user_repo import UserRepository
-                    u_repo = UserRepository(db)
-                    current_user = await u_repo.get_by_id(uuid.UUID(payload["sub"]))
-            except Exception:
-                pass
 
     template_repo = TemplateRepository(db)
     template = await template_repo.get_by_id(template_id)
@@ -1952,7 +2018,7 @@ async def edit_live_preview_manual(
                 title=custom_title,
                 short_description=template.short_description,
                 description=template.description,
-                slug=f"{template.slug.split('-custom-')[0].split('-draft-')[0]}-custom-{uuid.uuid4().hex[:6]}",
+                slug=f"{template.slug.split('-custom-')[0].split('-draft-')[0]}-custom-{uuid.uuid4().hex}",
                 price=template.price,
                 original_price=template.original_price,
                 is_free=template.is_free,
@@ -1961,7 +2027,8 @@ async def edit_live_preview_manual(
                 status=TemplateStatus.DRAFT,
                 is_marketplace=False,
                 template_origin="custom_draft",
-                seller_id=current_user.id if current_user else template.seller_id,
+                forked_from_template_id=getattr(template, "forked_from_template_id", None) or template.id,
+                seller_id=current_user.id,
                 thumbnail_url=template.thumbnail_url,
                 preview_url=template.preview_url,
                 tags=clean_tags,
@@ -2012,7 +2079,7 @@ async def edit_live_preview_manual(
     with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
         for name in z_in.namelist():
             is_build = any(d in name.replace("\\", "/").split("/") for d in ["dist", "build", "out", "node_modules", ".output"])
-            if (name.endswith(".html") or name.endswith(".jsx") or name.endswith(".js") or name.endswith(".css") or name.endswith(".tsx") or name.endswith(".ts")) and not is_build:
+            if (name.endswith((".html", ".htm", ".jsx", ".js", ".css", ".tsx", ".ts", ".vue", ".svelte"))) and not is_build:
                 try:
                     files_dict[name] = z_in.read(name).decode("utf-8", errors="ignore")
                 except Exception:
@@ -2411,6 +2478,13 @@ async def edit_live_preview_manual(
     if request.use_ai:
         if not current_user:
             raise HTTPException(status_code=401, detail="Authentication required to use AI Code Refactoring.")
+        from app.core.request_limits import enforce_user_limit
+        from app.services.entitlement_service import EntitlementService
+        await enforce_user_limit(str(current_user.id), "template-ai-edit")
+        ent_svc = EntitlementService(db)
+        can_op, reason, _ = await ent_svc.check_ai_generation_entitlement(current_user, "conversational_edit")
+        if not can_op:
+            raise HTTPException(status_code=402, detail=reason or "Insufficient AI credits")
         files_str = ""
         ordered_files = sorted(
             files_dict.items(),
@@ -2515,6 +2589,13 @@ Here are the codebase files:
         try:
             import json
             raw_code = await ai_service._generate_content(edit_prompt, response_mime_type="application/json", feature_name="code_assistant")
+            await ent_svc.deduct_ai_credits(
+                user=current_user,
+                operation="conversational_edit",
+                provider="gemini",
+                model_name="gemini-1.5-flash",
+                metadata={"business": request.business_name},
+            )
             chunks = json.loads(clean_code_response(raw_code, "json"))
             if isinstance(chunks, list):
                 for chunk in chunks:
@@ -2548,6 +2629,23 @@ Here are the codebase files:
             if name.endswith(".html") or name.endswith(".jsx") or name.endswith(".tsx"):
                 files_dict[name] = files_dict[name].replace(template.title or "Port", request.business_name)
                 updated_filenames.add(name)
+
+    # Pre-run verification on all updated code files to guarantee syntax & bracket integrity
+    for name in list(updated_filenames):
+        if name.endswith((".jsx", ".tsx", ".js", ".ts")):
+            try:
+                from app.services.ai_service import repair_truncated_jsx
+                if name in files_dict and ("<" in files_dict[name] or "React" in files_dict[name]):
+                    files_dict[name] = repair_truncated_jsx(files_dict[name])
+            except Exception:
+                pass
+        elif name.endswith((".html", ".htm")):
+            try:
+                from app.services.ai_service import repair_truncated_html
+                if name in files_dict:
+                    files_dict[name] = repair_truncated_html(files_dict[name])
+            except Exception:
+                pass
 
     # 4. Overwrite files in ZIP (and strip stale pre-compiled build artifacts like dist/ so updated source files are authoritative)
     new_zip_buffer = io.BytesIO()
@@ -2636,6 +2734,16 @@ Here are the codebase files:
         except Exception:
             pass
 
+    # Also directly write updated files to preview_dir as a guarantee
+    for u_name in updated_filenames:
+        target_disk_path = os.path.join(preview_dir, u_name)
+        try:
+            os.makedirs(os.path.dirname(target_disk_path), exist_ok=True)
+            with open(target_disk_path, "w", encoding="utf-8") as f_out:
+                f_out.write(files_dict[u_name])
+        except Exception:
+            pass
+
     # Also persist updated code AND ALL media/image assets into local_project_manager under the draft's slug
     try:
         from app.core.local_project_manager import local_project_manager
@@ -2714,7 +2822,7 @@ class ApplyThemeColorRequest(BaseModel):
 async def apply_live_preview_theme_color(
     template_id: str,
     request: ApplyThemeColorRequest,
-    current_user: Optional[User] = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -2746,6 +2854,78 @@ async def apply_live_preview_theme_color(
 
     if not template and not local_dir:
         raise HTTPException(status_code=404, detail="Template not found")
+
+    # If the template is PUBLISHED or belongs to another user, clone/fork it so the user modifies their own private DRAFT copy
+    is_user_owned_draft = (
+        template
+        and template.status == TemplateStatus.DRAFT 
+        and template.seller_id == current_user.id
+    )
+    if not is_user_owned_draft:
+        is_admin = getattr(current_user, "is_admin", False) or getattr(current_user, "role", None) in ("admin", "super_admin")
+        if not is_admin and template and template.status == TemplateStatus.PUBLISHED:
+            # Fork into user draft
+            slug_prefix = template.slug.split("-custom-")[0].split("-draft-")[0]
+            ed_res = await db.execute(
+                select(Template).where(
+                    Template.seller_id == current_user.id,
+                    Template.status == TemplateStatus.DRAFT,
+                    or_(
+                        Template.slug.like(f"{slug_prefix}-custom-%"),
+                        Template.slug.like(f"{slug_prefix}-draft-%")
+                    )
+                )
+            )
+            existing_draft = ed_res.scalars().first()
+            if existing_draft:
+                template = existing_draft
+                template_id = str(existing_draft.id)
+            else:
+                new_template = Template(
+                    title=f"Customized {template.title}",
+                    short_description=template.short_description,
+                    description=template.description,
+                    slug=f"{slug_prefix}-custom-{uuid.uuid4().hex}",
+                    price=template.price,
+                    original_price=template.original_price,
+                    is_free=template.is_free,
+                    is_on_sale=template.is_on_sale,
+                    category_id=template.category_id,
+                    status=TemplateStatus.DRAFT,
+                    is_marketplace=False,
+                    template_origin="custom_draft",
+                    forked_from_template_id=getattr(template, "forked_from_template_id", None) or template.id,
+                    seller_id=current_user.id,
+                    thumbnail_url=template.thumbnail_url,
+                    preview_url=template.preview_url,
+                    tags=template.tags,
+                    framework=template.framework,
+                    pages_count=template.pages_count,
+                    has_dark_mode=template.has_dark_mode,
+                    is_responsive=template.is_responsive,
+                    is_rtl_supported=template.is_rtl_supported,
+                    is_ai_ready=True,
+                    compatibility=template.compatibility,
+                    version=template.version,
+                    license_type=template.license_type,
+                    industry=template.industry,
+                    color_scheme=template.color_scheme,
+                    seo_keywords=template.seo_keywords,
+                    included_pages=template.included_pages,
+                    download_assets=template.download_assets.copy() if template.download_assets else {}
+                )
+                db.add(new_template)
+                await db.flush()
+                # Clone local project dir to new draft
+                local_project_manager.clone_demo_website_data(
+                    source_slug=(template.slug or str(template.id)),
+                    target_slug=new_template.slug
+                )
+                template = new_template
+                template_id = str(new_template.id)
+                local_dir = local_project_manager.get_local_project_dir(new_template.slug, version="latest")
+        elif not is_admin and template and template.seller_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized to apply theme color to this template")
 
     new_color = request.primary_color.strip()
     clean_hex = new_color.lstrip("#")
@@ -3071,7 +3251,7 @@ async def apply_live_preview_theme_color(
 @router.post("/live/{template_id}/revoke")
 async def revoke_live_preview_changes(
     template_id: str,
-    current_user: Optional[User] = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -3086,15 +3266,21 @@ async def revoke_live_preview_changes(
     from app.repositories.template_repo import TemplateRepository
 
     template_repo = TemplateRepository(db)
+    clean_id = template_id.strip()
     template = await template_repo.get_by_id(clean_id)
     if not template:
         template = await template_repo.get_by_slug(clean_id)
 
-    # Authorization check: only the owner or an admin can revoke a draft template
-    if template and template.status == TemplateStatus.DRAFT:
-        is_admin = current_user and getattr(current_user, "role", None) in ("admin", "super_admin")
-        if not is_admin and (not current_user or template.seller_id != current_user.id):
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    is_admin = getattr(current_user, "is_admin", False) or getattr(current_user, "role", None) in ("admin", "super_admin")
+    if template.status == TemplateStatus.DRAFT:
+        if not is_admin and template.seller_id != current_user.id:
             raise HTTPException(status_code=403, detail="Not authorized to revoke changes for this draft")
+    else:
+        if not is_admin and template.seller_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized to revoke changes for this template")
 
     # If it is a published marketplace template, never purge the canonical project or alter database color_scheme
     is_published = template and template.status == TemplateStatus.PUBLISHED
@@ -3175,7 +3361,7 @@ async def edit_live_preview_find_replace(
             title=f"Customized {template.title}",
             short_description=template.short_description,
             description=template.description,
-            slug=f"{template.slug}-custom-{uuid.uuid4().hex[:6]}",
+            slug=f"{template.slug}-custom-{uuid.uuid4().hex}",
             price=template.price,
             original_price=template.original_price,
             is_free=template.is_free,
@@ -3184,7 +3370,8 @@ async def edit_live_preview_find_replace(
             status=TemplateStatus.DRAFT,
             is_marketplace=False,
             template_origin="custom_draft",
-            seller_id=current_user.id if current_user else template.seller_id,
+            forked_from_template_id=getattr(template, "forked_from_template_id", None) or template.id,
+            seller_id=current_user.id,
             thumbnail_url=template.thumbnail_url,
             preview_url=template.preview_url,
             tags=template.tags,
@@ -3306,7 +3493,12 @@ async def edit_live_preview_ai(
         raise HTTPException(status_code=404, detail="Template not found")
 
     from app.core.request_limits import enforce_user_limit
+    from app.services.entitlement_service import EntitlementService
     await enforce_user_limit(str(current_user.id), "template-ai-edit")
+    ent_svc = EntitlementService(db)
+    can_op, reason, _ = await ent_svc.check_ai_generation_entitlement(current_user, "conversational_edit")
+    if not can_op:
+        raise HTTPException(status_code=402, detail=reason or "Insufficient AI credits")
         
     # If the template is PUBLISHED or belongs to another user, clone/fork it so the user modifies their own private DRAFT copy
     is_user_owned_draft = (
@@ -3336,7 +3528,7 @@ async def edit_live_preview_ai(
                 title=f"Customized {template.title}",
                 short_description=template.short_description,
                 description=template.description,
-                slug=f"{template.slug.split('-custom-')[0]}-custom-{uuid.uuid4().hex[:6]}",
+                slug=f"{template.slug.split('-custom-')[0]}-custom-{uuid.uuid4().hex}",
                 price=template.price,
                 original_price=template.original_price,
                 is_free=template.is_free,
@@ -3345,7 +3537,8 @@ async def edit_live_preview_ai(
                 status=TemplateStatus.DRAFT,
                 is_marketplace=False,
                 template_origin="custom_draft",
-                seller_id=current_user.id if current_user else template.seller_id,
+                forked_from_template_id=getattr(template, "forked_from_template_id", None) or template.id,
+                seller_id=current_user.id,
                 thumbnail_url=template.thumbnail_url,
                 preview_url=template.preview_url,
                 tags=template.tags,
@@ -3402,7 +3595,7 @@ async def edit_live_preview_ai(
             for fn in f_list:
                 rel = os.path.relpath(os.path.join(root_d, fn), preview_dir).replace("\\", "/")
                 is_build = any(d in rel.split("/") for d in ["dist", "build", "out", "node_modules", ".output"])
-                if (fn.endswith((".html", ".htm", ".jsx", ".js", ".css", ".tsx", ".ts"))) and not is_build:
+                if (fn.endswith((".html", ".htm", ".jsx", ".js", ".css", ".tsx", ".ts", ".vue", ".svelte"))) and not is_build:
                     try:
                         with open(os.path.join(root_d, fn), "r", encoding="utf-8", errors="ignore") as f_in:
                             files_dict[rel] = f_in.read()
@@ -3412,7 +3605,7 @@ async def edit_live_preview_ai(
         with zipfile.ZipFile(io.BytesIO(zip_data), "r") as z_in:
             for name in z_in.namelist():
                 is_build = any(d in name.replace("\\", "/").split("/") for d in ["dist", "build", "out", "node_modules", ".output"])
-                if (name.endswith((".html", ".htm", ".jsx", ".js", ".css", ".tsx", ".ts"))) and not is_build:
+                if (name.endswith((".html", ".htm", ".jsx", ".js", ".css", ".tsx", ".ts", ".vue", ".svelte"))) and not is_build:
                     try:
                         files_dict[name] = z_in.read(name).decode("utf-8", errors="ignore")
                     except Exception:
@@ -3480,6 +3673,13 @@ Here are the codebase files:
     try:
         import json
         raw_code = await ai_service._generate_content(ai_prompt, response_mime_type="application/json", feature_name="code_assistant")
+        await ent_svc.deduct_ai_credits(
+            user=current_user,
+            operation="conversational_edit",
+            provider="gemini",
+            model_name="gemini-1.5-flash",
+            metadata={"prompt": request.prompt[:100]},
+        )
         chunks = json.loads(clean_code_response(raw_code, "json"))
         if not isinstance(chunks, list):
             if isinstance(chunks, dict):
@@ -3551,6 +3751,23 @@ Here are the codebase files:
             "template_id": str(template_id),
             "message": f"Could not match target code for: \"{request.prompt[:60]}\". Please specify the exact heading or text to replace."
         }
+
+    # Pre-run verification on all updated code files to guarantee syntax & bracket integrity
+    for fname in list(updated_filenames):
+        if fname.endswith((".jsx", ".tsx", ".js", ".ts")):
+            try:
+                from app.services.ai_service import repair_truncated_jsx
+                if fname in files_dict and ("<" in files_dict[fname] or "React" in files_dict[fname]):
+                    files_dict[fname] = repair_truncated_jsx(files_dict[fname])
+            except Exception:
+                pass
+        elif fname.endswith((".html", ".htm")):
+            try:
+                from app.services.ai_service import repair_truncated_html
+                if fname in files_dict:
+                    files_dict[fname] = repair_truncated_html(files_dict[fname])
+            except Exception:
+                pass
 
     # 3. Overwrite files in ZIP with flexible path mapping
     new_zip_buffer = io.BytesIO()
@@ -3661,6 +3878,35 @@ async def end_demo_session(
     return {"status": "success", "message": "Demo session ended"}
 
 
+@router.post("/live/{template_id}/access")
+async def get_preview_access(
+    template_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Mint capability token for private/custom preview access."""
+    from app.services.template_rights import source_rights
+    from app.core.security import make_preview_token
+    from app.models.user import UserRole
+    raw_id, _, _ = template_id.partition("~")
+    template = await _get_cached_preview_template(raw_id, db)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    
+    is_owner = template.seller_id == current_user.id
+    is_admin = current_user.role == UserRole.ADMIN
+    if not (is_owner or is_admin):
+        raise HTTPException(status_code=404, detail="Template not found")
+        
+    has_rights, _, _ = await source_rights(db, current_user, template)
+    clean = bool(template.is_free) or has_rights
+    token = make_preview_token(str(template.id), clean)
+    preview_base = getattr(settings, "PREVIEW_BASE_URL", "").rstrip("/")
+    if not preview_base:
+        preview_base = getattr(settings, "BACKEND_URL", "").rstrip("/")
+    return {"url": f"{preview_base}/api/v1/preview/live/{template.id}~{token}/"}
+
+
 @router.api_route("/live/{template_id}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"], response_class=Response)
 @router.api_route("/live/{template_id}/{filepath:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"], response_class=Response)
 async def serve_live_preview(
@@ -3669,6 +3915,17 @@ async def serve_live_preview(
     filepath: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
+    raw_id, _, cap = template_id.partition("~")
+    template = await _get_cached_preview_template(raw_id, db)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    from app.core.security import check_preview_token
+    cap_clean = check_preview_token(str(template.id), cap) if cap else None
+
+    if template.status != TemplateStatus.PUBLISHED and cap_clean is None:
+        raise HTTPException(status_code=403, detail="Private preview requires authorization")
+
     # Redirect to URL with trailing slash to ensure relative assets load correctly in browser
     if not filepath and not request.url.path.endswith("/"):
         from fastapi.responses import RedirectResponse
@@ -3689,22 +3946,19 @@ async def serve_live_preview(
     from sqlalchemy import select
     from app.repositories.template_repo import TemplateRepository
     from app.services.security_scanner import security_scanner
-    from app.models.template import TemplateStatus
-    
-    # Fast in-memory template metadata lookup (avoids multi-second Neon Oregon cloud round trips)
-    template = await _get_cached_preview_template(template_id, db)
-    if not template:
-        raise HTTPException(status_code=404, detail="Template not found")
 
-    # Live previews serve static assets only. A template API path must never
-    # dispatch uploaded Python code into the Studio API process.
-    if filepath and (filepath == "api" or filepath.startswith("api/")):
+    # Live previews serve static assets only. Raw source code or API paths are never served.
+    if filepath and (_is_raw_source_path(filepath) or filepath == "api" or filepath.startswith("api/")):
         raise HTTPException(status_code=404, detail="Template previews only serve static website files")
         
     target_slug = template.slug if (template and template.slug) else str(template_id)
     purchase_url = f"{settings.FRONTEND_URL}/marketplace/{target_slug}?buy=1"
 
-    watermark_payload = """
+    is_clean = bool(template.is_free) or (cap_clean is True)
+    if is_clean:
+        watermark_payload = ""
+    else:
+        watermark_payload = """
 <!-- Injected Watermark Grid Overlay -->
 <div class="preview-watermark-grid"></div>
 
@@ -3847,71 +4101,93 @@ async def serve_live_preview(
 </script>
 """.replace("__PURCHASE_URL__", purchase_url)
     async def serve_fallback(err_msg: str = "Preview compilation"):
-        if filepath and not (filepath.endswith(".html") or filepath.endswith(".htm")):
-            if filepath.endswith(".css"):
+        # 0. Asset vs Page classification
+        static_asset_exts = (
+            ".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif", ".ico", ".avif", ".bmp", ".tiff",
+            ".woff", ".woff2", ".ttf", ".eot", ".otf",
+            ".mp4", ".webm", ".mp3", ".wav", ".ogg", ".pdf", ".map"
+        )
+        if filepath:
+            lower_fp = filepath.lower()
+            if lower_fp.endswith(".css"):
                 return Response(content=b"", media_type="text/css")
-            if filepath.endswith(".js"):
-                return Response(content=b"", media_type="application/javascript")
-            return Response(content=b"", media_type="application/octet-stream")
+            if lower_fp.endswith(static_asset_exts):
+                if lower_fp.endswith((".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif", ".ico", ".avif")):
+                    placeholder_svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400"><rect width="100%" height="100%" fill="#1e293b"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#64748b" font-family="sans-serif" font-size="16">{os.path.basename(filepath)}</text></svg>'
+                    return Response(content=placeholder_svg.encode("utf-8"), media_type="image/svg+xml", headers=security_scanner.get_secure_preview_headers())
+                return Response(content=b"", media_type="application/octet-stream")
 
-        # 1. Multi-Framework Source Detection (Vue, React, Svelte, Static HTML)
-        app_vue_content = None
-        app_jsx_content = None
-        app_svelte_content = None
+        # 1. Multi-Framework Source Discovery across extracted directory and StoredFile ZIP
+        all_jsx_files = {}     # rel_path -> raw_code
+        all_vue_files = {}     # rel_path -> raw_code
+        all_svelte_files = {}  # rel_path -> raw_code
+        all_css_chunks = []
         index_html_content = None
-        index_css_content = ""
         package_json_content = None
-        preview_dir_loc = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
 
-        # Scan preview_dir (extracted filesystem) for framework entry files
-        if os.path.isdir(preview_dir_loc):
-            for root, _, files in os.walk(preview_dir_loc):
-                if any(d in root.replace("\\", "/").split("/") for d in ["dist", "build", ".output", "node_modules"]):
-                    continue
-                for f in files:
-                    f_lower = f.lower()
-                    f_full = os.path.join(root, f)
-                    if f_lower in ("app.vue", "main.vue") or (f_lower.endswith(".vue") and not app_vue_content):
-                        try:
-                            with open(f_full, "r", encoding="utf-8", errors="ignore") as _vf:
-                                app_vue_content = _vf.read()
-                        except Exception:
-                            pass
-                    elif f_lower in ("app.jsx", "app.tsx", "main.jsx", "main.tsx", "index.jsx") or (f_lower.endswith((".jsx", ".tsx")) and not app_jsx_content):
-                        try:
-                            with open(f_full, "r", encoding="utf-8", errors="ignore") as _jf:
-                                raw_app = _jf.read()
-                                from app.services.ai_service import clean_code_response, repair_truncated_jsx
-                                app_jsx_content = repair_truncated_jsx(clean_code_response(raw_app, "jsx"))
-                        except Exception:
-                            pass
-                    elif f_lower in ("app.svelte", "main.svelte") or (f_lower.endswith(".svelte") and not app_svelte_content):
-                        try:
-                            with open(f_full, "r", encoding="utf-8", errors="ignore") as _sf:
-                                app_svelte_content = _sf.read()
-                        except Exception:
-                            pass
-                    elif f_lower in ("index.html", "index.htm", "home.html", "main.html") and not index_html_content:
-                        try:
-                            with open(f_full, "r", encoding="utf-8", errors="ignore") as _hf:
-                                index_html_content = _hf.read()
-                        except Exception:
-                            pass
-                    elif f_lower.endswith(".css"):
-                        try:
-                            with open(f_full, "r", encoding="utf-8", errors="ignore") as _cf:
-                                index_css_content += "\n" + _cf.read()
-                        except Exception:
-                            pass
-                    elif f_lower == "package.json" and not package_json_content:
-                        try:
-                            with open(f_full, "r", encoding="utf-8", errors="ignore") as _pf:
-                                package_json_content = _pf.read()
-                        except Exception:
-                            pass
+        preview_dir_loc = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(raw_id))
+        scan_roots = [preview_dir_loc]
+        if template.slug:
+            slug_loc = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template.slug))
+            if slug_loc not in scan_roots:
+                scan_roots.append(slug_loc)
 
-        # If preview_dir is empty or missing sources, read directly from the DB-stored ZIP
-        if not (app_vue_content or app_jsx_content or app_svelte_content or index_html_content):
+        for pr in scan_roots:
+            if os.path.isdir(pr):
+                for root_dir, dirs, files_in_dir in os.walk(pr):
+                    dirs[:] = [d for d in dirs if d not in ["dist", "build", ".output", "node_modules", ".git", ".venv", "__MACOSX"]]
+                    for fn in files_in_dir:
+                        fn_lower = fn.lower()
+                        fn_full = os.path.join(root_dir, fn)
+                        rel_p = os.path.relpath(fn_full, pr).replace("\\", "/")
+                        if fn_lower.endswith((".jsx", ".tsx")):
+                            try:
+                                with open(fn_full, "r", encoding="utf-8", errors="ignore") as _jf:
+                                    all_jsx_files[rel_p] = _jf.read()
+                            except Exception:
+                                pass
+                        elif fn_lower.endswith((".js", ".ts")) and not fn_lower.endswith((".config.js", ".config.ts", ".d.ts", ".min.js")):
+                            try:
+                                with open(fn_full, "r", encoding="utf-8", errors="ignore") as _jf:
+                                    _c = _jf.read()
+                                    if ("import React" in _c or "from 'react'" in _c or 'from "react"' in _c or "createRoot" in _c or re.search(r'<[A-Z][a-zA-Z0-9_]+', _c) or re.search(r'return\s*\(\s*<', _c)):
+                                        all_jsx_files[rel_p] = _c
+                            except Exception:
+                                pass
+                        elif fn_lower.endswith(".vue"):
+                            try:
+                                with open(fn_full, "r", encoding="utf-8", errors="ignore") as _vf:
+                                    all_vue_files[rel_p] = _vf.read()
+                            except Exception:
+                                pass
+                        elif fn_lower.endswith(".svelte"):
+                            try:
+                                with open(fn_full, "r", encoding="utf-8", errors="ignore") as _sf:
+                                    all_svelte_files[rel_p] = _sf.read()
+                            except Exception:
+                                pass
+                        elif fn_lower.endswith((".html", ".htm")):
+                            try:
+                                with open(fn_full, "r", encoding="utf-8", errors="ignore") as _hf:
+                                    if fn_lower in ("index.html", "index.htm", "home.html", "app.html") or not index_html_content:
+                                        index_html_content = _hf.read()
+                            except Exception:
+                                pass
+                        elif fn_lower.endswith(".css"):
+                            try:
+                                with open(fn_full, "r", encoding="utf-8", errors="ignore") as _cf:
+                                    all_css_chunks.append(_cf.read())
+                            except Exception:
+                                pass
+                        elif fn_lower == "package.json" and not package_json_content:
+                            try:
+                                with open(fn_full, "r", encoding="utf-8", errors="ignore") as _pf:
+                                    package_json_content = _pf.read()
+                            except Exception:
+                                pass
+
+        # If disk scan yielded nothing, read directly from database-stored ZIP archive
+        if not (all_jsx_files or all_vue_files or all_svelte_files or index_html_content):
             try:
                 d_assets = template.download_assets or {}
                 z_url = d_assets.get("zip")
@@ -3923,45 +4199,30 @@ async def serve_live_preview(
                         stored_f = sf_res.scalar_one_or_none()
                         if stored_f and stored_f.data and zipfile.is_zipfile(io.BytesIO(stored_f.data)):
                             with zipfile.ZipFile(io.BytesIO(stored_f.data), "r") as zf:
-                                names = zf.namelist()
-                                # Vue candidates
-                                vue_cands = sorted(
-                                    [n for n in names if n.lower().endswith(".vue") and "node_modules" not in n],
-                                    key=lambda x: (not x.lower().endswith("app.vue"), len(x))
-                                )
-                                if vue_cands:
-                                    app_vue_content = zf.read(vue_cands[0]).decode("utf-8", errors="ignore")
-                                # JSX / TSX candidates
-                                jsx_cands = sorted(
-                                    [n for n in names if (n.lower().endswith(".jsx") or n.lower().endswith(".tsx")) and "node_modules" not in n],
-                                    key=lambda x: (not x.lower().endswith("app.jsx"), len(x))
-                                )
-                                if jsx_cands:
-                                    raw_app = zf.read(jsx_cands[0]).decode("utf-8", errors="ignore")
-                                    from app.services.ai_service import clean_code_response, repair_truncated_jsx
-                                    app_jsx_content = repair_truncated_jsx(clean_code_response(raw_app, "jsx"))
-                                # Svelte candidates
-                                svelte_cands = sorted(
-                                    [n for n in names if n.lower().endswith(".svelte") and "node_modules" not in n],
-                                    key=len
-                                )
-                                if svelte_cands:
-                                    app_svelte_content = zf.read(svelte_cands[0]).decode("utf-8", errors="ignore")
-                                # HTML candidates
-                                html_cands = sorted(
-                                    [n for n in names if (n.lower().endswith("index.html") or n.lower().endswith(".html")) and "node_modules" not in n and "__MACOSX" not in n],
-                                    key=lambda x: (not x.lower().endswith("index.html"), len(x))
-                                )
-                                if html_cands:
-                                    index_html_content = zf.read(html_cands[0]).decode("utf-8", errors="ignore")
-                                # CSS candidates
-                                css_cands = [n for n in names if n.lower().endswith(".css") and "node_modules" not in n]
-                                for c_name in css_cands[:3]:
-                                    index_css_content += "\n" + zf.read(c_name).decode("utf-8", errors="ignore")
-                                # package.json
-                                pkg_cands = [n for n in names if n.lower().endswith("package.json") and "node_modules" not in n]
-                                if pkg_cands:
-                                    package_json_content = zf.read(pkg_cands[0]).decode("utf-8", errors="ignore")
+                                for zn in zf.namelist():
+                                    zn_lower = zn.lower()
+                                    if any(d in zn_lower.split("/") for d in ["node_modules", "dist", "build", ".output", "__macosx"]):
+                                        continue
+                                    if zn_lower.endswith((".jsx", ".tsx")):
+                                        all_jsx_files[zn] = zf.read(zn).decode("utf-8", errors="ignore")
+                                    elif zn_lower.endswith((".js", ".ts")) and not zn_lower.endswith((".config.js", ".config.ts", ".d.ts", ".min.js")):
+                                        try:
+                                            _zc = zf.read(zn).decode("utf-8", errors="ignore")
+                                            if ("import React" in _zc or "from 'react'" in _zc or 'from "react"' in _zc or "createRoot" in _zc or re.search(r'<[A-Z][a-zA-Z0-9_]+', _zc) or re.search(r'return\s*\(\s*<', _zc)):
+                                                all_jsx_files[zn] = _zc
+                                        except Exception:
+                                            pass
+                                    elif zn_lower.endswith(".vue"):
+                                        all_vue_files[zn] = zf.read(zn).decode("utf-8", errors="ignore")
+                                    elif zn_lower.endswith(".svelte"):
+                                        all_svelte_files[zn] = zf.read(zn).decode("utf-8", errors="ignore")
+                                    elif zn_lower.endswith((".html", ".htm")):
+                                        if zn_lower.endswith(("index.html", "index.htm", "home.html")) or not index_html_content:
+                                            index_html_content = zf.read(zn).decode("utf-8", errors="ignore")
+                                    elif zn_lower.endswith(".css"):
+                                        all_css_chunks.append(zf.read(zn).decode("utf-8", errors="ignore"))
+                                    elif zn_lower.endswith("package.json") and not package_json_content:
+                                        package_json_content = zf.read(zn).decode("utf-8", errors="ignore")
             except Exception as e_zip_read:
                 logger.warning(f"serve_fallback: Could not read sources from DB ZIP: {e_zip_read}")
 
@@ -3980,11 +4241,11 @@ async def serve_live_preview(
         detected_fw = "react"
         if requested_fw in ("vue", "react", "nextjs", "svelte", "angular", "html", "vanilla"):
             detected_fw = requested_fw
-        elif app_vue_content or "vue" in pkg_deps or "nuxt" in pkg_deps or model_fw in ("vue", "nuxt"):
+        elif all_vue_files or "vue" in pkg_deps or "nuxt" in pkg_deps or model_fw in ("vue", "nuxt"):
             detected_fw = "vue"
-        elif app_jsx_content or "react" in pkg_deps or "next" in pkg_deps or model_fw in ("react", "nextjs"):
+        elif all_jsx_files or "react" in pkg_deps or "next" in pkg_deps or model_fw in ("react", "nextjs"):
             detected_fw = "react"
-        elif app_svelte_content or "svelte" in pkg_deps or model_fw == "svelte":
+        elif all_svelte_files or "svelte" in pkg_deps or model_fw == "svelte":
             detected_fw = "svelte"
         elif "@angular/core" in pkg_deps or model_fw == "angular":
             detected_fw = "angular"
@@ -3992,18 +4253,469 @@ async def serve_live_preview(
             detected_fw = "html"
 
         _title = template.title or "Live Preview"
-        _css = index_css_content
+        _css = "\n".join(all_css_chunks)
 
-        # ─── RUNNER 1: Vue 3 In-Browser Standalone Runner ──────────────────────────
-        if app_vue_content or (detected_fw == "vue" and app_vue_content):
+        # ─── RUNNER 1: React 18 / Next.js Standalone Runner (Multi-Component & Edit Ready) ─────
+        if all_jsx_files or (detected_fw in ("react", "nextjs") and all_jsx_files):
             try:
+                from app.services.ai_service import repair_truncated_jsx, clean_code_response
+
+                # 1. Resolve Target Page Component based on requested filepath (or default to home App)
+                target_file_name = os.path.basename(filepath).lower() if (filepath and "." in filepath) else ""
+                target_route = filepath.strip("/").lower() if (filepath and "." not in filepath) else ""
+
+                primary_jsx_key = None
+                if target_file_name:
+                    for k in all_jsx_files:
+                        if os.path.basename(k).lower() == target_file_name:
+                            primary_jsx_key = k
+                            break
+                elif target_route:
+                    for k in all_jsx_files:
+                        base_no_ext = os.path.splitext(os.path.basename(k))[0].lower()
+                        if base_no_ext == target_route:
+                            primary_jsx_key = k
+                            break
+
+                if not primary_jsx_key:
+                    for cand in ["app.jsx", "app.tsx", "main.jsx", "main.tsx", "index.jsx", "index.tsx", "home.jsx", "home.tsx", "page.jsx", "page.tsx"]:
+                        for k in all_jsx_files:
+                            if os.path.basename(k).lower() == cand:
+                                primary_jsx_key = k
+                                break
+                        if primary_jsx_key:
+                            break
+
+                if not primary_jsx_key:
+                    primary_jsx_key = next(iter(all_jsx_files.keys()))
+
+                # 2. Helper to clean and normalize JSX / TSX code
+                def clean_and_normalize_jsx(code: str, is_subcomponent: bool = False) -> str:
+                    # Clean response markdown wrappers and verify bracket balance before running
+                    c = repair_truncated_jsx(clean_code_response(code, "jsx"))
+
+                    # Transform asset imports to live preview asset URLs
+                    def _tr_asset(m):
+                        v_name = m.group(1).strip()
+                        a_path = m.group(2).strip().lstrip("./").lstrip("/")
+                        return f"const {v_name} = '/api/v1/preview/live/{template_id}/{a_path}';"
+
+                    c = re.sub(
+                        r"import\s+([A-Za-z0-9_]+)\s+from\s+['\"]([^'\"]+\.(?:png|jpg|jpeg|svg|webp|gif|ico|avif|bmp|mp4|webm))['\"];?",
+                        _tr_asset,
+                        c
+                    )
+
+                    # Strip CSS import statements (CSS is collected into <style> in <head>)
+                    c = re.sub(r"import\s+['\"][^'\"]+\.css['\"]; *\n?", "", c)
+
+                    # Strip external package imports (React, motion, lucide, react-router are provided as globals)
+                    c = re.sub(r"import\s+[\s\S]*?from\s+['\"].*?['\"]; *\n?", "", c)
+                    c = re.sub(r"import\s+['\"].*?['\"]; *\n?", "", c)
+
+                    # Transform anonymous default exports into named PageComponent declarations
+                    c = re.sub(r"\bexport\s+default\s+function\s*\(", "const PageComponent = function(", c)
+                    c = re.sub(r"\bexport\s+default\s+(?:\(([^)]*)\)|([a-zA-Z0-9_]+))\s*=>", r"const PageComponent = (\1\2) =>", c)
+
+                    # Transform named export default at bottom: export default Identifier; -> const PageComponent = Identifier;
+                    m_exp = re.search(r"^\s*export\s+default\s+([A-Za-z0-9_]+)\s*;\s*$", c, flags=re.MULTILINE)
+                    if m_exp:
+                        default_name = m_exp.group(1)
+                        c = re.sub(r"^\s*export\s+default\s+[A-Za-z0-9_]+\s*;\s*$", f"const PageComponent = {default_name};", c, flags=re.MULTILINE)
+
+                    # Strip remaining export keywords
+                    c = re.sub(r"\bexport\s+default\s+(?=function|class|const|let|var)", "", c)
+                    c = re.sub(r"\bexport\s+(?=function|class|const|let|var)", "", c)
+                    c = re.sub(r"export\s*\{[^}]*\};?", "", c)
+                    return c.strip()
+
+                # 3. Bundle all sub-components so imported dependencies exist in scope
+                sub_component_blocks = []
+                # Sort subcomponents: ui/ and components/ come first, then sections
+                sub_keys = [k for k in all_jsx_files.keys() if k != primary_jsx_key]
+                sub_keys.sort(key=lambda x: (
+                    0 if "ui/" in x.lower() or "lib/" in x.lower()
+                    else 1 if "component" in x.lower()
+                    else 2
+                ))
+
+                for sk in sub_keys:
+                    raw_sub = all_jsx_files[sk]
+                    cleaned_sub = clean_and_normalize_jsx(raw_sub, is_subcomponent=True)
+                    if cleaned_sub:
+                        sk_base = os.path.splitext(os.path.basename(sk))[0]
+                        sk_capital = sk_base[0].upper() + sk_base[1:] if sk_base else ""
+                        sub_component_blocks.append(
+                            f"// --- Component: {sk} ---\n{cleaned_sub}\n"
+                            f"if (typeof PageComponent !== 'undefined' && typeof {sk_capital} === 'undefined') {{ var {sk_capital} = PageComponent; }}\n"
+                        )
+
+                sub_components_code = "\n\n".join(sub_component_blocks)
+
+                # 4. Clean and normalize primary page component
+                primary_raw = all_jsx_files[primary_jsx_key]
+                primary_cleaned = clean_and_normalize_jsx(primary_raw, is_subcomponent=False)
+
+                # Determine top-level component name to mount
+                comp_name = "App"
+                if "PageComponent" in primary_cleaned:
+                    comp_name = "PageComponent"
+                elif "function App" not in primary_cleaned and "const App" not in primary_cleaned and "class App" not in primary_cleaned:
+                    func_m = re.search(r"(?:export\s+default\s+)?function\s+([A-Z][A-Za-z0-9_]+)", primary_cleaned)
+                    const_m = re.search(r"const\s+([A-Z][A-Za-z0-9_]+)\s*=\s*(?:\([^)]*\)|[A-Za-z_]+)\s*=>", primary_cleaned)
+                    class_m = re.search(r"class\s+([A-Z][A-Za-z0-9_]+)\s+extends", primary_cleaned)
+                    if func_m:
+                        comp_name = func_m.group(1)
+                    elif const_m:
+                        comp_name = const_m.group(1)
+                    elif class_m:
+                        comp_name = class_m.group(1)
+
+                full_bundled_jsx = f"{sub_components_code}\n\n// --- Primary Page Component ---\n{primary_cleaned}"
+
+                # 5. Pre-run check: Detect all JSX tags used and generate auto-fallbacks so no component crashes
+                used_tags = set(re.findall(r'<([A-Z][a-zA-Z0-9_]+)\b', full_bundled_jsx))
+                standard_skip = {
+                    "React", "Fragment", "Suspense", "StrictMode", "ErrorBoundary",
+                    "Link", "NavLink", "BrowserRouter", "Router", "Routes", "Route", "Outlet",
+                    "AnimatePresence"
+                }
+
+                defined_tags = set(re.findall(r'(?:function|const|let|var|class)\s+([A-Z][a-zA-Z0-9_]+)\b', full_bundled_jsx))
+
+                missing_tags = [t for t in used_tags if t not in defined_tags and t not in standard_skip]
+                fallback_declarations = "\n".join([
+                    f"if (typeof {tag} === 'undefined') {{ var {tag} = _createFallbackComponent('{tag}'); }}"
+                    for tag in missing_tags
+                ])
+
+                react_runner_html = (
+                    "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
+                    "  <meta charset=\"UTF-8\">\n"
+                    "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
+                    f"  <title>{_title} - Live Preview (React)</title>\n"
+                    "  <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n"
+                    "  <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap\" rel=\"stylesheet\">\n"
+                    "  <script src=\"https://cdn.tailwindcss.com\"></script>\n"
+                    "  <script src=\"https://unpkg.com/react@18/umd/react.production.min.js\"></script>\n"
+                    "  <script src=\"https://unpkg.com/react-dom@18/umd/react-dom.production.min.js\"></script>\n"
+                    "  <script src=\"https://unpkg.com/@babel/standalone@7.24.0/babel.min.js\"></script>\n"
+                    "  <script src=\"https://unpkg.com/lucide-react@0.451.0/dist/umd/lucide-react.js\"></script>\n"
+                    "  <script>\n"
+                    "    window.addEventListener('error', function(e) {\n"
+                    "      console.error('React Live Preview Script Notice:', e);\n"
+                    "      var root = document.getElementById('root');\n"
+                    "      if (root && (!root.children || root.children.length === 0)) {\n"
+                    "        root.innerHTML = '<div style=\"padding:2.5rem;margin:1.5rem auto;max-width:680px;background:#0f172a;color:#f8fafc;border-radius:16px;border:1px solid rgba(239,68,68,0.4);font-family:system-ui,sans-serif;box-shadow:0 20px 40px rgba(0,0,0,0.5);\"><h3 style=\"color:#f87171;margin:0 0 0.75rem 0;font-size:18px;\">⚠️ Component Preview Notice</h3><p style=\"color:#94a3b8;font-size:14px;line-height:1.6;\">' + (e.message || 'Component verification notice') + '</p><button onclick=\"location.reload()\" style=\"margin-top:1rem;padding:8px 18px;background:#3b82f6;color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer;\">Reload</button></div>';\n"
+                    "      }\n"
+                    "    });\n"
+                    "  </script>\n"
+                    "  <style>\n"
+                    "    *, *::before, *::after { box-sizing: border-box; }\n"
+                    "    body { margin: 0; font-family: 'Inter', system-ui, sans-serif; }\n"
+                    f"    {_css}\n"
+                    "  </style>\n"
+                    "</head>\n<body>\n"
+                    "  <div id=\"root\"></div>\n"
+                    "  <script type=\"text/babel\" data-presets=\"react,typescript\">\n"
+                    "    // 1. Environment & Node Globals\n"
+                    "    window.process = window.process || { env: { NODE_ENV: 'production' } };\n"
+                    "    window.global = window;\n"
+                    "\n"
+                    "    // 2. Standard Hooks & React Globals\n"
+                    "    const {\n"
+                    "      useState, useEffect, useRef, useMemo, useCallback, useContext,\n"
+                    "      createContext, useReducer, useId, useLayoutEffect, useTransition, useDeferredValue\n"
+                    "    } = React;\n"
+                    "\n"
+                    "    // 2. Universal Icon & Component Fallback Resolver (Pre-Run Guard)\n"
+                    "    const _lucide = window.LucideReact || window.lucideReact || window.lucide || {};\n"
+                    "    function _createFallbackComponent(name) {\n"
+                    "      if (_lucide && _lucide[name]) return _lucide[name];\n"
+                    "      return function FallbackItem(props) {\n"
+                    "        const p = props || {};\n"
+                    "        const isIconLike = p.size || p.strokeWidth || (!p.children && /^[A-Z][a-z]+(?:[A-Z][a-z]+)*$/.test(name));\n"
+                    "        if (isIconLike) {\n"
+                    "          return React.createElement('svg', {\n"
+                    "            ...p,\n"
+                    "            xmlns: 'http://www.w3.org/2000/svg',\n"
+                    "            width: p.size || 20,\n"
+                    "            height: p.size || 20,\n"
+                    "            viewBox: '0 0 24 24',\n"
+                    "            fill: 'none',\n"
+                    "            stroke: p.color || 'currentColor',\n"
+                    "            strokeWidth: p.strokeWidth || 2,\n"
+                    "            strokeLinecap: 'round',\n"
+                    "            strokeLinejoin: 'round',\n"
+                    "            className: (p.className ? p.className + ' ' : '') + 'inline-block'\n"
+                    "          }, React.createElement('circle', { cx: 12, cy: 12, r: 8 }), React.createElement('path', { d: 'M12 8v8M8 12h8' }));\n"
+                    "        }\n"
+                    "        return React.createElement('div', {\n"
+                    "          className: (p.className ? p.className + ' ' : '') + 'react-comp-box',\n"
+                    "          style: { minHeight: p.children ? 'auto' : '20px' }\n"
+                    "        }, p.children);\n"
+                    "      };\n"
+                    "    }\n"
+                    "\n"
+                    "    // 3. Framer Motion Full Universal Proxy\n"
+                    "    const motion = new Proxy({}, {\n"
+                    "      get: function(target, prop) {\n"
+                    "        if (typeof prop !== 'string') return undefined;\n"
+                    "        return React.forwardRef(function(props, ref) {\n"
+                    "          const p = props || {};\n"
+                    "          const filtered = {};\n"
+                    "          const motionKeys = {\n"
+                    "            initial: 1, animate: 1, exit: 1, transition: 1, whileHover: 1, whileTap: 1,\n"
+                    "            whileInView: 1, whileFocus: 1, whileDrag: 1, viewport: 1, variants: 1, layout: 1,\n"
+                    "            layoutId: 1, onAnimationStart: 1, onAnimationComplete: 1, onUpdate: 1\n"
+                    "          };\n"
+                    "          for (const k in p) {\n"
+                    "            if (!motionKeys[k]) filtered[k] = p[k];\n"
+                    "          }\n"
+                    "          filtered.ref = ref;\n"
+                    "          return React.createElement(prop, filtered, p.children);\n"
+                    "        });\n"
+                    "      }\n"
+                    "    });\n"
+                    "    const AnimatePresence = function(props) { return (props && props.children) ? props.children : null; };\n"
+                    "\n"
+                    "    // 4. React Router DOM Universal Mocks\n"
+                    "    const Link = React.forwardRef(function(props, ref) {\n"
+                    "      const p = props || {};\n"
+                    "      const rest = {};\n"
+                    "      for (const k in p) { if (k !== 'to' && k !== 'href') rest[k] = p[k]; }\n"
+                    "      rest.ref = ref;\n"
+                    "      rest.href = p.to || p.href || '#';\n"
+                    "      return React.createElement('a', rest, p.children);\n"
+                    "    });\n"
+                    "    const NavLink = Link;\n"
+                    "    const useNavigate = function() {\n"
+                    "      return function(to) { if (typeof to === 'string') window.location.hash = to; };\n"
+                    "    };\n"
+                    "    const useLocation = function() {\n"
+                    "      return { pathname: window.location.pathname, search: window.location.search, hash: window.location.hash, state: null };\n"
+                    "    };\n"
+                    "    const useParams = function() { return {}; };\n"
+                    "    const useSearchParams = function() { return [new URLSearchParams(window.location.search), function() {}]; };\n"
+                    "    const BrowserRouter = function(props) { return (props && props.children) ? props.children : null; };\n"
+                    "    const Router = BrowserRouter;\n"
+                    "    const Routes = function(props) { return (props && props.children) ? props.children : null; };\n"
+                    "    const Route = function(props) { return (props && (props.element || props.children)) ? (props.element || props.children) : null; };\n"
+                    "    const Outlet = function(props) { return (props && props.children) ? props.children : null; };\n"
+                    "\n"
+                    "    // 5. Next.js Component & Router Stubs\n"
+                    "    const Image = React.forwardRef(function(props, ref) {\n"
+                    "      const p = props || {};\n"
+                    "      const rest = Object.assign({}, p);\n"
+                    "      delete rest.priority; delete rest.fill;\n"
+                    "      rest.ref = ref;\n"
+                    "      return React.createElement('img', rest);\n"
+                    "    });\n"
+                    "    const Head = function(props) { return null; };\n"
+                    "    const useRouter = function() {\n"
+                    "      return { push: function(u) { if (u) window.location.hash = u; }, replace: function(u) { if (u) window.location.hash = u; }, pathname: window.location.pathname, query: {} };\n"
+                    "    };\n"
+                    "    const usePathname = function() { return window.location.pathname; };\n"
+                    "    const useHistory = useRouter;\n"
+                    "\n"
+                    "    // 6. Utility Functions, cn, cva, clsx, twMerge, axios, confetti\n"
+                    "    function cn() {\n"
+                    "      const classes = [];\n"
+                    "      for (let i = 0; i < arguments.length; i++) {\n"
+                    "        const arg = arguments[i];\n"
+                    "        if (!arg) continue;\n"
+                    "        if (typeof arg === 'string' || typeof arg === 'number') {\n"
+                    "          classes.push(arg);\n"
+                    "        } else if (Array.isArray(arg)) {\n"
+                    "          const inner = cn.apply(null, arg);\n"
+                    "          if (inner) classes.push(inner);\n"
+                    "        } else if (typeof arg === 'object') {\n"
+                    "          for (const key in arg) { if (arg[key]) classes.push(key); }\n"
+                    "        }\n"
+                    "      }\n"
+                    "      return classes.join(' ');\n"
+                    "    }\n"
+                    "    const clsx = cn;\n"
+                    "    const twMerge = function() { return cn.apply(null, arguments); };\n"
+                    "    function cva(base, config) {\n"
+                    "      return function(props) {\n"
+                    "        props = props || {};\n"
+                    "        var classes = [base || ''];\n"
+                    "        var variants = (config && config.variants) || {};\n"
+                    "        var defaultVariants = (config && config.defaultVariants) || {};\n"
+                    "        var merged = Object.assign({}, defaultVariants, props);\n"
+                    "        for (var k in merged) {\n"
+                    "          if (variants[k] && variants[k][merged[k]]) classes.push(variants[k][merged[k]]);\n"
+                    "        }\n"
+                    "        return classes.filter(Boolean).join(' ');\n"
+                    "      };\n"
+                    "    }\n"
+                    "    const confetti = function() {};\n"
+                    "    const axios = {\n"
+                    "      get: function() { return Promise.resolve({ data: {} }); },\n"
+                    "      post: function() { return Promise.resolve({ data: {} }); }\n"
+                    "    };\n"
+                    "\n"
+                    "    // 7. Universal CommonJS require shim\n"
+                    "    window.require = function(mod) {\n"
+                    "      if (mod === 'react') return React;\n"
+                    "      if (mod === 'react-dom' || mod === 'react-dom/client') return ReactDOM;\n"
+                    "      if (mod === 'framer-motion') return { motion, AnimatePresence };\n"
+                    "      if (mod === 'lucide-react') return _lucide;\n"
+                    "      if (mod === 'react-router-dom' || mod === 'react-router') return { Link, NavLink, useNavigate, useLocation, useParams, useSearchParams, BrowserRouter, Routes, Route, Outlet };\n"
+                    "      if (mod === 'clsx' || mod === '@/lib/utils' || mod === 'tailwind-merge') return { cn, clsx, twMerge, default: cn };\n"
+                    "      if (mod === 'class-variance-authority') return { cva };\n"
+                    "      return {};\n"
+                    "    };\n"
+                    "\n"
+                    "    // 6. Safe Error Boundary for React Render Verification\n"
+                    "    class ErrorBoundary extends React.Component {\n"
+                    "      constructor(props) {\n"
+                    "        super(props);\n"
+                    "        this.state = { hasError: false, error: null };\n"
+                    "      }\n"
+                    "      static getDerivedStateFromError(error) {\n"
+                    "        return { hasError: true, error: error };\n"
+                    "      }\n"
+                    "      componentDidCatch(error, errorInfo) {\n"
+                    "        console.error('React Live Preview Error:', error, errorInfo);\n"
+                    "      }\n"
+                    "      render() {\n"
+                    "        if (this.state.hasError) {\n"
+                    "          return React.createElement('div', {\n"
+                    "            style: {\n"
+                    "              padding: '2.5rem',\n"
+                    "              margin: '1.5rem auto',\n"
+                    "              maxWidth: '680px',\n"
+                    "              background: '#0f172a',\n"
+                    "              color: '#f8fafc',\n"
+                    "              borderRadius: '16px',\n"
+                    "              border: '1px solid rgba(239, 68, 68, 0.4)',\n"
+                    "              fontFamily: 'system-ui, sans-serif',\n"
+                    "              boxShadow: '0 20px 40px rgba(0,0,0,0.5)'\n"
+                    "            }\n"
+                    "          },\n"
+                    "            React.createElement('h3', { style: { color: '#f87171', margin: '0 0 0.75rem 0', fontSize: '18px' } }, 'âš ï¸  React Component Notice'),\n"
+                    "            React.createElement('p', { style: { color: '#94a3b8', fontSize: '14px', lineHeight: 1.6 } }, String(this.state.error && this.state.error.message || 'Component render warning')),\n"
+                    "            React.createElement('button', {\n"
+                    "              onClick: () => location.reload(),\n"
+                    "              style: {\n"
+                    "                marginTop: '1rem',\n"
+                    "                padding: '8px 18px',\n"
+                    "                background: '#3b82f6',\n"
+                    "                color: '#fff',\n"
+                    "                border: 'none',\n"
+                    "                borderRadius: '8px',\n"
+                    "                fontWeight: 600,\n"
+                    "                cursor: 'pointer'\n"
+                    "              }\n"
+                    "            }, 'Reload Component')\n"
+                    "          );\n"
+                    "        }\n"
+                    "        return this.props.children;\n"
+                    "      }\n"
+                    "    }\n"
+                    "\n"
+                    "    // 7. Auto-declare used tags so no missing imports crash Babel\n"
+                    f"    {fallback_declarations}\n"
+                    "\n"
+                    "    // 8. Bundled Component Code\n"
+                    f"    {full_bundled_jsx}\n"
+                    "\n"
+                    "    // 9. Verified Mount\n"
+                    "    try {\n"
+                    "      const container = document.getElementById('root');\n"
+                    "      const reactRoot = ReactDOM.createRoot(container);\n"
+                    f"      let targetComp = (typeof PageComponent !== 'undefined') ? PageComponent : ((typeof {comp_name} !== 'undefined') ? {comp_name} : (typeof App !== 'undefined' ? App : null));\n"
+                    "      if (!targetComp) {\n"
+                    "        // Fallback: look for any defined component function\n"
+                    "        const keys = Object.keys(window).filter(k => /^[A-Z][a-zA-Z0-9]+$/.test(k) && typeof window[k] === 'function');\n"
+                    "        if (keys.length > 0) targetComp = window[keys[0]];\n"
+                    "      }\n"
+                    "      if (targetComp) {\n"
+                    "        reactRoot.render(React.createElement(ErrorBoundary, null, React.createElement(targetComp)));\n"
+                    "      } else {\n"
+                    "        container.innerHTML = '<div style=\"padding:2rem;font-family:sans-serif;color:#38bdf8;\"><h3>React Preview Mounted</h3></div>';\n"
+                    "      }\n"
+                    "    } catch (e) {\n"
+                    "      console.error('React mount error:', e);\n"
+                    "      const root = document.getElementById('root');\n"
+                    "      if (root) {\n"
+                    "        root.innerHTML = '<div style=\"padding:2rem;font-family:sans-serif;color:#f87171;\"><h3>React Preview Ready</h3><p>' + (e && e.message || 'Rendered') + '</p></div>';\n"
+                    "      }\n"
+                    "    }\n"
+                    "\n"
+                    "    // 10. Live Editor Synchronization Listener (Updates React DOM in real-time)\n"
+                    "    window.addEventListener('message', function(evt) {\n"
+                    "      if (!evt.data) return;\n"
+                    "      if (evt.data.type === 'UPDATE_THEME_COLOR' && evt.data.color) {\n"
+                    "        let st = document.getElementById('studio-live-theme-override');\n"
+                    "        if (!st) {\n"
+                    "          st = document.createElement('style');\n"
+                    "          st.id = 'studio-live-theme-override';\n"
+                    "          document.head.appendChild(st);\n"
+                    "        }\n"
+                    "        st.textContent = ':root { --primary: ' + evt.data.color + ' !important; --accent: ' + evt.data.color + ' !important; }';\n"
+                    "      }\n"
+                    "      if (evt.data.type === 'UPDATE_CONTENT' && evt.data.value) {\n"
+                    "        const val = String(evt.data.value);\n"
+                    "        const prev = evt.data.prevValue ? String(evt.data.prevValue) : null;\n"
+                    "        const walker = document.createTreeWalker(document.getElementById('root') || document.body, NodeFilter.SHOW_TEXT, null, false);\n"
+                    "        let node;\n"
+                    "        while ((node = walker.nextNode())) {\n"
+                    "          if (prev && node.nodeValue && node.nodeValue.includes(prev)) {\n"
+                    "            node.nodeValue = node.nodeValue.replace(prev, val);\n"
+                    "            break;\n"
+                    "          }\n"
+                    "        }\n"
+                    "      }\n"
+                    "      if (evt.data.type === 'SCROLL_TO_SECTION' && evt.data.sectionId) {\n"
+                    "        const sId = evt.data.sectionId;\n"
+                    "        const targetEl = document.getElementById(sId) || document.querySelector('.' + sId) || document.querySelector('[data-section=\"' + sId + '\"]') || (sId === 'navbar' ? document.querySelector('nav, header') : null);\n"
+                    "        if (targetEl) {\n"
+                    "          targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });\n"
+                    "        }\n"
+                    "      }\n"
+                    "    });\n"
+                    "  </script>\n"
+                    f"  {watermark_payload}\n"
+                    "</body>\n</html>"
+                )
+                return Response(content=react_runner_html.encode("utf-8"), media_type="text/html", headers=security_scanner.get_secure_preview_headers())
+            except Exception as e_runner:
+                logger.warning(f"In-browser React runner fallback failed: {e_runner}")
+
+        # ─── RUNNER 2: Vue 3 / Nuxt Standalone Runner ──────────────────────────────
+        if all_vue_files or (detected_fw in ("vue", "nuxt") and all_vue_files):
+            try:
+                # Resolve target Vue page
+                target_vue_name = os.path.basename(filepath).lower() if (filepath and "." in filepath) else ""
+                primary_vue_key = None
+                if target_vue_name:
+                    for k in all_vue_files:
+                        if os.path.basename(k).lower() == target_vue_name:
+                            primary_vue_key = k
+                            break
+                if not primary_vue_key:
+                    for cand in ["app.vue", "main.vue", "home.vue", "index.vue"]:
+                        for k in all_vue_files:
+                            if os.path.basename(k).lower() == cand:
+                                primary_vue_key = k
+                                break
+                        if primary_vue_key:
+                            break
+                if not primary_vue_key:
+                    primary_vue_key = next(iter(all_vue_files.keys()))
+
+                app_vue_content = all_vue_files[primary_vue_key]
+
                 # 1. Extract <template>, <script>, and <style>
                 t_match = re.search(r"<template[^>]*>([\s\S]*?)</template>", app_vue_content, re.IGNORECASE)
                 vue_template_html = t_match.group(1).strip() if t_match else "<div class='p-8'><h1>{{ title || 'Vue Preview' }}</h1></div>"
 
                 s_match = re.search(r"<script[^>]*>([\s\S]*?)</script>", app_vue_content, re.IGNORECASE)
                 raw_vue_script = s_match.group(1).strip() if s_match else ""
-                
+
                 # Clean script: remove imports
                 cleaned_vue_script = raw_vue_script
                 cleaned_vue_script = re.sub(r"import\s+[\s\S]*?from\s+['\"].*?['\"]; *\n?", "", cleaned_vue_script)
@@ -4012,7 +4724,6 @@ async def serve_live_preview(
                 style_matches = re.findall(r"<style[^>]*>([\s\S]*?)</style>", app_vue_content, re.IGNORECASE)
                 vue_styles = "\n".join(style_matches)
 
-                # Escape backticks and dollar signs for embedding in template string
                 escaped_script = cleaned_vue_script.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
 
                 vue_runner_html = (
@@ -4097,6 +4808,18 @@ async def serve_live_preview(
                     "      const appEl = document.getElementById('app');\n"
                     "      if (appEl) appEl.innerHTML = '<div style=\"padding:2rem;font-family:sans-serif;color:#e11d48;\"><h3>Vue Preview Ready</h3><p>' + (e && e.message || 'Rendered') + '</p></div>';\n"
                     "    }\n"
+                    "    window.addEventListener('message', function(evt) {\n"
+                    "      if (!evt.data) return;\n"
+                    "      if (evt.data.type === 'UPDATE_THEME_COLOR' && evt.data.color) {\n"
+                    "        let st = document.getElementById('studio-live-theme-override');\n"
+                    "        if (!st) {\n"
+                    "          st = document.createElement('style');\n"
+                    "          st.id = 'studio-live-theme-override';\n"
+                    "          document.head.appendChild(st);\n"
+                    "        }\n"
+                    "        st.textContent = ':root { --primary: ' + evt.data.color + ' !important; --accent: ' + evt.data.color + ' !important; }';\n"
+                    "      }\n"
+                    "    });\n"
                     "  </script>\n"
                     f"  {watermark_payload}\n"
                     "</body>\n</html>"
@@ -4105,118 +4828,90 @@ async def serve_live_preview(
             except Exception as e_vue:
                 logger.warning(f"In-browser Vue runner fallback notice: {e_vue}")
 
-        # ─── RUNNER 2: React 18 In-Browser Standalone Runner ───────────────────────
-        if app_jsx_content:
+        # ─── RUNNER 3: Svelte Standalone Runner ────────────────────────────────────
+        if all_svelte_files or (detected_fw == "svelte" and all_svelte_files):
             try:
-                # Safely transform ES module image/asset imports into valid JS variables
-                # e.g. import heroImg from "./assets/hero.png" -> const heroImg = "./assets/hero.png";
-                def transform_asset_import(match):
-                    var_name = match.group(1).strip()
-                    asset_path = match.group(2).strip()
-                    return f"const {var_name} = '{asset_path}';"
+                target_svelte_name = os.path.basename(filepath).lower() if (filepath and "." in filepath) else ""
+                primary_svelte_key = None
+                if target_svelte_name:
+                    for k in all_svelte_files:
+                        if os.path.basename(k).lower() == target_svelte_name:
+                            primary_svelte_key = k
+                            break
+                if not primary_svelte_key:
+                    for cand in ["app.svelte", "main.svelte", "index.svelte"]:
+                        for k in all_svelte_files:
+                            if os.path.basename(k).lower() == cand:
+                                primary_svelte_key = k
+                                break
+                        if primary_svelte_key:
+                            break
+                if not primary_svelte_key:
+                    primary_svelte_key = next(iter(all_svelte_files.keys()))
 
-                cleaned_jsx = app_jsx_content
-                cleaned_jsx = re.sub(
-                    r"import\s+([A-Za-z0-9_]+)\s+from\s+['\"]([^'\"]+\.(?:png|jpg|jpeg|svg|webp|gif|ico|avif|bmp))['\"];?",
-                    transform_asset_import,
-                    cleaned_jsx
-                )
-                cleaned_jsx = re.sub(r"import\s+[\s\S]*?from\s+['\"].*?['\"]; *\n?", "", cleaned_jsx)
-                cleaned_jsx = re.sub(r"import\s+['\"].*?['\"]; *\n?", "", cleaned_jsx)
-                cleaned_jsx = re.sub(r"^\s*export\s+default\s+[A-Za-z0-9_]+\s*;\s*$", "", cleaned_jsx, flags=re.MULTILINE)
-                cleaned_jsx = re.sub(r"\bexport\s+default\s+(?=function|class|const|let|var|\()", "", cleaned_jsx)
-                cleaned_jsx = re.sub(r"\bexport\s+(?=function|class|const|let|var)", "", cleaned_jsx)
+                raw_svelte = all_svelte_files[primary_svelte_key]
+                # Strip Svelte script/style for fallback markup
+                html_body = re.sub(r"<script[^>]*>[\s\S]*?</script>", "", raw_svelte, flags=re.IGNORECASE)
+                html_body = re.sub(r"<style[^>]*>[\s\S]*?</style>", "", html_body, flags=re.IGNORECASE)
+                html_body = re.sub(r"\{[#/:][^}]+\}", "", html_body)
+                html_body = re.sub(r"\{([^}]+)\}", r"\1", html_body)
 
-                comp_name = "App"
-                if "function App" not in cleaned_jsx and "const App" not in cleaned_jsx:
-                    func_m = re.search(r"(?:export\s+default\s+)?function\s+([A-Z][A-Za-z0-9_]+)", cleaned_jsx)
-                    const_m = re.search(r"const\s+([A-Z][A-Za-z0-9_]+)\s*=\s*(?:\([^)]*\)|[A-Za-z_]+)\s*=>", cleaned_jsx)
-                    if func_m:
-                        comp_name = func_m.group(1)
-                    elif const_m:
-                        comp_name = const_m.group(1)
+                escaped_svelte = raw_svelte.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+                escaped_html = html_body.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
 
-                react_runner_html = (
+                svelte_runner_html = (
                     "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
                     "  <meta charset=\"UTF-8\">\n"
                     "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
-                    f"  <title>{_title} - Live Preview</title>\n"
+                    f"  <title>{_title} - Live Preview (Svelte)</title>\n"
                     "  <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n"
                     "  <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap\" rel=\"stylesheet\">\n"
                     "  <script src=\"https://cdn.tailwindcss.com\"></script>\n"
-                    "  <script src=\"https://unpkg.com/react@18/umd/react.production.min.js\"></script>\n"
-                    "  <script src=\"https://unpkg.com/react-dom@18/umd/react-dom.production.min.js\"></script>\n"
-                    "  <script src=\"https://unpkg.com/@babel/standalone@7.24.0/babel.min.js\"></script>\n"
-                    "  <script src=\"https://unpkg.com/lucide-react@0.451.0/dist/umd/lucide-react.js\"></script>\n"
+                    "  <script src=\"https://unpkg.com/svelte@3/compiler.js\"></script>\n"
                     "  <style>\n"
                     "    *, *::before, *::after { box-sizing: border-box; }\n"
-                    "    body { margin: 0; font-family: \'Inter\', system-ui, sans-serif; }\n"
+                    "    body { margin: 0; font-family: 'Inter', system-ui, sans-serif; }\n"
                     f"    {_css}\n"
                     "  </style>\n"
                     "</head>\n<body>\n"
-                    "  <div id=\"root\"></div>\n"
-                    "  <script type=\"text/babel\" data-presets=\"react\">\n"
-                    "    const _lucide = window.lucide || {};\n"
-                    "    const {\n"
-                    "      Sparkles=()=>null,ArrowLeft=()=>null,ArrowRight=()=>null,ArrowUp=()=>null,ArrowDown=()=>null,\n"
-                    "      Loader=()=>null,Loader2=()=>null,CheckCircle=()=>null,CheckCircle2=()=>null,Check=()=>null,\n"
-                    "      XCircle=()=>null,X=()=>null,Cpu=()=>null,Globe=()=>null,Layers=()=>null,\n"
-                    "      FileText=()=>null,File=()=>null,Folder=()=>null,Plus=()=>null,Minus=()=>null,\n"
-                    "      Trash=()=>null,Trash2=()=>null,Edit=()=>null,Edit2=()=>null,Edit3=()=>null,\n"
-                    "      Info=()=>null,AlertCircle=()=>null,AlertTriangle=()=>null,Bell=()=>null,\n"
-                    "      Building=()=>null,Building2=()=>null,Home=()=>null,Map=()=>null,MapPin=()=>null,\n"
-                    "      Palette=()=>null,Paintbrush=()=>null,Wand=()=>null,Wand2=()=>null,\n"
-                    "      Phone=()=>null,Mail=()=>null,MessageCircle=()=>null,MessageSquare=()=>null,Send=()=>null,\n"
-                    "      Share=()=>null,Share2=()=>null,Link=()=>null,ExternalLink=()=>null,Copy=()=>null,\n"
-                    "      Download=()=>null,Upload=()=>null,Eye=()=>null,EyeOff=()=>null,\n"
-                    "      Lock=()=>null,Unlock=()=>null,Key=()=>null,Shield=()=>null,ShieldCheck=()=>null,\n"
-                    "      User=()=>null,Users=()=>null,UserPlus=()=>null,\n"
-                    "      Zap=()=>null,Flame=()=>null,Rocket=()=>null,Star=()=>null,\n"
-                    "      Heart=()=>null,ThumbsUp=()=>null,ThumbsDown=()=>null,\n"
-                    "      ShoppingBag=()=>null,ShoppingCart=()=>null,Package=()=>null,Tag=()=>null,Gift=()=>null,Store=()=>null,\n"
-                    "      Coffee=()=>null,Leaf=()=>null,Apple=()=>null,Sun=()=>null,Moon=()=>null,Cloud=()=>null,\n"
-                    "      Menu=()=>null,MoreHorizontal=()=>null,MoreVertical=()=>null,\n"
-                    "      ChevronUp=()=>null,ChevronDown=()=>null,ChevronLeft=()=>null,ChevronRight=()=>null,\n"
-                    "      Sliders=()=>null,Settings=()=>null,Settings2=()=>null,\n"
-                    "      Bot=()=>null,Code=()=>null,Code2=()=>null,Terminal=()=>null,\n"
-                    "      Server=()=>null,Database=()=>null,Wifi=()=>null,\n"
-                    "      Play=()=>null,Pause=()=>null,Circle=()=>null,\n"
-                    "      TrendingUp=()=>null,TrendingDown=()=>null,BarChart=()=>null,BarChart2=()=>null,\n"
-                    "      DollarSign=()=>null,CreditCard=()=>null,Banknote=()=>null,Wallet=()=>null,\n"
-                    "      Award=()=>null,Trophy=()=>null,Crown=()=>null,Flag=()=>null,\n"
-                    "      Calendar=()=>null,Clock=()=>null,Timer=()=>null,\n"
-                    "      Search=()=>null,Filter=()=>null,\n"
-                    "      RefreshCw=()=>null,RotateCw=()=>null,\n"
-                    "      Camera=()=>null,Image=()=>null,Video=()=>null,Music=()=>null,Mic=()=>null,Volume2=()=>null,\n"
-                    "      Lightbulb=()=>null,Brain=()=>null,Network=()=>null,\n"
-                    "      Monitor=()=>null,Laptop=()=>null,Tablet=()=>null,Smartphone=()=>null,\n"
-                    "    } = _lucide;\n"
-                    "    const useState=React.useState;\n"
-                    "    const useEffect=React.useEffect;\n"
-                    "    const useRef=React.useRef;\n"
-                    "    const useMemo=React.useMemo;\n"
-                    "    const useCallback=React.useCallback;\n"
-                    "    const useContext=React.useContext;\n"
-                    "    const createContext=React.createContext;\n"
-                    "    const useReducer=React.useReducer;\n"
-                    f"    {cleaned_jsx}\n"
-                    "    try {\n"
-                    f"      const container = document.getElementById('root');\n"
-                    f"      const reactRoot = ReactDOM.createRoot(container);\n"
-                    f"      reactRoot.render(React.createElement({comp_name}));\n"
-                    "    } catch (e) {\n"
-                    "      console.error('React mount error:', e);\n"
-                    "      const root = document.getElementById('root'); root.replaceChildren(); const msg = document.createElement('p'); msg.textContent = String(e && e.message || 'Unknown preview error'); root.appendChild(msg);\n"
-                    "    }\n"
+                    "  <div id=\"app\"></div>\n"
+                    "  <script>\n"
+                    "    (function() {\n"
+                    "      try {\n"
+                    f"        const sCode = `{escaped_svelte}`;\n"
+                    "        if (window.svelte && window.svelte.compile) {\n"
+                    "          const { js } = window.svelte.compile(sCode, { format: 'iife', name: 'SvelteApp' });\n"
+                    "          eval(js.code);\n"
+                    "          new SvelteApp({ target: document.getElementById('app') });\n"
+                    "        } else {\n"
+                    "          throw new Error('Svelte compiler CDN loading');\n"
+                    "        }\n"
+                    "      } catch(e) {\n"
+                    "        console.warn('Svelte compiler fallback notice:', e);\n"
+                    f"        document.getElementById('app').innerHTML = `{escaped_html}`;\n"
+                    "      }\n"
+                    "    })();\n"
+                    "    window.addEventListener('message', function(evt) {\n"
+                    "      if (!evt.data) return;\n"
+                    "      if (evt.data.type === 'UPDATE_THEME_COLOR' && evt.data.color) {\n"
+                    "        let st = document.getElementById('studio-live-theme-override');\n"
+                    "        if (!st) {\n"
+                    "          st = document.createElement('style');\n"
+                    "          st.id = 'studio-live-theme-override';\n"
+                    "          document.head.appendChild(st);\n"
+                    "        }\n"
+                    "        st.textContent = ':root { --primary: ' + evt.data.color + ' !important; --accent: ' + evt.data.color + ' !important; }';\n"
+                    "      }\n"
+                    "    });\n"
                     "  </script>\n"
                     f"  {watermark_payload}\n"
                     "</body>\n</html>"
                 )
-                return Response(content=react_runner_html.encode("utf-8"), media_type="text/html", headers=security_scanner.get_secure_preview_headers())
-            except Exception as e_runner:
-                logger.warning(f"In-browser React runner fallback failed: {e_runner}")
+                return Response(content=svelte_runner_html.encode("utf-8"), media_type="text/html", headers=security_scanner.get_secure_preview_headers())
+            except Exception as e_svelte:
+                logger.warning(f"In-browser Svelte runner fallback notice: {e_svelte}")
 
-        # ─── RUNNER 3: Static HTML Runner ──────────────────────────────────────────
+        # ─── RUNNER 4: Static HTML Runner ──────────────────────────────────────────
         if index_html_content:
             try:
                 html_out = index_html_content
@@ -4964,7 +5659,13 @@ async def serve_live_preview(
                     if os.path.exists(nested_path):
                         full_path = str(nested_path)
     
-        is_asset_request = bool(re.search(r'\.(?:png|jpg|jpeg|svg|webp|gif|ico|avif|bmp|tiff|css|js|mjs|woff|woff2|ttf|eot|otf|mp4|webm|mp3|wav|ogg|pdf|json|map)$', filepath or "", re.I))
+        is_page_component_request = bool(re.search(r'\.(?:jsx|tsx|vue|svelte)$', filepath or "", re.I))
+        if not is_page_component_request and filepath and re.search(r'\.(?:js|ts)$', filepath, re.I):
+            fb = os.path.basename(filepath).lower()
+            if fb in ("app.js", "app.ts", "main.js", "main.ts", "index.js", "index.ts", "about.js", "contact.js", "pricing.js", "services.js") or (template.framework and (template.framework.value if hasattr(template.framework, "value") else str(template.framework)).lower() in ("react", "nextjs")):
+                is_page_component_request = True
+
+        is_asset_request = not is_page_component_request and bool(re.search(r'\.(?:png|jpg|jpeg|svg|webp|gif|ico|avif|bmp|tiff|css|js|mjs|woff|woff2|ttf|eot|otf|mp4|webm|mp3|wav|ogg|pdf|json|map)$', filepath or "", re.I))
         is_image_request = bool(re.search(r'\.(?:png|jpg|jpeg|svg|webp|gif|ico|avif|bmp)$', filepath or "", re.I))
 
         if not os.path.exists(full_path) or os.path.isdir(full_path):
@@ -4982,10 +5683,13 @@ async def serve_live_preview(
                 target_base = os.path.basename(clean_target).lower()
 
                 # Check all alternative local extraction and project roots
-                search_roots = [serve_root]
-                for extra_r in [preview_dir, preview_id_dir, preview_slug_dir]:
-                    if extra_r and os.path.exists(extra_r) and extra_r not in search_roots:
-                        search_roots.append(extra_r)
+                if build_dir:
+                    search_roots = [serve_root]
+                else:
+                    search_roots = [serve_root]
+                    for extra_r in [preview_dir, preview_id_dir, preview_slug_dir]:
+                        if extra_r and os.path.exists(extra_r) and extra_r not in search_roots:
+                            search_roots.append(extra_r)
 
                 # 3a. Direct check for filepath in alternative roots & their direct subfolders
                 for sr in search_roots:
@@ -5082,6 +5786,13 @@ async def serve_live_preview(
                 else:
                     raise HTTPException(status_code=404, detail="Requested file not found in template")
                 
+        if full_path.endswith((".jsx", ".tsx", ".vue", ".svelte")) or is_page_component_request:
+            return await serve_fallback(f"Rendering {os.path.basename(full_path)} via in-browser runner")
+
+        rel_check = os.path.relpath(full_path, preview_dir).replace("\\", "/")
+        if _is_raw_source_path(rel_check):
+            raise HTTPException(status_code=404, detail="Requested file not found in template")
+
         mime_type, _ = mimetypes.guess_type(full_path)
         if not mime_type:
             mime_type = "application/octet-stream"
@@ -6095,8 +6806,8 @@ async def serve_live_preview(
     </script>
     """.replace("__PURCHASE_URL__", purchase_url)
 
-                # Inject watermark overlay on all template previews unless explicitly marked clean
-                is_clean = request.query_params.get("clean") == "1"
+                # Inject watermark overlay on all template previews unless explicitly marked clean via root purchase or free template
+                is_clean = bool(template.is_free) or (cap_clean is True)
 
                 if not is_clean:
                     if "</body>" in html_content:
@@ -6116,21 +6827,6 @@ async def serve_live_preview(
     except Exception as e:
         logger.exception(f"🚨 Preview generation error for template {template_id}: {e}")
         return await serve_fallback(str(e))
-
-
-class ManualEditRequest(BaseModel):
-    business_name: str
-    about: str
-    primary_color: str
-    secondary_color: str
-    contact_email: Optional[str] = None
-    contact_phone: Optional[str] = None
-    page_edits: Optional[dict] = None
-    use_ai: bool = False
-
-
-class AIEditRequest(BaseModel):
-    prompt: str = Field(min_length=1, max_length=4000)
 
 
 @router.post("/live/{template_id}/ai-debug")
@@ -6156,7 +6852,14 @@ async def ai_debug_template_code(
     preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
     
     # 1. Fetch template from DB
-    result = await db.execute(select(Template).where(Template.id == template_id))
+    try:
+        t_uuid = uuid.UUID(str(template_id))
+    except (ValueError, TypeError, AttributeError):
+        t_uuid = None
+    conditions = [Template.slug == str(template_id)]
+    if t_uuid:
+        conditions.append(Template.id == t_uuid)
+    result = await db.execute(select(Template).where(or_(*conditions)))
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
@@ -6271,29 +6974,49 @@ async def ai_debug_template_code(
 
 
 @router.get("/thumbnail/{template_id}.svg", include_in_schema=False)
-async def get_dynamic_thumbnail(template_id: str, db: AsyncSession = Depends(get_db)):
+async def get_dynamic_thumbnail(
+    template_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Dynamically serves or generates on-demand SVG thumbnail snapshot for any template or draft."""
     from fastapi.responses import FileResponse, Response
     from app.services.screenshot_service import screenshot_service, _THUMBNAILS_DIR
     from app.core.local_project_manager import local_project_manager
+    from app.core.security import check_preview_token
+    from app.models.user import UserRole
 
-    # 1. If local project exists, generate snapshot using real photo, real skills & real content
-    clean_id = str(template_id).strip()
+    raw_id, _, cap = template_id.partition("~")
+    clean_id = str(raw_id).strip()
+
+    # 1. Lookup template and verify rights for non-published drafts
+    try:
+        target_uuid = uuid.UUID(str(clean_id))
+    except (ValueError, TypeError, AttributeError):
+        target_uuid = None
+
+    conditions = [Template.slug == clean_id]
+    if target_uuid:
+        conditions.append(Template.id == target_uuid)
+    t_res = await db.execute(select(Template).where(or_(*conditions)))
+    tmpl = t_res.scalar_one_or_none()
+
+    if tmpl and tmpl.status != TemplateStatus.PUBLISHED:
+        cap_clean = check_preview_token(str(tmpl.id), cap) if cap else None
+        if cap_clean is None:
+            auth_ok = current_user and (current_user.id == tmpl.seller_id or current_user.role == UserRole.ADMIN)
+            if not auth_ok:
+                raise HTTPException(status_code=404, detail="Template not found")
+
+    # 2. If local project exists, generate snapshot using real photo, real skills & real content
     if local_project_manager.get_local_project_dir(clean_id, version="latest"):
         svg = screenshot_service.generate_for_project(clean_id)
         return Response(content=svg, media_type="image/svg+xml")
 
-    # 2. Check cached thumbnail file on disk
+    # 3. Check cached thumbnail file on disk
     thumb_path = Path(_THUMBNAILS_DIR) / f"{clean_id}.svg"
     if thumb_path.exists():
         return FileResponse(str(thumb_path), media_type="image/svg+xml")
-
-    # If not on disk, lookup template and dynamically generate
-    try:
-        t_res = await db.execute(select(Template).where((Template.id == template_id) | (Template.slug == template_id)))
-        tmpl = t_res.scalar_one_or_none()
-    except Exception:
-        tmpl = None
 
     title = tmpl.title if tmpl else "Modern Website Template"
     fw = str(tmpl.framework) if tmpl and tmpl.framework else "HTML"

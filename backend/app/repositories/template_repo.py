@@ -38,38 +38,44 @@ class TemplateRepository:
                 return await self.db.execute(stmt)
             raise
 
-    async def get_by_id(self, template_id: uuid.UUID | str) -> Optional[Template]:
+    async def get_by_id(self, template_id: uuid.UUID | str, include_deleted: bool = False) -> Optional[Template]:
         if isinstance(template_id, str):
             try:
                 template_id = uuid.UUID(template_id)
             except ValueError:
-                return await self.get_by_slug(template_id)
-        result = await self._safe_execute(
+                return await self.get_by_slug(template_id, include_deleted=include_deleted)
+        stmt = (
             select(Template)
             .options(selectinload(Template.category).selectinload(Category.children))
             .where(Template.id == template_id)
         )
+        if not include_deleted:
+            stmt = stmt.where(Template.is_deleted.is_(False))
+        result = await self._safe_execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_slug(self, slug: str) -> Optional[Template]:
-        result = await self._safe_execute(
+    async def get_by_slug(self, slug: str, include_deleted: bool = False) -> Optional[Template]:
+        stmt = (
             select(Template)
             .options(selectinload(Template.category).selectinload(Category.children))
             .where(Template.slug == slug)
         )
+        if not include_deleted:
+            stmt = stmt.where(Template.is_deleted.is_(False))
+        result = await self._safe_execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_id_or_slug(self, id_or_slug: str | uuid.UUID) -> Optional[Template]:
+    async def get_by_id_or_slug(self, id_or_slug: str | uuid.UUID, include_deleted: bool = False) -> Optional[Template]:
         if isinstance(id_or_slug, uuid.UUID):
-            return await self.get_by_id(id_or_slug)
+            return await self.get_by_id(id_or_slug, include_deleted=include_deleted)
         try:
             parsed_uuid = uuid.UUID(str(id_or_slug))
-            tmpl = await self.get_by_id(parsed_uuid)
+            tmpl = await self.get_by_id(parsed_uuid, include_deleted=include_deleted)
             if tmpl:
                 return tmpl
         except (ValueError, AttributeError):
             pass
-        return await self.get_by_slug(str(id_or_slug))
+        return await self.get_by_slug(str(id_or_slug), include_deleted=include_deleted)
 
     async def create(self, data: TemplateCreate) -> Template:
         # Prevent unique constraint violations by resolving slug conflicts
@@ -130,6 +136,7 @@ class TemplateRepository:
             .where(
                 Template.is_marketplace == True,
                 Template.status == TemplateStatus.PUBLISHED,
+                Template.is_deleted.is_(False),
                 Template.slug.notlike("%-custom-%"),
                 Template.title.notlike("%(Customized)%"),
                 Template.title.notlike("Customized %"),
@@ -417,21 +424,36 @@ class TemplateRepository:
         result = await self.db.execute(query)
         return list(result.scalars().all()), total
 
-    async def increment_views(self, template_id: uuid.UUID) -> None:
+    async def increment_views(self, template_id: uuid.UUID | str) -> None:
+        if isinstance(template_id, str):
+            try:
+                template_id = uuid.UUID(template_id)
+            except ValueError:
+                return
         await self.db.execute(
             Template.__table__.update()
             .where(Template.id == template_id)
             .values(views_count=Template.views_count + 1)
         )
 
-    async def increment_downloads(self, template_id: uuid.UUID) -> None:
+    async def increment_downloads(self, template_id: uuid.UUID | str) -> None:
+        if isinstance(template_id, str):
+            try:
+                template_id = uuid.UUID(template_id)
+            except ValueError:
+                return
         await self.db.execute(
             Template.__table__.update()
             .where(Template.id == template_id)
             .values(downloads_count=Template.downloads_count + 1)
         )
 
-    async def update_rating(self, template_id: uuid.UUID, avg: float, count: int) -> None:
+    async def update_rating(self, template_id: uuid.UUID | str, avg: float, count: int) -> None:
+        if isinstance(template_id, str):
+            try:
+                template_id = uuid.UUID(template_id)
+            except ValueError:
+                return
         await self.db.execute(
             Template.__table__.update()
             .where(Template.id == template_id)
@@ -446,6 +468,7 @@ class TemplateRepository:
                 Template.is_marketplace == True,
                 Template.is_featured == True,
                 Template.status == TemplateStatus.PUBLISHED,
+                Template.is_deleted.is_(False),
                 Template.slug.notlike("%-custom-%"),
                 Template.title.notlike("%(Customized)%"),
                 Template.title.notlike("Customized %"),
@@ -463,6 +486,7 @@ class TemplateRepository:
                 Template.is_marketplace == True,
                 Template.id.in_(ids),
                 Template.status == TemplateStatus.PUBLISHED,
+                Template.is_deleted.is_(False),
                 Template.slug.notlike("%-custom-%"),
                 Template.title.notlike("%(Customized)%"),
                 Template.title.notlike("Customized %"),
@@ -477,6 +501,7 @@ class TemplateRepository:
             .where(
                 Template.is_marketplace == True,
                 Template.status == TemplateStatus.PUBLISHED,
+                Template.is_deleted.is_(False),
                 Template.slug.notlike("%-custom-%"),
                 Template.title.notlike("%(Customized)%"),
                 Template.title.notlike("Customized %"),
