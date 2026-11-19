@@ -12,7 +12,7 @@ import Link, { navigate } from "@/components/Link";
 import { useAppAuth, useAppUser } from "@/lib/auth";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Star, Download, Eye, Heart, Bookmark, ShoppingCart,
+  Star, Download, Eye, Heart, Bookmark, ShoppingCart, ShoppingBag,
   Check, ArrowLeft, Globe, Code, Moon, Zap, Shield,
   Copy, ChevronRight, Share2, Scale, RefreshCw, FileText, X,
   Terminal, Sliders, Cpu, Smartphone, Tablet, Laptop,
@@ -246,7 +246,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
   const [activeImage, setActiveImage] = useState(0);
   const [copied, setCopied] = useState(false);
   const [selectedLicenseType, setSelectedLicenseType] = useState("regular"); // "regular" (watermarked) | "extended" (zero watermark)
-  const [heroTab, setHeroTab] = useState("desktop"); // screenshot, gallery, video, mobile, tablet, desktop
+  const [heroTab, setHeroTab] = useState("screenshot"); // screenshot, gallery, video, mobile, tablet, desktop
 
   // Live Preview Device section
   const [deviceTab, setDeviceTab] = useState("desktop"); // desktop, laptop, tablet, mobile
@@ -307,6 +307,24 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
 
   // Declare template query hook first to avoid TDZ ReferenceError in render hooks
   const { data: template, isLoading, error } = useTemplate(slug, token);
+
+  const { data: userOrders = [] } = useQuery({
+    queryKey: ["user-orders-marketplace"],
+    queryFn: () => api.get("/orders", token ?? undefined),
+    enabled: !!token,
+    staleTime: 1000 * 60 * 3,
+  });
+
+  const isPurchased = useMemo(() => {
+    if (!template?.id || !userOrders || !userOrders.length) return false;
+    return userOrders.some(
+      (ord) =>
+        ord.status === "completed" &&
+        ord.items?.some((item) => String(item.template_id) === String(template.id))
+    );
+  }, [template?.id, userOrders]);
+
+  const hasEditorAccess = isPurchased || Boolean(template?.is_free) || (user?.id && user?.id === template?.seller_id);
   const [showDownloadWarning, setShowDownloadWarning] = useState(false);
 
   const startDownloadFlow = () => {
@@ -725,7 +743,6 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
     toggleFollowMutation.mutate(template.seller_id);
   };
 
-  const isSeller = isSignedIn && (user?.role === "seller" || user?.role === "SELLER");
   const effectivePrice = Number(template?.price) > 0 ? Number(template.price) : 49;
   const isTemplateFree = false;
 
@@ -821,7 +838,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
   const isUserExtreme = userTier === "extreme" || userTier === "enterprise" || userTier === "agency";
   const isUserPro = Boolean(user?.is_pro_subscriber || ["pro", "creator_pro"].includes(userTier));
   const hasPurchased = Boolean(
-    template?.is_purchased &&
+    (template?.is_purchased || isPurchased) &&
     template?.template_origin !== "custom_draft" &&
     template?.status !== "draft"
   );
@@ -1393,15 +1410,35 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
               </button>
             </>
           ) : hasPurchased ? (
-            <button
-              type="button"
-              onClick={startDownloadFlow}
-              disabled={isDownloading}
-              className="details-purchased-btn w-full py-3.5 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all text-sm cursor-pointer"
-            >
-              {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              <span>{isDownloading ? "Preparing Clean Package…" : "Download Source Code (Purchased ✓)"}</span>
-            </button>
+            <div className="space-y-2.5">
+              <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-200">
+                <div className="font-bold flex items-center gap-1.5 mb-1 text-emerald-300">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  Purchased ✓ (In Your Library)
+                </div>
+                <p className="text-[11px] text-emerald-100/80 mb-2.5">
+                  You already own a commercial license for this template. Manage, edit, deploy, and review it in your Purchased Templates.
+                </p>
+                <Link
+                  href="/marketplace?view=purchased"
+                  className="w-full py-2.5 px-3 rounded-xl font-bold bg-[#c89666] text-[#09090b] hover:bg-[#dfb180] transition-all flex items-center justify-center gap-1.5 text-xs"
+                  style={{ textDecoration: 'none' }}
+                >
+                  <ShoppingBag className="w-3.5 h-3.5" />
+                  <span>View in Purchased Templates</span>
+                </Link>
+              </div>
+
+              <button
+                type="button"
+                onClick={startDownloadFlow}
+                disabled={isDownloading}
+                className="details-secondary-btn w-full py-2.5 px-3 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all text-xs cursor-pointer"
+              >
+                {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4 text-emerald-500" />}
+                <span>{isDownloading ? "Preparing Clean Package…" : "Download Source Code (ZIP)"}</span>
+              </button>
+            </div>
           ) : (
             <>
               {/* Primary: Buy Now */}
@@ -1414,41 +1451,28 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                 <span>Buy Now • {formatPrice(templatePrice, "USD")}</span>
               </button>
 
-              {/* Secondary: Add to Cart & Free Live Demo */}
-              <div className="grid grid-cols-2 gap-2 pt-0.5">
+              {/* Secondary: Add to Cart */}
+              <div className="pt-0.5">
                 <button
                   type="button"
                   onClick={handleAddToCart}
                   className={cn(
-                    "details-secondary-btn py-2.5 px-3 rounded-xl font-semibold flex items-center justify-center gap-1.5 transition-all text-xs cursor-pointer",
+                    "details-secondary-btn w-full py-2.5 px-3 rounded-xl font-semibold flex items-center justify-center gap-1.5 transition-all text-xs cursor-pointer",
                     isInCart && "is-in-cart"
                   )}
                 >
                   {isInCart ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <ShoppingCart className="w-3.5 h-3.5" />}
                   <span>{isInCart ? "In Cart (Checkout)" : "Add to Cart"}</span>
                 </button>
+              </div>
 
-                <Link
-                  href={`/preview?template=${template.id}`}
-                  className="details-secondary-btn py-2.5 px-3 rounded-xl font-semibold flex items-center justify-center gap-1.5 transition-all text-xs cursor-pointer"
-                  style={{ textDecoration: 'none' }}
-                >
-                  <Eye className="w-3.5 h-3.5 text-primary" />
-                  <span>Free Live Demo</span>
-                </Link>
+              {/* Preview Editor Unlock Guarantee */}
+              <div className="mt-2.5 p-2.5 rounded-xl bg-primary/10 border border-primary/20 text-[11px] text-foreground/80 flex items-center gap-2">
+                <Sparkles className="w-3.5 h-3.5 text-primary shrink-0" />
+                <span>Studio Preview Editor & AI Personalizer unlock immediately upon purchase.</span>
               </div>
             </>
           )}
-
-          {/* Tertiary: Interactive Canvas */}
-          <Link
-            href={`/preview?template=${template.id}`}
-            className="details-canvas-launch-btn w-full py-2.5 text-xs text-center transition-all rounded-xl font-medium flex items-center justify-center gap-1.5 mt-2"
-            style={{ textDecoration: 'none' }}
-          >
-            <Sparkles className="w-3.5 h-3.5 text-primary" />
-            <span>Launch Free Interactive Live Demo</span>
-          </Link>
         </div>
 
         {/* 5. Marketplace Trust Guarantees */}
@@ -1540,16 +1564,22 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                 </div>
 
                 <div className="details-hero-tabs-right">
-                  <a
-                    href={previewSrc}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="hero-action-btn live"
-                    title="Open live website in new tab"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>Live Demo</span>
-                  </a>
+                  {hasPurchased ? (
+                    <Link
+                      href="/marketplace?view=purchased"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-[11px] text-emerald-300 font-semibold"
+                      style={{ textDecoration: 'none' }}
+                      title="You own this template — View in Purchased Templates"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Purchased ✓</span>
+                    </Link>
+                  ) : (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-black/40 border border-white/10 text-[11px] text-[#dfb180] font-semibold">
+                      <Lock className="w-3 h-3" />
+                      <span>Commercial License</span>
+                    </div>
+                  )}
                   {/* Favorite Button */}
                   <button
                     onClick={() => {
@@ -2757,21 +2787,36 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
           <div className="cta-glow" />
           <h2 className="cta-heading">Ready to build your professional site?</h2>
           <p className="cta-sub">
-            Try the template first in our Live Sandbox editor, or purchase a commercial license to download the source archives immediately.
+            {hasPurchased || isOwnerOrAdmin
+              ? "Your commercial license is active. Launch the Studio Preview Editor to customize your pages or download your clean files."
+              : "Purchase a commercial license to download the complete clean source archives and unlock full customization in the Studio Preview Editor."}
           </p>
           <div className="cta-buttons">
-            <Link
-              href={`/preview?template=${template.id}`}
-              className="cta-primary-btn"
-              style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-            >
-              Try Live Preview Editor
-            </Link>
+            {hasPurchased ? (
+              <Link
+                href="/marketplace?view=purchased"
+                className="cta-primary-btn"
+                style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+              >
+                <ShoppingBag className="w-4 h-4" />
+                <span>Go to Purchased Templates</span>
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={handleBuyNow}
+                className="cta-primary-btn"
+                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', cursor: 'pointer' }}
+              >
+                <Zap className="w-4 h-4 fill-current" />
+                <span>Get Commercial License</span>
+              </button>
+            )}
             <button
-              onClick={handleAddToCart}
+              onClick={hasPurchased ? startDownloadFlow : handleAddToCart}
               className="cta-secondary-btn"
             >
-              Buy Now
+              {hasPurchased ? "Download Clean ZIP" : "Add to Cart"}
             </button>
           </div>
         </div>
@@ -3435,13 +3480,24 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
           <span className="details-mobile-bottom-license">Lifetime License</span>
         </div>
         <div className="details-mobile-bottom-actions">
-          <Link
-            href={`/preview?template=${template.id}`}
-            className="details-mobile-bottom-btn demo"
-            style={{ textDecoration: 'none' }}
-          >
-            <Globe className="w-3.5 h-3.5" /> Free Demo
-          </Link>
+          {hasPurchased || isOwnerOrAdmin ? (
+            <Link
+              href={`/preview?template=${template.id}`}
+              className="details-mobile-bottom-btn demo"
+              style={{ textDecoration: 'none' }}
+            >
+              <Sparkles className="w-3.5 h-3.5" /> Studio Editor
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={handleBuyNow}
+              className="details-mobile-bottom-btn demo"
+              style={{ background: '#c89666', color: '#fff', border: 'none' }}
+            >
+              <Zap className="w-3.5 h-3.5 fill-current" /> Buy Now
+            </button>
+          )}
           <button
             type="button"
             onClick={hasPurchased ? startDownloadFlow : handleAddToCart}

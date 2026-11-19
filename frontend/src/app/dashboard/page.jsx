@@ -14,6 +14,7 @@ import { useCurrencyStore } from "@/store/currencyStore";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 import {
   LayoutDashboard,
   Code,
@@ -338,7 +339,6 @@ function Dashboard() {
       const res = await api.post("/templates/purge-custom-drafts", {}, authToken ?? undefined);
       qc.invalidateQueries({ queryKey: ["seller-templates"] });
       qc.invalidateQueries({ queryKey: ["templates"] });
-      qc.invalidateQueries({ queryKey: ["my-templates"] });
       qc.invalidateQueries({ queryKey: ["user-trash"] });
       alert(`Moved ${res?.deleted_count ?? 0} customized draft projects to Trash. You can recover them within 7 days.`);
     } catch (err) {
@@ -356,7 +356,6 @@ function Dashboard() {
       await api.delete(`/templates/${id}`, authToken ?? undefined);
       qc.invalidateQueries({ queryKey: ["seller-templates"] });
       qc.invalidateQueries({ queryKey: ["templates"] });
-      qc.invalidateQueries({ queryKey: ["my-templates"] });
       qc.invalidateQueries({ queryKey: ["user-trash"] });
       alert("Project moved to Trash. You can recover it within 7 days.");
     } catch (err) {
@@ -369,7 +368,6 @@ function Dashboard() {
       await api.post(`/templates/${id}/restore`, {}, authToken ?? undefined);
       qc.invalidateQueries({ queryKey: ["seller-templates"] });
       qc.invalidateQueries({ queryKey: ["templates"] });
-      qc.invalidateQueries({ queryKey: ["my-templates"] });
       qc.invalidateQueries({ queryKey: ["user-trash"] });
       alert(`"${title || 'Project'}" restored successfully from Trash!`);
     } catch (err) {
@@ -487,7 +485,6 @@ function Dashboard() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["seller-templates"] });
       qc.invalidateQueries({ queryKey: ["templates"] });
-      qc.invalidateQueries({ queryKey: ["my-templates"] });
       if (data) {
         if (data.framework) setEditFramework(data.framework);
         if (data.version) setEditVersion(data.version);
@@ -913,37 +910,51 @@ function Dashboard() {
     getToken().then(setAuthToken);
   }, [getToken]);
 
+  const purchasedDomainId = searchParams.get("domain_id");
+  const TERMINAL_DOMAIN_STATUSES = useMemo(() => [
+    "failed",
+    "registration_failed",
+    "refunded_registration_failed",
+    "payment_failed",
+    "checkout_expired",
+  ], []);
+
+  const { data: domainStatus } = useQuery({
+    queryKey: ["domain-status", purchasedDomainId],
+    queryFn: () => api.get(`/deployments/domains/${purchasedDomainId}/status`, authToken),
+    enabled: !!authToken && !!purchasedDomainId,
+    retry: (n, err) => !(err?.status >= 400 && err?.status < 500) && n < 3,
+    refetchInterval: (q) => {
+      const d = q.state.data;
+      if (d?.verification_status === "verified" || TERMINAL_DOMAIN_STATUSES.includes(d?.status)) return false;
+      return (q.state.dataUpdateCount ?? 0) >= 60 ? false : 5000;
+    },
+  });
+
   useEffect(() => {
-    const purchasedDomainId = searchParams.get("domain_id");
-    if (!authToken || !purchasedDomainId) return;
-    let stopped = false;
-    let interval = null;
-    const checkDomain = async () => {
-      try {
-        const status = await api.get(`/deployments/domains/${purchasedDomainId}/status`, authToken);
-        if (stopped) return;
-        if (status.verification_status === "verified") {
-          stopped = true;
-          if (interval) clearInterval(interval);
-          qc.invalidateQueries({ queryKey: ["deployments"] });
-          const expiry = status.expires_at ? ` It expires on ${new Date(status.expires_at).toLocaleDateString()}; auto-renew is off, so contact Studio to arrange renewal or transfer before then.` : " Auto-renew is off, so contact Studio to arrange renewal or transfer before the domain expires.";
-          const tls = status.ssl_status === "managed"
-            ? " Studio manages HTTPS certificates; the first secure visit can take a short time while DNS and certificate issuance complete."
-            : " HTTPS is not configured on this hosting server yet, so the domain is not ready for a secure public launch.";
-          alert(`Domain ${status.domain} is registered and its DNS is configured.${expiry} DNS propagation may take time.${tls}`);
-        } else if (["failed", "registration_failed", "refunded_registration_failed", "payment_failed", "checkout_expired"].includes(status.status)) {
-          stopped = true;
-          if (interval) clearInterval(interval);
-          alert(`Domain purchase for ${status.domain} did not complete. Check the payment status or contact support if a charge was made.`);
-        }
-      } catch (error) {
-        // Keep checking while GoDaddy's async registration operation is running.
-      }
+    if (!domainStatus || !purchasedDomainId) return;
+
+    const cleanupUrl = () => {
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete("domain_id");
+      setSearchParams(newParams, { replace: true });
     };
-    checkDomain();
-    interval = setInterval(checkDomain, 5000);
-    return () => { stopped = true; clearInterval(interval); };
-  }, [authToken, searchParams, qc]);
+
+    if (domainStatus.verification_status === "verified") {
+      qc.invalidateQueries({ queryKey: ["deployments"] });
+      const expiry = domainStatus.expires_at
+        ? ` Expires on ${new Date(domainStatus.expires_at).toLocaleDateString()}.`
+        : "";
+      const tls = domainStatus.ssl_status === "managed" || domainStatus.ssl_status === "active"
+        ? " SSL certificate is active."
+        : " SSL issuance in progress.";
+      toast.success(`Domain ${domainStatus.domain} registered successfully!${expiry}${tls}`);
+      cleanupUrl();
+    } else if (TERMINAL_DOMAIN_STATUSES.includes(domainStatus.status)) {
+      toast.error(`Domain registration for ${domainStatus.domain || 'domain'} did not complete (${domainStatus.status}).`);
+      cleanupUrl();
+    }
+  }, [domainStatus, purchasedDomainId, qc, searchParams, setSearchParams, TERMINAL_DOMAIN_STATUSES]);
 
   // Fetch actual admin users from backend when admin tab is active
   useEffect(() => {
@@ -1591,7 +1602,6 @@ function Dashboard() {
       qc.invalidateQueries({ queryKey: ["seller-templates"] });
       qc.invalidateQueries({ queryKey: ["admin-all-templates"] });
       qc.invalidateQueries({ queryKey: ["templates"] });
-      qc.invalidateQueries({ queryKey: ["buyer-templates"] });
       alert("Project deleted successfully!");
     },
     onError: (err) => {
@@ -1661,7 +1671,6 @@ function Dashboard() {
       qc.invalidateQueries({ queryKey: ["seller-templates"] });
       qc.invalidateQueries({ queryKey: ["admin-all-templates"] });
       qc.invalidateQueries({ queryKey: ["templates"] });
-      qc.invalidateQueries({ queryKey: ["buyer-templates"] });
     },
   });
 
@@ -3476,18 +3485,29 @@ function Dashboard() {
           uploadedItems.length === 0 ? (
             <div className="mt-empty-card">
               <div className="mt-empty-icon">
-                <UploadCloud className="w-7 h-7" />
+                <Sparkles className="w-7 h-7 text-[#dfb180]" />
               </div>
-              <h4 className="mt-empty-title">No Uploaded Templates Yet</h4>
+              <h4 className="mt-empty-title">No Retailed Websites Yet</h4>
               <p className="mt-empty-desc">
-                Start selling your templates on Site Studio marketplace to earn revenue and reach creators worldwide.
+                {canRetail
+                  ? "Generate bespoke websites in Site Studio and list them for retail on the marketplace or your dedicated branded storefront."
+                  : "Template retailing is an exclusive privilege of the Extreme Plan ($50/mo). Upgrade to start retailing your AI-generated websites."}
               </p>
-              <button
-                onClick={() => setActiveTab("seller-upload")}
-                className="mt-empty-btn"
-              >
-                <Plus className="w-4 h-4" /> Upload Your First Template
-              </button>
+              {canRetail ? (
+                <button
+                  onClick={() => setActiveTab("creator-studio")}
+                  className="mt-empty-btn"
+                >
+                  <Sparkles className="w-4 h-4" /> Open Creator Studio
+                </button>
+              ) : (
+                <button
+                  onClick={() => setActiveTab("billing")}
+                  className="mt-empty-btn"
+                >
+                  <Crown className="w-4 h-4 text-emerald-400" /> Upgrade to Extreme Plan
+                </button>
+              )}
             </div>
           ) : filteredUploaded.length === 0 ? (
             <div className="text-center py-12 px-4 rounded-2xl border border-border/40 bg-card/30">

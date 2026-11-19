@@ -106,6 +106,13 @@ def test_deployment_build_command_sanitization():
     d2 = DeploymentBase(project_name="my-app", build_command="pnpm build")
     assert d2.build_command == "pnpm build"
 
+    # Static / no-build keywords pass cleanly
+    d3 = DeploymentBase(project_name="my-app", build_command="none")
+    assert d3.build_command == "none"
+
+    d4 = DeploymentBase(project_name="my-app", build_command="static")
+    assert d4.build_command == "static"
+
     # 2. Command chaining / semicolons fail
     with pytest.raises(ValidationError):
         DeploymentBase(project_name="my-app", build_command="npm run build; rm -rf /")
@@ -116,6 +123,20 @@ def test_deployment_build_command_sanitization():
     # 3. Disallowed binary / shell invocation fails
     with pytest.raises(ValidationError):
         DeploymentBase(project_name="my-app", build_command="bash malicious.sh")
+
+
+def test_deployment_auditor_heal_pre_build_callable():
+    """Verify heal_pre_build accepts string path and returns (bool, list)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        td = Path(tmpdir)
+        (td / "index.html").write_text("<html><head></head><body><p>Hello</p></body></html>", encoding="utf-8")
+        
+        # Test string path input
+        healed, findings = deployment_readiness_auditor.heal_pre_build(str(td))
+        assert isinstance(healed, bool)
+        assert isinstance(findings, list)
+        assert healed is True
+        assert any("<!DOCTYPE html>" in f for f in findings)
 
 
 if __name__ == "__main__":

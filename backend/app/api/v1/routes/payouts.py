@@ -2,6 +2,7 @@
 Payouts and withdrawals routes.
 """
 
+import asyncio
 import uuid
 import logging
 from datetime import datetime, timedelta, timezone
@@ -625,7 +626,8 @@ async def onboard_seller_stripe_connect(
     try:
         account_id = current_user.stripe_connect_account_id
         if not account_id:
-            account = stripe.Account.create(
+            account = await asyncio.to_thread(
+                stripe.Account.create,
                 type="express",
                 country="IN",  # Indian platform — payout fields use IFSC/bank codes
                 email=current_user.email,
@@ -636,7 +638,8 @@ async def onboard_seller_stripe_connect(
             current_user.stripe_connect_account_id = account_id
             await db.commit()
 
-        account_link = stripe.AccountLink.create(
+        account_link = await asyncio.to_thread(
+            stripe.AccountLink.create,
             account=account_id,
             refresh_url=f"{frontend_url}/dashboard?tab=earnings&connect_refresh=true",
             return_url=f"{frontend_url}/dashboard?tab=earnings&connect_success=true",
@@ -685,7 +688,7 @@ async def get_stripe_connect_status(
 
     stripe.api_key = settings.STRIPE_SECRET_KEY
     try:
-        acct = stripe.Account.retrieve(account_id)
+        acct = await asyncio.to_thread(stripe.Account.retrieve, account_id)
         payouts_enabled = acct.payouts_enabled
         details_submitted = acct.details_submitted
 
@@ -844,7 +847,8 @@ async def execute_admin_stripe_transfer(
 
     stripe.api_key = settings.STRIPE_SECRET_KEY
     try:
-        transfer = stripe.Transfer.create(
+        transfer = await asyncio.to_thread(
+            stripe.Transfer.create,
             amount=amount_in_cents,
             currency="usd",
             destination=account_id,

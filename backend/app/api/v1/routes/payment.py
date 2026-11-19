@@ -2,13 +2,37 @@
 Payment routes — Razorpay and Stripe payment initiation and verification.
 """
 
+import asyncio
 import hashlib
 import hmac
 import logging
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Any
+
+ALLOWED_PAYLOAD_KEYS = {
+    "id", "object", "type", "event", "status", "amount", "amount_received",
+    "amount_paid", "amount_refunded", "currency", "method", "created",
+    "created_at", "order_id", "payment_intent", "subscription",
+    "subscription_id", "invoice", "captured", "error_code", "error_reason",
+    "payment_status", "mode", "livemode"
+}
+CONTAINER_KEYS = {"data", "object", "payload", "payment", "order", "subscription", "entity"}
+
+def sanitize_gateway_payload(payload: Any) -> Any:
+    """Filter provider event payload to only keep allowlisted transaction metadata (F-25)."""
+    if isinstance(payload, dict):
+        sanitized = {}
+        for k, v in payload.items():
+            if k in CONTAINER_KEYS and isinstance(v, (dict, list)):
+                sanitized[k] = sanitize_gateway_payload(v)
+            elif k in ALLOWED_PAYLOAD_KEYS:
+                sanitized[k] = sanitize_gateway_payload(v) if isinstance(v, (dict, list)) else v
+        return sanitized
+    elif isinstance(payload, list):
+        return [sanitize_gateway_payload(item) for item in payload]
+    return payload
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -271,7 +295,8 @@ async def initiate_payment(
             try:
                 import stripe
                 stripe.api_key = settings.STRIPE_SECRET_KEY
-                session = stripe.checkout.Session.create(
+                session = await asyncio.to_thread(
+                    stripe.checkout.Session.create,
                     payment_method_types=["card"],
                     line_items=[{
                         "price_data": {
@@ -399,15 +424,18 @@ async def initiate_payment(
             warnings.simplefilter("ignore", category=UserWarning)
             import razorpay
         client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-        rz_order = client.order.create({
-            "amount": amount_in_paise,
-            "currency": "INR",
-            "receipt": str(order.id)[:40],
-            "notes": {
-                "order_number": order.order_number,
-                "user_email": current_user.email,
+        rz_order = await asyncio.to_thread(
+            client.order.create,
+            {
+                "amount": amount_in_paise,
+                "currency": "INR",
+                "receipt": str(order.id)[:40],
+                "notes": {
+                    "order_number": order.order_number,
+                    "user_email": current_user.email,
+                }
             }
-        })
+        )
         rz_order_id = rz_order["id"]
     except Exception as rz_err:
         logger.warning(f"Razorpay order create failed: {rz_err}")
@@ -528,9 +556,12 @@ async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Op
                                     gross_amount=gross,
                                     platform_commission_percent=comm_rate,
                                     platform_fee=platform_fee,
+                                    platform_commission_amount=platform_fee,
                                     net_creator_earning=net_earning,
+                                    creator_net_amount=net_earning,
                                     currency=getattr(tmpl, "price_currency", "USD") or "USD",
                                     holding_until=holding_until,
+                                    available_at=holding_until,
                                     status=EarningStatus.PENDING,
                                 )
                                 db.add(creator_earning)
@@ -725,7 +756,7 @@ async def verify_payment(
             try:
                 import stripe
                 stripe.api_key = settings.STRIPE_SECRET_KEY
-                session = stripe.checkout.Session.retrieve(data.gateway_order_id)
+                session = await asyncio.to_thread(stripe.checkout.Session.retrieve, data.gateway_order_id)
                 if session.payment_status == "paid":
                     if not payment:
                         payment = Payment(
@@ -908,7 +939,7 @@ async def stripe_webhook(
                         if payment:
                             payment.status = PaymentStatus.CAPTURED
                             payment.gateway_payment_id = checkout_session.get("payment_intent") or checkout_session.get("id")
-                            payment.gateway_response = event
+                            payment.gateway_response = sanitize_gateway_payload(event)
                         await _fulfill_order_licenses(db, order)
                         await db.commit()
                 except Exception as ex:
@@ -938,7 +969,7 @@ async def stripe_webhook(
         elif metadata.get("purchase_type") == "hosting_subscription":
             subscription_id = checkout_session.get("subscription")
             if subscription_id:
-                stripe_subscription = stripe.Subscription.retrieve(subscription_id)
+                stripe_subscription = await asyncio.to_thread(stripe.Subscription.retrieve, subscription_id)
                 sub_metadata = stripe_subscription.get("metadata") or metadata
                 deployment_id = sub_metadata.get("deployment_id") or metadata.get("deployment_id")
                 user_id = sub_metadata.get("user_id") or metadata.get("user_id")
@@ -1178,13 +1209,13 @@ async def stripe_webhook(
                 amount=order.total,
                 currency="USD",
                 status=PaymentStatus.CAPTURED,
-                gateway_response=event
+                gateway_response=sanitize_gateway_payload(event)
             )
             db.add(payment)
         else:
             payment.status = PaymentStatus.CAPTURED
             payment.gateway_payment_id = payment_intent_id
-            payment.gateway_response = event
+            payment.gateway_response = sanitize_gateway_payload(event)
 
         order.status = OrderStatus.COMPLETED
         await _fulfill_order_licenses(db, order)
@@ -1286,7 +1317,7 @@ async def razorpay_webhook(
             if gateway_payment_id:
                 payment.gateway_payment_id = gateway_payment_id
             payment.gateway_signature = signature
-            payment.gateway_response = data
+            payment.gateway_response = sanitize_gateway_payload(data)
 
             order_res = await db.execute(
                 select(Order)
@@ -1313,7 +1344,7 @@ async def razorpay_webhook(
             payment.status = PaymentStatus.FAILED
             if gateway_payment_id:
                 payment.gateway_payment_id = gateway_payment_id
-            payment.gateway_response = data
+            payment.gateway_response = sanitize_gateway_payload(data)
             await db.commit()
             logger.info(f"Razorpay webhook: Marked payment {gateway_payment_id} as FAILED")
             return {"status": "failed_recorded", "payment_id": gateway_payment_id}
@@ -1636,7 +1667,8 @@ async def purchase_tokens(
             try:
                 import stripe
                 stripe.api_key = settings.STRIPE_SECRET_KEY
-                session = stripe.checkout.Session.create(
+                session = await asyncio.to_thread(
+                    stripe.checkout.Session.create,
                     payment_method_types=["card"],
                     line_items=[{
                         "price_data": {
@@ -1720,16 +1752,19 @@ async def purchase_tokens(
                 warnings.simplefilter("ignore", category=UserWarning)
                 import razorpay
             client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-            rz_order = client.order.create({
-                "amount": amount_in_paise,
-                "currency": "INR",
-                "receipt": str(order.id)[:40],
-                "notes": {
-                    "type": "ai_credits",
-                    "pack_id": payload.pack_id,
-                    "user_email": current_user.email,
+            rz_order = await asyncio.to_thread(
+                client.order.create,
+                {
+                    "amount": amount_in_paise,
+                    "currency": "INR",
+                    "receipt": str(order.id)[:40],
+                    "notes": {
+                        "type": "ai_credits",
+                        "pack_id": payload.pack_id,
+                        "user_email": current_user.email,
+                    }
                 }
-            })
+            )
             rz_order_id = rz_order["id"]
         except Exception as err:
             logger.warning(f"Could not create Razorpay order for token pack: {err}")
@@ -1850,7 +1885,8 @@ async def purchase_plan(
             try:
                 import stripe
                 stripe.api_key = settings.STRIPE_SECRET_KEY
-                session = stripe.checkout.Session.create(
+                session = await asyncio.to_thread(
+                    stripe.checkout.Session.create,
                     payment_method_types=["card"],
                     line_items=[{
                         "price_data": {
@@ -1934,16 +1970,19 @@ async def purchase_plan(
                 warnings.simplefilter("ignore", category=UserWarning)
                 import razorpay
             client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-            rz_order = client.order.create({
-                "amount": amount_in_paise,
-                "currency": "INR",
-                "receipt": str(order.id)[:40],
-                "notes": {
-                    "type": "subscription_plan",
-                    "plan_id": clean_plan_id,
-                    "user_email": current_user.email,
+            rz_order = await asyncio.to_thread(
+                client.order.create,
+                {
+                    "amount": amount_in_paise,
+                    "currency": "INR",
+                    "receipt": str(order.id)[:40],
+                    "notes": {
+                        "type": "subscription_plan",
+                        "plan_id": clean_plan_id,
+                        "user_email": current_user.email,
+                    }
                 }
-            })
+            )
             rz_order_id = rz_order["id"]
         except Exception as err:
             logger.warning(f"Could not create Razorpay order for subscription: {err}")

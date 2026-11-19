@@ -561,11 +561,13 @@ async def list_all_payments(
 
 @router.get("/users/usage")
 async def list_users_usage(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_admin),
 ):
     """
-    [Admin] Monitor every user's platform usage:
+    [Admin] Monitor user platform usage (paginated):
     - Subscription tier & status
     - AI Gemini credits balance
     - Order counts and total spend
@@ -579,8 +581,8 @@ async def list_users_usage(
     from app.models.deployment import Deployment as DeploymentModel
     from app.models.tamper_alert import TamperAlert
 
-    # Get all users
-    users_res = await db.execute(select(UserModel).order_by(UserModel.created_at.desc()))
+    # Get users with pagination
+    users_res = await db.execute(select(UserModel).order_by(UserModel.created_at.desc()).offset(skip).limit(limit))
     users = users_res.scalars().all()
 
     if not users:
@@ -1219,6 +1221,8 @@ async def admin_auto_fix_deployment(
 
 @router.get("/profitability")
 async def get_subscription_profitability(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_admin),
 ):
@@ -1237,8 +1241,8 @@ async def get_subscription_profitability(
     now = datetime.now(timezone.utc)
     thirty_days_ago = now - timedelta(days=30)
 
-    # Fetch all users with active or past_due subscriptions
-    users_stmt = select(User).where(User.subscription_tier.isnot(None))
+    # Fetch users with active or past_due subscriptions with pagination
+    users_stmt = select(User).where(User.subscription_tier.isnot(None)).offset(skip).limit(limit)
     u_res = await db.execute(users_stmt)
     subscribers = u_res.scalars().all()
 

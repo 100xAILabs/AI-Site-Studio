@@ -5,7 +5,7 @@
 
 import { useAuthStore } from "../store/authStore";
 
-const API_URL = import.meta.env.VITE_API_URL ?? import.meta.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api/v1";
 
 export class ApiError extends Error {
   constructor(status, message, data) {
@@ -38,8 +38,9 @@ async function request(path, options = {}) {
     } catch (e) {}
   }
 
+  const isForm = fetchOptions.body instanceof FormData;
   const headers = {
-    "Content-Type": "application/json",
+    ...(isForm ? {} : { "Content-Type": "application/json" }),
     ...fetchOptions.headers,
   };
 
@@ -81,26 +82,50 @@ export const api = {
   post: (path, body, token) =>
     request(path, {
       method: "POST",
-      body: JSON.stringify(body),
+      body: body instanceof FormData ? body : JSON.stringify(body),
       token,
     }),
 
   patch: (path, body, token) =>
     request(path, {
       method: "PATCH",
-      body: JSON.stringify(body),
+      body: body instanceof FormData ? body : JSON.stringify(body),
       token,
     }),
 
   put: (path, body, token) =>
     request(path, {
       method: "PUT",
-      body: JSON.stringify(body),
+      body: body instanceof FormData ? body : JSON.stringify(body),
       token,
     }),
 
   delete: (path, token) =>
     request(path, { method: "DELETE", token }),
+
+  upload: (path, formData, token) =>
+    request(path, {
+      method: "POST",
+      body: formData,
+      token,
+    }),
+
+  raw: async (path, options = {}) => {
+    let { token, ...fetchOptions } = options;
+    if (!token) {
+      try {
+        token = useAuthStore.getState()?.token;
+      } catch (e) {}
+    }
+    const headers = { ...fetchOptions.headers };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    return fetch(`${API_URL}${path}`, {
+      ...fetchOptions,
+      headers,
+    });
+  },
 };
 
 export { API_URL };

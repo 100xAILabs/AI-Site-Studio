@@ -9,7 +9,7 @@ from app.services.deployment_providers.vercel_provider import VercelDeploymentPr
 
 def get_deployment_provider(provider: str):
     provider = (provider or "local").strip().lower()
-    if provider == "local":
+    if provider in ("local", "cloudflare", "netlify"):
         return local_deployment_provider
     if provider == "vercel":
         return vercel_deployment_provider

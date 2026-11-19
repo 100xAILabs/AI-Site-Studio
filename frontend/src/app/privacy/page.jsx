@@ -78,41 +78,44 @@ export default function PrivacyPolicyPage() {
               selected currency). We do not use third-party advertising cookies.
             </p>
 
-            <h2>4. Data Sharing</h2>
+            <h2>4. Data Sharing & Third-Party Sub-Processors</h2>
             <p>
-              We share your data only with service providers that operate
-              infrastructure on our behalf (hosting, email delivery, payment
-              processing). These providers are contractually obligated to
-              process your data only for the purposes we specify.
+              We share your data only with verified third-party service providers that operate
+              infrastructure and services on our behalf. These sub-processors are contractually
+              obligated to process your data only for authorized purposes:
             </p>
+            <ul>
+              <li><strong>Payment Gateways:</strong> Stripe, Inc. (global card processing and payouts) and Razorpay Software Pvt. Ltd. (UPI, NetBanking, INR payment gateway).</li>
+              <li><strong>AI Model Providers:</strong> Google LLC (Gemini API for semantic search embeddings and live design filling) and OpenAI LLC. Prompts sent to AI APIs are never used to train external models.</li>
+              <li><strong>Email Delivery & Notifications:</strong> Resend, Inc. and Brevo SAS (transactional emails, security OTP codes, order receipts).</li>
+              <li><strong>Cloud Hosting & CDN:</strong> Cloudflare, Inc. and Render Services, Inc. (edge routing, DDoS mitigation, and container hosting).</li>
+              <li><strong>Domain Registration:</strong> Namecheap, Inc. and registry partners (fulfilling custom domain registrations).</li>
+            </ul>
             <p>
-              We may disclose your data if required by law, court order, or
-              government authority.
+              We may disclose your data if required by law, court order, or competent government authority.
             </p>
 
             <h2>5. Data Retention</h2>
             <p>
               Account data is retained for as long as your account is active.
-              If you delete your account, we will erase your personal data
-              within 30 days, except where we are legally required to retain
-              records (e.g., financial transaction history for accounting
-              purposes, which is kept for 7 years).
+              If you delete your account, we will erase or anonymise your personal data
+              within 30 days, except where statutory law requires retention
+              (e.g., tax and financial transaction records, which are retained for 7 years for auditing).
             </p>
 
-            <h2>6. Your Rights</h2>
+            <h2>6. Your Rights (DPDP Act 2023 & GDPR)</h2>
             <p>
-              Depending on your jurisdiction, you may have the right to:
+              In accordance with the Digital Personal Data Protection (DPDP) Act 2023 and the General Data Protection Regulation (GDPR), you have the right to:
             </p>
             <ul>
-              <li>Access the personal data we hold about you.</li>
-              <li>Correct inaccurate data.</li>
-              <li>Request deletion of your data ("right to erasure").</li>
-              <li>Object to or restrict certain processing activities.</li>
-              <li>Export your data in a machine-readable format.</li>
+              <li><strong>Right to Access & Review:</strong> View the personal data and transaction history held about you.</li>
+              <li><strong>Right to Correction:</strong> Correct or update inaccurate account profile details.</li>
+              <li><strong>Right to Erasure / Anonymization:</strong> Erase your personal details via our automated self-service account deletion endpoint (<code>DELETE /api/v1/auth/me</code>).</li>
+              <li><strong>Right to Data Portability:</strong> Export your full personal data and purchased licenses in a machine-readable JSON format via <code>GET /api/v1/auth/me/export</code>.</li>
+              <li><strong>Right to Grievance Redressal:</strong> Withdraw consent or register privacy concerns with our Data Protection Officer.</li>
             </ul>
             <p>
-              To exercise any of these rights, contact us at the address below.
-              We will respond within 30 days.
+              To exercise any of these rights, use your account dashboard or contact us at privacy@aisitestudio.com.
             </p>
 
             <h2>7. Security</h2>

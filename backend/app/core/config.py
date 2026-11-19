@@ -7,10 +7,9 @@ All values are read from environment variables (or .env file).
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Any
 
 from pydantic import model_validator, field_validator
-from typing import Any
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -87,6 +86,19 @@ class Settings(BaseSettings):
             self.COMMERCE_DATABASE_URL = self.COMMERCE_DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
         if self.COMMERCE_DATABASE_URL and self.COMMERCE_DATABASE_URL == self.DATABASE_URL:
             raise ValueError("COMMERCE_DATABASE_URL must point to a separate database from DATABASE_URL.")
+        return self
+
+    @model_validator(mode="after")
+    def validate_storage_backend(self) -> "Settings":
+        """Fail fast on storage misconfiguration in production (F-38)."""
+        if self.ENVIRONMENT not in ("development", "local", "test"):
+            backend = (self.STORAGE_BACKEND or "postgres").lower()
+            if backend in ("r2", "cloudflare_r2"):
+                if not (self.R2_ACCESS_KEY_ID and self.R2_SECRET_ACCESS_KEY and self.R2_ACCOUNT_ID):
+                    raise ValueError("Cloudflare R2 is configured as STORAGE_BACKEND but R2 credentials are incomplete.")
+            elif backend == "s3":
+                if not (self.AWS_ACCESS_KEY_ID and self.AWS_SECRET_ACCESS_KEY and self.S3_BUCKET_NAME):
+                    raise ValueError("AWS S3 is configured as STORAGE_BACKEND but S3 credentials are incomplete.")
         return self
 
 
@@ -307,6 +319,9 @@ class Settings(BaseSettings):
 
     FRONTEND_URL: str = "http://localhost:5173"
     ALLOWED_ORIGINS: str = ""
+    # F-18: Dedicated registrable domain for untrusted user-generated preview/tenant HTML
+    USER_CONTENT_DOMAIN: Optional[str] = None
+    PREVIEW_SANDBOX_HOST: Optional[str] = None
 
     # -- File Uploads ----------------------------------------------------------
     # In-memory deep-analysis threshold only. Upload endpoints stream larger

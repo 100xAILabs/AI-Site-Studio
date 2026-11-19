@@ -34,8 +34,12 @@ if sys.platform == "win32":
 
         pass
 
+import logging
+import asyncio
 import uuid
 import re
+
+logger = logging.getLogger("app.main")
 
 from contextlib import asynccontextmanager
 
@@ -43,8 +47,8 @@ from typing import AsyncGenerator
 
 
 
-from fastapi import FastAPI, Request, Response, status
-
+from fastapi import FastAPI, Request, Response, status, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.middleware.cors import CORSMiddleware
 
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -59,9 +63,16 @@ from sqlalchemy import select
 
 from app.core.config import settings
 
-from app.core.database import AsyncSessionLocal, init_db
+from app.core.database import AsyncSessionLocal, init_db, get_db
 
 from app.core.redis import get_redis_client
+from app.core.logging_filter import PIIRedactionFilter
+
+# Attach PII redaction filter to root logging (F-28)
+_root_logger = logging.getLogger()
+_root_logger.addFilter(PIIRedactionFilter())
+for _handler in _root_logger.handlers:
+    _handler.addFilter(PIIRedactionFilter())
 
 from app.api.v1.router import api_router
 
@@ -410,7 +421,23 @@ def create_application() -> FastAPI:
 
 
     @app.middleware("http")
+    async def request_id_middleware(request: Request, call_next):
+        req_id = request.headers.get("x-request-id", "")
+        valid_id = None
+        if req_id:
+            try:
+                valid_id = str(uuid.UUID(req_id))
+            except Exception:
+                valid_id = None
+        if not valid_id:
+            valid_id = str(uuid.uuid4())
+        
+        request.state.request_id = valid_id
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = valid_id
+        return response
 
+    @app.middleware("http")
     async def custom_domain_host_middleware(request: Request, call_next):
 
         # Always let CORS preflight through — OPTIONS must reach CORSMiddleware
@@ -712,27 +739,44 @@ def create_application() -> FastAPI:
 
 
 
+    @app.api_route("/healthz", methods=["GET", "HEAD"], tags=["Health"])
+    async def healthz():
+        """Lightweight dependency-free liveness probe (F-40)."""
+        return {"status": "ok"}
+
     @app.api_route("/health", methods=["GET", "HEAD"], tags=["Health"])
-
-    async def health_check() -> dict:
-
+    async def health_check(db: AsyncSession = Depends(get_db)):
+        """Deep health check validating PostgreSQL database and Redis connectivity (F-40)."""
         from app.core.redis import check_redis_health
+        from sqlalchemy import text
+        from fastapi.responses import JSONResponse
+
+        db_ok = False
+        try:
+            async with asyncio.timeout(2.0):
+                await db.execute(text("SELECT 1"))
+                db_ok = True
+        except Exception as e:
+            logger.warning(f"Health check DB probe failed: {e}")
 
         redis_info = await check_redis_health()
+        redis_ok = bool(redis_info.get("connected", False))
 
-        return {
+        is_healthy = db_ok and (redis_ok or settings.ENVIRONMENT in ("development", "local", "test"))
+        status_str = "ok" if is_healthy else "degraded"
+        status_code = 200 if is_healthy else 503
 
-            "status": "ok",
-
-            "app": settings.APP_NAME,
-
-            "version": settings.APP_VERSION,
-
-            "environment": settings.ENVIRONMENT,
-
-            "redis": redis_info,
-
-        }
+        return JSONResponse(
+            status_code=status_code,
+            content={
+                "status": status_str,
+                "app": settings.APP_NAME,
+                "version": settings.APP_VERSION,
+                "environment": settings.ENVIRONMENT,
+                "database": "connected" if db_ok else "unreachable",
+                "redis": redis_info,
+            }
+        )
 
 
 

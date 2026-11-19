@@ -54,17 +54,24 @@ class CreatorEarning(UUIDMixin, TimestampMixin, Base):
 
     gross_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     platform_commission_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("20.00"), nullable=False)
-    platform_fee: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
-    net_creator_earning: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    platform_fee: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=True)
+    platform_commission_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2), nullable=True)
+    net_creator_earning: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=True)
+    creator_net_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2), nullable=True)
     currency: Mapped[str] = mapped_column(String(10), default="USD", nullable=False)
 
-    holding_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    holding_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    available_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[EarningStatus] = mapped_column(
         SAEnum(EarningStatus), default=EarningStatus.PENDING, nullable=False, index=True
     )
 
     payout_request_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("withdrawal_requests.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    withdrawal_request_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid(as_uuid=True), nullable=True, index=True
     )
 
     # Relationships

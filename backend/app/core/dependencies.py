@@ -40,11 +40,6 @@ async def get_current_user(
 
     from app.core.security import authenticate_token
     user = await authenticate_token(db, credentials.credentials, "access")
-    await db.commit()
-    return user
-    from app.core.security import authenticate_token
-    user = await authenticate_token(db, credentials.credentials, "access")
-    await db.commit()
     return user
 
 
@@ -96,13 +91,13 @@ async def require_creator_or_admin(current_user: User = Depends(get_current_user
 
 
 async def require_seller_or_admin(current_user: User = Depends(get_current_user)) -> User:
-    """Allows Admin, existing Sellers, and active Extreme plan creators."""
+    """Allows Admin and active Extreme plan creators only (no standalone seller role)."""
     is_admin = current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
     if is_admin:
         return current_user
-    if current_user.role == UserRole.SELLER or current_user.can_retail_templates or current_user.is_extreme_subscriber:
+    if current_user.can_retail_templates or current_user.is_extreme_subscriber:
         return current_user
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
-        detail="Creator Studio privileges require an active Extreme Plan subscription.",
+        detail="Template retailing is an exclusive privilege for Extreme Plan subscribers.",
     )

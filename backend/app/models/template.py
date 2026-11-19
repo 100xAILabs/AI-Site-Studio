@@ -214,7 +214,7 @@ class Template(UUIDMixin, TimestampMixin, Base):
     )
 
     # ── Relationships ─────────────────────────────────────────────────────────
-    category: Mapped["Category"] = relationship(back_populates="templates")
+    category: Mapped["Category"] = relationship(back_populates="templates", lazy="joined")
     seller: Mapped[Optional["User"]] = relationship(
         back_populates="uploaded_templates",
         foreign_keys=[seller_id],
@@ -235,6 +235,14 @@ class Template(UUIDMixin, TimestampMixin, Base):
     favorites: Mapped[List["Favorite"]] = relationship(back_populates="template", lazy="select", cascade="all, delete-orphan")
     order_items: Mapped[List["OrderItem"]] = relationship(back_populates="template", lazy="select", cascade="all, delete-orphan")
     downloads: Mapped[List["Download"]] = relationship(back_populates="template", lazy="select", cascade="all, delete-orphan")
+
+    @property
+    def seller_templates_count(self) -> int:
+        return 0
+
+    @property
+    def seller_total_sales(self) -> int:
+        return 0
 
     def __repr__(self) -> str:
         return f"<Template {self.title} [{self.status}]>"

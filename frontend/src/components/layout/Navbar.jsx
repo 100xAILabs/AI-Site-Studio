@@ -47,7 +47,6 @@ function NavbarComponent() {
   const { userCurrency, setUserCurrency, fetchRates } = useCurrencyStore();
   const [scrolled, setScrolled] = useState(false);
 
-  const isSeller = isSignedIn && (user?.role === "seller" || user?.role === "SELLER");
   const isExtreme =
     isSignedIn &&
     (user?.can_retail_templates ||
@@ -123,13 +122,7 @@ function NavbarComponent() {
         {/* Center: Navigation Links */}
         <nav className="navbar-center-nav">
           {/* Home Link with Active Indicator */}
-          <Link
-            href="/"
-            className={cn("nav-center-item", pathname === "/" && "nav-item-active")}
-          >
-            <span>Home</span>
-            {pathname === "/" && <span className="nav-active-pill" />}
-          </Link>
+
 
           {/* Templates Dropdown */}
           <div
@@ -302,21 +295,19 @@ function NavbarComponent() {
             />
           </form>
 
-          {/* Cart Icon (if items exist or buyer) */}
-          {!isSeller && (
-            <Link
-              href="/checkout"
-              className="navbar-cart-btn"
-              aria-label={`Cart (${cartItems.length} items)`}
-            >
-              <ShoppingCart className="w-4 h-4 text-slate-300" />
-              {cartItems.length > 0 && (
-                <span className="cart-badge">
-                  {cartItems.length}
-                </span>
-              )}
-            </Link>
-          )}
+          {/* Cart Icon */}
+          <Link
+            href="/checkout"
+            className="navbar-cart-btn"
+            aria-label={`Cart (${cartItems.length} items)`}
+          >
+            <ShoppingCart className="w-4 h-4 text-slate-300" />
+            {cartItems.length > 0 && (
+              <span className="cart-badge">
+                {cartItems.length}
+              </span>
+            )}
+          </Link>
 
           {/* Theme Selector */}
           <ThemeToggle />
@@ -329,8 +320,8 @@ function NavbarComponent() {
                 href={
                   isExtreme
                     ? (user?.is_creator_onboarding_completed
-                        ? "/dashboard?tab=creator-studio"
-                        : "/creator/setup")
+                      ? "/dashboard?tab=creator-studio"
+                      : "/creator/setup")
                     : "/creator/setup"
                 }
                 className="navbar-sell-btn"
@@ -374,13 +365,12 @@ function NavbarComponent() {
                   <span className="navbar-user-display-name">
                     {user?.name || user?.full_name || (user?.email ? user.email.split("@")[0] : "Creator")}
                   </span>
-                  <span className={`navbar-user-sub-badge ${
-                    isExtreme
+                  <span className={`navbar-user-sub-badge ${isExtreme
                       ? "sub-badge-extreme"
                       : subTier === "pro"
-                      ? "sub-badge-pro"
-                      : "sub-badge-free"
-                  }`}>
+                        ? "sub-badge-pro"
+                        : "sub-badge-free"
+                    }`}>
                     {isExtreme ? (
                       <>
                         <Crown className="w-2.5 h-2.5" />
@@ -462,13 +452,7 @@ function NavbarComponent() {
               </form>
 
               <div className="mobile-links-container">
-                <Link
-                  href="/"
-                  className={cn("mobile-link", pathname === "/" && "mobile-link-active")}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  Home
-                </Link>
+
                 <Link
                   href="/marketplace"
                   className={cn("mobile-link", pathname.startsWith("/marketplace") && "mobile-link-active")}
@@ -499,9 +483,8 @@ function NavbarComponent() {
                   <>
                     <div className="py-2 px-1 text-xs text-muted-foreground flex items-center justify-between">
                       <span>Subscription Tier</span>
-                      <span className={`navbar-user-sub-badge ${
-                        isExtreme ? "sub-badge-extreme" : subTier === "pro" ? "sub-badge-pro" : "sub-badge-free"
-                      }`}>
+                      <span className={`navbar-user-sub-badge ${isExtreme ? "sub-badge-extreme" : subTier === "pro" ? "sub-badge-pro" : "sub-badge-free"
+                        }`}>
                         {isExtreme ? "Extreme" : subTier === "pro" ? "Pro" : "Free Plan"}
                       </span>
                     </div>

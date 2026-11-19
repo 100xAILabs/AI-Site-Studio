@@ -89,9 +89,12 @@ async def get_stored_file(
                         from app.models.order import Order, OrderItem, OrderStatus
                         from sqlalchemy import select, or_
 
-                        # 2a. Check if seller created/uploaded this template
+                        # 2a. Check if seller created/uploaded this template (excluding forks from creator bypass - F-13)
                         tmpl_res = await db.execute(
-                            select(Template).where(Template.seller_id == current_user.id)
+                            select(Template).where(
+                                Template.seller_id == current_user.id,
+                                Template.forked_from_template_id.is_(None)
+                            )
                         )
                         for t in tmpl_res.scalars().all():
                             d_assets = t.download_assets or {}
@@ -106,17 +109,20 @@ async def get_stored_file(
                             ).limit(1)
                         )
                         matched_template = t_match_res.scalar_one_or_none()
+                        target_tmpl_ids = [file_uuid]
+                        if matched_template and getattr(matched_template, "forked_from_template_id", None):
+                            target_tmpl_ids.append(matched_template.forked_from_template_id)
 
-                        # 2b. Check if buyer purchased this template or template is free
+                        # 2b. Check if buyer purchased this template or root template, or template is free
                         if not authorized:
                             ord_res = await db.execute(
                                 select(Template.id)
                                 .outerjoin(OrderItem, OrderItem.template_id == Template.id)
                                 .outerjoin(Order, OrderItem.order_id == Order.id)
                                 .where(
-                                    or_(Template.id == file_uuid, Template.source_project_id == file_uuid),
+                                    or_(Template.id.in_(target_tmpl_ids), Template.source_project_id == file_uuid),
                                     or_(
-                                        Template.is_free == True,
+                                        (Template.is_free == True) & (Template.status == TemplateStatus.PUBLISHED),
                                         (Order.user_id == current_user.id) & (Order.status.in_([OrderStatus.COMPLETED, OrderStatus.PROCESSING])),
                                     )
                                 )

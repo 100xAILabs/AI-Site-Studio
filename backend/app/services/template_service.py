@@ -126,6 +126,13 @@ class TemplateService:
             total_pages=cached_catalog.get("total_pages", 1),
         )
 
+    async def get_template_by_id(
+        self,
+        template_id: uuid.UUID | str,
+        current_user: Optional[User] = None,
+    ) -> TemplateResponse:
+        return await self.get_template(slug=str(template_id), current_user=current_user)
+
     async def get_template(
         self,
         slug: str,
@@ -142,25 +149,30 @@ class TemplateService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
 
         template_status = getattr(template.status, "value", str(template.status)).lower()
-        user_role = getattr(getattr(current_user, "role", None), "value", str(getattr(current_user, "role", ""))).lower()
-        is_owner = current_user is not None and str(template.seller_id) == str(current_user.id)
+        user_id = getattr(current_user, "id", None) if current_user else None
+        user_role = getattr(getattr(current_user, "role", None), "value", str(getattr(current_user, "role", ""))).lower() if current_user else ""
+        template_id = template.id
+        seller_id = getattr(template, "seller_id", None)
+        is_owner = user_id is not None and str(seller_id) == str(user_id)
         is_admin = user_role in {"admin", "super_admin"}
         if template_status != TemplateStatus.PUBLISHED.value and not (is_owner or is_admin):
             # AI Studio drafts are private projects and must never be publicly browsable.
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
 
         # Record unique account view — if 1 account opens 5 times, it only counts as 1.
-        if current_user:
-            await self.record_unique_account_view(template.id, current_user.id)
-
+        if user_id:
+            try:
+                await self.record_unique_account_view(template_id, user_id)
+            except Exception:
+                pass
 
         is_favorited = None
         is_wishlisted = None
         is_purchased = False
-        if current_user:
-            is_favorited = await self.favorites.is_favorited(current_user.id, template.id)
-            is_wishlisted = await self.wishlist.is_wishlisted(current_user.id, template.id)
-            is_purchased = await self.is_purchased_by_user(current_user.id, template.id)
+        if user_id:
+            is_favorited = await self.favorites.is_favorited(user_id, template_id)
+            is_wishlisted = await self.wishlist.is_wishlisted(user_id, template_id)
+            is_purchased = await self.is_purchased_by_user(user_id, template_id)
 
         response = TemplateResponse.model_validate(template)
         
@@ -468,6 +480,12 @@ class TemplateService:
             for r in possible_roots:
                 gen_proj_dir = r / "generated_projects"
                 if gen_proj_dir.is_dir():
+                    alias_file = gen_proj_dir / f".id_{template.id}.txt"
+                    if alias_file.is_file():
+                        try:
+                            alias_file.unlink(missing_ok=True)
+                        except Exception:
+                            pass
                     for entry in os.listdir(gen_proj_dir):
                         if entry == str(template.id) or (template.slug and entry == template.slug):
                             full_p = gen_proj_dir / entry
@@ -543,7 +561,7 @@ class TemplateService:
             )
             self.db.add(new_view)
             await self.repo.increment_views(template_id)
-            await self.db.commit()
+            await self.db.flush()
             return True
         except Exception as e:
             await self.db.rollback()

@@ -53,9 +53,25 @@ class DeploymentReadinessAuditor:
     and self-heals build and runtime errors automatically.
     """
 
+    def heal_pre_build(
+        self,
+        source_path: Path | str,
+        template_identifier: Optional[str] = None,
+    ) -> Tuple[bool, List[str]]:
+        """
+        Convenience pre-build healing entry point called by local_provider and framework_auditor.
+        Executes audit_and_heal_source and returns (has_healed, findings).
+        """
+        path_obj = Path(source_path) if isinstance(source_path, str) else source_path
+        report = self.audit_and_heal_source(path_obj, template_identifier=template_identifier)
+        findings = report.get("findings", [])
+        healed_files = report.get("healed_files", [])
+        has_healed = len(healed_files) > 0 or len(findings) > 0
+        return has_healed, findings
+
     def audit_and_heal_source(
         self,
-        source_path: Path,
+        source_path: Path | str,
         template_identifier: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
@@ -66,6 +82,9 @@ class DeploymentReadinessAuditor:
         findings: List[str] = []
         healed_files: List[str] = []
         warnings: List[str] = []
+
+        if isinstance(source_path, str):
+            source_path = Path(source_path)
 
         if not source_path.exists() or not source_path.is_dir():
             return {

@@ -160,3 +160,29 @@ async def verify_domain_dns_ownership(domain: str, expected_token: str) -> Dict[
         "details": f"TXT searched on {txt_subdomain} (found {len(all_txts)} records). A-records: {a_records}.",
     }
 
+
+async def tls_ready(domain: str) -> bool:
+    """
+    Performs a real TLS handshake probe to domain:443 with SNI.
+    Returns True only if an active, valid certificate responds on port 443.
+    """
+    import ssl
+    import asyncio
+    clean = (domain or "").strip().lower().replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
+    if not clean:
+        return False
+    try:
+        ctx = ssl.create_default_context()
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(clean, 443, ssl=ctx, server_hostname=clean),
+            timeout=8.0,
+        )
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+

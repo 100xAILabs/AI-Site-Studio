@@ -290,3 +290,49 @@ class CacheKeys:
     CACHE_TTL_MEDIUM = 300     # 5 minutes
     CACHE_TTL_LONG = 3600      # 1 hour
     CACHE_TTL_DAY = 86400      # 24 hours
+
+
+from contextlib import asynccontextmanager
+import uuid
+
+@asynccontextmanager
+async def distributed_lock(lock_key: str, ttl_seconds: int = 600, wait_timeout: float = 30.0):
+    """
+    Acquire a cross-process distributed lock backed by Redis SET NX EX (F-35).
+    Releases atomically using Lua script verifying token ownership.
+    Falls back gracefully if Redis is unavailable.
+    """
+    client = await get_redis_client()
+    token = str(uuid.uuid4())
+    full_key = f"lock:{lock_key}"
+    acquired = False
+
+    if client:
+        start_time = time.monotonic()
+        while time.monotonic() - start_time < wait_timeout:
+            try:
+                res = await client.set(full_key, token, ex=ttl_seconds, nx=True)
+                if res:
+                    acquired = True
+                    break
+            except Exception as e_lock:
+                logger.warning(f"Redis distributed lock acquire error: {e_lock}")
+                break
+            await asyncio.sleep(0.1)
+
+    try:
+        yield acquired
+    finally:
+        if acquired and client:
+            release_lua = """
+            if redis.call("get", KEYS[1]) == ARGV[1] then
+                return redis.call("del", KEYS[1])
+            else
+                return 0
+            end
+            """
+            try:
+                await client.eval(release_lua, 1, full_key, token)
+            except Exception as e_rel:
+                logger.warning(f"Redis distributed lock release error: {e_rel}")
+

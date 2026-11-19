@@ -728,12 +728,16 @@ async def retail_generated_template(
 
     await _commit_template_status_safe(db, template, target_status)
     await db.refresh(template)
+    try:
+        await db.refresh(current_user)
+    except Exception:
+        pass
 
     fast_catalog.invalidate()
     await cache_delete_pattern("templates:*")
 
-    service = TemplateService(db)
-    return await service.get_template_by_id(template.id)
+    updated = await repo.get_by_id(template.id)
+    return updated or template
 
 
 @router.post("/{template_id}/submit-review", response_model=TemplateResponse)
@@ -771,12 +775,16 @@ async def submit_template_for_review(
 
     await _commit_template_status_safe(db, template, target_status)
     await db.refresh(template)
+    try:
+        await db.refresh(current_user)
+    except Exception:
+        pass
 
     fast_catalog.invalidate()
     await cache_delete_pattern("templates:*")
 
-    service = TemplateService(db)
-    return await service.get_template_by_id(template.id)
+    updated = await repo.get_by_id(template.id)
+    return updated or template
 
 
 @router.post("", response_model=TemplateResponse, status_code=status.HTTP_201_CREATED)
@@ -1092,7 +1100,14 @@ async def download_template(
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
-    is_authorized_creator = str(template.seller_id) == str(current_user.id)
+    # Rights root: if template is forked, evaluate rights against the root template (F-13 / S-21)
+    root_template = template
+    if getattr(template, "forked_from_template_id", None):
+        root_template = await template_repo.get_by_id(template.forked_from_template_id)
+        if not root_template and not (current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN)):
+            raise HTTPException(status_code=403, detail="Root template no longer exists")
+
+    is_authorized_creator = bool(root_template and str(root_template.seller_id) == str(current_user.id))
     template_status = getattr(template.status, "value", str(template.status)).lower()
     is_admin = current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
     if template_status != TemplateStatus.PUBLISHED.value and not (is_authorized_creator or is_admin):
@@ -1100,14 +1115,18 @@ async def download_template(
     user_tier = str(getattr(current_user, "subscription_tier", "free") or "free").lower()
     is_extreme = user_tier in ("extreme", "agency", "enterprise")
 
-    # Check if user has an active completed purchase for this template
+    # Check if user has an active completed purchase for this template or root template
+    template_ids_to_check = [template.id]
+    if getattr(template, "forked_from_template_id", None):
+        template_ids_to_check.append(template.forked_from_template_id)
+
     purchase_stmt = (
         select(Order, OrderItem)
         .join(OrderItem, OrderItem.order_id == Order.id)
         .where(
             Order.user_id == current_user.id,
             Order.status == OrderStatus.COMPLETED,
-            OrderItem.template_id == template.id,
+            OrderItem.template_id.in_(template_ids_to_check),
         )
         .order_by(Order.created_at.desc())
         .limit(1)

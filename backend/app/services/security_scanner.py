@@ -213,8 +213,7 @@ class SecurityScanner:
         purged_files = []
         _SKIP_DIRS = {
             "node_modules", ".git", ".venv", "venv", "__pycache__",
-            ".next", ".nuxt", ".output", "dist", "build", ".cache",
-            "vendor", ".tox", ".eggs", "*.egg-info",
+            ".cache", "vendor", ".tox", ".eggs", "*.egg-info",
         }
 
         source.seek(0)

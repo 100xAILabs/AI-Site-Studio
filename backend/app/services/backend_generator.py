@@ -25,6 +25,22 @@ logger = logging.getLogger(__name__)
 _debugger = AIDebuggerService()
 
 # ---------------------------------------------------------------------------
+# Phase 3: Deterministic scaffold generator — guarded import
+# ---------------------------------------------------------------------------
+try:
+    from app.services.fullstack_scaffold import fullstack_scaffold_generator
+    _HAS_SCAFFOLD = True
+except ImportError:
+    _HAS_SCAFFOLD = False
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _slugify(text: str) -> str:
+    return re.sub(r'[^a-z0-9]+', '-', text.lower())[:40].strip('-') or "project"
+
+# ---------------------------------------------------------------------------
 # Stack definitions
 # ---------------------------------------------------------------------------
 
@@ -33,6 +49,12 @@ SUPPORTED_STACKS = {
         "label": "Static Website (HTML5 / CSS / JS)",
         "frontend": "vanilla",
         "backend": None,
+        "db": None,
+    },
+    "hybrid-serverless-api": {
+        "label": "Hybrid Website (HTML5 + Serverless API)",
+        "frontend": "vanilla",
+        "backend": "serverless",
         "db": None,
     },
     "react-fastapi-postgresql": {
@@ -186,12 +208,29 @@ Always include:
   POST /api/contact  POST /api/newsletter  GET /api/health
 """
 
+_SERVERLESS_API_SYSTEM = """You are a Principal Cloud & Serverless Backend Developer.
+Generate production-ready serverless API endpoints and handlers for a hybrid web application:
+- POST /api/contact: validates contact inquiry payloads, executes anti-spam checks, and dispatches notification emails.
+- POST /api/newsletter: registers newsletter subscription intents.
+- POST /api/inquiry: processes general quote or booking inquiries.
+- GET /api/health: returns {"status": "ok", "service": "hybrid-serverless-api"}.
+
+Output files using the ===FILE: path=== pattern:
+  backend/api/contact.py (or api/contact.js)
+  backend/requirements.txt
+  backend/.env.example
+  backend/README.md
+"""
+
 BACKEND_SYSTEM_PROMPTS: dict[str, str] = {
     "fastapi-postgresql": _FASTAPI_SYSTEM,
     "fastapi-mongodb": _FASTAPI_MONGO_SYSTEM,
     "express-mongodb": _EXPRESS_SYSTEM,
     "nestjs-postgresql": _NESTJS_SYSTEM,
     "django-postgresql": _DJANGO_SYSTEM,
+    "serverless-None": _SERVERLESS_API_SYSTEM,
+    "serverless-none": _SERVERLESS_API_SYSTEM,
+    "serverless-postgresql": _SERVERLESS_API_SYSTEM,
 }
 
 # ---------------------------------------------------------------------------
@@ -622,6 +661,25 @@ OUTPUT INSTRUCTIONS (CRITICAL — follow exactly):
             if not any(p.endswith("postcss.config.js") for p, _ in sanitized):
                 sanitized.append(("frontend/postcss.config.js", "export default {\n  plugins: {\n    tailwindcss: {},\n    autoprefixer: {},\n  },\n};\n"))
 
+            # Phase 3: Merge with deterministic scaffold baseline so React app is always complete & runnable
+            if _HAS_SCAFFOLD:
+                project_name = _slugify(prompt[:60])
+                pages_for_scaffold = [
+                    {"name": p.get("name", "Page"), "filename": p.get("filename", "index")}
+                    for p in pages
+                ]
+                scaffold_fe = fullstack_scaffold_generator.generate_react_scaffold(
+                    stack_key=stack_key,
+                    project_name=project_name,
+                    pages=pages_for_scaffold,
+                    api_base_url="http://localhost:8000",
+                )
+                combined_fe = dict(scaffold_fe)
+                for path, content in sanitized:
+                    if content.strip():
+                        combined_fe[path] = content
+                sanitized = list(combined_fe.items())
+
         return sanitized
 
     # ------------------------------------------------------------------ #
@@ -938,9 +996,34 @@ console.log("Seed complete! Application has initial mock records.");
         Returns a dict of {relative_path: file_content} for the entire backend.
         Self-heals on empty output with up to 3 attempts.
         """
-        all_files: dict[str, str] = {}
         stack_info = SUPPORTED_STACKS.get(stack_key, {})
         backend_type = stack_info.get("backend", "fastapi")
+
+        # --- Phase 3: Deterministic scaffold baseline ---
+        scaffold_files: dict[str, str] = {}
+        if _HAS_SCAFFOLD:
+            project_name = _slugify(prompt[:60])
+            db_tables = architecture.get("db_tables", [])
+            api_routes = architecture.get("api_routes", [])
+            auth_required = architecture.get("auth_strategy", "none") != "none"
+            stripe_needed = architecture.get("stripe_needed", False)
+            env_vars = architecture.get("required_env_vars", [])
+            page_names: list[str] = []  # populated later from plan
+
+            if stack_key in ("react-fastapi-postgresql", "vue-fastapi-postgresql", "angular-fastapi-postgresql"):
+                scaffold_files.update(fullstack_scaffold_generator.generate_fastapi_scaffold(
+                    stack_key=stack_key, project_name=project_name, db_tables=db_tables,
+                    api_routes=api_routes, auth_required=auth_required, stripe_needed=stripe_needed,
+                    env_vars=env_vars, page_names=page_names,
+                ))
+                scaffold_files.update(fullstack_scaffold_generator.generate_alembic_scaffold(db_tables, project_name))
+                scaffold_files.update(fullstack_scaffold_generator.generate_docker_compose(stack_key, project_name, auth_required, stripe_needed))
+                scaffold_files.update(fullstack_scaffold_generator.generate_env_files(env_vars, project_name, stripe_needed, False))
+            elif stack_key == "hybrid-serverless-api":
+                scaffold_files.update(fullstack_scaffold_generator.generate_hybrid_serverless(project_name, env_vars))
+
+        # Start with scaffold as baseline — LLM files will override per-file if non-empty
+        all_files: dict[str, str] = dict(scaffold_files)
 
         for attempt in range(3):
             existing_paths = list(all_files.keys())
@@ -948,17 +1031,18 @@ console.log("Seed complete! Application has initial mock records.");
                 architecture, stack_key, prompt, attempt=attempt, existing_files=existing_paths
             )
             for path, content in pairs:
-                if content.strip():
-                    # Run heuristic cleaner on each file
-                    ext = os.path.splitext(path)[1].lower()
-                    cleaned = _debugger.sanitize_code_heuristics(content, ext=ext, framework=backend_type)
+                # Run heuristic cleaner on each file
+                ext = os.path.splitext(path)[1].lower()
+                cleaned = _debugger.sanitize_code_heuristics(content, ext=ext, framework=backend_type)
+                if cleaned.strip():  # Only override scaffold if LLM produced real content
                     all_files[path] = cleaned
 
-            # Validate: require at minimum a main entry file
+            # Validate: require at minimum a main entry file or serverless route
             has_entry = any(
                 p.endswith("main.py") or p.endswith("server.js") or
                 p.endswith("manage.py") or p.endswith("server.ts") or
-                p.endswith("main.ts")
+                p.endswith("main.ts") or p.endswith("contact.py") or
+                p.endswith("api.py") or "api/" in p
                 for p in all_files
             )
             if all_files and has_entry:

@@ -6,6 +6,7 @@ recurring billing initiation, and cancellation workflows.
 """
 
 from typing import Dict, Any, List, Optional
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -119,7 +120,7 @@ async def verify_stripe_subscription_session(
     stripe.api_key = settings.STRIPE_SECRET_KEY
     
     try:
-        checkout = stripe.checkout.Session.retrieve(session_id)
+        checkout = await asyncio.to_thread(stripe.checkout.Session.retrieve, session_id)
     except Exception:
         raise HTTPException(status_code=404, detail="Stripe checkout session not found")
         

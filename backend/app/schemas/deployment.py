@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 class DeploymentBase(BaseModel):
     project_name: str = Field(min_length=1, max_length=100)
-    provider: Literal["local", "vercel"] = "local"
+    provider: Literal["local", "vercel", "cloudflare", "netlify"] = "local"
     template_id: Optional[uuid.UUID] = None
     branch: str = "main"
     build_command: str = "npm run build"
@@ -40,10 +40,12 @@ class DeploymentBase(BaseModel):
 
     @field_validator("build_command")
     @classmethod
-    def validate_build_command(cls, value: str) -> str:
+    def validate_build_command(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
         value = value.strip()
-        if not value:
-            return "npm run build"
+        if not value or value.lower() in ("none", "static", "n/a", "no-build", "null"):
+            return value
         # Disallow shell metacharacters and command chaining
         disallowed = [";", "&&", "||", "|", "&", ">", "<", "`", "$", "\n", "\r", "\\"]
         if any(char in value for char in disallowed):
@@ -147,4 +149,56 @@ class ClientTelemetryPayload(BaseModel):
     pathname: Optional[str] = Field(default=None, max_length=512)
     timestamp: Optional[str] = Field(default=None, max_length=64)
     meta: Optional[Dict[str, Any]] = Field(default=None, max_length=20)
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Environment Variables & Secrets Management Schemas
+# ---------------------------------------------------------------------------
+
+class EnvScanRequest(BaseModel):
+    template_id: Optional[uuid.UUID] = None
+    stack_key: Optional[str] = None
+    env_keys: Optional[List[str]] = None
+    existing_env: Optional[Dict[str, str]] = None
+    auth_required: bool = False
+    stripe_needed: bool = False
+
+
+class EnvVarMetadataResponse(BaseModel):
+    key: str
+    description: str
+    provider_name: str
+    provider_url: Optional[str] = None
+    is_secret: bool = True
+    is_required: bool = False
+    has_default: bool = False
+    default_value: Optional[str] = None
+    placeholder: str = ""
+    example: str = ""
+    status: str = "missing"
+    validation_regex: Optional[str] = None
+    validation_error: Optional[str] = None
+
+
+class EnvScanResponse(BaseModel):
+    template_id: Optional[uuid.UUID] = None
+    env_vars: List[EnvVarMetadataResponse]
+    missing_required_count: int = 0
+    configured_count: int = 0
+
+
+class EnvValidateRequest(BaseModel):
+    env_vars: Dict[str, str] = Field(default_factory=dict)
+    template_id: Optional[uuid.UUID] = None
+    stack_key: Optional[str] = None
+    strict_mode: bool = False
+
+
+class EnvValidateResponse(BaseModel):
+    valid: bool
+    errors: List[str] = []
+    warnings: List[str] = []
+    missing_critical: List[str] = []
+    sanitized_env: Dict[str, str] = {}
+
 

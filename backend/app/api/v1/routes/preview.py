@@ -12,6 +12,7 @@ import tempfile
 import asyncio
 import zipfile
 import logging
+import weakref
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
@@ -217,6 +218,10 @@ async def get_preview_session(
     if not session:
         raise HTTPException(status_code=404, detail="Preview session not found")
 
+    from datetime import datetime, timezone
+    if session.expires_at and session.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=410, detail="Preview session has expired")
+
     return PreviewResponse(
         session_id=session.id,
         preview_image_url=session.preview_image_url,
@@ -226,36 +231,8 @@ async def get_preview_session(
     )
 
 
-# Global locks to prevent parallel builds of the same template
-_build_locks = {}
-# In-memory template metadata cache for sub-millisecond preview serving
-_preview_template_cache: dict[str, dict] = {}
-
-
-async def _get_cached_preview_template(template_id: str, db: AsyncSession):
-    """Retrieve template from RAM cache if valid (5 min TTL) to avoid multi-second Neon Oregon DB round trips."""
-    import time
-    now = time.time()
-    cached = _preview_template_cache.get(template_id)
-    if cached and (now - cached.get("cached_at", 0)) < 300:
-        return cached["template"]
-
-    from app.repositories.template_repo import TemplateRepository
-    template_repo = TemplateRepository(db)
-    template = await template_repo.get_by_id_or_slug(template_id)
-    if template:
-        entry = {"template": template, "cached_at": now}
-        _preview_template_cache[template_id] = entry
-        if template.slug and template.slug != template_id:
-            _preview_template_cache[template.slug] = entry
-        if str(template.id) != template_id:
-            _preview_template_cache[str(template.id)] = entry
-    return template
-
-
-def invalidate_preview_template_cache(template_id: str):
-    """Purge cached template metadata from RAM on updates."""
-    _preview_template_cache.pop(template_id, None)
+# Bounded weakref locks to prevent memory growth across template builds
+_build_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
 
 
 @router.get("/live/{template_id}/assets")
@@ -2792,13 +2769,7 @@ Here are the codebase files:
     # Commit session changes
     await db.commit()
 
-    # 7. Invalidate template caches in memory and Redis so fresh customized code is immediately served
-    invalidate_preview_template_cache(str(template.id))
-    invalidate_preview_template_cache(str(template_id))
-    if template.slug:
-        invalidate_preview_template_cache(template.slug)
-    if original_template_id:
-        invalidate_preview_template_cache(original_template_id)
+    # 7. Invalidate template caches in Redis so fresh customized code is immediately served
     try:
         from app.core.redis import cache_delete
         await cache_delete(f"template:{template.id}")
@@ -3888,8 +3859,9 @@ async def get_preview_access(
     from app.services.template_rights import source_rights
     from app.core.security import make_preview_token
     from app.models.user import UserRole
+    from app.repositories.template_repo import TemplateRepository
     raw_id, _, _ = template_id.partition("~")
-    template = await _get_cached_preview_template(raw_id, db)
+    template = await TemplateRepository(db).get_by_id_or_slug(raw_id)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
     
@@ -3907,6 +3879,150 @@ async def get_preview_access(
     return {"url": f"{preview_base}/api/v1/preview/live/{template.id}~{token}/"}
 
 
+@router.post("/live/{template_id}/ai-debug")
+async def ai_debug_template_code(
+    template_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    On-demand AI Debugger endpoint:
+    Scans the template codebase, detects any broken JSX/TSX/HTML or syntax defects,
+    invokes Gemini AI Debugger to fix them, rebuilds the project, and persists the fixes.
+    """
+    import shutil
+    import tempfile
+    import zipfile
+    import io
+    from sqlalchemy import select
+    from app.services.debugger_service import ai_debugger
+    from app.models.template import Template
+    from app.models.stored_file import StoredFile
+
+    preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
+    
+    # 1. Fetch template from DB
+    try:
+        t_uuid = uuid.UUID(str(template_id))
+    except (ValueError, TypeError, AttributeError):
+        t_uuid = None
+    conditions = [Template.slug == str(template_id)]
+    if t_uuid:
+        conditions.append(Template.id == t_uuid)
+    result = await db.execute(select(Template).where(or_(*conditions)))
+    template = result.scalar_one_or_none()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    if template.status != TemplateStatus.DRAFT or template.seller_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the owner of a draft can edit its source files.")
+    from app.core.request_limits import enforce_user_limit
+    await enforce_user_limit(str(current_user.id), "template-ai-debug")
+
+    download_assets = template.download_assets or {}
+    zip_url = download_assets.get("zip")
+    if not zip_url:
+        raise HTTPException(status_code=400, detail="Template does not have source ZIP archive")
+
+    match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
+    stored_file = None
+    if match:
+        try:
+            file_id = uuid.UUID(match.group(1))
+            sf_res = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
+            stored_file = sf_res.scalar_one_or_none()
+        except Exception:
+            pass
+
+    if not stored_file:
+        raise HTTPException(status_code=404, detail="Source archive data not found")
+
+    from app.core.storage import storage
+    stored_file_data = await storage.get_file(db, file_id)
+    if not stored_file_data:
+        raise HTTPException(status_code=404, detail="Source archive data not found")
+    zip_bytes = stored_file_data[0]
+
+    # 2. Extract to preview_dir
+    os.makedirs(preview_dir, exist_ok=True)
+    from app.services.security_scanner import security_scanner
+    security_scanner.sanitize_extract_zip(zip_bytes, Path(preview_dir))
+
+    # 3. Locate package.json and scan all source files
+    fixed_files_count = 0
+    repaired_map = {}
+
+    for root, _, files in os.walk(preview_dir):
+        if any(d in root.replace("\\", "/").split("/") for d in ["dist", "node_modules", "build", ".output"]):
+            continue
+        for fname in files:
+            ext = os.path.splitext(fname)[1].lower()
+            if ext in [".jsx", ".tsx", ".js", ".ts", ".html"]:
+                fpath = os.path.join(root, fname)
+                try:
+                    with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                        code = f.read()
+
+                    # Sanitize heuristics first
+                    healed = ai_debugger.sanitize_code_heuristics(code, ext)
+                    
+                    # If suspect syntax or defects detected, invoke Gemini AI Debugger
+                    if ");</" in code or ";</" in code or "export default" not in code or code.count("{") != code.count("}") or code.count("<div") != code.count("</div"):
+                        rel_path = os.path.relpath(fpath, preview_dir)
+                        healed = await ai_debugger.debug_code_with_ai(
+                            code=code,
+                            filename=rel_path,
+                            error_message="Fix unbalanced tags, stray semicolons, missing brackets, and broken exports."
+                        )
+
+                    if healed and healed != code:
+                        with open(fpath, "w", encoding="utf-8") as f:
+                            f.write(healed)
+                        rel_p = os.path.relpath(fpath, preview_dir)
+                        repaired_map[rel_p] = healed
+                        fixed_files_count += 1
+                except Exception as e_file:
+                    logger.warning(f"AI Debugger skipped {fname}: {e_file}")
+
+    # 4. If files were fixed, re-package the ZIP and save to DB
+    if repaired_map and stored_file:
+        in_mem = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zin:
+            with zipfile.ZipFile(in_mem, "w", zipfile.ZIP_DEFLATED) as zout:
+                for item in zin.infolist():
+                    item_data = zin.read(item.filename)
+                    norm_name = os.path.normpath(item.filename).replace("\\", "/")
+                    for rep_rel, rep_content in repaired_map.items():
+                        norm_rep = os.path.normpath(rep_rel).replace("\\", "/")
+                        if norm_name.endswith(norm_rep) or norm_rep.endswith(norm_name):
+                            item_data = rep_content.encode("utf-8")
+                            break
+                    zout.writestr(item, item_data)
+        from app.core.storage import storage
+        replacement_url = await storage.upload_file(
+            db=db,
+            file_content=in_mem.getvalue(),
+            folder="templates/debugged",
+            original_filename=stored_file.original_filename or "template.zip",
+            content_type="application/zip",
+        )
+        template.download_assets = {**download_assets, "zip": replacement_url}
+        db.add(template)
+        await db.commit()
+
+    # 5. Clear compiled dist/build directories in preview_dir to trigger fresh build
+    for b_dir in ["dist", "out", "build", ".output"]:
+        for root, dirs, _ in os.walk(preview_dir):
+            if b_dir in dirs:
+                shutil.rmtree(os.path.join(root, b_dir), ignore_errors=True)
+
+    return {
+        "status": "success",
+        "message": f"AI Debugger analyzed project and successfully fixed {fixed_files_count} file(s).",
+        "fixed_files": list(repaired_map.keys()),
+        "fixed_count": fixed_files_count
+    }
+
+
 @router.api_route("/live/{template_id}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"], response_class=Response)
 @router.api_route("/live/{template_id}/{filepath:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"], response_class=Response)
 async def serve_live_preview(
@@ -3916,7 +4032,8 @@ async def serve_live_preview(
     db: AsyncSession = Depends(get_db)
 ):
     raw_id, _, cap = template_id.partition("~")
-    template = await _get_cached_preview_template(raw_id, db)
+    from app.repositories.template_repo import TemplateRepository
+    template = await TemplateRepository(db).get_by_id_or_slug(raw_id)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
@@ -3944,7 +4061,6 @@ async def serve_live_preview(
     import tempfile
     from fastapi.responses import Response
     from sqlalchemy import select
-    from app.repositories.template_repo import TemplateRepository
     from app.services.security_scanner import security_scanner
 
     # Live previews serve static assets only. Raw source code or API paths are never served.
@@ -4915,10 +5031,64 @@ async def serve_live_preview(
         if index_html_content:
             try:
                 html_out = index_html_content
-                if "<head>" in html_out and "cdn.tailwindcss.com" not in html_out:
-                    html_out = html_out.replace("<head>", f"<head>\n  <base href=\"/api/v1/preview/live/{template_id}/\" />\n  <script src=\"https://cdn.tailwindcss.com\"></script>\n", 1)
-                elif "<base" not in html_out and "<head>" in html_out:
-                    html_out = html_out.replace("<head>", f"<head>\n  <base href=\"/api/v1/preview/live/{template_id}/\" />\n", 1)
+                preloader_failsafe_block = f"""<head>
+  <base href="/api/v1/preview/live/{template_id}/" />
+  <style id="studio-preloader-failsafe-style">
+    @keyframes studioKillPreloaderFailsafe {{
+      0% {{ opacity: 1; }}
+      70% {{ opacity: 0; }}
+      100% {{ opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; display: none !important; height: 0 !important; max-height: 0 !important; overflow: hidden !important; width: 0 !important; }}
+    }}
+    .preloader, .preloader-wrap, #preloader, #loading, .loading-overlay, .page-loader, .loader-wrapper, #loader-wrapper, .site-preloader, .spinner-wrapper, [class*="preloader"] {{
+      animation: studioKillPreloaderFailsafe 0.3s cubic-bezier(0.4, 0, 0.2, 1) 0.5s forwards !important;
+    }}
+  </style>
+  <script id="studio-preloader-failsafe-script">
+    (function() {{
+      function dismissPreloaders() {{
+        const sels = [
+          '.preloader', '.preloader-wrap', '#preloader', '#loading',
+          '.loading-overlay', '.page-loader', '.loader-wrapper', '#loader-wrapper',
+          '.site-preloader', '.spinner-wrapper', '[class*="preloader"]'
+        ];
+        sels.forEach(function(s) {{
+          try {{
+            document.querySelectorAll(s).forEach(function(el) {{
+              el.style.setProperty('transition', 'opacity 0.25s ease', 'important');
+              el.style.setProperty('opacity', '0', 'important');
+              el.style.setProperty('pointer-events', 'none', 'important');
+              setTimeout(function() {{
+                el.style.setProperty('display', 'none', 'important');
+                el.style.setProperty('visibility', 'hidden', 'important');
+                try {{
+                  if (el.parentNode) el.parentNode.removeChild(el);
+                  else el.remove();
+                }} catch (_) {{}}
+              }}, 250);
+            }});
+          }} catch (_) {{}}
+        }});
+      }}
+      setTimeout(dismissPreloaders, 150);
+      setTimeout(dismissPreloaders, 350);
+      setTimeout(dismissPreloaders, 600);
+      setTimeout(dismissPreloaders, 1000);
+      window.addEventListener('DOMContentLoaded', function() {{
+        setTimeout(dismissPreloaders, 80);
+        setTimeout(dismissPreloaders, 300);
+      }});
+      window.addEventListener('load', function() {{
+        setTimeout(dismissPreloaders, 50);
+      }});
+      window.addEventListener('pointerdown', dismissPreloaders, {{ once: true }});
+      window.addEventListener('scroll', dismissPreloaders, {{ once: true }});
+    }})();
+  </script>
+"""
+                if "<head>" in html_out:
+                    html_out = html_out.replace("<head>", preloader_failsafe_block, 1)
+                else:
+                    html_out = preloader_failsafe_block + "\n" + html_out
 
                 if "</body>" in html_out:
                     html_out = html_out.replace("</body>", f"{watermark_payload}\n</body>", 1)
@@ -5419,7 +5589,11 @@ async def serve_live_preview(
                         pass
             return None
 
-        lock = _build_locks.setdefault(template_id, asyncio.Lock())
+        from app.core.redis import distributed_lock
+        lock = _build_locks.get(str(template.id))
+        if lock is None:
+            lock = asyncio.Lock()
+            _build_locks[str(template.id)] = lock
         async with lock:
             # 1. Detect package.json or check if source files exist
             package_json_path = detect_project_ui_package_json(preview_dir)
@@ -5433,9 +5607,10 @@ async def serve_live_preview(
                         need_extract = True
 
             if need_extract:
-                if os.path.exists(preview_dir):
-                    shutil.rmtree(preview_dir, ignore_errors=True)
-                os.makedirs(preview_dir, exist_ok=True)
+                async with distributed_lock(f"preview_build:{template.id}", ttl_seconds=600):
+                    if os.path.exists(preview_dir):
+                        shutil.rmtree(preview_dir, ignore_errors=True)
+                    os.makedirs(preview_dir, exist_ok=True)
 
                 from app.core.storage import storage
                 archive_temp_dir = Path(tempfile.mkdtemp(prefix="studio_preview_archive_"))
@@ -5661,9 +5836,12 @@ async def serve_live_preview(
     
         is_page_component_request = bool(re.search(r'\.(?:jsx|tsx|vue|svelte)$', filepath or "", re.I))
         if not is_page_component_request and filepath and re.search(r'\.(?:js|ts)$', filepath, re.I):
-            fb = os.path.basename(filepath).lower()
-            if fb in ("app.js", "app.ts", "main.js", "main.ts", "index.js", "index.ts", "about.js", "contact.js", "pricing.js", "services.js") or (template.framework and (template.framework.value if hasattr(template.framework, "value") else str(template.framework)).lower() in ("react", "nextjs")):
-                is_page_component_request = True
+            # Only treat as a page component if the file does NOT exist as a static asset on disk
+            # (never hijack existing static .js files in HTML or compiled framework templates)
+            if not os.path.exists(full_path):
+                fb = os.path.basename(filepath).lower()
+                if fb in ("app.js", "app.ts", "main.js", "main.ts", "index.js", "index.ts", "about.js", "contact.js", "pricing.js", "services.js") or (template.framework and (template.framework.value if hasattr(template.framework, "value") else str(template.framework)).lower() in ("react", "nextjs")):
+                    is_page_component_request = True
 
         is_asset_request = not is_page_component_request and bool(re.search(r'\.(?:png|jpg|jpeg|svg|webp|gif|ico|avif|bmp|tiff|css|js|mjs|woff|woff2|ttf|eot|otf|mp4|webm|mp3|wav|ogg|pdf|json|map)$', filepath or "", re.I))
         is_image_request = bool(re.search(r'\.(?:png|jpg|jpeg|svg|webp|gif|ico|avif|bmp)$', filepath or "", re.I))
@@ -5794,7 +5972,9 @@ async def serve_live_preview(
             raise HTTPException(status_code=404, detail="Requested file not found in template")
 
         mime_type, _ = mimetypes.guess_type(full_path)
-        if not mime_type:
+        if full_path.endswith((".js", ".mjs")):
+            mime_type = "text/javascript"
+        elif not mime_type:
             mime_type = "application/octet-stream"
             
         with open(full_path, "rb") as f:
@@ -5864,6 +6044,16 @@ async def serve_live_preview(
                 
                 # 2. Inject client-side routing and location sandboxing script (including absolute <base> tag)
                 sandbox_script = f"""<base href="/api/v1/preview/live/{template_id}/" />
+    <style id="studio-preloader-failsafe-style">
+      @keyframes studioKillPreloaderFailsafe {{
+        0% {{ opacity: 1; }}
+        70% {{ opacity: 0; }}
+        100% {{ opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; display: none !important; height: 0 !important; max-height: 0 !important; overflow: hidden !important; width: 0 !important; }}
+      }}
+      .preloader, .preloader-wrap, #preloader, #loading, .loading-overlay, .page-loader, .loader-wrapper, #loader-wrapper, .site-preloader, .spinner-wrapper, [class*="preloader"] {{
+        animation: studioKillPreloaderFailsafe 0.3s cubic-bezier(0.4, 0, 0.2, 1) 0.5s forwards !important;
+      }}
+    </style>
     <script>
       (function() {{
         const basePrefix = "/api/v1/preview/live/{template_id}";
@@ -5892,20 +6082,83 @@ async def serve_live_preview(
           return originalOpen.apply(this, [method, url, ...args]);
         }};
 
-        // 1. Client-Side Router Harmonizer: match live preview prefix dynamically
+        // Safe in-memory storage safeguard for sandboxed iframes (prevents SecurityError crashes)
         try {{
-          const liveMatch = window.location.pathname.match(/^\\/api\\/v1\\/preview\\/live\\/[^\\/]+/);
-          const activePrefix = liveMatch ? liveMatch[0] : basePrefix;
-          if (activePrefix && window.location.pathname.startsWith(activePrefix)) {{
-            let targetPath = window.location.pathname.slice(activePrefix.length);
-            if (!targetPath || !targetPath.startsWith('/')) {{
-              targetPath = '/' + (targetPath || '');
-            }}
-            window.history.replaceState(null, '', targetPath);
-          }}
-        }} catch (e) {{
-          console.warn("[Live Preview Sandbox] History rewrite non-critical notice:", e);
+          window.localStorage.getItem('__probe__');
+        }} catch (_) {{
+          const _mem = {{}};
+          const _safeStorage = {{
+            getItem: function(k) {{ return Object.prototype.hasOwnProperty.call(_mem, k) ? _mem[k] : null; }},
+            setItem: function(k, v) {{ _mem[k] = String(v); }},
+            removeItem: function(k) {{ delete _mem[k]; }},
+            clear: function() {{ for (const k in _mem) delete _mem[k]; }},
+            get length() {{ return Object.keys(_mem).length; }},
+            key: function(i) {{ return Object.keys(_mem)[i] || null; }}
+          }};
+          try {{
+            Object.defineProperty(window, 'localStorage', {{ value: _safeStorage, configurable: true }});
+            Object.defineProperty(window, 'sessionStorage', {{ value: _safeStorage, configurable: true }});
+          }} catch (__) {{}}
         }}
+
+        // 1. Client-Side Router Harmonizer: match live preview prefix dynamically for modern SPAs
+        if ({should_rewrite_history}) {{
+          try {{
+            const liveMatch = window.location.pathname.match(/^\\/api\\/v1\\/preview\\/live\\/[^\\/]+/);
+            const activePrefix = liveMatch ? liveMatch[0] : basePrefix;
+            if (activePrefix && window.location.pathname.startsWith(activePrefix)) {{
+              let targetPath = window.location.pathname.slice(activePrefix.length);
+              if (!targetPath || !targetPath.startsWith('/')) {{
+                targetPath = '/' + (targetPath || '');
+              }}
+              window.history.replaceState(null, '', targetPath);
+            }}
+          }} catch (e) {{
+            console.warn("[Live Preview Sandbox] History rewrite non-critical notice:", e);
+          }}
+        }}
+
+        // Autonomous Preloader Failsafe Watchdog (auto-dismisses stuck preloader overlays)
+        function dismissPreloaders() {{
+          const sels = [
+            '.preloader', '.preloader-wrap', '#preloader', '#loading',
+            '.loading-overlay', '.page-loader', '.loader-wrapper', '#loader-wrapper',
+            '.site-preloader', '.spinner-wrapper', '[class*="preloader"]'
+          ];
+          sels.forEach(function(s) {{
+            try {{
+              document.querySelectorAll(s).forEach(function(el) {{
+                el.style.setProperty('transition', 'opacity 0.35s ease', 'important');
+                el.style.setProperty('opacity', '0', 'important');
+                el.style.setProperty('pointer-events', 'none', 'important');
+                setTimeout(function() {{
+                  el.style.setProperty('display', 'none', 'important');
+                  el.style.setProperty('visibility', 'hidden', 'important');
+                  try {{
+                    if (el.parentNode) {{
+                      el.parentNode.removeChild(el);
+                    }} else {{
+                      el.remove();
+                    }}
+                  }} catch (_) {{}}
+                }}, 350);
+              }});
+            }} catch (_) {{}}
+          }});
+        }}
+        setTimeout(dismissPreloaders, 150);
+        setTimeout(dismissPreloaders, 350);
+        setTimeout(dismissPreloaders, 600);
+        setTimeout(dismissPreloaders, 1000);
+        window.addEventListener('DOMContentLoaded', function() {{
+          setTimeout(dismissPreloaders, 80);
+          setTimeout(dismissPreloaders, 300);
+        }});
+        window.addEventListener('load', function() {{
+          setTimeout(dismissPreloaders, 50);
+        }});
+        window.addEventListener('pointerdown', dismissPreloaders, {{ once: true }});
+        window.addEventListener('scroll', dismissPreloaders, {{ once: true }});
 
         // React Router Root Render Watchdog (guarantees Home renders if router lagged)
         window.addEventListener('DOMContentLoaded', function() {{
@@ -6827,150 +7080,6 @@ async def serve_live_preview(
     except Exception as e:
         logger.exception(f"🚨 Preview generation error for template {template_id}: {e}")
         return await serve_fallback(str(e))
-
-
-@router.post("/live/{template_id}/ai-debug")
-async def ai_debug_template_code(
-    template_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    On-demand AI Debugger endpoint:
-    Scans the template codebase, detects any broken JSX/TSX/HTML or syntax defects,
-    invokes Gemini AI Debugger to fix them, rebuilds the project, and persists the fixes.
-    """
-    import shutil
-    import tempfile
-    import zipfile
-    import io
-    from sqlalchemy import select
-    from app.services.debugger_service import ai_debugger
-    from app.models.template import Template
-    from app.models.stored_file import StoredFile
-
-    preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
-    
-    # 1. Fetch template from DB
-    try:
-        t_uuid = uuid.UUID(str(template_id))
-    except (ValueError, TypeError, AttributeError):
-        t_uuid = None
-    conditions = [Template.slug == str(template_id)]
-    if t_uuid:
-        conditions.append(Template.id == t_uuid)
-    result = await db.execute(select(Template).where(or_(*conditions)))
-    template = result.scalar_one_or_none()
-    if not template:
-        raise HTTPException(status_code=404, detail="Template not found")
-    if template.status != TemplateStatus.DRAFT or template.seller_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Only the owner of a draft can edit its source files.")
-    from app.core.request_limits import enforce_user_limit
-    await enforce_user_limit(str(current_user.id), "template-ai-debug")
-
-    download_assets = template.download_assets or {}
-    zip_url = download_assets.get("zip")
-    if not zip_url:
-        raise HTTPException(status_code=400, detail="Template does not have source ZIP archive")
-
-    match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
-    stored_file = None
-    if match:
-        try:
-            file_id = uuid.UUID(match.group(1))
-            sf_res = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
-            stored_file = sf_res.scalar_one_or_none()
-        except Exception:
-            pass
-
-    if not stored_file:
-        raise HTTPException(status_code=404, detail="Source archive data not found")
-
-    from app.core.storage import storage
-    stored_file_data = await storage.get_file(db, file_id)
-    if not stored_file_data:
-        raise HTTPException(status_code=404, detail="Source archive data not found")
-    zip_bytes = stored_file_data[0]
-
-    # 2. Extract to preview_dir
-    os.makedirs(preview_dir, exist_ok=True)
-    from app.services.security_scanner import security_scanner
-    security_scanner.sanitize_extract_zip(zip_bytes, Path(preview_dir))
-
-    # 3. Locate package.json and scan all source files
-    fixed_files_count = 0
-    repaired_map = {}
-
-    for root, _, files in os.walk(preview_dir):
-        if any(d in root.replace("\\", "/").split("/") for d in ["dist", "node_modules", "build", ".output"]):
-            continue
-        for fname in files:
-            ext = os.path.splitext(fname)[1].lower()
-            if ext in [".jsx", ".tsx", ".js", ".ts", ".html"]:
-                fpath = os.path.join(root, fname)
-                try:
-                    with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
-                        code = f.read()
-
-                    # Sanitize heuristics first
-                    healed = ai_debugger.sanitize_code_heuristics(code, ext)
-                    
-                    # If suspect syntax or defects detected, invoke Gemini AI Debugger
-                    if ");</" in code or ";</" in code or "export default" not in code or code.count("{") != code.count("}") or code.count("<div") != code.count("</div"):
-                        rel_path = os.path.relpath(fpath, preview_dir)
-                        healed = await ai_debugger.debug_code_with_ai(
-                            code=code,
-                            filename=rel_path,
-                            error_message="Fix unbalanced tags, stray semicolons, missing brackets, and broken exports."
-                        )
-
-                    if healed and healed != code:
-                        with open(fpath, "w", encoding="utf-8") as f:
-                            f.write(healed)
-                        rel_p = os.path.relpath(fpath, preview_dir)
-                        repaired_map[rel_p] = healed
-                        fixed_files_count += 1
-                except Exception as e_file:
-                    logger.warning(f"AI Debugger skipped {fname}: {e_file}")
-
-    # 4. If files were fixed, re-package the ZIP and save to DB
-    if repaired_map and stored_file:
-        in_mem = io.BytesIO()
-        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zin:
-            with zipfile.ZipFile(in_mem, "w", zipfile.ZIP_DEFLATED) as zout:
-                for item in zin.infolist():
-                    item_data = zin.read(item.filename)
-                    norm_name = os.path.normpath(item.filename).replace("\\", "/")
-                    for rep_rel, rep_content in repaired_map.items():
-                        norm_rep = os.path.normpath(rep_rel).replace("\\", "/")
-                        if norm_name.endswith(norm_rep) or norm_rep.endswith(norm_name):
-                            item_data = rep_content.encode("utf-8")
-                            break
-                    zout.writestr(item, item_data)
-        from app.core.storage import storage
-        replacement_url = await storage.upload_file(
-            db=db,
-            file_content=in_mem.getvalue(),
-            folder="templates/debugged",
-            original_filename=stored_file.original_filename or "template.zip",
-            content_type="application/zip",
-        )
-        template.download_assets = {**download_assets, "zip": replacement_url}
-        db.add(template)
-        await db.commit()
-
-    # 5. Clear compiled dist/build directories in preview_dir to trigger fresh build
-    for b_dir in ["dist", "out", "build", ".output"]:
-        for root, dirs, _ in os.walk(preview_dir):
-            if b_dir in dirs:
-                shutil.rmtree(os.path.join(root, b_dir), ignore_errors=True)
-
-    return {
-        "status": "success",
-        "message": f"AI Debugger analyzed project and successfully fixed {fixed_files_count} file(s).",
-        "fixed_files": list(repaired_map.keys()),
-        "fixed_count": fixed_files_count
-    }
 
 
 @router.get("/thumbnail/{template_id}.svg", include_in_schema=False)

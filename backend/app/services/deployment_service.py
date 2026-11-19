@@ -80,10 +80,11 @@ class DeploymentService:
         build_command: str = "npm run build",
         output_dir: str = "dist",
         env_vars: Optional[Dict[str, str]] = None,
+        site_id: Optional[str] = None,
     ) -> Deployment:
         """
         Creates a new tenant deployment record in `QUEUED` state.
-        Generates unique stable `site_id` (e.g. `SITE-A8F2E`).
+        Generates or uses unique stable `site_id` (e.g. `SITE-PUR-A8F2E`).
         """
         provider_type = (provider_type or "local").strip().lower()
         self.provider = get_deployment_provider(provider_type)
@@ -96,12 +97,12 @@ class DeploymentService:
         subdomain_slug = clean_name.replace(" ", "-")
         rand_suffix = uuid.uuid4().hex[:4].lower()
         subdomain = f"{subdomain_slug}-{rand_suffix}.aisitestudio.com"
-        site_id = f"SITE-{uuid.uuid4().hex[:6].upper()}"
+        final_site_id = site_id or f"SITE-{uuid.uuid4().hex[:6].upper()}"
 
         deployment = Deployment(
             user_id=user.id,
             template_id=template_id,
-            site_id=site_id,
+            site_id=final_site_id,
             project_name=project_name,
             provider=provider_type,
             status="queued",

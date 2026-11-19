@@ -7,42 +7,43 @@ import {
   useLocation,
   useNavigate
 } from "react-router-dom";
-import { useEffect } from 'react'
+import { useEffect, lazy, Suspense } from 'react'
 import { Toaster } from 'sonner'
 import { useTheme } from './hooks/useTheme'
 import { useAppUser } from './lib/auth.jsx'
 import { useAuthStore } from './store/authStore.js';
 import './App.css';
-import Home from './app/page.jsx'
-import Marketplace from './app/marketplace/page.jsx'
-import Dashboard from './app/dashboard/page.jsx'
-import Checkout from './app/checkout/page.jsx'
-import GetStarted from './app/get-started/page.jsx'
-import SignIn from './app/sign-in/page.jsx'
-import Register from './app/register/page.jsx'
-import Onboarding from './app/onboarding/page.jsx'
-import AdminPanel from './app/admin/page.jsx'
-import TemplateDetailsPage from './app/marketplace/[slug]/page.jsx'
-import StudioPage from './app/studio/page.jsx'
-import StudioLaunchPage from './app/studio/launch/page.jsx'
-import StudioDeployPage from './app/studio/deploy/page.jsx'
-import PreviewPage from './app/preview/page.jsx'
-import StorybookPage from './app/storybook/page.jsx'
-import PricingPage from './app/pricing/page.jsx'
-import SubscribePage from './app/subscribe/page.jsx'
-import AboutPage from './app/about/page.jsx'
-import ContactPage from './app/contact/page.jsx'
-import VerifyOTPPage from './app/verify-otp/page.jsx'
-import ForgotPasswordPage from './app/forgot-password/page.jsx'
-import ReceiptPage from './app/dashboard/receipt/page.jsx'
-import PayoutReceiptPage from './app/dashboard/payout-receipt/page.jsx'
-import DeployedWebsiteDetailsPage from './app/deployments/[id]/page.jsx'
-import DomainPurchasePage from './app/domains/buy/page.jsx'
-import PrivacyPolicyPage from './app/privacy/page.jsx'
-import TermsPage from './app/terms/page.jsx'
-import CreatorSetupPage from './app/creator/setup/page.jsx'
-import CreatorStorefrontPage from './app/creator/[slug]/page.jsx'
-import AuthCompletePage from './app/auth/complete/page.jsx'
+
+const Home = lazy(() => import('./app/page.jsx'));
+const Marketplace = lazy(() => import('./app/marketplace/page.jsx'));
+const Dashboard = lazy(() => import('./app/dashboard/page.jsx'));
+const Checkout = lazy(() => import('./app/checkout/page.jsx'));
+const GetStarted = lazy(() => import('./app/get-started/page.jsx'));
+const SignIn = lazy(() => import('./app/sign-in/page.jsx'));
+const Register = lazy(() => import('./app/register/page.jsx'));
+const Onboarding = lazy(() => import('./app/onboarding/page.jsx'));
+const AdminPanel = lazy(() => import('./app/admin/page.jsx'));
+const TemplateDetailsPage = lazy(() => import('./app/marketplace/[slug]/page.jsx'));
+const StudioPage = lazy(() => import('./app/studio/page.jsx'));
+const StudioLaunchPage = lazy(() => import('./app/studio/launch/page.jsx'));
+const StudioDeployPage = lazy(() => import('./app/studio/deploy/page.jsx'));
+const PreviewPage = lazy(() => import('./app/preview/page.jsx'));
+const StorybookPage = lazy(() => import('./app/storybook/page.jsx'));
+const PricingPage = lazy(() => import('./app/pricing/page.jsx'));
+const SubscribePage = lazy(() => import('./app/subscribe/page.jsx'));
+const AboutPage = lazy(() => import('./app/about/page.jsx'));
+const ContactPage = lazy(() => import('./app/contact/page.jsx'));
+const VerifyOTPPage = lazy(() => import('./app/verify-otp/page.jsx'));
+const ForgotPasswordPage = lazy(() => import('./app/forgot-password/page.jsx'));
+const ReceiptPage = lazy(() => import('./app/dashboard/receipt/page.jsx'));
+const PayoutReceiptPage = lazy(() => import('./app/dashboard/payout-receipt/page.jsx'));
+const DeployedWebsiteDetailsPage = lazy(() => import('./app/deployments/[id]/page.jsx'));
+const DomainPurchasePage = lazy(() => import('./app/domains/buy/page.jsx'));
+const PrivacyPolicyPage = lazy(() => import('./app/privacy/page.jsx'));
+const TermsPage = lazy(() => import('./app/terms/page.jsx'));
+const CreatorSetupPage = lazy(() => import('./app/creator/setup/page.jsx'));
+const CreatorStorefrontPage = lazy(() => import('./app/creator/[slug]/page.jsx'));
+const AuthCompletePage = lazy(() => import('./app/auth/complete/page.jsx'));
 
 
 import SupportButton from './components/support/SupportButton.jsx';
@@ -94,7 +95,15 @@ function AppRouteContent() {
   return (
     <div key={location.pathname} className="app-route-transition">
       <ErrorBoundary>
-        <Routes>
+        <Suspense fallback={
+          <div className="app-loading-screen">
+            <div className="app-loading-spinner">
+              <div className="app-spinner-track" />
+              <div className="app-spinner-head" />
+            </div>
+          </div>
+        }>
+          <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/marketplace" element={<Marketplace />} />
           <Route path="/studio" element={<ProtectedRoute><StudioPage /></ProtectedRoute>} />
@@ -133,6 +142,7 @@ function AppRouteContent() {
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/terms" element={<TermsPage />} />
         </Routes>
+        </Suspense>
       </ErrorBoundary>
     </div>
   );

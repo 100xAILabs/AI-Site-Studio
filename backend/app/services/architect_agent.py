@@ -36,6 +36,11 @@ class ArchitectAgent:
         if not pages:
             pages = [{"name": "Home", "filename": "index.html", "purpose": "Main landing page"}]
 
+        project_spec = plan.get("project_specification") or {}
+        arch_type = project_spec.get("architecture_type", "static")
+        detected_features = project_spec.get("features_detected", [])
+        features_summary = ", ".join(detected_features) if detected_features else "Standard components"
+
         architect_prompt = f"""You are the Principal Software & Site Architect Agent.
 Your job is to transform the approved website plan and UI design into a strict, authoritative Technical Project Manifest.
 
@@ -43,6 +48,8 @@ PROJECT SPECIFICATION:
 - Brief: {prompt[:3000]}
 - Category: {category} | Genre: {genre}
 - Target Stack: {stack}
+- Architecture Tier: {arch_type}
+- Key Application Features: {features_summary}
 - Planned Sitemap: {json.dumps(pages, ensure_ascii=False)}
 - Design System: {design[:1200]}
 - Owner Answers: {json.dumps(answers, ensure_ascii=False)[:1200]}
@@ -153,6 +160,8 @@ Return JSON ONLY matching this structure:
 
         manifest["pages"] = normalized_pages
         manifest["site_title"] = manifest.get("site_title") or plan.get("title") or genre.title()
+        if plan.get("project_specification"):
+            manifest["project_specification"] = plan["project_specification"]
         return manifest
 
     def _build_fallback_manifest(
@@ -200,6 +209,7 @@ Return JSON ONLY matching this structure:
                 },
             },
             "pages": manifest_pages,
+            **({"project_specification": plan["project_specification"]} if plan.get("project_specification") else {}),
         }
 
     def _create_page_spec(

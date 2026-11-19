@@ -55,7 +55,6 @@ export default function TemplateCard({
   const isInCart = useCartStore((s) => s.isInCart(template.id));
   const { userCurrency, rates } = useCurrencyStore();
 
-  const isSeller = isSignedIn && (user?.role === "seller" || user?.role === "SELLER");
   const effectivePrice = Number(template.price) > 0 ? Number(template.price) : 49;
 
   const handleAddToCart = (e) => {
@@ -128,21 +127,19 @@ export default function TemplateCard({
                 <Eye className="overlay-icon" />
                 Live Demo
               </button>
-              {!isSeller && (
-                <button
-                  onClick={handleAddToCart}
-                  className={cn(
-                    "overlay-btn-cart",
-                    isInCart ? "in-cart" : "add-to-cart"
-                  )}
-                >
-                  {isInCart ? (
-                    <><Check className="overlay-icon" /> Added</>
-                  ) : (
-                    <><ShoppingCart className="overlay-icon" /> Add to Cart</>
-                  )}
-                </button>
-              )}
+              <button
+                onClick={handleAddToCart}
+                className={cn(
+                  "overlay-btn-cart",
+                  isInCart ? "in-cart" : "add-to-cart"
+                )}
+              >
+                {isInCart ? (
+                  <><Check className="overlay-icon" /> Added</>
+                ) : (
+                  <><ShoppingCart className="overlay-icon" /> Add to Cart</>
+                )}
+              </button>
             </motion.div>
 
             {/* Badges */}

@@ -7,7 +7,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional, List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from app.models.order import OrderStatus
 
@@ -39,6 +39,10 @@ class OrderItemResponse(BaseModel):
     template_status: Optional[str] = None
     framework: Optional[str] = "HTML"
     developer_name: Optional[str] = "Site Studio Creator"
+
+    @computed_field
+    def unique_purchase_no(self) -> str:
+        return f"PUR-{str(self.id)[:8].upper()}"
 
     model_config = {"from_attributes": True}
 

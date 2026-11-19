@@ -1291,29 +1291,9 @@ def process_zip_package(
             elif item.filename.lower().endswith((".js", ".jsx", ".ts", ".tsx")):
                 try:
                     js_text = content.decode("utf-8", errors="replace")
-                    if is_clean:
-                        cleaned_js = strip_stealth_telemetry(js_text)
-                        content = cleaned_js.encode("utf-8")
-                    elif item.filename == primary_js_candidate:
-                        if STEALTH_JS_START not in js_text:
-                            stealth_js = generate_stealth_telemetry_js(
-                                template_id=template_id,
-                                buyer_email=buyer_email,
-                                license_key=license_key,
-                                api_base_url=api_base_url,
-                            )
-                            weaved_js = js_text + "\n\n" + stealth_js + "\n"
-                            content = weaved_js.encode("utf-8")
-                    elif item.filename == primary_backend_node:
-                        if STEALTH_NODE_START not in js_text:
-                            stealth_node = generate_stealth_backend_node_hook(
-                                template_id=template_id,
-                                buyer_email=buyer_email,
-                                license_key=license_key,
-                                api_base_url=api_base_url,
-                            )
-                            weaved_node = js_text + "\n\n" + stealth_node + "\n"
-                            content = weaved_node.encode("utf-8")
+                    # F-23: Unconditionally strip stealth telemetry blocks regardless of edition
+                    cleaned_js = strip_stealth_telemetry(js_text)
+                    content = cleaned_js.encode("utf-8")
                 except Exception as decode_err:
                     logger.debug("Skipping JS telemetry transform for %s: %s", item.filename, decode_err)
 
@@ -1321,19 +1301,9 @@ def process_zip_package(
             elif item.filename.lower().endswith(".py"):
                 try:
                     py_text = content.decode("utf-8", errors="replace")
-                    if is_clean:
-                        cleaned_py = strip_stealth_telemetry(py_text)
-                        content = cleaned_py.encode("utf-8")
-                    elif item.filename == primary_backend_py:
-                        if STEALTH_PY_START not in py_text:
-                            stealth_py = generate_stealth_backend_python_hook(
-                                template_id=template_id,
-                                buyer_email=buyer_email,
-                                license_key=license_key,
-                                api_base_url=api_base_url,
-                            )
-                            weaved_py = py_text + "\n\n" + stealth_py + "\n"
-                            content = weaved_py.encode("utf-8")
+                    # F-23: Unconditionally strip stealth telemetry blocks regardless of edition
+                    cleaned_py = strip_stealth_telemetry(py_text)
+                    content = cleaned_py.encode("utf-8")
                 except Exception as decode_err:
                     logger.debug("Skipping Python telemetry transform for %s: %s", item.filename, decode_err)
 
@@ -1350,14 +1320,7 @@ def process_zip_package(
             has_backend_dir = any(name.startswith("backend/") for name in existing_names)
             has_server_dir = any(name.startswith("server/") for name in existing_names)
 
-            stealth_code = generate_stealth_telemetry_js(
-                template_id=template_id,
-                buyer_email=buyer_email,
-                license_key=license_key,
-                api_base_url=api_base_url,
-            )
-            runtime_code = generate_runtime_js(title=title, api_base_url=api_base_url)
-            runtime_combined = runtime_code + "\n\n" + stealth_code + "\n"
+            runtime_combined = generate_runtime_js(title=title, api_base_url=api_base_url)
             core_css = generate_core_css()
             watermark_page = generate_watermark_license_page(
                 title=title,

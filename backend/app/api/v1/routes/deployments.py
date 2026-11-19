@@ -38,7 +38,13 @@ from app.schemas.deployment import (
     RollbackRequest,
     EnvironmentVariableUpdate,
     ClientTelemetryPayload,
+    EnvScanRequest,
+    EnvScanResponse,
+    EnvVarMetadataResponse,
+    EnvValidateRequest,
+    EnvValidateResponse,
 )
+from app.services.env_scanner import env_scanner_service
 from app.services.deployment_service import DeploymentService
 from app.services.deployment_providers import get_deployment_provider, local_deployment_provider
 from app.services.godaddy_domain_service import godaddy_domain_service
@@ -117,7 +123,7 @@ async def get_hosting_price(
         try:
             import stripe
             stripe.api_key = settings.STRIPE_SECRET_KEY
-            price = stripe.Price.retrieve(price_id, expand=["product"])
+            price = await asyncio.to_thread(stripe.Price.retrieve, price_id, expand=["product"])
             recurring = price.get("recurring") or {}
             if price.get("active"):
                 return {
@@ -260,7 +266,7 @@ async def create_hosting_checkout(
         stripe.api_key = settings.STRIPE_SECRET_KEY
         if deployment.hosting_checkout_session_id:
             try:
-                previous = stripe.checkout.Session.retrieve(deployment.hosting_checkout_session_id)
+                previous = await asyncio.to_thread(stripe.checkout.Session.retrieve, deployment.hosting_checkout_session_id)
                 if previous.get("status") == "open" and previous.url:
                     return {"checkout_url": previous.url}
                 if previous.get("status") == "complete":
@@ -285,7 +291,8 @@ async def create_hosting_checkout(
         # Try pre-configured price first if set
         if settings.STRIPE_HOSTING_PRICE_ID:
             try:
-                checkout = stripe.checkout.Session.create(
+                checkout = await asyncio.to_thread(
+                    stripe.checkout.Session.create,
                     **session_params,
                     line_items=[{"price": settings.STRIPE_HOSTING_PRICE_ID, "quantity": 1}],
                 )
@@ -296,7 +303,8 @@ async def create_hosting_checkout(
         # Fallback to dynamic price_data in subscription mode
         if not checkout:
             try:
-                checkout = stripe.checkout.Session.create(
+                checkout = await asyncio.to_thread(
+                    stripe.checkout.Session.create,
                     **session_params,
                     line_items=[{
                         "price_data": {
@@ -320,7 +328,8 @@ async def create_hosting_checkout(
             payment_params = {**session_params}
             payment_params["mode"] = "payment"
             payment_params.pop("subscription_data", None)
-            checkout = stripe.checkout.Session.create(
+            checkout = await asyncio.to_thread(
+                stripe.checkout.Session.create,
                 **payment_params,
                 line_items=[{
                     "price_data": {
@@ -381,7 +390,7 @@ async def cancel_hosting_subscription(
     try:
         import stripe
         stripe.api_key = settings.STRIPE_SECRET_KEY
-        stripe.Subscription.modify(row.stripe_subscription_id, cancel_at_period_end=True)
+        await asyncio.to_thread(stripe.Subscription.modify, row.stripe_subscription_id, cancel_at_period_end=True)
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Could not schedule the subscription cancellation.") from exc
     row.cancel_at_period_end = True
@@ -407,7 +416,8 @@ async def open_hosting_billing_portal(
     try:
         import stripe
         stripe.api_key = settings.STRIPE_SECRET_KEY
-        portal = stripe.billing_portal.Session.create(
+        portal = await asyncio.to_thread(
+            stripe.billing_portal.Session.create,
             customer=row.stripe_customer_id,
             return_url=f"{settings.FRONTEND_URL.rstrip('/')}/dashboard?tab=deployments",
         )
@@ -601,7 +611,8 @@ async def purchase_domain(
         if stripe_configured:
             try:
                 stripe.api_key = settings.STRIPE_SECRET_KEY
-                checkout = stripe.checkout.Session.create(
+                checkout = await asyncio.to_thread(
+                    stripe.checkout.Session.create,
                     mode="payment",
                     payment_method_types=["card"],
                     line_items=[{"price_data": {
@@ -664,7 +675,7 @@ async def get_purchased_domain_status(
     if domain.registrar_status in {"pending_payment", "registration_unknown"} and domain.stripe_checkout_session_id:
         import stripe
         stripe.api_key = settings.STRIPE_SECRET_KEY
-        checkout = stripe.checkout.Session.retrieve(domain.stripe_checkout_session_id)
+        checkout = await asyncio.to_thread(stripe.checkout.Session.retrieve, domain.stripe_checkout_session_id)
         if checkout.get("payment_status") == "paid":
             from app.services.domain_purchase_service import fulfill_domain_checkout
             await fulfill_domain_checkout(checkout, db)
@@ -1185,6 +1196,10 @@ async def verify_domain_ownership(
         }
 
     # 4. Verified: Update or create Domain record
+    from app.services.dns_verification_service import tls_ready
+    is_tls = await tls_ready(clean_domain)
+    ssl_state = "active" if is_tls else "pending"
+
     if not existing_domain:
         existing_domain = Domain(
             deployment_id=deployment.id,
@@ -1192,7 +1207,7 @@ async def verify_domain_ownership(
             domain=clean_domain,
             domain_type="custom",
             verification_status="verified",
-            ssl_status="active",
+            ssl_status=ssl_state,
             verification_token=expected_token,
         )
         db.add(existing_domain)
@@ -1200,7 +1215,7 @@ async def verify_domain_ownership(
         existing_domain.deployment_id = deployment.id
         existing_domain.user_id = current_user.id
         existing_domain.verification_status = "verified"
-        existing_domain.ssl_status = "active"
+        existing_domain.ssl_status = ssl_state
 
     deployment.custom_domain = clean_domain
     await db.commit()
@@ -1338,6 +1353,92 @@ async def list_deployment_providers(current_user: User = Depends(get_current_use
     }
 
 
+@router.post("/scan-env", response_model=EnvScanResponse)
+async def scan_deployment_environment(
+    payload: EnvScanRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Phase 4: Scans environment variable requirements for a project or template prior to deployment.
+    Provides detailed descriptions, provider URLs, and configuration statuses.
+    """
+    stack_key = payload.stack_key
+    auth_required = payload.auth_required
+    stripe_needed = payload.stripe_needed
+    file_contents = {}
+
+    if payload.template_id:
+        t_stmt = select(Template).where(Template.id == payload.template_id)
+        t_res = await db.execute(t_stmt)
+        template = t_res.scalar_one_or_none()
+        if template:
+            if not stack_key:
+                stack_key = getattr(template, "framework", "html")
+            desc_text = f"{template.title} {template.short_description or ''} {' '.join(template.tags or [])}".lower()
+            if any(w in desc_text for w in ("login", "auth", "account", "dashboard")):
+                auth_required = True
+            if any(w in desc_text for w in ("stripe", "checkout", "payment", "ecommerce", "shop")):
+                stripe_needed = True
+
+    specs = env_scanner_service.scan_env_requirements(
+        env_keys=payload.env_keys,
+        file_contents=file_contents,
+        existing_env=payload.existing_env,
+        stack_key=stack_key,
+        auth_required=auth_required,
+        stripe_needed=stripe_needed,
+    )
+
+    missing_req = sum(1 for s in specs if s.status == "missing")
+    configured = sum(1 for s in specs if s.status == "configured")
+
+    return EnvScanResponse(
+        template_id=payload.template_id,
+        env_vars=[EnvVarMetadataResponse(**s.model_dump()) for s in specs],
+        missing_required_count=missing_req,
+        configured_count=configured,
+    )
+
+
+@router.post("/validate-env", response_model=EnvValidateResponse)
+async def validate_deployment_environment(
+    payload: EnvValidateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Phase 4: Validates user-submitted environment variables against detected template requirements.
+    Blocks deployment if critical secrets or required variables are missing or malformed.
+    """
+    auth_req = False
+    stripe_req = False
+    if payload.template_id:
+        t_stmt = select(Template).where(Template.id == payload.template_id)
+        t_res = await db.execute(t_stmt)
+        template = t_res.scalar_one_or_none()
+        if template:
+            desc_text = f"{template.title} {template.short_description or ''} {' '.join(template.tags or [])}".lower()
+            if any(w in desc_text for w in ("login", "auth", "account", "dashboard")):
+                auth_req = True
+            if any(w in desc_text for w in ("stripe", "checkout", "payment", "ecommerce", "shop")):
+                stripe_req = True
+
+    specs = env_scanner_service.scan_env_requirements(
+        existing_env=payload.env_vars,
+        stack_key=payload.stack_key,
+        auth_required=auth_req,
+        stripe_needed=stripe_req,
+    )
+
+    result = env_scanner_service.validate_deployment_env(
+        env_vars=payload.env_vars,
+        required_specs=specs,
+        strict_mode=payload.strict_mode,
+    )
+    return EnvValidateResponse(**result)
+
+
 @router.post("", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED)
 @router.post("/", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 async def create_deployment(
@@ -1370,27 +1471,94 @@ async def create_deployment(
         and not getattr(user_sub, "is_trial", False)
     )
 
+    purchase_item_id = None
     if payload.template_id:
         template_result = await db.execute(select(Template).where(Template.id == payload.template_id))
         template = template_result.scalar_one_or_none()
         if not template:
             raise HTTPException(status_code=404, detail="Template not found.")
-        can_deploy = (
-            (template.is_free and template.status == TemplateStatus.PUBLISHED)
-            or (template.seller_id == current_user.id and getattr(template, "template_origin", "") != "custom_draft")
-            or is_extreme
+        # Always check for a completed purchase record for this user and template to obtain the permanent unique purchase ID
+        purchase_result = await db.execute(
+            select(OrderItem.id).join(Order, Order.id == OrderItem.order_id).where(
+                OrderItem.template_id == template.id,
+                Order.user_id == current_user.id,
+                Order.status == OrderStatus.COMPLETED,
+            ).order_by(OrderItem.created_at.desc()).limit(1)
         )
-        if not can_deploy:
-            purchase_result = await db.execute(
-                select(OrderItem.id).join(Order, Order.id == OrderItem.order_id).where(
-                    OrderItem.template_id == template.id,
-                    Order.user_id == current_user.id,
-                    Order.status == OrderStatus.COMPLETED,
-                ).limit(1)
+        found_purchase_id = purchase_result.scalar_one_or_none()
+        if found_purchase_id:
+            purchase_item_id = found_purchase_id
+            can_deploy = True
+        else:
+            can_deploy = (
+                (template.is_free and template.status == TemplateStatus.PUBLISHED)
+                or (template.seller_id == current_user.id and getattr(template, "template_origin", "") != "custom_draft")
+                or is_extreme
             )
-            can_deploy = purchase_result.scalar_one_or_none() is not None
         if not can_deploy:
             raise HTTPException(status_code=403, detail="Purchase or own this template before deploying it.")
+
+        # Idempotent Deployment: Whenever a user deploys the same template again,
+        # use the stable unique purchase/site identifier and redeploy with new details instead of creating a duplicate!
+        existing_stmt = select(Deployment).where(
+            Deployment.user_id == current_user.id,
+            Deployment.template_id == payload.template_id,
+            Deployment.status != "deleted"
+        ).order_by(Deployment.created_at.desc())
+        existing_res = await db.execute(existing_stmt)
+        existing_deployment = existing_res.scalars().first()
+
+        if existing_deployment:
+            # Update existing deployment with newly supplied configuration details
+            if payload.project_name and payload.project_name.strip():
+                existing_deployment.project_name = payload.project_name.strip()
+            if payload.build_command:
+                existing_deployment.build_command = payload.build_command
+            if payload.output_dir:
+                existing_deployment.output_dir = payload.output_dir
+            if payload.env_vars is not None:
+                existing_deployment.env_vars = payload.env_vars
+            if payload.provider:
+                existing_deployment.provider = payload.provider
+
+            # Compute next version number (v1.0 -> v1.1, v1.2, etc.)
+            cur_ver = existing_deployment.current_version or "v1.0"
+            try:
+                parts = cur_ver.lstrip("v").split(".")
+                major = int(parts[0]) if len(parts) > 0 else 1
+                minor = int(parts[1]) if len(parts) > 1 else 0
+                next_ver = f"v{major}.{minor + 1}"
+            except Exception:
+                next_ver = "v1.1"
+
+            existing_deployment.current_version = next_ver
+            existing_deployment.status = "queued"
+            existing_deployment.updated_at = datetime.now(timezone.utc)
+
+            # Link custom domain if supplied and owned
+            if payload.custom_domain and payload.custom_domain.strip():
+                clean_dom = payload.custom_domain.strip().lower()
+                dom_check = await db.execute(
+                    select(Domain).where(Domain.domain == clean_dom, Domain.user_id == current_user.id)
+                )
+                user_domain_record = dom_check.scalar_one_or_none()
+                if user_domain_record:
+                    user_domain_record.deployment_id = existing_deployment.id
+                    existing_deployment.custom_domain = clean_dom
+
+            new_version_record = DeploymentVersion(
+                deployment_id=existing_deployment.id,
+                version=next_ver,
+                build_reference=f"redeploy-{uuid.uuid4().hex[:6]}",
+                status="queued",
+                commit_message=f"Redeployed template with updated configuration ({next_ver})"
+            )
+            db.add(new_version_record)
+            await db.commit()
+            await db.refresh(existing_deployment)
+
+            background_tasks.add_task(DeploymentService.run_deployment_pipeline, existing_deployment.id, next_ver)
+            return existing_deployment
 
     # Check active website allowances and tier policies via central EntitlementService
     from app.services.entitlement_service import EntitlementService
@@ -1427,6 +1595,19 @@ async def create_deployment(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
+        custom_site_id = f"SITE-PUR-{str(purchase_item_id)[:8].upper()}" if purchase_item_id else None
+
+        # Phase 4: Secrets Validation & Environment Pre-Flight
+        if payload.env_vars:
+            val_res = env_scanner_service.validate_deployment_env(
+                env_vars=payload.env_vars,
+                strict_mode=False,
+            )
+            if not val_res["valid"]:
+                err_msg = "; ".join(val_res["errors"])
+                raise HTTPException(status_code=400, detail=f"Configuration secrets error: {err_msg}")
+            payload.env_vars = val_res["sanitized_env"]
+
         deployment = await service.create_deployment(
             user=current_user,
             project_name=payload.project_name,
@@ -1435,6 +1616,7 @@ async def create_deployment(
             build_command=payload.build_command or "npm run build",
             output_dir=payload.output_dir or "dist",
             env_vars=payload.env_vars,
+            site_id=custom_site_id,
         )
         # Apply 7-day trial window for Free tier deployments and record permanent trial history
         if not is_pro and not is_extreme and not is_admin:
@@ -1893,9 +2075,9 @@ async def delete_deployment(
         try:
             import stripe
             stripe.api_key = settings.STRIPE_SECRET_KEY
-            remote_subscription = stripe.Subscription.retrieve(hosting_subscription.stripe_subscription_id)
+            remote_subscription = await asyncio.to_thread(stripe.Subscription.retrieve, hosting_subscription.stripe_subscription_id)
             if remote_subscription.get("status") not in {"canceled", "incomplete_expired"}:
-                stripe.Subscription.cancel(hosting_subscription.stripe_subscription_id, prorate=False)
+                await asyncio.to_thread(stripe.Subscription.cancel, hosting_subscription.stripe_subscription_id, prorate=False)
         except Exception as exc:
             raise HTTPException(status_code=502, detail="Could not stop recurring hosting billing, so the site was not deleted.") from exc
 
@@ -2111,17 +2293,21 @@ async def verify_custom_domain(
             await db.commit()
         raise HTTPException(status_code=400, detail=v_res.get("reason", "Domain DNS verification failed."))
 
+    from app.services.dns_verification_service import tls_ready
+    is_tls = await tls_ready(clean_domain)
+    ssl_state = "active" if is_tls else "pending"
+
     if dom_record:
         dom_record.verification_status = "verified"
-        dom_record.ssl_status = "active"
+        dom_record.ssl_status = ssl_state
         await db.commit()
 
     return {
         "status": "verified",
         "domain": clean_domain,
-        "ssl_status": "active",
+        "ssl_status": ssl_state,
         "details": v_res.get("details"),
-        "message": f"Domain {clean_domain} DNS records verified and SSL issued successfully!",
+        "message": f"Domain {clean_domain} DNS records verified successfully! SSL status: {ssl_state}.",
     }
 
 
@@ -2192,8 +2378,9 @@ async def verify_custom_domain(
         await db.commit()
         raise HTTPException(status_code=400, detail=v_res.get("reason", "DNS verification failed."))
 
+    from app.services.dns_verification_service import tls_ready
     domain_record.verification_status = "verified"
-    domain_record.ssl_status = "active"
+    domain_record.ssl_status = "active" if await tls_ready(domain_record.domain) else "pending"
     await db.commit()
     await db.refresh(domain_record)
     return domain_record

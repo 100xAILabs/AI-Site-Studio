@@ -1,10 +1,14 @@
 from datetime import datetime, timezone
 import json
 import logging
+import os
 from pathlib import Path
+import threading
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+_MEMORY_LOCK = threading.RLock()
 
 # Default persistent store path
 _MEMORY_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -91,19 +95,23 @@ class AgentMemoryRegistry:
 
     def _load_data(self) -> dict[str, Any]:
         try:
-            if self.memory_file.exists():
-                with open(self.memory_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
+            with _MEMORY_LOCK:
+                if self.memory_file.exists():
+                    with open(self.memory_file, "r", encoding="utf-8") as f:
+                        return json.load(f)
         except Exception as e:
             logger.warning(f"Error loading agent memory: {e}")
         return {"version": "1.0", "lessons": _DEFAULT_LESSONS}
 
     def _save_data(self, data: dict[str, Any]) -> None:
         try:
-            self.memory_file.parent.mkdir(parents=True, exist_ok=True)
-            data["updated_at"] = datetime.now(timezone.utc).isoformat()
-            with open(self.memory_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
+            with _MEMORY_LOCK:
+                self.memory_file.parent.mkdir(parents=True, exist_ok=True)
+                data["updated_at"] = datetime.now(timezone.utc).isoformat()
+                temp_file = self.memory_file.with_suffix(".tmp")
+                with open(temp_file, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+                os.replace(temp_file, self.memory_file)
         except Exception as e:
             logger.warning(f"Error saving agent memory: {e}")
 
@@ -120,43 +128,44 @@ class AgentMemoryRegistry:
         Records a detected audit or generation flaw, updating occurrence metrics
         and persisting the rule to agent memory.
         """
-        data = self._load_data()
-        lessons: list[dict[str, Any]] = data.get("lessons", [])
-        now_iso = datetime.now(timezone.utc).isoformat()
+        with _MEMORY_LOCK:
+            data = self._load_data()
+            lessons: list[dict[str, Any]] = data.get("lessons", [])
+            now_iso = datetime.now(timezone.utc).isoformat()
 
-        # Find existing rule by trigger or category
-        matched = None
-        for item in lessons:
-            if item.get("mistake_trigger") == mistake_trigger:
-                matched = item
-                break
+            # Find existing rule by trigger or category
+            matched = None
+            for item in lessons:
+                if item.get("mistake_trigger") == mistake_trigger:
+                    matched = item
+                    break
 
-        if matched:
-            matched["occurrence_count"] = matched.get("occurrence_count", 0) + 1
-            matched["last_seen"] = now_iso
-            matched["severity"] = severity
-            if file_path:
-                matched["last_file"] = file_path
-            logger.info(f"Agent memory reinforced: '{mistake_trigger}' (seen {matched['occurrence_count']}x)")
-        else:
-            new_id = f"lesson_{mistake_trigger.replace('-', '_').replace(' ', '_').lower()}"
-            new_lesson = {
-                "id": new_id,
-                "category": category,
-                "title": title or mistake_trigger.replace("_", " ").title(),
-                "rule": lesson_rule,
-                "mistake_trigger": mistake_trigger,
-                "severity": severity,
-                "occurrence_count": 1,
-                "last_seen": now_iso,
-                "last_file": file_path or ""
-            }
-            lessons.append(new_lesson)
-            logger.info(f"Agent learned new lesson from mistake: '{mistake_trigger}'")
+            if matched:
+                matched["occurrence_count"] = matched.get("occurrence_count", 0) + 1
+                matched["last_seen"] = now_iso
+                matched["severity"] = severity
+                if file_path:
+                    matched["last_file"] = file_path
+                logger.info(f"Agent memory reinforced: '{mistake_trigger}' (seen {matched['occurrence_count']}x)")
+            else:
+                new_id = f"lesson_{mistake_trigger.replace('-', '_').replace(' ', '_').lower()}"
+                new_lesson = {
+                    "id": new_id,
+                    "category": category,
+                    "title": title or mistake_trigger.replace("_", " ").title(),
+                    "rule": lesson_rule,
+                    "mistake_trigger": mistake_trigger,
+                    "severity": severity,
+                    "occurrence_count": 1,
+                    "last_seen": now_iso,
+                    "last_file": file_path or ""
+                }
+                lessons.append(new_lesson)
+                logger.info(f"Agent learned new lesson from mistake: '{mistake_trigger}'")
 
-        data["lessons"] = lessons
-        data["total_mistakes_logged"] = sum(l.get("occurrence_count", 1) for l in lessons)
-        self._save_data(data)
+            data["lessons"] = lessons
+            data["total_mistakes_logged"] = sum(l.get("occurrence_count", 1) for l in lessons)
+            self._save_data(data)
 
     def get_learned_constraints_prompt(self, category: Optional[str] = None) -> str:
         """

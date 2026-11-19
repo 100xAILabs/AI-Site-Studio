@@ -25,6 +25,7 @@ from app.core.storage import storage
 from app.core.config import settings
 from app.services.security_scanner import security_scanner
 from app.services.backend_generator import backend_generator, SUPPORTED_STACKS
+from app.services.requirement_analyzer import requirement_analyzer, ProjectSpecification, ArchitectureType
 from app.core.local_project_manager import local_project_manager
 from app.services.framework_auditor import framework_auditor
 from app.services.architect_agent import architect_agent
@@ -428,114 +429,33 @@ PORTFOLIO_TERMS = (
 
 def detect_stack_from_prompt(prompt: str, category: str = "", genre: str = "", requested_stack: str = "auto") -> str:
     """
-    Intelligently analyzes the user's prompt and requirements:
-    - Ordinary showcase and business websites default to 'html-css-js' (HTML5 + CSS + JavaScript).
-    - An explicitly requested supported framework/stack takes priority over category-based defaults.
-    - If the user lists developer skills (React, Python, Postgres, SQL, FastAPI, etc.) or bio/experience:
-      -> It is recognized as their skill/background, NEVER a full-stack website requirement.
-    - If anything explicitly requires an interactive application backend for the site itself (live database, user logins,
-      shopping cart checkout, admin CRUD dashboard):
-      -> Chooses 'react-fastapi-postgresql' (React + FastAPI + PostgreSQL).
-    - Default: 'html-css-js' (clean semantic HTML5, modern CSS, vanilla JS).
+    Intelligently analyzes the user's prompt and requirements using RequirementAnalyzer:
+    - Pure static showcase websites default to 'html-css-js' (HTML5 + CSS + JavaScript).
+    - Content-driven websites with interactive forms / emails default to 'hybrid-serverless-api'.
+    - Full-stack applications (ATS, applicant tracking, candidate portals, CRM, SaaS, ecommerce) -> 'react-fastapi-postgresql'.
+    - Explicit requested frameworks/stacks take priority.
+    - Developer skills and bio/experience are scrubbed to prevent false fullstack classification of resumes.
     """
-    if requested_stack == "html-css-js":
-        return "html-css-js"
-    if requested_stack in {"react-fastapi-postgresql", "vue-fastapi-postgresql", "angular-fastapi-postgresql"}:
-        return requested_stack
-
-    cat_lower = str(category or "").strip().lower()
-    genre_lower = str(genre or "").strip().lower()
-    prompt_lower = str(prompt or "").strip().lower()
-    framework_context = f"{prompt_lower} {genre_lower}"
-
-    # Honor an explicitly requested frontend framework before static category heuristics.
-    # This lets a portfolio, restaurant, or brochure use the requested framework.
-    # Skill lists alone are not framework requests. Require directive/context wording.
-    explicit_framework_patterns = [
-        r"\b(?:use|using|built\s+with|build\s+with|create(?:d)?\s+(?:it\s+)?(?:in|with)|develop(?:ed)?\s+(?:it\s+)?(?:in|with)|framework\s*(?:is|:)?|tech\s+stack\s*(?:is|:)?|stack\s*(?:is|:)?)\s+(?:the\s+)?(?P<framework>react(?:\.js)?|vue(?:\.js)?|angular)\b",
-        r"\b(?P<framework>react(?:\.js)?|vue(?:\.js)?|angular)\s+(?:website|site|app|application|portfolio)\b",
-        r"\b(?:website|site|app|application|portfolio)\s+(?:in|with|using)\s+(?P<framework>react(?:\.js)?|vue(?:\.js)?|angular)\b",
-        r"\b(?:create|build|make|develop|write|built|made|created|developed|written)\b.{0,100}\b(?:in|with|using)\s+(?P<framework>react(?:\.js)?|vue(?:\.js)?|angular)\b",
-    ]
-    for pattern in explicit_framework_patterns:
-        match = re.search(pattern, framework_context, re.IGNORECASE)
-        if match:
-            framework = match.group("framework").lower().replace(".js", "")
-            return f"{framework}-fastapi-postgresql"
-
-    # Rule 1: Check if the category or genre is strictly a static HTML showcase/presentation category
-    is_html_category = (
-        cat_lower in HTML_STATIC_CATEGORIES
-        or any(term in cat_lower for term in ("portfolio", "resume", "cv", "personal", "photograph", "showcase", "restaurant", "cafe", "menu", "bakery", "business", "company", "agency", "corporate", "service", "consulting"))
-        or any(term in genre_lower for term in PORTFOLIO_TERMS)
-        or any(term in genre_lower for term in ("restaurant", "cafe", "bakery", "event", "wedding", "brochure", "one page", "landing page", "business", "company", "agency", "corporate", "software company"))
+    spec = requirement_analyzer.analyze_requirements(
+        prompt=prompt,
+        category=category,
+        genre=genre,
+        requested_stack=requested_stack,
     )
-
-    # Rule 2: Check if prompt explicitly asks for a portfolio / resume / personal / company showcase site
-    is_portfolio_request = bool(re.search(
-        r"\b(?:portfolio|resume|résumé|cv|curriculum\s+vitae|personal\s+(?:site|website)|developer\s+portfolio|designer\s+portfolio|freelancer\s+portfolio|photographer\s+portfolio|artist\s+portfolio|my\s+projects?\s+showcase|show\s+what\s+we\s+do|show\s+the\s+user\s+what\s+they\s+do|software\s+company(?:\s+website)?|company\s+website|agency\s+website|business\s+website)\b",
-        prompt_lower,
-    ))
-
-    # Explicit backend requirements for the website application itself
-    explicit_backend_triggers = [
-        r"\b(?:user\s+login\s+system|user\s+authentication\s+system|user\s+registration\s+system|user\s+accounts?\s+with\s+(?:jwt|oauth|passwords?))\b",
-        r"\b(?:shopping\s+cart\s+with\s+(?:stripe|checkout|payment)|e-?commerce\s+store\s+with\s+order\s+management)\b",
-        r"\b(?:(?:hotel\s+)?booking\s+(?:system|engine)\s+with\s+(?:live\s+)?database|(?:room|table)\s+reservation\s+(?:system\s+with\s+database|database))\b",
-        r"\b(?:admin\s+crud\s+portal|saas\s+dashboard\s+with\s+database\s+crud)\b",
-        r"\b(?:build\s+a\s+full[\s\-]*stack\s+(?:web\s+)?app(?:lication|site)?(?:\s+with\s+backend(?:\s+and\s+database)?)?)\b",
-        r"\b(?:full[\s\-]*stack|fullstack|backend\s+and\s+frontend|frontend\s+and\s+backend)\b",
-        r"\b(?:store\s+(?:and\s+analy[sz]e\s+)?data|analy[sz]e\s+data|data\s+storage|data\s+collection|data\s+analysis|analytics\s+dashboard|database\s+storage|persist\s+data|save\s+data\s+to\s+database)\b",
-        r"\b(?:with\s+(?:a\s+)?backend|backend\s+and\s+database|database\s+backed|real\s+database|backend\s+api)\b",
-        r"\b(?:rest\s+api\s+backend|fastapi\s+backend|express\s+backend|backend\s+service)\b",
-        r"\b(?:crud|data\s+management|lead\s+management|submission\s+management)\b",
-    ]
-    has_explicit_backend = any(bool(re.search(pat, prompt_lower)) for pat in explicit_backend_triggers)
-
-    # If it is a portfolio or static HTML category, guarantee html-css-js unless explicitly commanded with a backend app
-    if (is_html_category or is_portfolio_request) and not has_explicit_backend:
-        return "html-css-js"
-
-    # Rule 3: Strip developer skills, experience, and bio from prompt
-    # Users frequently say: "I am a React developer skilled in Python, SQL, PostgreSQL, FastAPI"
-    # These are DEVELOPER SKILLS, not instructions to build a fullstack SaaS app for their portfolio.
-    scrubbed_prompt = prompt_lower
-    skill_patterns = [
-        r"(?:skills?|technologies|tech\s+stack|tools?|languages?|proficiency)\s*[:\-\s]+[^\.\n;]+",
-        r"(?:skilled|experienced|proficient|worked|knowledge|background)\s+(?:in|with)\s+[^\.\n;]+",
-        r"(?:familiar|specializ(?:ed|ing))\s+(?:with|in)\s+[^\.\n;]+",
-        r"(?:projects?|apps?)\s+(?:built|developed|created)\s+(?:with|using|in)\s+[^\.\n;]+",
-        r"(?:full[\s\-]*stack|front[\s\-]*end|back[\s\-]*end|software|web|ui[\s\/]*ux|python|react|node|fastapi)\s+(?:developer|engineer|programmer|specialist|designer|creator|freelancer)",
-        r"\b(?:years?\s+of\s+experience|work\s+experience|career\s+highlights|job\s+history)\b[^\.\n;]*",
-        # Explicitly ignore tech names so skills like "React", "FastAPI", "Python", "PostgreSQL" in resumes never trigger fullstack
-        r"\b(?:react(?:\.?js)?|next(?:\.?js)?|vue(?:\.?js)?|angular|tailwind|typescript|javascript|html5?|css3?|python|fastapi|django|flask|postgresql?|postgres|sqlite3?|mongodb|mysql)\b",
-    ]
-    for sp in skill_patterns:
-        scrubbed_prompt = re.sub(sp, " ", scrubbed_prompt)
-
-    # Evaluate dynamic backend indicators against the scrubbed prompt + context
-    full_context = f"{scrubbed_prompt} {category} {genre}".lower()
-
-    backend_indicators = [
-        r"\b(?:live\s+database|postgres(?:ql)?\s+database|sqlite\s+database|mysql\s+database|database\s+schema|database\s+crud|table\s+schema|persist\s+data\s+to\s+db)\b",
-        r"\b(?:auth|authentication|user\s+login|log\s+in\s+portal|sign\s?in\s+portal|sign\s?up\s+portal|register\s+account|user\s+account\s+system|password\s+reset|jwt\s+tokens?|oauth2|rbac)\b",
-        r"\b(?:admin\s+panel|admin\s+dashboard|client\s+portal|management\s+portal|crm\s+system)\b",
-        r"\b(?:booking\s+system|reservation\s+system|reserve\s+online\s+with\s+database|table\s+booking\s+engine|room\s+booking\s+system)\b",
-        r"\b(?:shopping\s+cart|checkout\s+system|payment\s+gateway|stripe\s+checkout|process\s+payments?|order\s+management\s+system|inventory\s+system)\b",
-        r"\b(?:fastapi\s+backend|rest\s+api\s+endpoints?|server-side\s+api|backend\s+service\s+with\s+database)\b",
-        r"\b(?:store\s+(?:and\s+analy[sz]e\s+)?data|analy[sz]e\s+data|analytics\s+dashboard|data\s+storage|data\s+collection|save\s+data|data\s+analysis|analytics|metrics\s+dashboard)\b",
-        r"\b(?:full[\s\-]*stack|fullstack)\b",
-    ]
-
-    for pattern in backend_indicators:
-        if re.search(pattern, full_context, re.IGNORECASE):
-            return "react-fastapi-postgresql"
-
-    # Default: Static website for displaying/showcasing
-    return "html-css-js"
+    return spec.stack_key
 
 
 def _stack_guidance(stack: str) -> str:
+    if stack == "hybrid-serverless-api":
+        return """SELECTED TECH STACK: Hybrid Architecture (HTML5 Frontend + Serverless Email API)
+HYBRID ARCHITECTURE SPECIFICATION:
+- Production Frontend: High-performance semantic HTML5, modern CSS3, responsive mobile drawer.
+- Serverless API Backend: Lightweight REST endpoints for asynchronous form handling:
+  * POST /api/contact: validates submissions and sends email notifications via Resend/SMTP.
+  * POST /api/newsletter: newsletter subscriptions.
+  * GET /api/health: health check.
+- Dynamic Form Wiring: Frontend contact/inquiry forms asynchronously POST to /api/contact with user-friendly loading, success, and error feedback."""
+
     frontend = SUPPORTED_STACKS.get(stack, {}).get("frontend")
     if frontend in {"vue", "angular"}:
         frontend_spec = (
@@ -1431,7 +1351,15 @@ class StudioService:
         return stock_assets
 
     async def plan(self, prompt: str, category: str, genre: str, page_structure: str = "multi_page", stack: str = "auto") -> dict[str, Any]:
-        stack = detect_stack_from_prompt(prompt, category, genre, requested_stack=stack)
+        # Intelligent requirement analysis & automatic architecture selection
+        project_spec = requirement_analyzer.analyze_requirements(
+            prompt=prompt,
+            category=category,
+            genre=genre,
+            requested_stack=stack,
+            page_structure=page_structure,
+        )
+        stack = project_spec.stack_key
         profile = _site_profile(category, genre, prompt)
         profile_guidance = _profile_guidance(profile)
         stack_guidance = _stack_guidance(stack)
@@ -1734,6 +1662,9 @@ Return JSON only: {{\"primary\":\"#RRGGBB\",\"accent\":\"#RRGGBB\",\"background\
             preferred_provider="groq", provider_order_override=ANALYSIS_PROVIDER_ORDER,
             request_timeout_seconds=60.0, max_local_model_attempts=1,
         ))
+        data["project_specification"] = project_spec.model_dump()
+        data["architecture_tier"] = project_spec.architecture_type.value
+        data["stack"] = stack
         return data
 
     async def create_build_prompt(
@@ -1935,12 +1866,30 @@ Specify exact palette, typography, spacing, layout grid, components, responsive 
             if is_fullstack:
                 try:
                     architecture = await backend_generator.generate_architecture(prompt, stack, plan)
+                    # Phase 3: inject project_specification requirements into architecture for scaffold
+                    project_spec_dict = plan.get("project_specification") or {}
+                    if project_spec_dict:
+                        if project_spec_dict.get("required_env_vars") and not architecture.get("required_env_vars"):
+                            architecture["required_env_vars"] = project_spec_dict["required_env_vars"]
+                        if project_spec_dict.get("auth_required") and architecture.get("auth_strategy", "none") == "none":
+                            architecture["auth_strategy"] = "jwt"
+                        if project_spec_dict.get("payment_required") and not architecture.get("stripe_needed"):
+                            architecture["stripe_needed"] = True
                     table_count = len(architecture.get("db_tables", []))
                     route_count = len(architecture.get("api_routes", []))
                     yield {"type": "agent", "agent": AGENTS["architect"], "status": "completed", "detail": f"Architecture ready: {len(manifest.get('pages', []))} page contracts, {table_count} DB table(s), {route_count} API route(s)."}
                 except Exception as arch_exc:
                     logger.warning("Architect Agent failed: %s. Proceeding with minimal architecture.", arch_exc)
                     architecture = {"db_tables": [], "api_routes": [], "auth_strategy": "none", "stripe_needed": False, "stripe_flows": [], "frontend_components": [], "tech_notes": ""}
+                    # Phase 3: fallback architecture still inherits project_spec requirements
+                    project_spec_dict = plan.get("project_specification") or {}
+                    if project_spec_dict:
+                        if project_spec_dict.get("required_env_vars"):
+                            architecture["required_env_vars"] = project_spec_dict["required_env_vars"]
+                        if project_spec_dict.get("auth_required"):
+                            architecture["auth_strategy"] = "jwt"
+                        if project_spec_dict.get("payment_required"):
+                            architecture["stripe_needed"] = True
                     yield {"type": "agent", "agent": AGENTS["architect"], "status": "completed", "detail": f"Architecture ready: {len(manifest.get('pages', []))} page contracts defined."}
 
                 # Agent: DB Schema Agent
@@ -1962,6 +1911,26 @@ Specify exact palette, typography, spacing, layout grid, components, responsive 
                     yield {"type": "agent", "agent": AGENTS["database"], "status": "failed", "detail": "Database schema generation encountered an error."}
                     yield {"type": "agent", "agent": AGENTS["backend"], "status": "failed", "detail": f"Backend generation failed: {str(be_exc)[:150]}. Continuing with frontend only."}
                     backend_files = {}
+            elif stack == "hybrid-serverless-api":
+                yield {"type": "agent", "agent": AGENTS["architect"], "status": "completed", "detail": f"Hybrid Architecture ready: {len(manifest.get('pages', []))} page contracts, serverless API dispatch."}
+                yield {"type": "agent", "agent": AGENTS["database"], "status": "completed", "detail": "Hybrid site selected (serverless email dispatch, zero persistent DB required)."}
+                yield {"type": "agent", "agent": AGENTS["backend"], "status": "running", "detail": "Configuring serverless contact form & notification endpoints…"}
+                try:
+                    architecture = {
+                        "db_tables": [],
+                        "api_routes": [
+                            {"method": "POST", "path": "/api/contact"},
+                            {"method": "POST", "path": "/api/newsletter"},
+                            {"method": "GET", "path": "/api/health"}
+                        ],
+                        "auth_strategy": "none",
+                        "stripe_needed": False
+                    }
+                    backend_files = await backend_generator.generate_all_files(architecture, stack, prompt)
+                    yield {"type": "agent", "agent": AGENTS["backend"], "status": "completed", "detail": f"Serverless backend generated: {len(backend_files)} API handler(s)."}
+                except Exception as hb_exc:
+                    logger.warning("Hybrid backend generation warning: %s", hb_exc)
+                    yield {"type": "agent", "agent": AGENTS["backend"], "status": "completed", "detail": "Serverless contact dispatcher configured."}
             else:
                 yield {"type": "agent", "agent": AGENTS["architect"], "status": "completed", "detail": f"Project manifest finalized: {len(manifest.get('pages', []))} page contracts defined."}
                 yield {"type": "agent", "agent": AGENTS["database"], "status": "completed", "detail": "Static site selected (zero database dependencies needed)."}
