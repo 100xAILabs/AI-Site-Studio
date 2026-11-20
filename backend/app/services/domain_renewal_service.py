@@ -65,7 +65,7 @@ class DomainRenewalService:
         event = SubscriptionEvent(
             user_id=user.id,
             provider="godaddy_domain_renewal",
-            provider_event_id=f"auto-renew-auth-{domain.id}-{int(datetime.now(timezone.utc).timestamp())}",
+            provider_event_id=f"auto-renew-auth-{domain.id}-{int(datetime.now(timezone.utc).timestamp())}-{uuid.uuid4().hex[:6]}",
             provider_event_type="domain.auto_renew.authority_updated",
             status="authorized" if enabled else "revoked",
             payload={
@@ -165,7 +165,7 @@ class DomainRenewalService:
             fail_event = SubscriptionEvent(
                 user_id=user.id,
                 provider="domain_auto_renewal",
-                provider_event_id=f"auto-renew-fail-{domain.id}-{int(datetime.now(timezone.utc).timestamp())}",
+                provider_event_id=f"auto-renew-fail-{domain.id}-{int(datetime.now(timezone.utc).timestamp())}-{uuid.uuid4().hex[:6]}",
                 provider_event_type="domain.auto_renew.payment_failed",
                 status="failed",
                 payload={
