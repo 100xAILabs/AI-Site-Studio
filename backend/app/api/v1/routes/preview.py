@@ -46,12 +46,23 @@ LongStr = Annotated[str, StringConstraints(max_length=4000)]
 _DENY_DIRS = {"src", "node_modules", "backend", "server", "api", ".git"}
 _DENY_EXT = (".jsx", ".tsx", ".ts", ".vue", ".svelte", ".py", ".map", ".md", ".lock", ".env")
 _DENY_NAMES = {"package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "composer.json", "requirements.txt"}
+_STATIC_ASSET_EXTS = (
+    ".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif", ".ico", ".avif", ".bmp", ".tiff",
+    ".woff", ".woff2", ".ttf", ".eot", ".otf",
+    ".css", ".mp4", ".webm", ".mp3", ".wav", ".ogg"
+)
 
 def _is_raw_source_path(rel: str) -> bool:
     parts = [p.lower() for p in rel.replace("\\", "/").split("/") if p]
     if not parts:
         return False
     name = parts[-1]
+
+    # Static assets like images, fonts, styles, and media are permitted from any directory
+    # (including frontend/src/assets or src/) UNLESS inside node_modules, .git, or backend server code
+    if name.endswith(_STATIC_ASSET_EXTS):
+        return any(p in ("node_modules", ".git", "backend", "server") for p in parts)
+
     return (
         any(p.startswith(".") or p in _DENY_DIRS for p in parts)
         or name in _DENY_NAMES
@@ -4237,16 +4248,33 @@ async def serve_live_preview(
         all_jsx_files = {}     # rel_path -> raw_code
         all_vue_files = {}     # rel_path -> raw_code
         all_svelte_files = {}  # rel_path -> raw_code
+        all_angular_files = {} # rel_path -> raw_code
+        all_html_files = {}    # rel_path -> raw_code
         all_css_chunks = []
         index_html_content = None
         package_json_content = None
 
         preview_dir_loc = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(raw_id))
         scan_roots = [preview_dir_loc]
+        if hasattr(template, "id") and str(template.id) != str(raw_id):
+            p_id = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template.id))
+            if p_id not in scan_roots:
+                scan_roots.append(p_id)
         if template.slug:
             slug_loc = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template.slug))
             if slug_loc not in scan_roots:
                 scan_roots.append(slug_loc)
+        try:
+            from app.core.local_project_manager import local_project_manager
+            lp_id = local_project_manager.get_local_project_dir(raw_id, version="latest")
+            if lp_id and os.path.isdir(str(lp_id)) and str(lp_id) not in scan_roots:
+                scan_roots.append(str(lp_id))
+            if template.slug:
+                lp_slug = local_project_manager.get_local_project_dir(template.slug, version="latest")
+                if lp_slug and os.path.isdir(str(lp_slug)) and str(lp_slug) not in scan_roots:
+                    scan_roots.append(str(lp_slug))
+        except Exception:
+            pass
 
         for pr in scan_roots:
             if os.path.isdir(pr):
@@ -4268,12 +4296,20 @@ async def serve_live_preview(
                                     _c = _jf.read()
                                     if ("import React" in _c or "from 'react'" in _c or 'from "react"' in _c or "createRoot" in _c or re.search(r'<[A-Z][a-zA-Z0-9_]+', _c) or re.search(r'return\s*\(\s*<', _c)):
                                         all_jsx_files[rel_p] = _c
+                                    elif fn_lower.endswith(".component.ts") or "@Component" in _c:
+                                        all_angular_files[rel_p] = _c
                             except Exception:
                                 pass
                         elif fn_lower.endswith(".vue"):
                             try:
                                 with open(fn_full, "r", encoding="utf-8", errors="ignore") as _vf:
                                     all_vue_files[rel_p] = _vf.read()
+                            except Exception:
+                                pass
+                        elif fn_lower.endswith(".component.html"):
+                            try:
+                                with open(fn_full, "r", encoding="utf-8", errors="ignore") as _af:
+                                    all_angular_files[rel_p] = _af.read()
                             except Exception:
                                 pass
                         elif fn_lower.endswith(".svelte"):
@@ -4285,8 +4321,10 @@ async def serve_live_preview(
                         elif fn_lower.endswith((".html", ".htm")):
                             try:
                                 with open(fn_full, "r", encoding="utf-8", errors="ignore") as _hf:
+                                    _h_content = _hf.read()
+                                    all_html_files[rel_p] = _h_content
                                     if fn_lower in ("index.html", "index.htm", "home.html", "app.html") or not index_html_content:
-                                        index_html_content = _hf.read()
+                                        index_html_content = _h_content
                             except Exception:
                                 pass
                         elif fn_lower.endswith(".css"):
@@ -4303,7 +4341,7 @@ async def serve_live_preview(
                                 pass
 
         # If disk scan yielded nothing, read directly from database-stored ZIP archive
-        if not (all_jsx_files or all_vue_files or all_svelte_files or index_html_content):
+        if not (all_jsx_files or all_vue_files or all_svelte_files or all_angular_files or all_html_files or index_html_content):
             try:
                 d_assets = template.download_assets or {}
                 z_url = d_assets.get("zip")
@@ -4326,15 +4364,21 @@ async def serve_live_preview(
                                             _zc = zf.read(zn).decode("utf-8", errors="ignore")
                                             if ("import React" in _zc or "from 'react'" in _zc or 'from "react"' in _zc or "createRoot" in _zc or re.search(r'<[A-Z][a-zA-Z0-9_]+', _zc) or re.search(r'return\s*\(\s*<', _zc)):
                                                 all_jsx_files[zn] = _zc
+                                            elif zn_lower.endswith(".component.ts") or "@Component" in _zc:
+                                                all_angular_files[zn] = _zc
                                         except Exception:
                                             pass
                                     elif zn_lower.endswith(".vue"):
                                         all_vue_files[zn] = zf.read(zn).decode("utf-8", errors="ignore")
+                                    elif zn_lower.endswith(".component.html"):
+                                        all_angular_files[zn] = zf.read(zn).decode("utf-8", errors="ignore")
                                     elif zn_lower.endswith(".svelte"):
                                         all_svelte_files[zn] = zf.read(zn).decode("utf-8", errors="ignore")
                                     elif zn_lower.endswith((".html", ".htm")):
+                                        _zc = zf.read(zn).decode("utf-8", errors="ignore")
+                                        all_html_files[zn] = _zc
                                         if zn_lower.endswith(("index.html", "index.htm", "home.html")) or not index_html_content:
-                                            index_html_content = zf.read(zn).decode("utf-8", errors="ignore")
+                                            index_html_content = _zc
                                     elif zn_lower.endswith(".css"):
                                         all_css_chunks.append(zf.read(zn).decode("utf-8", errors="ignore"))
                                     elif zn_lower.endswith("package.json") and not package_json_content:
@@ -4361,10 +4405,10 @@ async def serve_live_preview(
             detected_fw = "vue"
         elif all_jsx_files or "react" in pkg_deps or "next" in pkg_deps or model_fw in ("react", "nextjs"):
             detected_fw = "react"
+        elif all_angular_files or "@angular/core" in pkg_deps or model_fw == "angular":
+            detected_fw = "angular"
         elif all_svelte_files or "svelte" in pkg_deps or model_fw == "svelte":
             detected_fw = "svelte"
-        elif "@angular/core" in pkg_deps or model_fw == "angular":
-            detected_fw = "angular"
         elif index_html_content or model_fw in ("html", "vanilla", "static"):
             detected_fw = "html"
 
@@ -4406,7 +4450,7 @@ async def serve_live_preview(
                     primary_jsx_key = next(iter(all_jsx_files.keys()))
 
                 # 2. Helper to clean and normalize JSX / TSX code
-                def clean_and_normalize_jsx(code: str, is_subcomponent: bool = False) -> str:
+                def clean_and_normalize_jsx(code: str, is_subcomponent: bool = False, comp_var_name: str = "PageComponent") -> str:
                     # Clean response markdown wrappers and verify bracket balance before running
                     c = repair_truncated_jsx(clean_code_response(code, "jsx"))
 
@@ -4414,7 +4458,7 @@ async def serve_live_preview(
                     def _tr_asset(m):
                         v_name = m.group(1).strip()
                         a_path = m.group(2).strip().lstrip("./").lstrip("/")
-                        return f"const {v_name} = '/api/v1/preview/live/{template_id}/{a_path}';"
+                        return f"var {v_name} = '/api/v1/preview/live/{template_id}/{a_path}';"
 
                     c = re.sub(
                         r"import\s+([A-Za-z0-9_]+)\s+from\s+['\"]([^'\"]+\.(?:png|jpg|jpeg|svg|webp|gif|ico|avif|bmp|mp4|webm))['\"];?",
@@ -4429,25 +4473,27 @@ async def serve_live_preview(
                     c = re.sub(r"import\s+[\s\S]*?from\s+['\"].*?['\"]; *\n?", "", c)
                     c = re.sub(r"import\s+['\"].*?['\"]; *\n?", "", c)
 
-                    # Transform anonymous default exports into named PageComponent declarations
-                    c = re.sub(r"\bexport\s+default\s+function\s*\(", "const PageComponent = function(", c)
-                    c = re.sub(r"\bexport\s+default\s+(?:\(([^)]*)\)|([a-zA-Z0-9_]+))\s*=>", r"const PageComponent = (\1\2) =>", c)
+                    # Transform anonymous default exports into named component declarations using var (prevents const redeclaration errors)
+                    c = re.sub(r"\bexport\s+default\s+function\s*\(", f"var {comp_var_name} = function(", c)
+                    c = re.sub(r"\bexport\s+default\s+(?:\(([^)]*)\)|([a-zA-Z0-9_]+))\s*=>", rf"var {comp_var_name} = (\1\2) =>", c)
 
-                    # Transform named export default at bottom: export default Identifier; -> const PageComponent = Identifier;
+                    # Transform named export default at bottom: export default Identifier; -> var comp_var_name = Identifier;
                     m_exp = re.search(r"^\s*export\s+default\s+([A-Za-z0-9_]+)\s*;\s*$", c, flags=re.MULTILINE)
                     if m_exp:
                         default_name = m_exp.group(1)
-                        c = re.sub(r"^\s*export\s+default\s+[A-Za-z0-9_]+\s*;\s*$", f"const PageComponent = {default_name};", c, flags=re.MULTILINE)
+                        c = re.sub(r"^\s*export\s+default\s+[A-Za-z0-9_]+\s*;\s*$", f"var {comp_var_name} = {default_name};", c, flags=re.MULTILINE)
+
+                    # Transform named function export: export default function Name -> function Name
+                    c = re.sub(r"\bexport\s+default\s+function\s+([A-Za-z0-9_]+)", r"function \1", c)
 
                     # Strip remaining export keywords
-                    c = re.sub(r"\bexport\s+default\s+(?=function|class|const|let|var)", "", c)
+                    c = re.sub(r"\bexport\s+default\s+(?=class|const|let|var)", "", c)
                     c = re.sub(r"\bexport\s+(?=function|class|const|let|var)", "", c)
                     c = re.sub(r"export\s*\{[^}]*\};?", "", c)
                     return c.strip()
 
                 # 3. Bundle all sub-components so imported dependencies exist in scope
                 sub_component_blocks = []
-                # Sort subcomponents: ui/ and components/ come first, then sections
                 sub_keys = [k for k in all_jsx_files.keys() if k != primary_jsx_key]
                 sub_keys.sort(key=lambda x: (
                     0 if "ui/" in x.lower() or "lib/" in x.lower()
@@ -4457,20 +4503,20 @@ async def serve_live_preview(
 
                 for sk in sub_keys:
                     raw_sub = all_jsx_files[sk]
-                    cleaned_sub = clean_and_normalize_jsx(raw_sub, is_subcomponent=True)
+                    sk_base = os.path.splitext(os.path.basename(sk))[0]
+                    sk_capital = sk_base[0].upper() + sk_base[1:] if sk_base else "SubComp"
+                    cleaned_sub = clean_and_normalize_jsx(raw_sub, is_subcomponent=True, comp_var_name=sk_capital)
                     if cleaned_sub:
-                        sk_base = os.path.splitext(os.path.basename(sk))[0]
-                        sk_capital = sk_base[0].upper() + sk_base[1:] if sk_base else ""
                         sub_component_blocks.append(
                             f"// --- Component: {sk} ---\n{cleaned_sub}\n"
-                            f"if (typeof PageComponent !== 'undefined' && typeof {sk_capital} === 'undefined') {{ var {sk_capital} = PageComponent; }}\n"
+                            f"if (typeof {sk_capital} !== 'undefined') {{ window._components['{sk_capital}'] = {sk_capital}; }}\n"
                         )
 
                 sub_components_code = "\n\n".join(sub_component_blocks)
 
                 # 4. Clean and normalize primary page component
                 primary_raw = all_jsx_files[primary_jsx_key]
-                primary_cleaned = clean_and_normalize_jsx(primary_raw, is_subcomponent=False)
+                primary_cleaned = clean_and_normalize_jsx(primary_raw, is_subcomponent=False, comp_var_name="PageComponent")
 
                 # Determine top-level component name to mount
                 comp_name = "App"
@@ -4537,6 +4583,7 @@ async def serve_live_preview(
                     "    // 1. Environment & Node Globals\n"
                     "    window.process = window.process || { env: { NODE_ENV: 'production' } };\n"
                     "    window.global = window;\n"
+                    "    window._components = window._components || {};\n"
                     "\n"
                     "    // 2. Standard Hooks & React Globals\n"
                     "    const {\n"
@@ -4547,6 +4594,7 @@ async def serve_live_preview(
                     "    // 2. Universal Icon & Component Fallback Resolver (Pre-Run Guard)\n"
                     "    const _lucide = window.LucideReact || window.lucideReact || window.lucide || {};\n"
                     "    function _createFallbackComponent(name) {\n"
+                    "      if (window._components && window._components[name]) return window._components[name];\n"
                     "      if (_lucide && _lucide[name]) return _lucide[name];\n"
                     "      return function FallbackItem(props) {\n"
                     "        const p = props || {};\n"
@@ -4801,19 +4849,27 @@ async def serve_live_preview(
             except Exception as e_runner:
                 logger.warning(f"In-browser React runner fallback failed: {e_runner}")
 
-        # ─── RUNNER 2: Vue 3 / Nuxt Standalone Runner ──────────────────────────────
+        # ─── RUNNER 2: Vue 3 / Nuxt Standalone Runner (Multi-Component & Script Setup Ready) ───
         if all_vue_files or (detected_fw in ("vue", "nuxt") and all_vue_files):
             try:
-                # Resolve target Vue page
                 target_vue_name = os.path.basename(filepath).lower() if (filepath and "." in filepath) else ""
+                target_vue_route = filepath.strip("/").lower() if (filepath and "." not in filepath) else ""
+
                 primary_vue_key = None
                 if target_vue_name:
                     for k in all_vue_files:
                         if os.path.basename(k).lower() == target_vue_name:
                             primary_vue_key = k
                             break
+                elif target_vue_route:
+                    for k in all_vue_files:
+                        base_no_ext = os.path.splitext(os.path.basename(k))[0].lower()
+                        if base_no_ext == target_vue_route:
+                            primary_vue_key = k
+                            break
+
                 if not primary_vue_key:
-                    for cand in ["app.vue", "main.vue", "home.vue", "index.vue"]:
+                    for cand in ["app.vue", "main.vue", "home.vue", "index.vue", "page.vue"]:
                         for k in all_vue_files:
                             if os.path.basename(k).lower() == cand:
                                 primary_vue_key = k
@@ -4823,24 +4879,94 @@ async def serve_live_preview(
                 if not primary_vue_key:
                     primary_vue_key = next(iter(all_vue_files.keys()))
 
-                app_vue_content = all_vue_files[primary_vue_key]
+                # Helper to parse Vue SFC into template, cleaned script, setup flag, styles, declared vars
+                def parse_vue_sfc(sfc_content: str, comp_identifier: str):
+                    t_m = re.search(r"<template[^>]*>([\s\S]*?)</template>", sfc_content, re.IGNORECASE)
+                    tmpl = t_m.group(1).strip() if t_m else f"<div class='p-6'><h2>{comp_identifier}</h2></div>"
 
-                # 1. Extract <template>, <script>, and <style>
-                t_match = re.search(r"<template[^>]*>([\s\S]*?)</template>", app_vue_content, re.IGNORECASE)
-                vue_template_html = t_match.group(1).strip() if t_match else "<div class='p-8'><h1>{{ title || 'Vue Preview' }}</h1></div>"
+                    s_m = re.search(r"<script([^>]*)>([\s\S]*?)</script>", sfc_content, re.IGNORECASE)
+                    s_attrs = s_m.group(1) if s_m else ""
+                    raw_sc = s_m.group(2).strip() if s_m else ""
+                    is_setup = "setup" in s_attrs.lower()
 
-                s_match = re.search(r"<script[^>]*>([\s\S]*?)</script>", app_vue_content, re.IGNORECASE)
-                raw_vue_script = s_match.group(1).strip() if s_match else ""
+                    # Clean script: remove imports
+                    sc = re.sub(r"import\s+[\s\S]*?from\s+['\"].*?['\"]; *\n?", "", raw_sc)
+                    sc = re.sub(r"import\s+['\"].*?['\"]; *\n?", "", sc)
 
-                # Clean script: remove imports
-                cleaned_vue_script = raw_vue_script
-                cleaned_vue_script = re.sub(r"import\s+[\s\S]*?from\s+['\"].*?['\"]; *\n?", "", cleaned_vue_script)
-                cleaned_vue_script = re.sub(r"import\s+['\"].*?['\"]; *\n?", "", cleaned_vue_script)
+                    st_m = re.findall(r"<style[^>]*>([\s\S]*?)</style>", sfc_content, re.IGNORECASE)
+                    styles = "\n".join(st_m)
 
-                style_matches = re.findall(r"<style[^>]*>([\s\S]*?)</style>", app_vue_content, re.IGNORECASE)
-                vue_styles = "\n".join(style_matches)
+                    # Extract declared variables and functions from script
+                    declared_vars = []
+                    for vm in re.finditer(r'\b(?:const|let|var)\s+([a-zA-Z0-9_$]+)\b', sc):
+                        vname = vm.group(1)
+                        if vname not in ("import", "require", "from", "default", "true", "false", "null", "undefined", "Vue") and vname not in declared_vars:
+                            declared_vars.append(vname)
+                    for fm in re.finditer(r'\bfunction\s+([a-zA-Z0-9_$]+)\s*\(', sc):
+                        fname = fm.group(1)
+                        if fname not in declared_vars:
+                            declared_vars.append(fname)
 
-                escaped_script = cleaned_vue_script.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+                    return tmpl, sc, is_setup, styles, declared_vars
+
+                vue_subcomponents_blocks = []
+                all_vue_styles = []
+
+                primary_tmpl, primary_sc, primary_is_setup, primary_sty, primary_dvars = parse_vue_sfc(
+                    all_vue_files[primary_vue_key],
+                    os.path.splitext(os.path.basename(primary_vue_key))[0]
+                )
+                if primary_sty:
+                    all_vue_styles.append(primary_sty)
+
+                for k, content in all_vue_files.items():
+                    if k == primary_vue_key:
+                        continue
+                    base_k = os.path.splitext(os.path.basename(k))[0]
+                    cap_k = base_k[0].upper() + base_k[1:] if base_k else "Comp"
+                    sub_tmpl, sub_sc, sub_setup, sub_sty, sub_dvars = parse_vue_sfc(content, cap_k)
+                    if sub_sty:
+                        all_vue_styles.append(sub_sty)
+
+                    esc_s_tmpl = sub_tmpl.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+                    esc_s_sc = sub_sc.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+                    sub_dvars_ret = ", ".join(sub_dvars)
+
+                    sub_js = f"""
+    const compDef_{cap_k} = (function() {{
+      let def = {{}};
+      const scriptBody = `{esc_s_sc}`;
+      if (scriptBody.indexOf('export default') !== -1) {{
+        const m = scriptBody.match(/export\\s+default\\s+([\\s\\S]+)$/);
+        if (m) {{
+          try {{
+            const obj = new Function('Vue', 'ref', 'reactive', 'computed', 'onMounted', 'onUnmounted', 'watch', 'watchEffect', 'return (' + m[1].trim().replace(/;$/, '') + ')')(Vue, ref, reactive, computed, onMounted, onUnmounted, watch, watchEffect);
+            def = Object.assign(def, obj);
+          }} catch(e) {{}}
+        }}
+      }} else if (scriptBody.trim()) {{
+        def.setup = function() {{
+          try {{
+            return (new Function('Vue', 'ref', 'reactive', 'computed', 'onMounted', 'onUnmounted', 'watch', 'watchEffect',
+              scriptBody + '\\nreturn {{ {sub_dvars_ret} }};'
+            ))(Vue, ref, reactive, computed, onMounted, onUnmounted, watch, watchEffect);
+          }} catch(e) {{ return {{}}; }}
+        }};
+      }}
+      def.template = `{esc_s_tmpl}`;
+      return def;
+    }})();
+    app.component('{cap_k}', compDef_{cap_k});
+    app.component('{base_k.lower()}', compDef_{cap_k});
+"""
+                    vue_subcomponents_blocks.append(sub_js)
+
+                all_vue_subcomponents_code = "\n".join(vue_subcomponents_blocks)
+                combined_vue_styles = "\n".join(all_vue_styles)
+
+                esc_primary_tmpl = primary_tmpl.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+                esc_primary_sc = primary_sc.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+                primary_dvars_ret = ", ".join(primary_dvars)
 
                 vue_runner_html = (
                     "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
@@ -4855,15 +4981,15 @@ async def serve_live_preview(
                     "    *, *::before, *::after { box-sizing: border-box; }\n"
                     "    body { margin: 0; font-family: 'Inter', system-ui, sans-serif; }\n"
                     f"    {_css}\n"
-                    f"    {vue_styles}\n"
+                    f"    {combined_vue_styles}\n"
                     "  </style>\n"
                     "</head>\n<body>\n"
                     "  <div id=\"app\"></div>\n"
                     "  <script id=\"vue-template-src\" type=\"text/x-template\">\n"
-                    f"    {vue_template_html}\n"
+                    f"    {esc_primary_tmpl}\n"
                     "  </script>\n"
                     "  <script>\n"
-                    "    const { createApp, ref, reactive, computed, onMounted, watch } = Vue;\n"
+                    "    const { createApp, ref, reactive, computed, onMounted, onUnmounted, watch, watchEffect } = Vue;\n"
                     "    const commonIconNames = [\n"
                     "      'Sparkles','ArrowLeft','ArrowRight','ArrowUp','ArrowDown','CheckCircle','CheckCircle2',\n"
                     "      'Check','XCircle','X','Cpu','Globe','Layers','FileText','File','Folder','Plus','Minus',\n"
@@ -4890,20 +5016,20 @@ async def serve_live_preview(
                     "        template: '<svg xmlns=\"http://www.w3.org/2000/svg\" :class=\"class || \\'w-4 h-4 inline-block\\'\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/></svg>'\n"
                     "      };\n"
                     "    });\n"
-                    "    let compDefinition = {};\n"
+                    "    let primaryCompDef = {};\n"
                     "    try {\n"
-                    f"      const scriptBody = `{escaped_script}`;\n"
+                    f"      const scriptBody = `{esc_primary_sc}`;\n"
                     "      if (scriptBody.indexOf('export default') !== -1) {\n"
                     "        const expMatch = scriptBody.match(/export\\s+default\\s+([\\s\\S]+)$/);\n"
                     "        if (expMatch) {\n"
                     "          const objText = expMatch[1].trim().replace(/;$/, '');\n"
-                    "          compDefinition = new Function('Vue', 'ref', 'reactive', 'computed', 'onMounted', 'watch', 'return (' + objText + ')')(Vue, ref, reactive, computed, onMounted, watch);\n"
+                    "          primaryCompDef = new Function('Vue', 'ref', 'reactive', 'computed', 'onMounted', 'onUnmounted', 'watch', 'watchEffect', 'return (' + objText + ')')(Vue, ref, reactive, computed, onMounted, onUnmounted, watch, watchEffect);\n"
                     "        }\n"
                     "      } else if (scriptBody.trim()) {\n"
-                    "        compDefinition = {\n"
+                    "        primaryCompDef = {\n"
                     "          setup: function() {\n"
                     "            try {\n"
-                    "              return new Function('Vue', 'ref', 'reactive', 'computed', 'onMounted', 'watch', scriptBody + '\\nreturn {};')(Vue, ref, reactive, computed, onMounted, watch);\n"
+                    f"              return new Function('Vue', 'ref', 'reactive', 'computed', 'onMounted', 'onUnmounted', 'watch', 'watchEffect', scriptBody + '\\nreturn {{ {primary_dvars_ret} }};')(Vue, ref, reactive, computed, onMounted, onUnmounted, watch, watchEffect);\n"
                     "            } catch(e) {\n"
                     "              console.warn('Vue setup execute:', e);\n"
                     "              return {};\n"
@@ -4914,10 +5040,20 @@ async def serve_live_preview(
                     "    } catch (e) {\n"
                     "      console.warn('Vue component compile notice:', e);\n"
                     "    }\n"
-                    "    compDefinition.template = document.getElementById('vue-template-src').innerHTML;\n"
+                    "    primaryCompDef.template = document.getElementById('vue-template-src').innerHTML;\n"
                     "    try {\n"
-                    "      const app = createApp(compDefinition);\n"
+                    "      const app = createApp(primaryCompDef);\n"
                     "      Object.keys(vueMockIcons).forEach(function(k) { app.component(k, vueMockIcons[k]); });\n"
+                    "      // Vue Router Mocks\n"
+                    "      const RouterLinkMock = { props: ['to'], template: '<a :href=\"to || \\'#\\'\" class=\"vue-link\" style=\"text-decoration:none;color:inherit;\"><slot></slot></a>' };\n"
+                    "      const RouterViewMock = { template: '<div class=\"vue-router-view\"><slot></slot></div>' };\n"
+                    "      app.component('RouterLink', RouterLinkMock);\n"
+                    "      app.component('router-link', RouterLinkMock);\n"
+                    "      app.component('RouterView', RouterViewMock);\n"
+                    "      app.component('router-view', RouterViewMock);\n"
+                    "      window.useRouter = function() { return { push: function(p) { if (p) window.location.hash = p; }, replace: function(p) { if (p) window.location.hash = p; } }; };\n"
+                    "      window.useRoute = function() { return { path: window.location.pathname, hash: window.location.hash, query: {}, params: {} }; };\n"
+                    f"      {all_vue_subcomponents_code}\n"
                     "      app.mount('#app');\n"
                     "    } catch (e) {\n"
                     "      console.error('Vue mount error:', e);\n"
@@ -4943,6 +5079,78 @@ async def serve_live_preview(
                 return Response(content=vue_runner_html.encode("utf-8"), media_type="text/html", headers=security_scanner.get_secure_preview_headers())
             except Exception as e_vue:
                 logger.warning(f"In-browser Vue runner fallback notice: {e_vue}")
+
+        # ─── RUNNER 3: Angular Universal Standalone Runner ──────────────────────────
+        if all_angular_files or detected_fw == "angular":
+            try:
+                primary_ng_template = ""
+                primary_ng_styles = ""
+                ng_component_title = template.title or "Angular Application"
+
+                for k, v in all_angular_files.items():
+                    if k.endswith(".component.html") or k.endswith("app.component.html"):
+                        if not primary_ng_template or "app.component" in k:
+                            primary_ng_template = v
+                    elif k.endswith(".component.ts") or k.endswith("app.component.ts"):
+                        tm = re.search(r'title\s*=\s*[\'"]([^\'"]+)[\'"]', v)
+                        if tm:
+                            ng_component_title = tm.group(1)
+                    elif k.endswith(".css"):
+                        primary_ng_styles += "\n" + v
+
+                if not primary_ng_template and index_html_content:
+                    primary_ng_template = index_html_content
+
+                if not primary_ng_template:
+                    primary_ng_template = f"<div class='p-8 max-w-4xl mx-auto'><h1>{ng_component_title}</h1><p class='text-slate-400 mt-2'>Welcome to {ng_component_title} Angular Application</p></div>"
+
+                clean_ng_html = primary_ng_template
+                clean_ng_html = re.sub(r'\*ngIf=["\'][^"\']*["\']', '', clean_ng_html)
+                clean_ng_html = re.sub(r'\*ngFor=["\'][^"\']*["\']', '', clean_ng_html)
+                clean_ng_html = re.sub(r'\(click\)=["\'][^"\']*["\']', '', clean_ng_html)
+                clean_ng_html = re.sub(r'\[routerLink\]=["\'][^"\']*["\']', 'href="#"', clean_ng_html)
+                clean_ng_html = re.sub(r'\[class\]=["\']([^"\']*)["\']', r'class="\1"', clean_ng_html)
+                clean_ng_html = re.sub(r'\{\{\s*title\s*\}\}', ng_component_title, clean_ng_html)
+                clean_ng_html = re.sub(r'\{\{\s*([^}]+)\s*\}\}', r'\1', clean_ng_html)
+
+                angular_runner_html = (
+                    "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
+                    "  <meta charset=\"UTF-8\">\n"
+                    "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
+                    f"  <title>{_title} - Live Preview (Angular)</title>\n"
+                    "  <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n"
+                    "  <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap\" rel=\"stylesheet\">\n"
+                    "  <script src=\"https://cdn.tailwindcss.com\"></script>\n"
+                    "  <style>\n"
+                    "    *, *::before, *::after { box-sizing: border-box; }\n"
+                    "    body { margin: 0; font-family: 'Inter', system-ui, sans-serif; }\n"
+                    f"    {_css}\n"
+                    f"    {primary_ng_styles}\n"
+                    "  </style>\n"
+                    "</head>\n<body>\n"
+                    "  <app-root>\n"
+                    f"    {clean_ng_html}\n"
+                    "  </app-root>\n"
+                    "  <script>\n"
+                    "    window.addEventListener('message', function(evt) {\n"
+                    "      if (!evt.data) return;\n"
+                    "      if (evt.data.type === 'UPDATE_THEME_COLOR' && evt.data.color) {\n"
+                    "        let st = document.getElementById('studio-live-theme-override');\n"
+                    "        if (!st) {\n"
+                    "          st = document.createElement('style');\n"
+                    "          st.id = 'studio-live-theme-override';\n"
+                    "          document.head.appendChild(st);\n"
+                    "        }\n"
+                    "        st.textContent = ':root { --primary: ' + evt.data.color + ' !important; --accent: ' + evt.data.color + ' !important; }';\n"
+                    "      }\n"
+                    "    });\n"
+                    "  </script>\n"
+                    f"  {watermark_payload}\n"
+                    "</body>\n</html>"
+                )
+                return Response(content=angular_runner_html.encode("utf-8"), media_type="text/html", headers=security_scanner.get_secure_preview_headers())
+            except Exception as e_ng:
+                logger.warning(f"In-browser Angular runner notice: {e_ng}")
 
         # ─── RUNNER 3: Svelte Standalone Runner ────────────────────────────────────
         if all_svelte_files or (detected_fw == "svelte" and all_svelte_files):
@@ -5028,9 +5236,31 @@ async def serve_live_preview(
                 logger.warning(f"In-browser Svelte runner fallback notice: {e_svelte}")
 
         # ─── RUNNER 4: Static HTML Runner ──────────────────────────────────────────
-        if index_html_content:
+        if all_html_files or index_html_content:
             try:
-                html_out = index_html_content
+                target_html_name = os.path.basename(filepath).lower() if (filepath and "." in filepath) else ""
+                target_html_route = filepath.strip("/").lower() if (filepath and "." not in filepath) else ""
+
+                selected_html = None
+                if target_html_name:
+                    for k, content in all_html_files.items():
+                        if os.path.basename(k).lower() == target_html_name:
+                            selected_html = content
+                            break
+                elif target_html_route:
+                    for k, content in all_html_files.items():
+                        base_no_ext = os.path.splitext(os.path.basename(k))[0].lower()
+                        if base_no_ext == target_html_route or base_no_ext == target_html_route + ".html":
+                            selected_html = content
+                            break
+
+                if not selected_html:
+                    selected_html = index_html_content or (next(iter(all_html_files.values())) if all_html_files else "")
+
+                if not selected_html:
+                    raise ValueError("No HTML content available to serve")
+
+                html_out = selected_html
                 preloader_failsafe_block = f"""<head>
   <base href="/api/v1/preview/live/{template_id}/" />
   <style id="studio-preloader-failsafe-style">
@@ -5477,71 +5707,73 @@ async def serve_live_preview(
         return Response(content=fallback_html.encode("utf-8"), media_type="text/html", headers=security_scanner.get_secure_preview_headers())
 
     try:
-        download_assets = template.download_assets or {}
-        zip_url = download_assets.get("zip")
-        if not zip_url:
-            raise HTTPException(status_code=400, detail="Template does not have source ZIP assets")
-            
         from app.core.storage import storage
         from app.core.local_project_manager import local_project_manager
 
-        # Check if project source code is already saved in the local workspace
+        # Check if project source code is already saved in the local workspace or preview cache
         local_dir = local_project_manager.get_local_project_dir(template_id, version="latest")
         if not local_dir and template.slug:
             local_dir = local_project_manager.get_local_project_dir(template.slug, version="latest")
 
-        storage_base = urlsplit(storage.public_url)
-        asset_url = urlsplit(str(zip_url))
-        file_id = storage._parse_file_id(str(zip_url))
-        expected_asset_path = f"{storage_base.path.rstrip('/')}/{file_id}" if file_id else None
-
-        def _is_local_host(netloc: str) -> bool:
-            host = netloc.split(":")[0].lower()
-            return host in ("localhost", "127.0.0.1", "0.0.0.0", "::1")
-
-        is_local_netloc = _is_local_host(asset_url.netloc) and _is_local_host(storage_base.netloc)
-        same_netloc = asset_url.netloc.lower() == storage_base.netloc.lower()
-
-        if not file_id:
-            match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
-            if match:
-                try:
-                    file_id = uuid.UUID(match.group(1))
-                except Exception:
-                    file_id = None
-
-        is_external = not (
-            file_id
-            and (asset_url.scheme == storage_base.scheme or is_local_netloc)
-            and (same_netloc or is_local_netloc)
-            and (asset_url.path == expected_asset_path or (file_id and str(file_id) in asset_url.path))
-        )
-
-        # Check local filesystem first: if already extracted, skip slow remote DB round trips
         preview_slug_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template.slug)) if template.slug else None
         preview_id_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template.id))
         
         has_local_files = bool(
-            (local_dir and os.path.exists(str(local_dir)))
+            (local_dir and os.path.exists(str(local_dir)) and os.listdir(str(local_dir)))
             or (os.path.exists(preview_id_dir) and os.listdir(preview_id_dir))
             or (preview_slug_dir and os.path.exists(preview_slug_dir) and os.listdir(preview_slug_dir))
         )
 
-        if has_local_files:
-            is_external = False
-        elif file_id and is_external:
-            from app.models.stored_file import StoredFile
-            res = await db.execute(select(StoredFile.id).where(StoredFile.id == file_id))
-            if res.scalar_one_or_none():
-                is_external = False
+        download_assets = template.download_assets or {}
+        zip_url = download_assets.get("zip")
+        if not has_local_files and not zip_url:
+            raise HTTPException(status_code=400, detail="Template does not have source ZIP assets")
 
-        # Do not fetch seller-controlled URLs from the API process. Templates
-        # must use an archive uploaded to Studio storage to prevent SSRF.
-        if is_external and not local_dir:
-            raise HTTPException(
-                status_code=400,
-                detail="Preview archives must be uploaded to Studio storage; external archive URLs are not supported.",
+        file_id = None
+        is_external = False
+        if zip_url:
+            storage_base = urlsplit(storage.public_url)
+            asset_url = urlsplit(str(zip_url))
+            file_id = storage._parse_file_id(str(zip_url))
+            expected_asset_path = f"{storage_base.path.rstrip('/')}/{file_id}" if file_id else None
+
+            def _is_local_host(netloc: str) -> bool:
+                host = netloc.split(":")[0].lower()
+                return host in ("localhost", "127.0.0.1", "0.0.0.0", "::1")
+
+            is_local_netloc = _is_local_host(asset_url.netloc) and _is_local_host(storage_base.netloc)
+            same_netloc = asset_url.netloc.lower() == storage_base.netloc.lower()
+
+            if not file_id:
+                match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
+                if match:
+                    try:
+                        file_id = uuid.UUID(match.group(1))
+                    except Exception:
+                        file_id = None
+
+            is_external = not (
+                file_id
+                and (asset_url.scheme == storage_base.scheme or is_local_netloc)
+                and (same_netloc or is_local_netloc)
+                and (asset_url.path == expected_asset_path or (file_id and str(file_id) in asset_url.path))
             )
+
+            if has_local_files:
+                is_external = False
+            elif file_id and is_external:
+                from app.models.stored_file import StoredFile
+                res = await db.execute(select(StoredFile.id).where(StoredFile.id == file_id))
+                if res.scalar_one_or_none():
+                    is_external = False
+
+            # Do not fetch seller-controlled URLs from the API process. Templates
+            # must use an archive uploaded to Studio storage to prevent SSRF.
+            if is_external and not local_dir:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Preview archives must be uploaded to Studio storage; external archive URLs are not supported.",
+                )
             
         if local_dir and os.path.exists(str(local_dir)):
             preview_dir = str(local_dir)
@@ -5602,9 +5834,16 @@ async def serve_live_preview(
             need_extract = not os.path.exists(preview_dir) or not os.listdir(preview_dir)
             if not need_extract and not package_json_path:
                 if not os.path.exists(os.path.join(preview_dir, "index.html")):
-                    has_html = any(f.endswith(".html") for r, d, files in os.walk(preview_dir) for f in files)
-                    if not has_html:
+                    has_sources = any(
+                        f.lower().endswith((".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte", ".js", ".ts"))
+                        for r, d, files in os.walk(preview_dir)
+                        for f in files
+                        if "node_modules" not in r and ".git" not in r
+                    )
+                    if not has_sources:
                         need_extract = True
+
+            need_extract = need_extract and bool(file_id)
 
             if need_extract:
                 async with distributed_lock(f"preview_build:{template.id}", ttl_seconds=600):
@@ -5731,16 +5970,31 @@ async def serve_live_preview(
 
             if build_dir:
                 serve_root = build_dir
-            elif template_fw_str in ("react", "nextjs", "vue", "nuxt", "svelte") or (request.query_params.get("framework") or "").lower() in ("react", "vue", "svelte"):
+            elif template_fw_str in ("react", "nextjs", "vue", "nuxt", "svelte", "angular") or (request.query_params.get("framework") or "").lower() in ("react", "vue", "svelte", "angular"):
                 # If template is declared or requested as a modern framework and not pre-compiled into dist/,
-                # always run via the In-Browser Standalone Runner (React 18 + Babel or Vue 3) so the user's
-                # actual App.jsx / App.vue executes live in the preview, NEVER a static HTML mirror!
+                # always run via the In-Browser Standalone Runner (React 18, Vue 3, Angular, Svelte) so the user's
+                # actual source code executes live in the preview, NEVER a static HTML mirror!
                 logger.info("Serving modern framework template %s (%s) directly via in-browser runner", template_id, template_fw_str)
                 return await serve_fallback(f"Preview compilation: in-browser runner for {template_fw_str}")
-            elif any(f in ("App.jsx", "App.tsx", "App.vue", "App.svelte") for r, d, files in os.walk(preview_dir) for f in files if "node_modules" not in r):
-                logger.info("Detected App.jsx / App.vue in %s; serving directly via in-browser runner", template_id)
+            elif any(f.lower().endswith((".jsx", ".tsx", ".vue", ".svelte", ".component.ts", ".component.html")) for r, d, files in os.walk(preview_dir) for f in files if "node_modules" not in r and ".git" not in r):
+                logger.info("Detected framework source files (.jsx/.vue/.svelte/angular) in %s; serving directly via in-browser runner", template_id)
                 return await serve_fallback("Found framework source file; serving via in-browser runner")
             elif package_json_path:
+                # Check if package.json has modern framework dependencies
+                has_fw_deps = False
+                try:
+                    with open(package_json_path, "r", encoding="utf-8") as _pf:
+                        _pdata = json.load(_pf)
+                        _all_deps = {**_pdata.get("dependencies", {}), **_pdata.get("devDependencies", {})}
+                        if any(k in _all_deps for k in ["react", "react-dom", "vue", "next", "nuxt", "svelte", "@angular/core", "astro"]):
+                            has_fw_deps = True
+                except Exception:
+                    pass
+
+                if has_fw_deps:
+                    logger.info("Framework dependencies detected in package.json for %s; serving via in-browser runner", template_id)
+                    return await serve_fallback("Framework dependencies detected")
+
                 # A framework's source index.html is only an empty mount point
                 # (for example <div id="app"></div>). Never serve it as if it
                 # were a finished website when compilation failed. Prefer an
@@ -5762,12 +6016,29 @@ async def serve_live_preview(
                 if mirror_root:
                     serve_root = mirror_root
                 else:
-                    logger.info("Static build unavailable for %s (%s); serving via in-browser React runner.", template_id, template_fw_str)
+                    logger.info("Static build unavailable for %s (%s); serving via in-browser runner.", template_id, template_fw_str)
                     return await serve_fallback("Preview compilation fallback")
             elif os.path.exists(os.path.join(project_root, "index.html")):
-                # The generator crafted a complete standalone responsive HTML with Tailwind CDN & full domain content in project_root.
-                # Serve this actual generated user template instead of falling back to a generic template!
-                serve_root = project_root
+                # Check if index.html is an uncompiled framework mount point (e.g. Vite React / Vue with <div id="root">)
+                is_uncompiled_mount = False
+                try:
+                    with open(os.path.join(project_root, "index.html"), "r", encoding="utf-8", errors="ignore") as _idx_f:
+                        _idx_str = _idx_f.read()
+                        if (
+                            re.search(r'src=["\'][^"\']*\.(?:jsx|tsx|vue|ts)["\']', _idx_str)
+                            or ('id="root"' in _idx_str and len(_idx_str) < 1200)
+                            or ('id="app"' in _idx_str and len(_idx_str) < 1200)
+                            or ('<app-root' in _idx_str)
+                        ):
+                            is_uncompiled_mount = True
+                except Exception:
+                    pass
+
+                if is_uncompiled_mount:
+                    logger.info("index.html is an uncompiled framework mount point for %s; serving via in-browser runner", template_id)
+                    return await serve_fallback("Uncompiled framework mount point")
+                else:
+                    serve_root = project_root
             else:
                 serve_root = project_root
     
