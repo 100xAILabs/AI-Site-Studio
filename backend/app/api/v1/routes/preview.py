@@ -4375,7 +4375,7 @@ async def serve_live_preview(
     )
     is_sensitive_path = (
         any(p in ("node_modules", ".git", "backend", "server") for p in parts_fp)
-        or norm_fp.lower().startswith("src/")
+        or (norm_fp.lower().startswith("src/") and not norm_fp.lower().endswith(_STATIC_ASSET_EXTS))
         or (norm_fp.lower() == "api" or norm_fp.lower().startswith("api/"))
         or (os.path.basename(norm_fp).lower() in _DENY_NAMES)
         or norm_fp.lower().endswith((".env", ".lock", ".py", ".map"))
