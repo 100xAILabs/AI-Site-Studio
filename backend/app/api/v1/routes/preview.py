@@ -96,13 +96,14 @@ class PreviewResponse(BaseModel):
 
 
 class ManualEditRequest(BaseModel):
-    business_name: ShortStr
-    about: LongStr
+    business_name: Optional[ShortStr] = None
+    about: Optional[LongStr] = None
     primary_color: ShortStr
     secondary_color: ShortStr
     contact_email: Optional[ShortStr] = None
     contact_phone: Optional[ShortStr] = None
-    page_edits: Optional[Dict[ShortStr, Dict[ShortStr, LongStr]]] = Field(None, max_length=20)
+    page: Optional[str] = None
+    page_edits: Optional[Dict[str, Any]] = None
     use_ai: bool = False
 
 
@@ -751,9 +752,158 @@ async def restore_live_preview_asset(
     }
 
 
+def build_template_pages_list(
+    template,
+    all_source_files: dict,
+    preview_dir: str,
+    detected_framework: str,
+    requested_page: Optional[str] = None
+) -> tuple[list[dict], str]:
+    """
+    Discover all physical pages of the template across DB included_pages, source ZIP, and disk preview_dir.
+    Returns (pages_list, active_page).
+    """
+    fw_lower = (detected_framework or "").lower()
+    is_react = "react" in fw_lower or "next" in fw_lower
+    is_vue = "vue" in fw_lower
+
+    files_to_scan = list((all_source_files or {}).keys())
+    if preview_dir and os.path.exists(preview_dir):
+        for r, ds, fs in os.walk(preview_dir):
+            ds[:] = [d for d in ds if d not in ["node_modules", ".git", "dist", "build", ".output", "__MACOSX", ".venv", "vendor"]]
+            for f in fs:
+                rel = os.path.relpath(os.path.join(r, f), preview_dir)
+                if rel not in files_to_scan:
+                    files_to_scan.append(rel)
+
+    discovered_pages = []
+    # 1. Start with database included_pages if valid list
+    if template and template.included_pages:
+        for p in template.included_pages:
+            p_str = p.get("name") if isinstance(p, dict) else str(p)
+            p_str = p_str.strip() if p_str else ""
+            if p_str and p_str.lower() not in [x.lower() for x in discovered_pages]:
+                discovered_pages.append(p_str)
+
+    # 2. Scan physical files in source ZIP and disk
+    for f_path in files_to_scan:
+        fn = os.path.basename(f_path)
+        fn_lower = fn.lower()
+        f_norm = f_path.replace("\\", "/").lower()
+
+        # HTML pages
+        if fn_lower.endswith(".html") and fn_lower not in ["404.html", "500.html"]:
+            if fn not in discovered_pages and fn_lower not in [p.lower() for p in discovered_pages]:
+                discovered_pages.append(fn)
+
+        # React / Vue pages in pages/, views/, routes/, or app/
+        if any(folder in f_norm for folder in ["/pages/", "/views/", "/routes/", "/app/"]):
+            if fn_lower.endswith((".jsx", ".tsx", ".vue")):
+                base_name = os.path.splitext(fn)[0]
+                if base_name.lower() not in ["layout", "loading", "error", "not-found", "404", "app"]:
+                    if fn not in discovered_pages and fn_lower not in [p.lower() for p in discovered_pages]:
+                        discovered_pages.append(fn)
+        # Also top-level source files like About.jsx, Pricing.jsx, Contact.jsx
+        elif fn_lower.endswith((".jsx", ".tsx", ".vue")) and not any(skip in fn_lower for skip in ["test", "spec", "config", "setup", "provider", "context", "store", "router", "vite", "index"]):
+            base_name = os.path.splitext(fn)[0]
+            if base_name.lower() in ["home", "about", "contact", "pricing", "services", "portfolio", "blog", "demo", "analyze", "settings", "media", "social"]:
+                if fn not in discovered_pages and fn_lower not in [p.lower() for p in discovered_pages]:
+                    discovered_pages.append(fn)
+
+    # Map name to actual file if extension is missing (e.g. 'Home' -> 'Home.jsx')
+    def resolve_file(name: str) -> str:
+        base = os.path.basename(name)
+        for k in files_to_scan:
+            b_k = os.path.basename(k)
+            if b_k.lower() == base.lower():
+                return b_k
+            if os.path.splitext(b_k)[0].lower() == os.path.splitext(base)[0].lower():
+                return b_k
+        if is_react and not base.endswith(".jsx"):
+            return f"{base}.jsx"
+        if is_vue and not base.endswith(".vue"):
+            return f"{base}.vue"
+        if not (is_react or is_vue) and not base.endswith(".html"):
+            return f"{base}.html"
+        return base
+
+    root_file = "App.jsx" if is_react else "App.vue" if is_vue else "index.html"
+    for k in files_to_scan:
+        b_k = os.path.basename(k).lower()
+        if b_k in ["home.jsx", "home.vue", "app.jsx", "app.vue", "index.html"]:
+            root_file = os.path.basename(k)
+            break
+
+    root_title = "App (Home)" if (is_react or is_vue) else "Home"
+    root_icon = "⚛️" if is_react else "🟢" if is_vue else "🏠"
+
+    PAGE_ICONS = {
+        "home": "🏠", "about": "🏢", "services": "⚙️", "service": "⚙️",
+        "pricing": "💳", "contact": "✉️", "portfolio": "💼", "work": "💼",
+        "resume": "📄", "clients": "👥", "careers": "🎯", "training": "🎓",
+        "analyze": "📊", "analytics": "📊", "demo": "⚡", "settings": "⚙️",
+        "media": "🎬", "social": "🌐", "blog": "📝", "features": "✨"
+    }
+
+    pages_list = []
+    has_home = False
+    for p in discovered_pages:
+        resolved = resolve_file(p)
+        p_base = os.path.splitext(resolved)[0].lower()
+        if p_base in ["index", "home", "app"]:
+            has_home = True
+            pages_list.insert(0, {
+                "id": resolved,
+                "title": root_title,
+                "icon": root_icon,
+                "path": resolved,
+                "sectionKey": "hero",
+                "is_home": True
+            })
+            break
+
+    if not has_home:
+        pages_list.insert(0, {
+            "id": root_file,
+            "title": root_title,
+            "icon": root_icon,
+            "path": root_file,
+            "sectionKey": "hero",
+            "is_home": True
+        })
+
+    for p in discovered_pages:
+        resolved = resolve_file(p)
+        p_base = os.path.splitext(resolved)[0].lower()
+        if p_base in ["index", "home", "app"]:
+            continue
+        if any(item["id"].lower() == resolved.lower() for item in pages_list):
+            continue
+        raw_name = os.path.splitext(resolved)[0]
+        display_title = re.sub(r"([a-z])([A-Z])", r"\1 \2", raw_name).replace("-", " ").replace("_", " ").title()
+        icon_emoji = "📄"
+        for k_word, icon_char in PAGE_ICONS.items():
+            if k_word in p_base:
+                icon_emoji = icon_char
+                break
+
+        pages_list.append({
+            "id": resolved,
+            "title": display_title,
+            "icon": icon_emoji,
+            "path": resolved,
+            "sectionKey": p_base,
+            "is_home": False
+        })
+
+    active_page = requested_page or (pages_list[0]["id"] if pages_list else root_file)
+    return pages_list, active_page
+
+
 @router.get("/live/{template_id}/extracted-data")
 async def get_live_preview_extracted_data(
     template_id: str,
+    page: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
@@ -842,6 +992,7 @@ async def get_live_preview_extracted_data(
 
     # Read content from preview_dir first (if already extracted/running), else fallback to stored ZIP
     content = ""
+    target_page_clean = os.path.basename(page).lower() if page else ""
     if os.path.exists(preview_dir):
         candidates = []
         for root, dirs, files in os.walk(preview_dir):
@@ -852,10 +1003,17 @@ async def get_live_preview_extracted_data(
                     candidates.append(os.path.join(root, f))
         
         main_f = None
-        for c in candidates:
-            if os.path.basename(c).lower() == "index.html":
-                main_f = c
-                break
+        if target_page_clean:
+            for c in candidates:
+                base_c = os.path.basename(c).lower()
+                if base_c == target_page_clean or os.path.splitext(base_c)[0] == os.path.splitext(target_page_clean)[0]:
+                    main_f = c
+                    break
+        if not main_f:
+            for c in candidates:
+                if os.path.basename(c).lower() == "index.html":
+                    main_f = c
+                    break
         if not main_f:
             for c in candidates:
                 if c.endswith(".html"):
@@ -873,43 +1031,51 @@ async def get_live_preview_extracted_data(
 
     # Collect ALL source files from DB stored file (HTML + JSX/TSX)
     all_source_files = {}  # filename -> content string
-    if not content:
-        download_assets = template.download_assets or {}
-        zip_url = download_assets.get("zip")
-        if zip_url:
-            match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
-            if match:
-                file_id = uuid.UUID(match.group(1))
-                sf_res = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
-                stored_file = sf_res.scalar_one_or_none()
-                if stored_file and stored_file.data:
-                    if zipfile.is_zipfile(io.BytesIO(stored_file.data)):
-                        with zipfile.ZipFile(io.BytesIO(stored_file.data), "r") as z_in:
-                            namelist = z_in.namelist()
-                            # Collect ALL source files (exclude build dirs)
-                            for n in namelist:
-                                is_build = any(d in n.replace("\\", "/").split("/")
-                                               for d in ["node_modules", "dist", "build", "out", ".output", "__MACOSX"])
-                                is_src = (n.endswith(".html") or n.endswith(".jsx") or
-                                          n.endswith(".tsx") or n.endswith(".vue") or
-                                          n.endswith(".js") or n.endswith(".ts"))
-                                if is_src and not is_build:
-                                    try:
-                                        all_source_files[n] = z_in.read(n).decode("utf-8", errors="ignore")
-                                    except Exception:
-                                        pass
-                            # Pick main file content for BS4 path (use already-read dict)
-                            html_keys = [n for n in all_source_files if n.endswith("index.html") or
-                                         (n.endswith(".html") and "__MACOSX" not in n)]
-                            jsx_keys = [n for n in all_source_files if (n.endswith("App.jsx") or n.endswith("App.tsx"))]
-                            if html_keys:
-                                content = all_source_files[html_keys[0]]
-                            elif jsx_keys:
-                                content = all_source_files[jsx_keys[0]]
-                            elif all_source_files:
-                                content = next(iter(all_source_files.values()))
-                    else:
-                        content = stored_file.data.decode("utf-8", errors="ignore")
+    download_assets = (template.download_assets if template else {}) or {}
+    zip_url = download_assets.get("zip")
+    if zip_url:
+        match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
+        if match:
+            file_id = uuid.UUID(match.group(1))
+            sf_res = await db.execute(select(StoredFile).where(StoredFile.id == file_id))
+            stored_file = sf_res.scalar_one_or_none()
+            if stored_file and stored_file.data:
+                if zipfile.is_zipfile(io.BytesIO(stored_file.data)):
+                    with zipfile.ZipFile(io.BytesIO(stored_file.data), "r") as z_in:
+                        namelist = z_in.namelist()
+                        for n in namelist:
+                            is_build = any(d in n.replace("\\", "/").split("/")
+                                           for d in ["node_modules", "dist", "build", "out", ".output", "__MACOSX"])
+                            is_src = (n.endswith(".html") or n.endswith(".jsx") or
+                                      n.endswith(".tsx") or n.endswith(".vue") or
+                                      n.endswith(".js") or n.endswith(".ts"))
+                            if is_src and not is_build:
+                                try:
+                                    all_source_files[n] = z_in.read(n).decode("utf-8", errors="ignore")
+                                except Exception:
+                                    pass
+                        if not content:
+                            matched_key = None
+                            if target_page_clean:
+                                for k in all_source_files:
+                                    base_k = os.path.basename(k).lower()
+                                    if base_k == target_page_clean or os.path.splitext(base_k)[0] == os.path.splitext(target_page_clean)[0]:
+                                        matched_key = k
+                                        break
+                            if matched_key:
+                                content = all_source_files[matched_key]
+                            else:
+                                html_keys = [n for n in all_source_files if n.endswith("index.html") or
+                                             (n.endswith(".html") and "__MACOSX" not in n)]
+                                jsx_keys = [n for n in all_source_files if (n.endswith("App.jsx") or n.endswith("App.tsx"))]
+                                if html_keys:
+                                    content = all_source_files[html_keys[0]]
+                                elif jsx_keys:
+                                    content = all_source_files[jsx_keys[0]]
+                                elif all_source_files:
+                                    content = next(iter(all_source_files.values()))
+                else:
+                    content = stored_file.data.decode("utf-8", errors="ignore")
 
     # Also collect files from already-extracted preview_dir (for JSX builds)
     if not all_source_files and os.path.exists(preview_dir):
@@ -939,6 +1105,8 @@ async def get_live_preview_extracted_data(
         """Parse JSX/TSX/Vue source files using normalized BeautifulSoup and regex to extract real sections, headlines, cards, and text."""
         def file_priority(fname: str) -> int:
             fn = os.path.basename(fname).lower()
+            if target_page_clean and (fn == target_page_clean or os.path.splitext(fn)[0] == os.path.splitext(target_page_clean)[0]):
+                return -1
             if fn in ["home.jsx", "home.tsx", "home.vue"]:
                 return 0
             if fn in ["app.jsx", "app.tsx", "app.vue"]:
@@ -1204,8 +1372,21 @@ async def get_live_preview_extracted_data(
     if jsx_files_found:
         # Modern React/Vue/Vite project — extract the real sections and components from source files
         result = extract_from_jsx_sources(all_source_files, title, primary_color)
-        if result and len(result.get("sections_list", [])) > 1:
-            return result
+        if result and len(result.get("sections_list", [])) > 0:
+            detected_fw = "React" if any(k.endswith((".jsx", ".tsx")) for k in all_source_files) else "Vue"
+            pages_list, active_page_target = build_template_pages_list(
+                template, all_source_files, preview_dir, detected_fw, target_page_clean
+            )
+            return {
+                "status": "success",
+                "template_id": template_id,
+                "framework": detected_fw,
+                "active_page": active_page_target,
+                "brand": result.get("brand"),
+                "sections": result.get("sections"),
+                "sections_list": result.get("sections_list"),
+                "pages": pages_list
+            }
 
     soup = BeautifulSoup(content or "", "html.parser")
     
@@ -1846,13 +2027,18 @@ async def get_live_preview_extracted_data(
         else:
             detected_framework = "HTML5"
 
+    pages_list, active_page_target = build_template_pages_list(
+        template, all_source_files, preview_dir, detected_framework, target_page_clean
+    )
     return {
         "status": "success",
         "template_id": template_id,
         "framework": detected_framework,
+        "active_page": active_page_target,
         "brand": brand,
         "sections": sections,
-        "sections_list": sections_list
+        "sections_list": sections_list,
+        "pages": pages_list
     }
 
 
@@ -1997,9 +2183,6 @@ async def edit_live_preview_manual(
     template = await template_repo.get_by_id(template_id)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
-
-    # Enforce token limit (1 token per text replacement)
-    remaining_tokens = await check_and_deduct_tokens(current_user, db, cost=1, operation_name="find_replace")
 
     # Enforce token limit (1 token per save/code edit operation)
     remaining_tokens = await check_and_deduct_tokens(current_user, db, cost=1, operation_name="manual_edit")
@@ -2146,12 +2329,19 @@ async def edit_live_preview_manual(
                 return new_code, True
         return code, False
 
+    target_page_lower = os.path.basename(request.page).lower() if request.page else ""
+
     def apply_smart_replace(old_val: str, new_val: str):
         if not old_val or not new_val or str(old_val).strip() == str(new_val).strip():
             return
         ov = str(old_val).strip()
         nv = str(new_val).strip()
-        for fname in files_dict:
+        # Sort files so target page is modified first
+        sorted_fnames = sorted(
+            files_dict.keys(),
+            key=lambda fn: 0 if (target_page_lower and (os.path.basename(fn).lower() == target_page_lower or os.path.splitext(os.path.basename(fn))[0].lower() == os.path.splitext(target_page_lower)[0])) else 1
+        )
+        for fname in sorted_fnames:
             updated_code, replaced = smart_replace_in_code(files_dict[fname], ov, nv)
             if replaced:
                 files_dict[fname] = updated_code
@@ -2159,7 +2349,7 @@ async def edit_live_preview_manual(
 
     # 2. Fast, Guaranteed Direct Deterministic Replacements across all files
     try:
-        extracted = await get_live_preview_extracted_data(original_template_id, db)
+        extracted = await get_live_preview_extracted_data(original_template_id, page=request.page, db=db)
     except Exception as ex_ext:
         logger.warning(f"Could not pre-extract sections for direct replacement: {ex_ext}")
         extracted = {}
@@ -4172,8 +4362,28 @@ async def serve_live_preview(
     Dynamically extract, compile (if needed), and serve the template's actual frontend code in the browser as a running live demo.
     """
 
-    # Live previews serve static assets only. Raw source code or API paths are never served.
-    if filepath and (_is_raw_source_path(filepath) or filepath == "api" or filepath.startswith("api/")):
+    # Live previews serve compiled interactive HTML pages and static assets.
+    # Page component requests (.jsx, .tsx, .vue, .svelte, .html, or route names) are compiled
+    # and served by the in-browser runners below. Raw sensitive files or direct /src/ internal probes are denied.
+    norm_fp = (filepath or "").replace("\\", "/").strip("/")
+    parts_fp = [p.lower() for p in norm_fp.split("/") if p]
+    is_page_runner_request = bool(
+        filepath and (
+            re.search(r'\.(?:html|htm|jsx|tsx|vue|svelte)$', filepath, re.I)
+            or ("." not in os.path.basename(filepath))
+        )
+    )
+    is_sensitive_path = (
+        any(p in ("node_modules", ".git", "backend", "server") for p in parts_fp)
+        or norm_fp.lower().startswith("src/")
+        or (norm_fp.lower() == "api" or norm_fp.lower().startswith("api/"))
+        or (os.path.basename(norm_fp).lower() in _DENY_NAMES)
+        or norm_fp.lower().endswith((".env", ".lock", ".py", ".map"))
+    )
+    if is_sensitive_path:
+        raise HTTPException(status_code=404, detail="Template previews only serve static website files")
+
+    if filepath and not is_page_runner_request and _is_raw_source_path(filepath):
         raise HTTPException(status_code=404, detail="Template previews only serve static website files")
         
     target_slug = template.slug if (template and template.slug) else str(template_id)
