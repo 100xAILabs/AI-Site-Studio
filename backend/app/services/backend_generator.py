@@ -409,13 +409,15 @@ Be thorough — include all entities implied by the brief.
         if architecture.get("stripe_needed"):
             flows = architecture.get("stripe_flows", [])
             stripe_section = f"""
-STRIPE INTEGRATION REQUIRED:
+STRIPE & MULTI-GATEWAY PAYMENT INTEGRATION REQUIRED:
   Flows to implement: {", ".join(flows) if flows else "checkout_session"}
-  - Use the Stripe SDK for {backend_type}.
-  - For checkout_session: POST /api/stripe/create-checkout-session — create a Stripe Checkout Session and return {{url}}.
-  - POST /api/stripe/webhook — verify Stripe webhook signature, handle payment events.
-  - Store order/subscription records in the DB after successful payment events.
-  - Read STRIPE_SECRET_KEY from environment variables. Never hardcode keys.
+  - Use the Stripe SDK for {backend_type} (and Razorpay if requested).
+  - For checkout_session: POST /api/payment/create-checkout-session — create a Stripe Checkout Session (omit payment_method_types per Stripe best practices) and return {{checkout_url, session_id, order_id}}.
+  - POST /api/payment/verify — cryptographically verify payment capture/return signature.
+  - POST /api/payment/webhook — verify Stripe / Razorpay raw webhook signature, handle checkout.session.completed, guarantee idempotency.
+  - Maintain strict Order State Machine (PENDING -> PAID / FAILED / REFUNDED).
+  - Store order & payment records in the database.
+  - Read STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET from environment variables. Never hardcode keys. Provide safe mock fallback in local sandbox mode if keys are not configured.
 """
 
         auth_section = ""

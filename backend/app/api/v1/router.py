@@ -9,7 +9,7 @@ from app.api.v1.routes import (
     orders, payment, reviews, favorites,
     wishlist, dashboard, admin, preview, ai, files, follows, deployments,
     payouts, ws, incidents, telemetry, storefront, studio, subscriptions, creator,
-    workload_receiver, email,
+    workload_receiver, email, payment_engine,
 )
 
 api_router = APIRouter()
@@ -20,6 +20,7 @@ api_router.include_router(categories.router, prefix="/categories", tags=["Catego
 api_router.include_router(search.router,     prefix="/search",     tags=["Search"])
 api_router.include_router(orders.router,     prefix="/orders",     tags=["Orders"])
 api_router.include_router(payment.router,    prefix="/payment",    tags=["Payment"])
+api_router.include_router(payment_engine.router, prefix="/payments", tags=["Payment Engine"])
 api_router.include_router(subscriptions.router, prefix="/subscriptions", tags=["Subscriptions"])
 api_router.include_router(reviews.router,    prefix="/reviews",    tags=["Reviews"])
 api_router.include_router(favorites.router,  prefix="/favorites",  tags=["Favorites"])

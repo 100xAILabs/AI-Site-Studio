@@ -97,6 +97,18 @@ KNOWN_ENV_REGISTRY: Dict[str, Dict[str, Any]] = {
         "validation_regex": r"^whsec_[a-zA-Z0-9]{20,}$",
         "validation_error": "Stripe webhook secret must start with whsec_.",
     },
+    "STRIPE_PUBLISHABLE_KEY": {
+        "description": "Stripe Publishable Key used on the frontend to mount Stripe Elements or initiate Checkout.",
+        "provider_name": "Stripe",
+        "provider_url": "https://dashboard.stripe.com/apikeys",
+        "is_secret": False,
+        "is_required": False,
+        "has_default": False,
+        "placeholder": "pk_live_... or pk_test_...",
+        "example": "pk_test_placeholder_key_format_12345",
+        "validation_regex": r"^pk_(?:live|test)_[a-zA-Z0-9_]{10,}$",
+        "validation_error": "Stripe publishable key must start with pk_test_ or pk_live_.",
+    },
     "RESEND_API_KEY": {
         "description": "Resend API Key used to dispatch transactional emails and contact form inquiries.",
         "provider_name": "Resend",
@@ -157,6 +169,18 @@ KNOWN_ENV_REGISTRY: Dict[str, Dict[str, Any]] = {
         "example": "abc123XYZ456Secret789",
         "validation_regex": r"^.{8,}$",
         "validation_error": "Razorpay secret key must be at least 8 characters.",
+    },
+    "RAZORPAY_WEBHOOK_SECRET": {
+        "description": "Razorpay Webhook Secret used to cryptographically verify incoming webhook payloads.",
+        "provider_name": "Razorpay",
+        "provider_url": "https://dashboard.razorpay.com/#/app/webhooks",
+        "is_secret": True,
+        "is_required": False,
+        "has_default": False,
+        "placeholder": "Razorpay webhook secret",
+        "example": "secret_webhook_passphrase_123",
+        "validation_regex": r"^.{8,}$",
+        "validation_error": "Razorpay webhook secret must be at least 8 characters.",
     },
     "VITE_API_URL": {
         "description": "Backend API origin URL consumed by the React single-page frontend.",
@@ -270,6 +294,7 @@ class EnvScannerService:
         if stripe_needed:
             detected_keys.add("STRIPE_SECRET_KEY")
             detected_keys.add("STRIPE_WEBHOOK_SECRET")
+            detected_keys.add("STRIPE_PUBLISHABLE_KEY")
 
         # 4. Build rich metadata records
         results: List[EnvVarMetadata] = []
