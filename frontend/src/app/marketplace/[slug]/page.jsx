@@ -1441,6 +1441,18 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
             </div>
           ) : (
             <>
+              {/* Live Interactive Demo Button */}
+              <Link
+                href={`/preview?template=${template.id}`}
+                className="details-demo-link-btn w-full py-3.5 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all text-sm mb-2.5 cursor-pointer bg-primary/15 hover:bg-primary/25 text-primary border border-primary/30 shadow-sm"
+                style={{ textDecoration: 'none' }}
+                title="Try the full interactive template demo in Studio Preview"
+              >
+                <Eye className="w-4 h-4 text-primary" />
+                <span>Try Live Demo</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/20 text-primary uppercase font-bold ml-auto">Free Sandbox</span>
+              </Link>
+
               {/* Primary: Buy Now */}
               <button
                 type="button"
@@ -1469,7 +1481,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
               {/* Preview Editor Unlock Guarantee */}
               <div className="mt-2.5 p-2.5 rounded-xl bg-primary/10 border border-primary/20 text-[11px] text-foreground/80 flex items-center gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-primary shrink-0" />
-                <span>Studio Preview Editor & AI Personalizer unlock immediately upon purchase.</span>
+                <span>Full Studio Editor with AI Personalizer unlocks immediately upon purchase.</span>
               </div>
             </>
           )}
@@ -1561,6 +1573,17 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                       <span>Video</span>
                     </button>
                   )}
+                  <Link
+                    href={`/preview?template=${template.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hero-tab-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-primary/15 hover:bg-primary/25 border border-primary/30 text-primary font-bold text-xs transition-all ml-1"
+                    style={{ textDecoration: 'none' }}
+                    title="Open Fullscreen Interactive Demo in Studio"
+                  >
+                    <Eye className="w-3.5 h-3.5 text-primary" />
+                    <span>Live Demo ↗</span>
+                  </Link>
                 </div>
 
                 <div className="details-hero-tabs-right">
@@ -3480,6 +3503,14 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
           <span className="details-mobile-bottom-license">Lifetime License</span>
         </div>
         <div className="details-mobile-bottom-actions">
+          <Link
+            href={`/preview?template=${template.id}`}
+            className="details-mobile-bottom-btn demo"
+            style={{ textDecoration: 'none', background: 'rgba(200, 150, 102, 0.15)', color: '#dfb180', border: '1px solid rgba(200, 150, 102, 0.3)' }}
+            title="Try Live Demo"
+          >
+            <Eye className="w-3.5 h-3.5" /> Demo
+          </Link>
           {hasPurchased || isOwnerOrAdmin ? (
             <Link
               href={`/preview?template=${template.id}`}

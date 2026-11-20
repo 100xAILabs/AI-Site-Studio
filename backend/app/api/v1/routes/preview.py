@@ -4467,11 +4467,15 @@ async def serve_live_preview(
                     )
 
                     # Strip CSS import statements (CSS is collected into <style> in <head>)
-                    c = re.sub(r"import\s+['\"][^'\"]+\.css['\"]; *\n?", "", c)
+                    c = re.sub(r"import\s+['\"][^'\"]+\.css['\"];? *\n?", "", c)
 
                     # Strip external package imports (React, motion, lucide, react-router are provided as globals)
-                    c = re.sub(r"import\s+[\s\S]*?from\s+['\"].*?['\"]; *\n?", "", c)
-                    c = re.sub(r"import\s+['\"].*?['\"]; *\n?", "", c)
+                    c = re.sub(r"import\s+[\s\S]*?from\s+['\"].*?['\"];? *\n?", "", c)
+                    c = re.sub(r"import\s+['\"].*?['\"];? *\n?", "", c)
+
+                    # Strip any entry-point createRoot/ReactDOM render calls inside component files
+                    c = re.sub(r"createRoot\([^)]+\)\.render\([\s\S]*?\);?", "", c)
+                    c = re.sub(r"ReactDOM\.render\([\s\S]*?\);?", "", c)
 
                     # Transform anonymous default exports into named component declarations using var (prevents const redeclaration errors)
                     c = re.sub(r"\bexport\s+default\s+function\s*\(", f"var {comp_var_name} = function(", c)
@@ -4483,18 +4487,39 @@ async def serve_live_preview(
                         default_name = m_exp.group(1)
                         c = re.sub(r"^\s*export\s+default\s+[A-Za-z0-9_]+\s*;\s*$", f"var {comp_var_name} = {default_name};", c, flags=re.MULTILINE)
 
-                    # Transform named function export: export default function Name -> function Name
-                    c = re.sub(r"\bexport\s+default\s+function\s+([A-Za-z0-9_]+)", r"function \1", c)
+                    # Transform named function export: export default function Name -> function Name (plus var alias)
+                    m_fn = re.search(r"\bexport\s+default\s+function\s+([A-Za-z0-9_]+)", c)
+                    if m_fn:
+                        fn_name = m_fn.group(1)
+                        c = re.sub(r"\bexport\s+default\s+function\s+[A-Za-z0-9_]+", f"function {fn_name}", c)
+                        if comp_var_name and comp_var_name != fn_name:
+                            c += f"\nvar {comp_var_name} = {fn_name};"
+                    else:
+                        c = re.sub(r"\bexport\s+default\s+function\s+([A-Za-z0-9_]+)", r"function \1", c)
+
+                    # Transform named class export
+                    m_cls = re.search(r"\bexport\s+default\s+class\s+([A-Za-z0-9_]+)", c)
+                    if m_cls:
+                        cls_name = m_cls.group(1)
+                        c = re.sub(r"\bexport\s+default\s+class\s+[A-Za-z0-9_]+", f"class {cls_name}", c)
+                        if comp_var_name and comp_var_name != cls_name:
+                            c += f"\nvar {comp_var_name} = {cls_name};"
 
                     # Strip remaining export keywords
                     c = re.sub(r"\bexport\s+default\s+(?=class|const|let|var)", "", c)
                     c = re.sub(r"\bexport\s+(?=function|class|const|let|var)", "", c)
                     c = re.sub(r"export\s*\{[^}]*\};?", "", c)
+
+                    # Convert top-level or leading const/let to var to prevent "Identifier has already been declared" syntax errors when bundling multiple files into one scope
+                    c = re.sub(r"^(?:const|let)\s+", "var ", c, flags=re.MULTILINE)
                     return c.strip()
 
                 # 3. Bundle all sub-components so imported dependencies exist in scope
                 sub_component_blocks = []
-                sub_keys = [k for k in all_jsx_files.keys() if k != primary_jsx_key]
+                sub_keys = [
+                    k for k in all_jsx_files.keys()
+                    if k != primary_jsx_key and not os.path.basename(k).lower().startswith(("main.", "index.client.", "entry."))
+                ]
                 sub_keys.sort(key=lambda x: (
                     0 if "ui/" in x.lower() or "lib/" in x.lower()
                     else 1 if "component" in x.lower()
@@ -4510,6 +4535,7 @@ async def serve_live_preview(
                         sub_component_blocks.append(
                             f"// --- Component: {sk} ---\n{cleaned_sub}\n"
                             f"if (typeof {sk_capital} !== 'undefined') {{ window._components['{sk_capital}'] = {sk_capital}; }}\n"
+                            f"if (typeof {sk_base} !== 'undefined') {{ window._components['{sk_base}'] = {sk_base}; }}\n"
                         )
 
                 sub_components_code = "\n\n".join(sub_component_blocks)
@@ -4561,6 +4587,7 @@ async def serve_live_preview(
                     "  <script src=\"https://cdn.tailwindcss.com\"></script>\n"
                     "  <script src=\"https://unpkg.com/react@18/umd/react.production.min.js\"></script>\n"
                     "  <script src=\"https://unpkg.com/react-dom@18/umd/react-dom.production.min.js\"></script>\n"
+                    "  <script>window.react = window.React;</script>\n"
                     "  <script src=\"https://unpkg.com/@babel/standalone@7.24.0/babel.min.js\"></script>\n"
                     "  <script src=\"https://unpkg.com/lucide-react@0.451.0/dist/umd/lucide-react.js\"></script>\n"
                     "  <script>\n"
@@ -4595,6 +4622,15 @@ async def serve_live_preview(
                     "    const _lucide = window.LucideReact || window.lucideReact || window.lucide || {};\n"
                     "    function _createFallbackComponent(name) {\n"
                     "      if (window._components && window._components[name]) return window._components[name];\n"
+                    "      if (window._components) {\n"
+                    "        const lower = String(name).toLowerCase();\n"
+                    "        for (const k in window._components) {\n"
+                    "          const kl = k.toLowerCase();\n"
+                    "          if (kl === lower || kl.replace(/page|component|view/g, '') === lower.replace(/page|component|view/g, '')) {\n"
+                    "            return window._components[k];\n"
+                    "          }\n"
+                    "        }\n"
+                    "      }\n"
                     "      if (_lucide && _lucide[name]) return _lucide[name];\n"
                     "      return function FallbackItem(props) {\n"
                     "        const p = props || {};\n"
@@ -4663,7 +4699,24 @@ async def serve_live_preview(
                     "    const useSearchParams = function() { return [new URLSearchParams(window.location.search), function() {}]; };\n"
                     "    const BrowserRouter = function(props) { return (props && props.children) ? props.children : null; };\n"
                     "    const Router = BrowserRouter;\n"
-                    "    const Routes = function(props) { return (props && props.children) ? props.children : null; };\n"
+                    "    const Routes = function(props) {\n"
+                    "      if (!props || !props.children) return null;\n"
+                    "      const children = React.Children.toArray(props.children);\n"
+                    "      const hash = (window.location.hash || '').replace('#', '').toLowerCase().replace(/^\\//, '');\n"
+                    "      if (hash) {\n"
+                    "        for (let i = 0; i < children.length; i++) {\n"
+                    "          const r = children[i];\n"
+                    "          const p = (r && r.props && r.props.path || '').toLowerCase().replace(/^\\//, '');\n"
+                    "          if (p === hash) return r;\n"
+                    "        }\n"
+                    "      }\n"
+                    "      for (let i = 0; i < children.length; i++) {\n"
+                    "        const r = children[i];\n"
+                    "        const p = (r && r.props && r.props.path || '');\n"
+                    "        if (p === '/' || (r && r.props && r.props.index)) return r;\n"
+                    "      }\n"
+                    "      return children[0] || null;\n"
+                    "    };\n"
                     "    const Route = function(props) { return (props && (props.element || props.children)) ? (props.element || props.children) : null; };\n"
                     "    const Outlet = function(props) { return (props && props.children) ? props.children : null; };\n"
                     "\n"
@@ -5968,17 +6021,23 @@ async def serve_live_preview(
                     except Exception as e_build:
                         logger.exception("Auto-compilation failed for %s preview %s", template_fw_str or "framework", template_id)
 
+            # Check if modern framework source files exist (React, Vue, Svelte, Angular)
+            has_fw_sources = any(
+                f.lower().endswith((".jsx", ".tsx", ".vue", ".svelte", ".component.ts", ".component.html"))
+                for r, d, files in os.walk(preview_dir)
+                for f in files
+                if "node_modules" not in r and ".git" not in r and "dist" not in r and "build" not in r
+            )
+
+            # Modern framework projects (React, Vue, Svelte, Angular, etc.) must run via the
+            # Universal In-Browser Standalone Runner so that live editing, theme synchronization,
+            # device responsiveness, and subcomponents execute live with zero CORS/bundle issues!
+            if has_fw_sources or template_fw_str in ("react", "nextjs", "vue", "nuxt", "svelte", "angular") or (request.query_params.get("framework") or "").lower() in ("react", "vue", "svelte", "angular"):
+                logger.info("Serving modern framework template %s (%s) directly via in-browser runner", template_id, template_fw_str)
+                return await serve_fallback(f"Preview compilation: in-browser runner for {template_fw_str or 'framework'}")
+
             if build_dir:
                 serve_root = build_dir
-            elif template_fw_str in ("react", "nextjs", "vue", "nuxt", "svelte", "angular") or (request.query_params.get("framework") or "").lower() in ("react", "vue", "svelte", "angular"):
-                # If template is declared or requested as a modern framework and not pre-compiled into dist/,
-                # always run via the In-Browser Standalone Runner (React 18, Vue 3, Angular, Svelte) so the user's
-                # actual source code executes live in the preview, NEVER a static HTML mirror!
-                logger.info("Serving modern framework template %s (%s) directly via in-browser runner", template_id, template_fw_str)
-                return await serve_fallback(f"Preview compilation: in-browser runner for {template_fw_str}")
-            elif any(f.lower().endswith((".jsx", ".tsx", ".vue", ".svelte", ".component.ts", ".component.html")) for r, d, files in os.walk(preview_dir) for f in files if "node_modules" not in r and ".git" not in r):
-                logger.info("Detected framework source files (.jsx/.vue/.svelte/angular) in %s; serving directly via in-browser runner", template_id)
-                return await serve_fallback("Found framework source file; serving via in-browser runner")
             elif package_json_path:
                 # Check if package.json has modern framework dependencies
                 has_fw_deps = False
@@ -7347,7 +7406,11 @@ async def serve_live_preview(
             except Exception:
                 pass
         from app.services.security_scanner import security_scanner
-        return Response(content=content, media_type=mime_type, headers=security_scanner.get_secure_preview_headers())
+        preview_headers = security_scanner.get_secure_preview_headers()
+        preview_headers["Access-Control-Allow-Origin"] = "*"
+        preview_headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+        preview_headers["Access-Control-Allow-Headers"] = "*"
+        return Response(content=content, media_type=mime_type, headers=preview_headers)
     except Exception as e:
         logger.exception(f"🚨 Preview generation error for template {template_id}: {e}")
         return await serve_fallback(str(e))
