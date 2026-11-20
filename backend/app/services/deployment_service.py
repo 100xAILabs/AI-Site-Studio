@@ -279,12 +279,12 @@ class DeploymentService:
                 # -------------------------------------------------------------
                 from app.services.deployment_readiness_auditor import deployment_readiness_auditor
 
-                deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [AUDIT] 🔍 Commencing pre-flight Production Readiness Audit...\n"
+                deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [AUDIT] 🔍 Commencing pre-flight Production Readiness Audit & Automated Test Sweep...\n"
                 await db.commit()
-                await service.log_event(deployment.id, "AUDIT", "Pre-flight Production Readiness Audit started.")
+                await service.log_event(deployment.id, "AUDIT", "Pre-flight Production Readiness Audit & Automated Test Sweep started.")
 
                 target_identifier = (template.slug if (template and template.slug) else None) or deployment.project_name
-                audit_res = deployment_readiness_auditor.audit_and_heal_source(
+                audit_res = deployment_readiness_auditor.run_preflight_test_sweep(
                     source_path=source_dir,
                     template_identifier=target_identifier,
                 )

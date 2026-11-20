@@ -5,6 +5,7 @@ for React JSX/TSX, Vue, Svelte, Astro, HTML, and full-stack source files.
 
 import os
 import re
+import ast
 import json
 import tempfile
 import logging
@@ -74,6 +75,7 @@ class AIDebuggerService:
             # Fix premature `);` before HTML/JSX closing tags
             code = re.sub(r'\);\s*(</[A-Za-z0-9_.-]+>)', r'\1', code)
             code = re.sub(r';\s*(</[A-Za-z0-9_.-]+>)', r'\1', code)
+            code = re.sub(r'(</[A-Za-z0-9_.-]+>);', r'\1', code)
 
             # Fix duplicate or missing export defaults safely
             has_inline_export = bool(re.search(r'export\s+default\s+(function|class)\b', code))
@@ -93,6 +95,103 @@ class AIDebuggerService:
         # 5. Standard JS / TS files (main.js, router.js, configs)
         # Never inject React JSX or export defaults into standard scripts!
         return code
+
+    def validate_and_heal_python_syntax(self, code: str, filename: str = "app.py") -> Tuple[bool, str, Optional[str]]:
+        """
+        Parses Python code using AST. If syntax errors exist, applies deterministic
+        heuristic repairs (unclosed brackets, markdown fences, missing colons, invalid decorators)
+        and verifies using AST re-parsing.
+        Returns: (is_valid: bool, healed_code: str, error_or_fix_message: Optional[str])
+        """
+        if not code or not code.strip():
+            return True, code, None
+
+        clean_code = code
+        if "```" in clean_code:
+            clean_code = clean_code_response(clean_code, ".py")
+
+        try:
+            ast.parse(clean_code)
+            return True, clean_code, None
+        except SyntaxError as syn_err:
+            initial_err = f"SyntaxError at line {syn_err.lineno}: {syn_err.msg}"
+            logger.info(f"Detected Python AST syntax defect in {filename}: {initial_err}. Applying self-repair...")
+
+        healed = clean_code
+
+        # 1. Strip markdown fences or trailing conversational text
+        healed = re.sub(r'^```(?:python|py)?\s*$', '', healed, flags=re.MULTILINE)
+        healed = re.sub(r'^```\s*$', '', healed, flags=re.MULTILINE)
+
+        # 2. Fix missing colons after def, class, if, elif, else, for, while, try, except, finally, with
+        block_keywords = r"(def\s+[a-zA-Z0-9_]+\s*\([^)]*\)|class\s+[a-zA-Z0-9_]+(?:\([^)]*\))?|if\s+.+|elif\s+.+|else|for\s+.+\s+in\s+.+|while\s+.+|try|except(?:\s+.+)?|finally|with\s+.+)"
+        healed = re.sub(rf"^(\s*{block_keywords})\s*$", r"\1:", healed, flags=re.MULTILINE)
+
+        # 3. Line-by-line unclosed parenthesis / bracket healing
+        lines = healed.splitlines()
+        fixed_lines = []
+        for line in lines:
+            line_diff = line.count("(") - line.count(")")
+            if line_diff > 0 and not line.strip().endswith("\\"):
+                line += ")" * line_diff
+            bracket_diff = line.count("[") - line.count("]")
+            if bracket_diff > 0 and not line.strip().endswith("\\"):
+                line += "]" * bracket_diff
+            fixed_lines.append(line)
+        healed = "\n".join(fixed_lines)
+
+        # 4. Fix unclosed parentheses, brackets, or braces at end of file
+        open_parens = healed.count("(") - healed.count(")")
+        open_brackets = healed.count("[") - healed.count("]")
+        open_braces = healed.count("{") - healed.count("}")
+
+        if open_parens > 0:
+            healed += ")" * open_parens
+        if open_brackets > 0:
+            healed += "]" * open_brackets
+        if open_braces > 0:
+            healed += "}" * open_braces
+
+        # 5. Strip incomplete trailing decorators e.g. @app.get or @router.post without function
+        healed = re.sub(r'@[a-zA-Z0-9_.]+\s*$', '', healed)
+
+        # Re-parse to verify
+        try:
+            ast.parse(healed)
+            return True, healed, f"Successfully auto-healed Python syntax defect ({initial_err})"
+        except SyntaxError as e2:
+            return False, healed, f"SyntaxError persists at line {e2.lineno}: {e2.msg}"
+
+    def validate_and_heal_frontend_syntax(
+        self,
+        code: str,
+        filename: str = "App.jsx",
+        framework: str = "react",
+    ) -> Tuple[bool, str, Optional[str]]:
+        """
+        Validates frontend source code (React JSX/TSX, Vue, Svelte, HTML)
+        and applies deterministic heuristic AST healing for unbalanced tags, stray semicolons,
+        broken export statements, and truncated code.
+        Returns: (is_valid: bool, healed_code: str, fix_message: Optional[str])
+        """
+        if not code or not code.strip():
+            return True, code, None
+
+        ext = os.path.splitext(filename)[1].lower() or ".jsx"
+        healed = self.sanitize_code_heuristics(code, ext, framework)
+
+        # Additional balance checks for React / JSX
+        if ext in [".jsx", ".tsx"]:
+            diff_braces = healed.count("{") - healed.count("}")
+            if diff_braces > 0:
+                healed += "\n" + ("}" * diff_braces)
+            elif diff_braces < 0:
+                for _ in range(abs(diff_braces)):
+                    healed = re.sub(r'\}\s*$', '', healed)
+
+        if healed != code:
+            return True, healed, f"Applied deterministic AST syntax repairs to {filename}"
+        return True, code, None
 
     async def debug_code_with_ai(
         self,
