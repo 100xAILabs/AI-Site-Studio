@@ -49,10 +49,21 @@ async def get_current_user_optional(
     db: AsyncSession = Depends(get_db),
 ) -> Optional[User]:
     """Same as get_current_user but returns None instead of raising for public routes."""
+    token = None
     if credentials:
+        token = credentials.credentials
+    if not token:
+        token = (
+            request.query_params.get("token")
+            or request.query_params.get("access_token")
+            or request.cookies.get("access_token")
+            or request.cookies.get("token")
+        )
+    if token:
         try:
-            return await get_current_user(credentials=credentials, db=db)
-        except HTTPException:
+            from app.core.security import authenticate_token
+            return await authenticate_token(db, token, "access")
+        except Exception:
             pass
 
     return None

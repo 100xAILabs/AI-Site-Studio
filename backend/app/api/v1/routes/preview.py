@@ -4040,7 +4040,8 @@ async def serve_live_preview(
     template_id: str,
     request: Request,
     filepath: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     raw_id, _, cap = template_id.partition("~")
     from app.repositories.template_repo import TemplateRepository
@@ -4051,8 +4052,44 @@ async def serve_live_preview(
     from app.core.security import check_preview_token
     cap_clean = check_preview_token(str(template.id), cap) if cap else None
 
-    if template.status != TemplateStatus.PUBLISHED and cap_clean is None:
-        raise HTTPException(status_code=403, detail="Private preview requires authorization")
+    # Determine user authorization status
+    is_admin = bool(current_user and getattr(current_user, "role", None) in ("admin", "super_admin"))
+    is_owner = bool(current_user and template.seller_id and current_user.id == template.seller_id)
+    user_tier = str(getattr(current_user, "subscription_tier", "") or "").lower()
+    is_extreme = bool(current_user and (getattr(current_user, "is_pro_subscriber", False) or user_tier in ("extreme", "agency", "enterprise", "pro", "creator_pro")))
+
+    has_purchased = False
+    if current_user and template:
+        target_ids = [template.id]
+        if getattr(template, "forked_from_template_id", None):
+            target_ids.append(template.forked_from_template_id)
+        po_res = await db.execute(
+            select(OrderItem.id)
+            .join(Order, OrderItem.order_id == Order.id)
+            .where(
+                Order.user_id == current_user.id,
+                Order.status == OrderStatus.COMPLETED,
+                OrderItem.template_id.in_(target_ids)
+            )
+            .limit(1)
+        )
+        has_purchased = po_res.scalar_one_or_none() is not None
+
+    is_authorized = bool(
+        template.status == TemplateStatus.PUBLISHED
+        or cap_clean is not None
+        or is_admin
+        or is_owner
+        or is_extreme
+        or has_purchased
+        or bool(template.is_free)
+    )
+
+    if not is_authorized:
+        raise HTTPException(
+            status_code=403,
+            detail="Private preview requires authorization. Please purchase this template or upgrade to Extreme to access this private project."
+        )
 
     # Redirect to URL with trailing slash to ensure relative assets load correctly in browser
     if not filepath and not request.url.path.endswith("/"):
@@ -4081,7 +4118,7 @@ async def serve_live_preview(
     target_slug = template.slug if (template and template.slug) else str(template_id)
     purchase_url = f"{settings.FRONTEND_URL}/marketplace/{target_slug}?buy=1"
 
-    is_clean = bool(template.is_free) or (cap_clean is True)
+    is_clean = bool(template.is_free) or (cap_clean is True) or is_owner or is_admin or is_extreme or has_purchased
     if is_clean:
         watermark_payload = ""
     else:
@@ -7390,7 +7427,7 @@ async def serve_live_preview(
     """.replace("__PURCHASE_URL__", purchase_url)
 
                 # Inject watermark overlay on all template previews unless explicitly marked clean via root purchase or free template
-                is_clean = bool(template.is_free) or (cap_clean is True)
+                is_clean = bool(template.is_free) or (cap_clean is True) or is_owner or is_admin or is_extreme or has_purchased
 
                 if not is_clean:
                     if "</body>" in html_content:

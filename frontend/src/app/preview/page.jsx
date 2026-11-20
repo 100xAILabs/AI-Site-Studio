@@ -22,13 +22,13 @@ import {
   Copy, RotateCcw, ArrowLeft, Sliders, Globe, Bot, Send,
   CheckCircle2, Play, Code, Search, X, Wand2, ArrowUpRight,
   ChevronRight, ChevronLeft, MoreVertical, Menu, Eye, Phone, MapPin, Clock, ShoppingBag, ShoppingCart, Share2, Upload,
-  Link2, ExternalLink
+  Link2, ExternalLink, Lock
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatPrice } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useCartStore } from "@/store";
 import { useAuthStore } from "@/store/authStore";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getFallbackTemplate } from "@/data/popularTemplatesData";
 import "./Page.css";
 import "../storybook/Page.css";
@@ -782,6 +782,53 @@ export default function PreviewPage() {
     handleAddToCart();
     navigate("/checkout");
   };
+
+  // Query user orders to determine if user has purchased this template
+  const { data: userOrders = [] } = useQuery({
+    queryKey: ["user-orders-preview"],
+    queryFn: async () => {
+      const tok = authToken || useAuthStore.getState()?.token;
+      if (!tok) return [];
+      try {
+        const res = await api.get("/orders", tok);
+        return res?.orders || res?.data || (Array.isArray(res) ? res : []);
+      } catch (_) {
+        return [];
+      }
+    },
+    enabled: Boolean(isSignedIn),
+    staleTime: 1000 * 60 * 3,
+  });
+
+  const hasPurchased = useMemo(() => {
+    if (templateData?.is_purchased) return true;
+    if (!templateData?.id || !userOrders.length) return false;
+    const targetIds = [String(templateData.id)];
+    if (templateData.forked_from_template_id) {
+      targetIds.push(String(templateData.forked_from_template_id));
+    }
+    return userOrders.some(
+      (ord) =>
+        ord.status === "completed" &&
+        ord.items?.some((item) => targetIds.includes(String(item.template_id)))
+    );
+  }, [templateData, userOrders]);
+
+  const isUserExtreme = ["extreme", "agency", "enterprise"].includes((user?.subscription_tier || "free").toLowerCase());
+  const isUserPro = Boolean(user?.is_pro_subscriber || ["pro", "creator_pro"].includes((user?.subscription_tier || "free").toLowerCase()));
+  const isUserAdmin = user?.role === "admin" || user?.role === "super_admin";
+  const isUserOwner = Boolean(user?.id && templateData?.seller_id && user.id === templateData.seller_id);
+
+  const hasEditorAccess = Boolean(
+    isUserAdmin ||
+    isUserOwner ||
+    isUserExtreme ||
+    isUserPro ||
+    hasPurchased ||
+    templateData?.is_free ||
+    templateData?.template_origin === "custom_draft" ||
+    (templateData?.status === "draft" && templateData?.seller_id === user?.id)
+  );
 
   // 2 Top Mode Buttons State: "manual" | "ai"
   const [editorMode, setEditorMode] = useState("manual"); // "manual" | "ai" | "assets"
@@ -2098,11 +2145,84 @@ export default function PreviewPage() {
     );
   }
 
+  // 🔒 Lock Check: If signed in, but user has not bought the template and has no Extreme/Pro plan
+  if (isSignedIn && templateData && !hasEditorAccess) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-card border border-border rounded-2xl p-8 shadow-2xl text-center relative overflow-hidden">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center mx-auto mb-5 shadow-inner">
+            <Lock className="w-8 h-8" />
+          </div>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-500 mb-3 border border-amber-500/30">
+            🔒 Studio Editor Locked
+          </div>
+          <h2 className="text-2xl font-bold tracking-tight text-foreground mb-2">
+            Purchase Required to Edit
+          </h2>
+          <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
+            You have not purchased <strong>{templateData.title}</strong> yet. Purchase this template or subscribe to an Extreme membership to unlock live code editing, AI copywriting, and private project saves.
+          </p>
+
+          <div className="p-4 rounded-xl bg-muted/40 border border-border/80 text-left mb-6 space-y-2">
+            <div className="flex justify-between items-center text-sm font-semibold text-foreground">
+              <span>{templateData.title}</span>
+              <span className="text-primary font-bold">{formatPrice(templateData.price || 49, "USD")}</span>
+            </div>
+            <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Full source code, private edits, and AI Studio unlock upon purchase.</span>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2.5">
+            <button
+              type="button"
+              onClick={() => {
+                if (addToCart) {
+                  addToCart({
+                    id: templateData.id,
+                    title: templateData.title,
+                    price: templateData.price || 49,
+                    thumbnail_url: templateData.thumbnail_url,
+                    category: templateData.category,
+                  });
+                }
+                navigate("/checkout");
+              }}
+              className="w-full py-3 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-[#c89666] to-[#b5804f] text-[#09090b] hover:brightness-110 transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Zap className="w-4 h-4 fill-current" />
+              Buy Template to Unlock ({formatPrice(templateData.price || 49, "USD")})
+            </button>
+            <a
+              href={`/demo/${templateData.slug || templateData.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-2.5 px-4 rounded-xl font-medium text-xs border border-border bg-card/60 hover:bg-muted/60 transition-all text-muted-foreground flex items-center justify-center gap-1.5"
+              style={{ textDecoration: 'none' }}
+            >
+              <Eye className="w-3.5 h-3.5 text-primary" />
+              Try Free Live Demo Instead ↗
+            </a>
+            <button
+              type="button"
+              onClick={handleBackToMarketplace}
+              className="w-full py-2 px-4 rounded-xl font-medium text-xs text-muted-foreground hover:text-foreground transition-all cursor-pointer"
+            >
+              Return to Marketplace Details
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const currentColorForIframe = sectionProps[currentSection?.id]?.themeColor || sectionProps.navbar?.themeColor || sectionProps.hero?.themeColor || brand?.primary_color || "";
   const detectedFrameworkParam = (templateData?.framework || "").toLowerCase();
+  const effectiveToken = authToken || useAuthStore.getState()?.token || localStorage.getItem("aisitestudio_token") || "";
 
   const liveServerUrl = effectiveTemplateId && effectiveTemplateId !== "default"
-    ? `${API_BASE}/preview/live/${effectiveTemplateId}${pageRouteParam ? `/${pageRouteParam}` : "/"}?v=${iframeKey}${currentColorForIframe ? `&primaryColor=${encodeURIComponent(currentColorForIframe)}` : ""}${detectedFrameworkParam ? `&framework=${encodeURIComponent(detectedFrameworkParam)}` : ""}`
+    ? `${API_BASE}/preview/live/${effectiveTemplateId}${pageRouteParam ? `/${pageRouteParam}` : "/"}?v=${iframeKey}${currentColorForIframe ? `&primaryColor=${encodeURIComponent(currentColorForIframe)}` : ""}${detectedFrameworkParam ? `&framework=${encodeURIComponent(detectedFrameworkParam)}` : ""}${effectiveToken ? `&token=${encodeURIComponent(effectiveToken)}` : ""}`
     : null;
 
   return (
