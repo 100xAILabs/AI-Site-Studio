@@ -108,12 +108,39 @@ def calculate_metrics(values)
             filename="metrics.py"
         )
         assert is_valid is True
-        # Should parse cleanly without raising SyntaxError
         parsed = ast.parse(healed)
         assert parsed is not None
         assert "def calculate_metrics(values):" in healed
         assert "if len(values) > 0:" in healed
         assert "else:" in healed
+
+    def test_multiline_parameters_preserved_when_healing_other_functions(self):
+        code = """def my_function(
+    param_a: str,
+    param_b: int = 10,
+):
+    return True
+
+def broken_func()
+    pass
+"""
+        is_valid, healed, msg = ai_debugger.validate_and_heal_python_syntax(
+            code,
+            filename="handler.py"
+        )
+        assert is_valid is True
+        assert "def my_function(\n    param_a: str,\n    param_b: int = 10,\n):" in healed
+        assert "def broken_func():" in healed
+        assert ast.parse(healed) is not None
+
+    def test_unhealable_code_preserves_original_without_corruption(self):
+        garbage = "def broken( %%% :: random invalid syntax"
+        is_valid, healed, msg = ai_debugger.validate_and_heal_python_syntax(
+            garbage,
+            filename="bad.py"
+        )
+        assert is_valid is False
+        assert healed == garbage  # Must preserve original text without corrupting!
 
 
 class TestRouteLifespanAndHealthSweep:

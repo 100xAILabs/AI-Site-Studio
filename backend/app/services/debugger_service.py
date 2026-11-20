@@ -99,8 +99,8 @@ class AIDebuggerService:
     def validate_and_heal_python_syntax(self, code: str, filename: str = "app.py") -> Tuple[bool, str, Optional[str]]:
         """
         Parses Python code using AST. If syntax errors exist, applies deterministic
-        heuristic repairs (unclosed brackets, markdown fences, missing colons, invalid decorators)
-        and verifies using AST re-parsing.
+        line-targeted repairs (missing block colons, unclosed parentheses/brackets/braces, markdown fences)
+        and verifies using AST re-parsing. If healing cannot produce valid AST, returns original code untouched.
         Returns: (is_valid: bool, healed_code: str, error_or_fix_message: Optional[str])
         """
         if not code or not code.strip():
@@ -115,52 +115,56 @@ class AIDebuggerService:
             return True, clean_code, None
         except SyntaxError as syn_err:
             initial_err = f"SyntaxError at line {syn_err.lineno}: {syn_err.msg}"
-            logger.info(f"Detected Python AST syntax defect in {filename}: {initial_err}. Applying self-repair...")
-
-        healed = clean_code
+            logger.info(f"Detected Python AST syntax defect in {filename}: {initial_err}. Applying targeted self-repair...")
 
         # 1. Strip markdown fences or trailing conversational text
-        healed = re.sub(r'^```(?:python|py)?\s*$', '', healed, flags=re.MULTILINE)
-        healed = re.sub(r'^```\s*$', '', healed, flags=re.MULTILINE)
+        healed = clean_code
+        healed = re.sub(r"^```(?:python|py)?\s*$", "", healed, flags=re.MULTILINE)
+        healed = re.sub(r"^```\s*$", "", healed, flags=re.MULTILINE)
+        healed = re.sub(r"@[a-zA-Z0-9_.]+\s*$", "", healed)
 
-        # 2. Fix missing colons after def, class, if, elif, else, for, while, try, except, finally, with
-        block_keywords = r"(def\s+[a-zA-Z0-9_]+\s*\([^)]*\)|class\s+[a-zA-Z0-9_]+(?:\([^)]*\))?|if\s+.+|elif\s+.+|else|for\s+.+\s+in\s+.+|while\s+.+|try|except(?:\s+.+)?|finally|with\s+.+)"
-        healed = re.sub(rf"^(\s*{block_keywords})\s*$", r"\1:", healed, flags=re.MULTILINE)
-
-        # 3. Line-by-line unclosed parenthesis / bracket healing
         lines = healed.splitlines()
-        fixed_lines = []
-        for line in lines:
-            line_diff = line.count("(") - line.count(")")
-            if line_diff > 0 and not line.strip().endswith("\\"):
-                line += ")" * line_diff
-            bracket_diff = line.count("[") - line.count("]")
-            if bracket_diff > 0 and not line.strip().endswith("\\"):
-                line += "]" * bracket_diff
-            fixed_lines.append(line)
-        healed = "\n".join(fixed_lines)
 
-        # 4. Fix unclosed parentheses, brackets, or braces at end of file
-        open_parens = healed.count("(") - healed.count(")")
-        open_brackets = healed.count("[") - healed.count("]")
-        open_braces = healed.count("{") - healed.count("}")
+        # 2. Targeted iterative AST-guided repair (up to 5 passes)
+        for _ in range(5):
+            try:
+                ast.parse("\n".join(lines))
+                return True, "\n".join(lines), f"Successfully auto-healed Python syntax defect ({initial_err})"
+            except SyntaxError as e:
+                if not e.lineno or e.lineno > len(lines):
+                    break
+                idx = e.lineno - 1
+                line = lines[idx]
 
-        if open_parens > 0:
-            healed += ")" * open_parens
-        if open_brackets > 0:
-            healed += "]" * open_brackets
-        if open_braces > 0:
-            healed += "}" * open_braces
+                # Case A: Missing colon on def, class, if, else, etc.
+                if "expected ':'" in (e.msg or ""):
+                    lines[idx] = line.rstrip() + ":"
+                    continue
 
-        # 5. Strip incomplete trailing decorators e.g. @app.get or @router.post without function
-        healed = re.sub(r'@[a-zA-Z0-9_.]+\s*$', '', healed)
+                # Case B: Unclosed parenthesis / bracket / brace
+                if "was never closed" in (e.msg or ""):
+                    if "'('" in (e.msg or ""):
+                        lines[idx] = line.rstrip() + ")"
+                    elif "'['" in (e.msg or ""):
+                        lines[idx] = line.rstrip() + "]"
+                    elif "'{'" in (e.msg or ""):
+                        lines[idx] = line.rstrip() + "}"
+                    continue
 
-        # Re-parse to verify
+                # Case C: Single line missing colon
+                block_kw = re.match(r"^\s*(def\s+\w+\s*\(.*\)|class\s+\w+.*|if\s+.*|elif\s+.*|else|for\s+.*|while\s+.*|try|except.*|finally|with\s+.*)\s*$", line)
+                if block_kw and not line.rstrip().endswith(":"):
+                    lines[idx] = line.rstrip() + ":"
+                    continue
+                break
+
+        res_code = "\n".join(lines)
         try:
-            ast.parse(healed)
-            return True, healed, f"Successfully auto-healed Python syntax defect ({initial_err})"
+            ast.parse(res_code)
+            return True, res_code, f"Successfully auto-healed Python syntax defect ({initial_err})"
         except SyntaxError as e2:
-            return False, healed, f"SyntaxError persists at line {e2.lineno}: {e2.msg}"
+            # STRICT GUARD: Never return corrupted code if healing failed; preserve original code!
+            return False, clean_code, f"SyntaxError persists at line {e2.lineno}: {e2.msg}"
 
     def validate_and_heal_frontend_syntax(
         self,

@@ -377,35 +377,39 @@ class DeploymentReadinessAuditor:
                 main_code = main_py.read_text(encoding="utf-8", errors="replace")
                 orig_main = main_code
 
+                # Find FastAPI instance variable name (default to 'app')
+                var_match = re.search(r'([a-zA-Z0-9_]+)\s*=\s*FastAPI\s*\(', main_code)
+                app_var = var_match.group(1) if var_match else "app"
+
                 # A. Health endpoint probe guarantee
                 if "/api/health" not in main_code:
                     health_snippet = (
-                        "\n@app.get('/api/health')\n"
-                        "async def health_check():\n"
-                        "    return {'status': 'healthy', 'service': 'backend'}\n"
+                        f"\n@{app_var}.get('/api/health')\n"
+                        f"async def health_check():\n"
+                        f"    return {{'status': 'healthy', 'service': 'backend'}}\n"
                     )
                     main_code += health_snippet
                     findings.append("[Route Sweep] Injected missing mandatory /api/health endpoint")
 
                 # B. Deprecated startup event conversion to lifespan
-                if '@app.on_event("startup")' in main_code or "@app.on_event('startup')" in main_code:
+                if f'@{app_var}.on_event("startup")' in main_code or f"@{app_var}.on_event('startup')" in main_code or '@app.on_event("startup")' in main_code or "@app.on_event('startup')" in main_code:
                     if "asynccontextmanager" not in main_code:
                         main_code = "from contextlib import asynccontextmanager\n" + main_code
-                    
+
                     lifespan_def = (
-                        "@asynccontextmanager\n"
-                        "async def lifespan(app: FastAPI):\n"
-                        "    yield\n\n"
+                        f"@asynccontextmanager\n"
+                        f"async def lifespan({app_var}: FastAPI):\n"
+                        f"    yield\n\n"
                     )
                     main_code = re.sub(
-                        r'@app\.on_event\([\'"]startup[\'"]\)\s*async\s+def\s+[a-zA-Z0-9_]+\s*\([^)]*\):[^@\n]*(?:pass)?',
+                        rf'@(?:{app_var}|app)\.on_event\([\'"]startup[\'"]\)\s*async\s+def\s+[a-zA-Z0-9_]+\s*\([^)]*\):[^@\n]*(?:pass)?',
                         "",
                         main_code
                     )
                     main_code = lifespan_def + main_code
                     main_code = re.sub(r'FastAPI\s*\(([^)]*)\)', r'FastAPI(\1, lifespan=lifespan)', main_code)
                     main_code = re.sub(r'lifespan=lifespan,\s*lifespan=lifespan', 'lifespan=lifespan', main_code)
-                    findings.append("[Lifespan Sweep] Converted deprecated @app.on_event('startup') to asynccontextmanager lifespan")
+                    findings.append(f"[Lifespan Sweep] Converted deprecated @{app_var}.on_event('startup') to asynccontextmanager lifespan")
 
                 if main_code != orig_main:
                     main_py.write_text(main_code, encoding="utf-8")
