@@ -109,6 +109,18 @@ KNOWN_ENV_REGISTRY: Dict[str, Dict[str, Any]] = {
         "validation_regex": r"^re_[a-zA-Z0-9_]{10,}$",
         "validation_error": "Resend API key must start with re_.",
     },
+    "BREVO_API_KEY": {
+        "description": "Brevo (Sendinblue) API Key used for transactional email delivery and newsletter campaigns.",
+        "provider_name": "Brevo",
+        "provider_url": "https://app.brevo.com/settings/keys/api",
+        "is_secret": True,
+        "is_required": False,
+        "has_default": False,
+        "placeholder": "xkeysib-...",
+        "example": "xkeysib-1234567890abcdef1234567890abcdef",
+        "validation_regex": r"^.{16,}$",
+        "validation_error": "Brevo API key must be at least 16 characters.",
+    },
     "NOTIFICATION_EMAIL": {
         "description": "Destination email address where contact form submissions and lead notifications are routed.",
         "provider_name": "Email Settings",
