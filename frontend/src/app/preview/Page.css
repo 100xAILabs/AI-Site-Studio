@@ -1772,3 +1772,170 @@
   transform: scale(1.1) !important;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
 }
+
+/* --- Authentication & Purchase Lock Gate Overlay --- */
+.sb-auth-lock-overlay {
+  min-height: 100vh;
+  width: 100%;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 2rem 1.5rem !important;
+  background: radial-gradient(circle at top center, rgba(30, 27, 22, 0.95), #0b0c10) !important;
+  box-sizing: border-box !important;
+}
+
+.sb-auth-lock-card {
+  width: 100% !important;
+  max-width: 460px !important;
+  background: rgba(18, 19, 26, 0.96) !important;
+  border: 1px solid rgba(226, 160, 63, 0.25) !important;
+  border-radius: 1.25rem !important;
+  padding: 2.25rem 2rem !important;
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.8), 0 0 35px rgba(226, 160, 63, 0.08) !important;
+  text-align: center !important;
+  position: relative !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  box-sizing: border-box !important;
+}
+
+.sb-auth-lock-icon {
+  width: 60px !important;
+  height: 60px !important;
+  border-radius: 1rem !important;
+  background: rgba(226, 160, 63, 0.12) !important;
+  border: 1px solid rgba(226, 160, 63, 0.28) !important;
+  color: #e2a03f !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin-bottom: 1.25rem !important;
+  box-shadow: inset 0 0 16px rgba(226, 160, 63, 0.15) !important;
+}
+
+.sb-auth-lock-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.375rem !important;
+  padding: 0.25rem 0.75rem !important;
+  border-radius: 9999px !important;
+  font-size: 0.75rem !important;
+  font-weight: 700 !important;
+  background: rgba(226, 160, 63, 0.14) !important;
+  color: #dfb180 !important;
+  border: 1px solid rgba(226, 160, 63, 0.3) !important;
+  margin-bottom: 0.875rem !important;
+}
+
+.sb-auth-lock-title {
+  font-size: 1.5rem !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.02em !important;
+  color: #ffffff !important;
+  margin: 0 0 0.5rem 0 !important;
+}
+
+.sb-auth-lock-desc {
+  font-size: 0.875rem !important;
+  color: #94a3b8 !important;
+  line-height: 1.6 !important;
+  margin: 0 0 1.5rem 0 !important;
+  text-align: center !important;
+}
+
+.sb-auth-lock-info-box {
+  width: 100% !important;
+  padding: 0.875rem 1rem !important;
+  border-radius: 0.75rem !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  text-align: left !important;
+  margin-bottom: 1.5rem !important;
+  box-sizing: border-box !important;
+  font-size: 0.8125rem !important;
+  color: #cbd5e1 !important;
+}
+
+.sb-auth-lock-actions {
+  width: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0.75rem !important;
+}
+
+.sb-auth-lock-btn-primary {
+  width: 100% !important;
+  padding: 0.75rem 1.25rem !important;
+  border-radius: 0.75rem !important;
+  font-size: 0.875rem !important;
+  font-weight: 700 !important;
+  background: linear-gradient(135deg, #c89666, #9b6c43) !important;
+  color: #ffffff !important;
+  border: none !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.5rem !important;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 4px 15px rgba(200, 150, 102, 0.35) !important;
+}
+
+.sb-auth-lock-btn-primary:hover {
+  background: linear-gradient(135deg, #dfb180, #c89666) !important;
+  box-shadow: 0 6px 20px rgba(200, 150, 102, 0.5) !important;
+  transform: translateY(-1px) !important;
+}
+
+.sb-auth-lock-btn-secondary {
+  width: 100% !important;
+  padding: 0.65rem 1.25rem !important;
+  border-radius: 0.75rem !important;
+  font-size: 0.8125rem !important;
+  font-weight: 600 !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: #cbd5e1 !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.5rem !important;
+  transition: all 0.2s ease !important;
+}
+
+.sb-auth-lock-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #ffffff !important;
+}
+
+.sb-tokens-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.375rem !important;
+  padding: 0.25rem 0.625rem !important;
+  border-radius: 9999px !important;
+  font-size: 0.75rem !important;
+  font-weight: 700 !important;
+  background: rgba(245, 158, 11, 0.12) !important;
+  border: 1px solid rgba(245, 158, 11, 0.35) !important;
+  color: #fbbf24 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+.sb-tokens-badge:hover {
+  background: rgba(245, 158, 11, 0.22) !important;
+  border-color: rgba(245, 158, 11, 0.5) !important;
+  transform: translateY(-1px) !important;
+}
+
+.sb-tokens-badge.depleted {
+  background: rgba(239, 68, 68, 0.14) !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+  color: #f87171 !important;
+}
+

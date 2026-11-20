@@ -22,7 +22,7 @@ import {
   Copy, RotateCcw, ArrowLeft, Sliders, Globe, Bot, Send,
   CheckCircle2, Play, Code, Search, X, Wand2, ArrowUpRight,
   ChevronRight, ChevronLeft, MoreVertical, Menu, Eye, Phone, MapPin, Clock, ShoppingBag, ShoppingCart, Share2, Upload,
-  Link2, ExternalLink, Lock
+  Link2, ExternalLink, Lock, Coins
 } from "lucide-react";
 import { cn, formatPrice } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -612,134 +612,26 @@ export default function PreviewPage() {
   const [templateData, setTemplateData] = useState(null);
   const [loadingTemplate, setLoadingTemplate] = useState(false);
 
-  // Authentication & Demo Lock State
+  // Authentication & AI Token State
   const isSignedIn = useAuthStore((s) => s.isSignedIn);
   const authToken = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
-  const [demoSessionToken, setDemoSessionToken] = useState(null);
-  const [demoRemainingSeconds, setDemoRemainingSeconds] = useState(1800); // 30 minutes
-  const [isDemoExpired, setIsDemoExpired] = useState(false);
-  const [isWipingData, setIsWipingData] = useState(false);
+  const [userTokens, setUserTokens] = useState(user?.ai_credits ?? 10);
+  const [showTokensDepletedModal, setShowTokensDepletedModal] = useState(false);
 
-  const formatDemoTime = (totalSec) => {
-    const mins = Math.floor(Math.max(0, totalSec) / 60);
-    const secs = Math.max(0, totalSec) % 60;
-    return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
-  };
-
-  // Helper to end session and wipe demo data permanently
-  const endSessionAndWipe = async (reason = "manual") => {
-    setIsWipingData(true);
-    const targetToken = demoSessionToken;
-    const targetId = customDraftId || activeTemplateId;
-    const endpoint = `${API_BASE}/preview/demo/session/end?session_token=${encodeURIComponent(targetToken || "")}&template_id=${encodeURIComponent(targetId || "")}&reason=${encodeURIComponent(reason)}`;
-
-    if (typeof navigator !== "undefined" && navigator.sendBeacon) {
-      try {
-        navigator.sendBeacon(endpoint, "");
-      } catch (e) { }
-    } else {
-      try {
-        await fetch(endpoint, { method: "POST", keepalive: true });
-      } catch (e) { }
+  useEffect(() => {
+    if (typeof user?.ai_credits === "number") {
+      setUserTokens(user.ai_credits);
     }
-  };
+  }, [user?.ai_credits]);
 
-  const handleBackToMarketplace = async () => {
+  const handleBackToMarketplace = () => {
     if (hasUnfinalizedChanges) {
       setShowExitConfirmModal(true);
       return;
     }
-    await endSessionAndWipe("back_nav");
     navigate("/marketplace");
   };
-
-  const handleDemoTimeout = async () => {
-    setIsDemoExpired(true);
-    await endSessionAndWipe("timeout_30m");
-  };
-
-  // 1. Initialize 30-minute Demo Session on mount if authenticated
-  useEffect(() => {
-    if (!isSignedIn) return;
-    const targetId = customDraftId || activeTemplateId;
-    if (!targetId || targetId === "default") return;
-
-    let timer = null;
-    let pollInterval = null;
-
-    const startSession = async () => {
-      try {
-        const headers = { "Content-Type": "application/json" };
-        if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
-
-        const res = await fetch(`${API_BASE}/preview/demo/session/start`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ template_id: targetId }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          setDemoSessionToken(data.session_token);
-          if (typeof data.remaining_seconds === "number") {
-            setDemoRemainingSeconds(data.remaining_seconds);
-          }
-        }
-      } catch (err) {
-        console.warn("Could not start demo session:", err);
-      }
-    };
-
-    startSession();
-
-    // Local countdown timer (1s interval)
-    timer = setInterval(() => {
-      setDemoRemainingSeconds((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          handleDemoTimeout();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    // Periodic backend status sync (every 60s)
-    pollInterval = setInterval(async () => {
-      if (!demoSessionToken) return;
-      try {
-        const res = await fetch(`${API_BASE}/preview/demo/session/status?session_token=${encodeURIComponent(demoSessionToken)}`);
-        if (res.ok) {
-          const sData = await res.json();
-          if (sData.expired) {
-            handleDemoTimeout();
-          } else if (typeof sData.remaining_seconds === "number") {
-            setDemoRemainingSeconds(sData.remaining_seconds);
-          }
-        }
-      } catch (e) { }
-    }, 60000);
-
-    return () => {
-      if (timer) clearInterval(timer);
-      if (pollInterval) clearInterval(pollInterval);
-    };
-  }, [isSignedIn, activeTemplateId, customDraftId, authToken]);
-
-  // 2. Beacon on window close / tab navigation
-  useEffect(() => {
-    const handleUnload = () => {
-      endSessionAndWipe("tab_closed");
-    };
-    window.addEventListener("beforeunload", handleUnload);
-    window.addEventListener("pagehide", handleUnload);
-    window.addEventListener("popstate", () => endSessionAndWipe("back_nav"));
-    return () => {
-      window.removeEventListener("beforeunload", handleUnload);
-      window.removeEventListener("pagehide", handleUnload);
-    };
-  }, [demoSessionToken, customDraftId, activeTemplateId]);
 
   // Cart integration
   const addToCart = useCartStore((s) => s.addItem);
@@ -913,6 +805,9 @@ export default function PreviewPage() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
+        if (typeof data.ai_credits === "number") {
+          setUserTokens(data.ai_credits);
+        }
         const newTs = Date.now();
         setAssetTimestamp(newTs);
         setIframeKey((k) => k + 1);
@@ -925,7 +820,11 @@ export default function PreviewPage() {
         setTimeout(() => setNotice(""), 4000);
         await fetchProjectAssets();
       } else {
-        alert(data.detail || "Failed to replace asset.");
+        if (res.status === 402 || data?.detail?.includes("token") || data?.detail?.includes("credit")) {
+          setShowTokensDepletedModal(true);
+        } else {
+          alert(data.detail || "Failed to replace asset.");
+        }
       }
     } catch (err) {
       alert("Error uploading asset replacement: " + err.message);
@@ -1648,6 +1547,9 @@ export default function PreviewPage() {
       const res = await api.post(`/preview/live/${targetId}/apply-theme-color`, {
         primary_color: newColor
       });
+      if (typeof res?.ai_credits === "number") {
+        setUserTokens(res.ai_credits);
+      }
       if (res?.draft_id && res.draft_id !== targetId) {
         setCustomDraftId(res.draft_id);
         targetId = res.draft_id;
@@ -1680,6 +1582,9 @@ export default function PreviewPage() {
       return res;
     } catch (err) {
       console.warn("Could not apply theme color to code:", err);
+      if (err?.status === 402 || err?.message?.includes("token") || err?.message?.includes("credit")) {
+        setShowTokensDepletedModal(true);
+      }
       setNotice(`Could not save theme color: ${err?.message || "Please try again."}`);
       setTimeout(() => setNotice(""), 5000);
       throw err;
@@ -1750,6 +1655,9 @@ export default function PreviewPage() {
         }, effectiveToken);
         const newDraftId = res?.template_id || res?.data?.template_id;
         if (!newDraftId) throw new Error("The save endpoint did not return a draft ID.");
+        if (typeof res?.ai_credits === "number") {
+          setUserTokens(res.ai_credits);
+        }
         setCustomDraftId(newDraftId);
         if (initialSectionPropsRef) {
           initialSectionPropsRef.current = JSON.parse(JSON.stringify(sectionProps));
@@ -1778,6 +1686,9 @@ export default function PreviewPage() {
       }
     } catch (e) {
       console.warn(e);
+      if (e?.status === 402 || e?.message?.includes("token") || e?.message?.includes("credit")) {
+        setShowTokensDepletedModal(true);
+      }
       setNotice(`Could not save changes: ${e?.message || "Please try again."}`);
     } finally {
       setSavingManual(false);
@@ -2012,6 +1923,9 @@ export default function PreviewPage() {
     try {
       if (targetId !== "default") {
         const res = await api.post(`/preview/live/${targetId}/edit-ai`, { prompt: promptToRun, model: selectedAiModel });
+        if (typeof res?.ai_credits === "number") {
+          setUserTokens(res.ai_credits);
+        }
         const newDraftId = res?.template_id || res?.data?.template_id;
         if (!newDraftId) throw new Error("The editor did not return a saved draft.");
         setCustomDraftId(newDraftId);
@@ -2057,6 +1971,9 @@ export default function PreviewPage() {
       await persistBuildMessage("assistant", assistantText);
     } catch (err) {
       console.warn("AI editor request failed:", err);
+      if (err?.status === 402 || err?.message?.includes("token") || err?.message?.includes("credit")) {
+        setShowTokensDepletedModal(true);
+      }
       setNotice(`AI edit failed: ${err?.message || "Please try again."}`);
       await persistBuildMessage("assistant", `The edit was not completed: ${err?.message || "Please try again."}`, "error");
       setAiHistory((prev) => [...prev, {
@@ -2077,11 +1994,18 @@ export default function PreviewPage() {
     setIsDebugging(true);
     try {
       const res = await api.post(`/preview/live/${targetId}/ai-debug`, {});
+      if (typeof res?.ai_credits === "number") {
+        setUserTokens(res.ai_credits);
+      }
       setNotice(res.message || "✓ Autonomous Debugger analyzed and fixed syntax errors.");
       setViewMode("live");
       setIframeKey((prev) => prev + 1);
     } catch (err) {
-      alert("Auto Debugger: " + (err.message || "Failed to debug project."));
+      if (err?.status === 402 || err?.message?.includes("token") || err?.message?.includes("credit")) {
+        setShowTokensDepletedModal(true);
+      } else {
+        alert("Auto Debugger: " + (err.message || "Failed to debug project."));
+      }
     } finally {
       setIsDebugging(false);
       setTimeout(() => setNotice(""), 6000);
@@ -2097,45 +2021,48 @@ export default function PreviewPage() {
 
   const isHomePage = !activePage || activePage === "index.html" || activePage === "App.jsx" || activePage === "App.vue";
   const pageRouteParam = !isHomePage ? activePage : "";
-  // 🔒 Lock Check: Require sign-in to access interactive demo
+  // 🔒 Lock Check: Require sign-in to access Site Studio Editor
   if (!isSignedIn) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-card border border-border rounded-2xl p-8 shadow-2xl text-center relative overflow-hidden">
-          <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center mx-auto mb-5 shadow-inner">
+      <div className="sb-auth-lock-overlay">
+        <div className="sb-auth-lock-card">
+          <div className="sb-auth-lock-icon">
             <Shield className="w-8 h-8" />
           </div>
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-500 mb-3 border border-amber-500/30">
-            🔒 Interactive Demo Locked
+          <div className="sb-auth-lock-badge">
+            <Lock className="w-3.5 h-3.5" /> Site Studio Editor
           </div>
-          <h2 className="text-2xl font-bold tracking-tight text-foreground mb-2">
-            Sign in to Access Live Demo
+          <h2 className="sb-auth-lock-title">
+            Sign in to Access Editor
           </h2>
-          <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
-            Sign in to launch your interactive 30-minute sandbox preview. Try out full-stack features, edit live with smart automation, test endpoints, and preview on all devices.
+          <p className="sb-auth-lock-desc">
+            Sign in to personalize this template, edit live code, customize branding, and manage your private website projects.
           </p>
-          <div className="p-3.5 rounded-xl bg-muted/50 border border-border/80 text-left mb-6 space-y-1.5 text-xs text-muted-foreground">
-            <div className="flex items-center gap-2 text-foreground font-semibold">
-              <Clock className="w-3.5 h-3.5 text-primary" />
-              <span>30-Minute Security Sandbox</span>
-            </div>
-            <p className="leading-normal">
-              When you exit, navigate back, close the tab, or after 30 minutes, all temporary details you entered inside the generated website are <strong>permanently deleted</strong>.
-            </p>
-          </div>
-          <div className="flex flex-col gap-3">
+          <div className="sb-auth-lock-actions">
             <button
               type="button"
               onClick={() => navigate(`/sign-in?redirect=${encodeURIComponent(location.pathname + location.search)}`)}
-              className="w-full py-2.5 px-4 rounded-xl font-semibold text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-md flex items-center justify-center gap-2"
+              className="sb-auth-lock-btn-primary"
             >
-              Sign In to Unlock Demo
+              Sign In to Site Studio
               <ChevronRight className="w-4 h-4" />
             </button>
+            {templateData?.slug && (
+              <a
+                href={`/demo/${templateData.slug}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="sb-auth-lock-btn-secondary"
+                style={{ textDecoration: "none" }}
+              >
+                <Eye className="w-4 h-4 text-amber-400" />
+                Try Free Live Demo Instead ↗
+              </a>
+            )}
             <button
               type="button"
               onClick={handleBackToMarketplace}
-              className="w-full py-2.5 px-4 rounded-xl font-medium text-sm border border-border hover:bg-accent transition-all text-muted-foreground"
+              className="sb-auth-lock-btn-secondary"
             >
               Back to Marketplace
             </button>
@@ -2148,33 +2075,34 @@ export default function PreviewPage() {
   // 🔒 Lock Check: If signed in, but user has not bought the template and has no Extreme/Pro plan
   if (isSignedIn && templateData && !hasEditorAccess) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-card border border-border rounded-2xl p-8 shadow-2xl text-center relative overflow-hidden">
-          <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center mx-auto mb-5 shadow-inner">
+      <div className="sb-auth-lock-overlay">
+        <div className="sb-auth-lock-card">
+          <div className="sb-auth-lock-icon">
             <Lock className="w-8 h-8" />
           </div>
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-500 mb-3 border border-amber-500/30">
+          <div className="sb-auth-lock-badge">
             🔒 Studio Editor Locked
           </div>
-          <h2 className="text-2xl font-bold tracking-tight text-foreground mb-2">
+          <h2 className="sb-auth-lock-title">
             Purchase Required to Edit
           </h2>
-          <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
-            You have not purchased <strong>{templateData.title}</strong> yet. Purchase this template or subscribe to an Extreme membership to unlock live code editing, AI copywriting, and private project saves.
+          <p className="sb-auth-lock-desc">
+            Full source code editing, AI copywriting, and asset customization unlock when you purchase this template or subscribe to an Extreme membership.
           </p>
 
-          <div className="p-4 rounded-xl bg-muted/40 border border-border/80 text-left mb-6 space-y-2">
-            <div className="flex justify-between items-center text-sm font-semibold text-foreground">
-              <span>{templateData.title}</span>
-              <span className="text-primary font-bold">{formatPrice(templateData.price || 49, "USD")}</span>
+          <div className="sb-auth-lock-info-box">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+              <span style={{ fontWeight: 700, color: "#fff", fontSize: "14px" }}>{templateData.title}</span>
+              <span style={{ fontWeight: 800, color: "#dfb180", fontSize: "15px" }}>
+                {templateData.is_free ? "FREE" : formatPrice(templateData.price || 49, "USD")}
+              </span>
             </div>
-            <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-              <span>Full source code, private edits, and AI Studio unlock upon purchase.</span>
+            <div style={{ fontSize: "11px", color: "#94a3b8", lineHeight: 1.5 }}>
+              ✓ Full Source Code (ZIP) • ✓ Lifetime License • ✓ Unlimited Personalizer
             </div>
           </div>
 
-          <div className="flex flex-col gap-2.5">
+          <div className="sb-auth-lock-actions">
             <button
               type="button"
               onClick={() => {
@@ -2189,27 +2117,37 @@ export default function PreviewPage() {
                 }
                 navigate("/checkout");
               }}
-              className="w-full py-3 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-[#c89666] to-[#b5804f] text-[#09090b] hover:brightness-110 transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+              className="sb-auth-lock-btn-primary"
             >
               <Zap className="w-4 h-4 fill-current" />
               Buy Template to Unlock ({formatPrice(templateData.price || 49, "USD")})
             </button>
-            <a
-              href={`/demo/${templateData.slug || templateData.id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full py-2.5 px-4 rounded-xl font-medium text-xs border border-border bg-card/60 hover:bg-muted/60 transition-all text-muted-foreground flex items-center justify-center gap-1.5"
-              style={{ textDecoration: 'none' }}
+            <button
+              type="button"
+              onClick={() => navigate("/pricing")}
+              className="sb-auth-lock-btn-secondary"
             >
-              <Eye className="w-3.5 h-3.5 text-primary" />
-              Try Free Live Demo Instead ↗
-            </a>
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              Upgrade to Extreme (All Templates + AI Tools)
+            </button>
+            {templateData?.slug && (
+              <a
+                href={`/demo/${templateData.slug}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="sb-auth-lock-btn-secondary"
+                style={{ textDecoration: "none" }}
+              >
+                <Eye className="w-4 h-4 text-amber-400" />
+                Try Free Live Demo Instead ↗
+              </a>
+            )}
             <button
               type="button"
               onClick={handleBackToMarketplace}
-              className="w-full py-2 px-4 rounded-xl font-medium text-xs text-muted-foreground hover:text-foreground transition-all cursor-pointer"
+              className="sb-auth-lock-btn-secondary"
             >
-              Return to Marketplace Details
+              Back to Marketplace
             </button>
           </div>
         </div>
@@ -2219,7 +2157,32 @@ export default function PreviewPage() {
 
   const currentColorForIframe = sectionProps[currentSection?.id]?.themeColor || sectionProps.navbar?.themeColor || sectionProps.hero?.themeColor || brand?.primary_color || "";
   const detectedFrameworkParam = (templateData?.framework || "").toLowerCase();
-  const effectiveToken = authToken || useAuthStore.getState()?.token || localStorage.getItem("aisitestudio_token") || "";
+  const effectiveToken = (() => {
+    if (authToken) return authToken;
+    const storeToken = useAuthStore.getState()?.token;
+    if (storeToken) return storeToken;
+    if (typeof window !== "undefined") {
+      try {
+        const direct = localStorage.getItem("aisitestudio_token") || sessionStorage.getItem("aisitestudio_token");
+        if (direct) return direct;
+      } catch (_) {}
+      try {
+        const s = sessionStorage.getItem("aisitestudio_auth");
+        if (s) {
+          const p = JSON.parse(s);
+          if (p?.state?.token) return p.state.token;
+        }
+      } catch (_) {}
+      try {
+        const l = localStorage.getItem("aisitestudio_auth");
+        if (l) {
+          const p = JSON.parse(l);
+          if (p?.state?.token) return p.state.token;
+        }
+      } catch (_) {}
+    }
+    return "";
+  })();
 
   const liveServerUrl = effectiveTemplateId && effectiveTemplateId !== "default"
     ? `${API_BASE}/preview/live/${effectiveTemplateId}${pageRouteParam ? `/${pageRouteParam}` : "/"}?v=${iframeKey}${currentColorForIframe ? `&primaryColor=${encodeURIComponent(currentColorForIframe)}` : ""}${detectedFrameworkParam ? `&framework=${encodeURIComponent(detectedFrameworkParam)}` : ""}${effectiveToken ? `&token=${encodeURIComponent(effectiveToken)}` : ""}`
@@ -2227,24 +2190,37 @@ export default function PreviewPage() {
 
   return (
     <div className="sb-fullpage-root">
-      {/* 30-Minute Demo Expired Kick-Back Modal */}
-      {isDemoExpired && (
+      {/* Insufficient AI Tokens Modal */}
+      {showTokensDepletedModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="max-w-md w-full bg-card border border-border rounded-2xl p-6 text-center shadow-2xl">
-            <div className="w-12 h-12 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 flex items-center justify-center mx-auto mb-4">
-              <Clock className="w-6 h-6" />
+          <div className="max-w-md w-full bg-card border border-amber-500/30 rounded-2xl p-6 text-center shadow-2xl">
+            <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto mb-4">
+              <Coins className="w-7 h-7" />
             </div>
-            <h3 className="text-xl font-bold mb-2">30-Minute Demo Ended</h3>
+            <h3 className="text-xl font-bold mb-2 text-foreground">AI Tokens Depleted</h3>
             <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
-              Your interactive demo session has reached the 30-minute limit. All data, form submissions, and edits created inside the demo website have been permanently deleted.
+              You have 0 AI editing tokens remaining. Top up your token balance or upgrade your plan to continue using AI Fill, Smart Save, code refactoring, and photo replacement.
             </p>
-            <button
-              type="button"
-              onClick={() => navigate("/marketplace")}
-              className="w-full py-2.5 px-4 rounded-xl font-semibold text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
-            >
-              Return to Marketplace
-            </button>
+            <div className="flex flex-col gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTokensDepletedModal(false);
+                  navigate("/pricing");
+                }}
+                className="w-full py-2.5 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-[#c89666] to-[#b5804f] text-[#09090b] hover:brightness-110 transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4" />
+                View Plans & Top-Up Tokens
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowTokensDepletedModal(false)}
+                className="w-full py-2.5 px-4 rounded-xl font-medium text-xs border border-border bg-card/60 hover:bg-muted/60 transition-all text-muted-foreground cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -2420,6 +2396,16 @@ export default function PreviewPage() {
               {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
               <span className="hidden sm:inline">{isCopied ? "Copied!" : "Copy"}</span>
             </button>
+
+            {/* AI Tokens Counter */}
+            <div
+              className={cn("sb-tokens-badge", userTokens <= 0 && "depleted")}
+              onClick={() => navigate("/pricing")}
+              title="Available AI Editing Tokens. Click to manage or top up."
+            >
+              <Coins className="w-3.5 h-3.5 text-amber-400" />
+              <span>{userTokens} Tokens</span>
+            </div>
 
             {customDraftId || templateData?.status === "draft" ? (
               <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-bold" title="Working on your private draft copy. Marketplace master is protected.">

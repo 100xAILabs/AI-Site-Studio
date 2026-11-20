@@ -111,6 +111,39 @@ class AIEditRequest(BaseModel):
     model: Optional[ShortStr] = None
 
 
+async def check_and_deduct_tokens(
+    user: User,
+    db: AsyncSession,
+    cost: int = 1,
+    operation_name: str = "editor_edit"
+) -> int:
+    """
+    Validates that user has sufficient AI tokens/credits, deducts them,
+    and returns remaining balance. Raises 402 if depleted.
+    """
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required to edit templates.")
+
+    user_role = getattr(user.role, "value", user.role)
+    is_admin = str(user_role).lower() in ("admin", "super_admin")
+    if is_admin:
+        return user.ai_credits if user.ai_credits is not None else 9999
+
+    credits_available = user.ai_credits if user.ai_credits is not None else 0
+    if credits_available < cost:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Insufficient AI tokens. You have {credits_available} token{'s' if credits_available == 1 else ''} remaining (requires {cost}). Please top up your tokens or upgrade your subscription plan to continue editing."
+        )
+
+    user.ai_credits = max(0, credits_available - cost)
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user.ai_credits
+
+
+
 
 
 @router.post("", response_model=PreviewResponse)
@@ -369,6 +402,9 @@ async def replace_live_preview_asset(
     if template.seller_id != current_user.id and str(user_role).lower() not in ("admin", "super_admin"):
         raise HTTPException(status_code=403, detail="Only the owner of this private draft can replace its assets")
 
+    # Enforce token limit (1 token per asset replacement)
+    remaining_tokens = await check_and_deduct_tokens(current_user, db, cost=1, operation_name="asset_replace")
+
     from app.core.local_project_manager import _clean_rel_path
     clean_target = _clean_rel_path(target_rel_path)
     if not clean_target:
@@ -512,6 +548,7 @@ async def replace_live_preview_asset(
         "rel_path": target_rel_path,
         "preview_url": f"/api/v1/preview/live/{template_id}/{target_rel_path}?t={ts}",
         "size_bytes": len(content),
+        "ai_credits": remaining_tokens,
     }
 
 
@@ -1960,6 +1997,12 @@ async def edit_live_preview_manual(
     template = await template_repo.get_by_id(template_id)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
+
+    # Enforce token limit (1 token per text replacement)
+    remaining_tokens = await check_and_deduct_tokens(current_user, db, cost=1, operation_name="find_replace")
+
+    # Enforce token limit (1 token per save/code edit operation)
+    remaining_tokens = await check_and_deduct_tokens(current_user, db, cost=1, operation_name="manual_edit")
         
     original_template_id = str(template.id)
     is_new_clone = False
@@ -2789,7 +2832,7 @@ Here are the codebase files:
     except Exception:
         pass
     
-    return {"status": "success", "template_id": str(template_id), "title": template.title, "thumbnail_url": template.thumbnail_url, "original_template_id": original_template_id}
+    return {"status": "success", "template_id": str(template_id), "title": template.title, "thumbnail_url": template.thumbnail_url, "original_template_id": original_template_id, "ai_credits": remaining_tokens}
 
 
 
@@ -2836,6 +2879,9 @@ async def apply_live_preview_theme_color(
 
     if not template and not local_dir:
         raise HTTPException(status_code=404, detail="Template not found")
+
+    # Enforce token limit (1 token per theme color change)
+    remaining_tokens = await check_and_deduct_tokens(current_user, db, cost=1, operation_name="apply_theme_color")
 
     # If the template is PUBLISHED or belongs to another user, clone/fork it so the user modifies their own private DRAFT copy
     is_user_owned_draft = (
@@ -3226,6 +3272,7 @@ async def apply_live_preview_theme_color(
         "draft_id": str(template.id) if template else template_id,
         "draft_slug": template.slug if template else None,
         "is_new_clone": is_new_clone,
+        "ai_credits": remaining_tokens,
         "message": f"Theme color {hex_formatted} successfully applied to website code ({len(updated_files)} files updated)."
     }
 
@@ -3331,6 +3378,9 @@ async def edit_live_preview_find_replace(
     template = await template_repo.get_by_id(template_id)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
+
+    # Enforce token limit (1 token per text replacement)
+    remaining_tokens = await check_and_deduct_tokens(current_user, db, cost=1, operation_name="find_replace")
         
     # If the template is PUBLISHED or belongs to another user, clone it so the user modifies their own private DRAFT copy
     is_user_owned_draft = (
@@ -3453,7 +3503,7 @@ async def edit_live_preview_find_replace(
     # Commit session changes
     await db.commit()
     
-    return {"status": "success", "template_id": str(template_id), "matches_found": len(updated_filenames)}
+    return {"status": "success", "template_id": str(template_id), "matches_found": len(updated_filenames), "ai_credits": remaining_tokens}
 
 
 @router.post("/live/{template_id}/edit-ai")
@@ -3473,6 +3523,9 @@ async def edit_live_preview_ai(
     template = await template_repo.get_by_id(template_id)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
+
+    # Enforce token limit (2 tokens per AI edit operation)
+    remaining_tokens = await check_and_deduct_tokens(current_user, db, cost=2, operation_name="ai_edit")
 
     from app.core.request_limits import enforce_user_limit
     from app.services.entitlement_service import EntitlementService
@@ -3816,6 +3869,7 @@ Here are the codebase files:
     return {
         "status": "success",
         "template_id": str(template_id),
+        "ai_credits": remaining_tokens,
         "message": f"Applied changes to {len(updated_filenames)} file(s): \"{request.prompt[:60]}\""
     }
 
@@ -3912,6 +3966,9 @@ async def ai_debug_template_code(
 
     preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template_id))
     
+    # Enforce token limit (2 tokens per AI Debugger run)
+    remaining_tokens = await check_and_deduct_tokens(current_user, db, cost=2, operation_name="ai_debug")
+
     # 1. Fetch template from DB
     try:
         t_uuid = uuid.UUID(str(template_id))
@@ -4030,7 +4087,8 @@ async def ai_debug_template_code(
         "status": "success",
         "message": f"AI Debugger analyzed project and successfully fixed {fixed_files_count} file(s).",
         "fixed_files": list(repaired_map.keys()),
-        "fixed_count": fixed_files_count
+        "fixed_count": fixed_files_count,
+        "ai_credits": remaining_tokens,
     }
 
 
@@ -4043,13 +4101,26 @@ async def serve_live_preview(
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    raw_id, _, cap = template_id.partition("~")
+    import os
+    import zipfile
+    import io
+    import mimetypes
+    import asyncio
+    import tempfile
+    import json
+    import re
+    import uuid
+    from fastapi.responses import Response, RedirectResponse
+    from sqlalchemy import select
+    from app.services.security_scanner import security_scanner
     from app.repositories.template_repo import TemplateRepository
+    from app.core.security import check_preview_token
+
+    raw_id, _, cap = template_id.partition("~")
     template = await TemplateRepository(db).get_by_id_or_slug(raw_id)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
-    from app.core.security import check_preview_token
     cap_clean = check_preview_token(str(template.id), cap) if cap else None
 
     # Determine user authorization status
@@ -4093,7 +4164,6 @@ async def serve_live_preview(
 
     # Redirect to URL with trailing slash to ensure relative assets load correctly in browser
     if not filepath and not request.url.path.endswith("/"):
-        from fastapi.responses import RedirectResponse
         forwarded_proto = request.headers.get("x-forwarded-proto") or ("https" if (settings.ENVIRONMENT == "production" or "onrender.com" in str(request.url)) else request.url.scheme)
         url_obj = request.url.replace(scheme=forwarded_proto)
         redirect_url = str(url_obj) + "/"
@@ -4101,15 +4171,6 @@ async def serve_live_preview(
     """
     Dynamically extract, compile (if needed), and serve the template's actual frontend code in the browser as a running live demo.
     """
-    import os
-    import zipfile
-    import io
-    import mimetypes
-    import asyncio
-    import tempfile
-    from fastapi.responses import Response
-    from sqlalchemy import select
-    from app.services.security_scanner import security_scanner
 
     # Live previews serve static assets only. Raw source code or API paths are never served.
     if filepath and (_is_raw_source_path(filepath) or filepath == "api" or filepath.startswith("api/")):
@@ -4638,12 +4699,19 @@ async def serve_live_preview(
                     "  </script>\n"
                     "  <style>\n"
                     "    *, *::before, *::after { box-sizing: border-box; }\n"
-                    "    body { margin: 0; font-family: 'Inter', system-ui, sans-serif; }\n"
+                    "    body { margin: 0; font-family: 'Inter', system-ui, sans-serif; background: #090d16; color: #fff; }\n"
+                    "    @keyframes studio-spin { to { transform: rotate(360deg); } }\n"
                     f"    {_css}\n"
                     "  </style>\n"
                     "</head>\n<body>\n"
-                    "  <div id=\"root\"></div>\n"
-                    "  <script type=\"text/babel\" data-presets=\"react,typescript\">\n"
+                    "  <div id=\"root\">\n"
+                    "    <div style=\"display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:#090d16;color:#94a3b8;font-family:system-ui,-apple-system,sans-serif;\">\n"
+                    "      <div style=\"width:36px;height:36px;border:3px solid rgba(226,160,63,0.2);border-top-color:#e2a03f;border-radius:50%;animation:studio-spin 0.8s linear infinite;margin-bottom:14px;\"></div>\n"
+                    "      <div style=\"font-size:14px;font-weight:700;color:#f1f5f9;\">Loading Live Preview...</div>\n"
+                    "      <div style=\"font-size:12px;color:#64748b;margin-top:4px;\">Mounting React components</div>\n"
+                    "    </div>\n"
+                    "  </div>\n"
+                    "  <script type=\"text/babel\" data-presets=\"react,typescript\" data-filename=\"app.tsx\">\n"
                     "    // 1. Environment & Node Globals\n"
                     "    window.process = window.process || { env: { NODE_ENV: 'production' } };\n"
                     "    window.global = window;\n"
@@ -5069,12 +5137,19 @@ async def serve_live_preview(
                     "  <script src=\"https://unpkg.com/vue@3/dist/vue.global.js\"></script>\n"
                     "  <style>\n"
                     "    *, *::before, *::after { box-sizing: border-box; }\n"
-                    "    body { margin: 0; font-family: 'Inter', system-ui, sans-serif; }\n"
+                    "    body { margin: 0; font-family: 'Inter', system-ui, sans-serif; background: #090d16; color: #fff; }\n"
+                    "    @keyframes studio-spin { to { transform: rotate(360deg); } }\n"
                     f"    {_css}\n"
                     f"    {combined_vue_styles}\n"
                     "  </style>\n"
                     "</head>\n<body>\n"
-                    "  <div id=\"app\"></div>\n"
+                    "  <div id=\"app\">\n"
+                    "    <div style=\"display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:#090d16;color:#94a3b8;font-family:system-ui,-apple-system,sans-serif;\">\n"
+                    "      <div style=\"width:36px;height:36px;border:3px solid rgba(226,160,63,0.2);border-top-color:#e2a03f;border-radius:50%;animation:studio-spin 0.8s linear infinite;margin-bottom:14px;\"></div>\n"
+                    "      <div style=\"font-size:14px;font-weight:700;color:#f1f5f9;\">Loading Live Preview...</div>\n"
+                    "      <div style=\"font-size:12px;color:#64748b;margin-top:4px;\">Mounting Vue template</div>\n"
+                    "    </div>\n"
+                    "  </div>\n"
                     "  <script id=\"vue-template-src\" type=\"text/x-template\">\n"
                     f"    {esc_primary_tmpl}\n"
                     "  </script>\n"

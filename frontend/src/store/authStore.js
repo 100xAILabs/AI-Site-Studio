@@ -163,6 +163,17 @@ export const useAuthStore = create(
 
       setToken: (token) => {
         set({ token, isSignedIn: !!token });
+        if (typeof window !== "undefined") {
+          try {
+            if (token) {
+              localStorage.setItem("aisitestudio_token", token);
+              sessionStorage.setItem("aisitestudio_token", token);
+            } else {
+              localStorage.removeItem("aisitestudio_token");
+              sessionStorage.removeItem("aisitestudio_token");
+            }
+          } catch (_) {}
+        }
         initWebSocketSession(token);
       },
 
@@ -449,6 +460,8 @@ export const useAuthStore = create(
         try {
           sessionStorage.removeItem("aisitestudio_auth");
           localStorage.removeItem("aisitestudio_auth");
+          sessionStorage.removeItem("aisitestudio_token");
+          localStorage.removeItem("aisitestudio_token");
         } catch (e) { }
         initWebSocketSession(null);
         set({

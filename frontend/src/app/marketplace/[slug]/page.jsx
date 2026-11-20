@@ -716,7 +716,14 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
       q.set("subtitle", editableSubtitle || "");
       q.set("ctaText", editableCta || "");
       q.set("customized", "true");
-      return `${base}?${q.toString()}`;
+      base = `${base}?${q.toString()}`;
+    }
+    if (base && (base.includes("/preview/live/") || base.includes("api/v1/preview"))) {
+      const glue = base.includes("?") ? "&" : "?";
+      const effectiveTok = token || useAuthStore.getState()?.token;
+      if (effectiveTok) {
+        base += `${glue}token=${encodeURIComponent(effectiveTok)}`;
+      }
     }
     return base;
   })();
