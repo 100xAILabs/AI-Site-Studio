@@ -125,3 +125,44 @@ sequenceDiagram
     Frontend->>Backend: Poll /api/v1/templates/status/{task_id}
     Backend-->>Frontend: Ready (Display finalized template detail)
 ```
+
+---
+
+### 4. Autonomous Multi-Agent Generation Engine (Agentic AI)
+
+AI Site Studio implements an autonomous multi-agent software engineering pipeline where specialized agents collaborate in a staged, self-healing loop:
+
+```mermaid
+flowchart TD
+    UserBrief["User Prompt & Category"] --> PlanAgent["1. Planning Agent<br/>(Scope, Pages, Questions)"]
+    PlanAgent --> Clarification["Owner Clarifications & Brief Approval"]
+    Clarification --> UIDesigner["2. UI Designer Agent<br/>(Aesthetic Archetype, Fluid Clamp, Touch 44px)"]
+    UIDesigner --> Architect["3. Architect Agent<br/>(Page Manifest, Visual Directives, Contracts)"]
+    
+    Architect --> ForkArchitecture{Architecture Tier?}
+    ForkArchitecture -->|Full-Stack / ATS| DBSchema["4. DB Schema Agent<br/>(SQLAlchemy 2.0 Async, Indexes)"]
+    DBSchema --> BackendDev["5. Backend Dev Agent<br/>(FastAPI, @asynccontextmanager lifespan, CRUD)"]
+    ForkArchitecture -->|Serverless Hybrid| BackendDev
+    ForkArchitecture -->|Static Portfolio| FrontendDev["6. Frontend Dev Agent<br/>(Per-Page HTML/JSX Generation)"]
+    BackendDev --> FrontendDev
+
+    FrontendDev --> SEOAgent["7. SEO & A11y Agent<br/>(Headings, Alt Tags, Reduced Motion)"]
+    SEOAgent --> AuditorAgent["8. Testing & Self-Repair Agent<br/>(Python/JSX AST Healing, Health Injection)"]
+    
+    AuditorAgent --> Memory["Agent Learning Memory<br/>(Persistent Mistake Reflection & Heuristics)"]
+    Memory -.->|Feed Forward Constraints| FrontendDev
+    
+    AuditorAgent --> DeployEngine["9. Multi-Target Deployment Engine<br/>(Docker Provider, Static/Hybrid, Live Probe)"]
+    DeployEngine --> LiveSite["Production Ready Output<br/>(/api/health Verified, Zero Overflow)"]
+```
+
+#### Specialized Agent Roles
+1. **Planning Agent**: Analyzes user brief, detects domain/genre, determines optimal architecture tier (`single_page`, `multi_page`, `fullstack`), and generates domain-specific clarification questions.
+2. **UI Designer Agent**: Emits tokens for **Premium Dark Luxe** (`#0B0D13`, glowing gradients, glass borders) or **Clean Modern SaaS** (`#FFFFFF`, slate text, diffused shadows), with fluid clamp typography and minimum 44px touch targets.
+3. **Architect Agent**: Generates immutable page contracts, component boundaries, and embeds `visual_directive` across every page.
+4. **DB Schema Agent**: Models PostgreSQL/SQLite entities using SQLAlchemy 2.0 async engine and `asyncpg`.
+5. **Backend Dev Agent**: Generates production-ready FastAPI endpoints with `@asynccontextmanager lifespan` and Pydantic schemas.
+6. **Frontend Dev Agent**: Constructs clean pages with dynamic contact/enquiry bindings (`contact_phone`, `contact_email`, motel room routing).
+7. **SEO & A11y Agent**: Audits and auto-repairs heading levels, color contrast, keyboard access, and social tags.
+8. **Testing & Audit Agent**: Analyzes Python/JSX AST syntax, heals unclosed delimiters, and injects mandatory `/api/health`.
+9. **Packaging & Deployment Agent**: Builds multi-stage `Dockerfile`, `docker-compose.yml`, and conducts multi-probe health checks.
