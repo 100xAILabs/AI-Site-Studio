@@ -1072,9 +1072,20 @@ export default function StudioPage() {
 
                 {/* Visual Concept */}
                 <div className="studio-visual-concept rounded-3xl border border-border bg-card p-5 sm:p-7 shadow-sm">
-                  <div className="mb-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">UI Designer Agent · Visual Concept</p>
-                    <h2 className="mt-2 text-xl font-bold text-foreground">Planned Visual Direction &amp; Color Scheme</h2>
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">UI Designer Agent · Visual Concept</p>
+                      <h2 className="mt-2 text-xl font-bold text-foreground">Planned Visual Direction &amp; Color Scheme</h2>
+                    </div>
+                    {palette.aesthetic_direction && (
+                      <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider border ${
+                        palette.aesthetic_direction === "dark_luxe"
+                          ? "bg-indigo-950/60 text-indigo-300 border-indigo-500/30 shadow-xs"
+                          : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+                      }`}>
+                        {palette.aesthetic_direction === "dark_luxe" ? "✨ Premium Dark Luxe" : "⚡ Clean Modern SaaS"}
+                      </span>
+                    )}
                   </div>
                   <div className="overflow-hidden rounded-2xl border border-border shadow-md" style={{ backgroundColor: safeColor(palette.background, "#f3f4f6"), color: safeColor(palette.text, "#172033") }}>
                     <div className="flex items-center justify-between border-b border-border/40 px-4 py-3 text-xs">
@@ -1093,6 +1104,35 @@ export default function StudioPage() {
                         <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${safeColor(palette.primary, "#6d4aff")}55, transparent 75%)` }} />
                         <div className="absolute bottom-3 left-3 rounded-lg px-3 py-1.5 text-[10px] font-semibold text-white backdrop-blur" style={{ backgroundColor: `${safeColor(palette.surface, "#ffffff")}44` }}>{palette.image_treatment || "Visual story"}</div>
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Design Tokens & Responsive Directives Preview */}
+                  <div className="mt-4 pt-4 border-t border-border/60 grid gap-3 sm:grid-cols-2 text-xs">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Palette:</span>
+                      {[
+                        { label: "Primary", color: palette.primary || "#6d4aff" },
+                        { label: "Accent", color: palette.accent || "#f28a64" },
+                        { label: "Surface", color: palette.surface || "#ffffff" },
+                        { label: "Canvas", color: palette.background || "#0f1117" },
+                      ].map((item) => (
+                        <div key={item.label} className="flex items-center gap-1.5 rounded-lg border border-border/80 bg-muted/40 px-2 py-1" title={`${item.label}: ${item.color}`}>
+                          <span className="h-3 w-3 rounded-full border border-black/20" style={{ backgroundColor: safeColor(item.color, "#6d4aff") }} />
+                          <span className="font-mono text-[10px] text-foreground">{item.color}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap items-center sm:justify-end gap-2 text-[11px] text-muted-foreground">
+                      <span className="rounded-md border border-border bg-muted/30 px-2 py-0.5">
+                        Fluid Font: <code className="text-foreground font-mono">{palette.fluid_heading_clamp ? "clamp()" : "responsive"}</code>
+                      </span>
+                      <span className="rounded-md border border-border bg-muted/30 px-2 py-0.5">
+                        Touch: <strong className="text-foreground">{palette.min_touch_target || "44px"}</strong>
+                      </span>
+                      <span className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-400 font-semibold">
+                        Zero Overflow ✓
+                      </span>
                     </div>
                   </div>
                 </div>

@@ -64,6 +64,19 @@ ANALYSIS_PROVIDER_ORDER = ["groq", "gemini"]
 CODE_PROVIDER_ORDER = ["gemini", "groq", "cline"]
 STUDIO_CLINERULES = """# Studio website code rules
 - Follow the approved brief, plan, owner answers, and UI design system.
+- MODERN AESTHETIC DIRECTIVES (PHASE 9 PREMIUM VISUAL GENERATION):
+  * Premium Dark Luxe:
+    - Deep rich obsidian canvas (#0B0D13, #0F1117) paired with luminous text (#F8FAFC) and subtle borders (1px solid rgba(255, 255, 255, 0.08)).
+    - Controlled ambient glow: radial background gradients behind hero elements (radial-gradient(circle at 50% 0%, var(--glow-color, rgba(99, 102, 241, 0.18)) 0%, transparent 60%)).
+    - Glassmorphic card styling (backdrop-filter: blur(16px); background: rgba(255, 255, 255, 0.03)) with layered depth shadows.
+  * Clean Modern SaaS:
+    - Crisp snow/slate canvas (#FFFFFF, #F8FAFC) with deep slate typography (#0F172A).
+    - Elevated card hierarchy with subtle multi-layer borders and soft diffused shadows (box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06)).
+    - High-density information design with crisp badge chips, icon containers, and tight typography tracking (-0.025em).
+  * Multi-Breakpoint Fluid Grids & Scaling:
+    - Use clamp() for fluid typography (e.g. font-size: clamp(2.25rem, 4vw + 1rem, 4rem) for hero titles).
+    - Fluid spacing (gap: clamp(1rem, 2vw, 2.5rem); padding: clamp(1.5rem, 3vw, 4rem)).
+    - Touch targets strictly >= 44px for buttons, links, and inputs. Zero horizontal overflow (overflow-x: hidden).
 - 100% ALL-DEVICE & MOBILE FRIENDLY (MANDATORY):
   * Every page MUST include `<meta name="viewport" content="width=device-width, initial-scale=1.0">` inside `<head>`.
   * The site must render perfectly on all devices: smartphones (320px–480px), tablets (768px–1024px), laptops, and large desktop screens without ANY horizontal overflow (zero horizontal scrollbar; use overflow-x: hidden on body).
@@ -173,6 +186,65 @@ def _parse_json(raw: str) -> dict[str, Any]:
         pass
 
     raise ValueError("The AI agent returned an invalid structured response.")
+
+
+def _normalize_design_system(raw: Optional[dict[str, Any]], category: str = "", genre: str = "", prompt: str = "") -> dict[str, Any]:
+    """
+    Phase 9: Normalizes UI Designer Agent output with full design tokens
+    supporting Premium Dark Luxe and Clean Modern SaaS archetypes.
+    """
+    combo = f"{category} {genre} {prompt}".lower()
+    is_dark = any(w in combo for w in ("dark", "luxe", "luxury", "night", "crypto", "cyber", "gaming", "agency", "tech", "studio", "creative", "dev"))
+
+    if is_dark:
+        defaults = {
+            "aesthetic_direction": "dark_luxe",
+            "primary": "#6366F1",
+            "accent": "#38BDF8",
+            "background": "#0B0D13",
+            "surface": "#131620",
+            "text": "#F8FAFC",
+            "text_muted": "#94A3B8",
+            "glow_accent": "rgba(99, 102, 241, 0.18)",
+            "card_border": "1px solid rgba(255, 255, 255, 0.08)",
+            "card_shadow": "0 20px 40px -15px rgba(0, 0, 0, 0.5)",
+            "heading_font": "Inter, system-ui, sans-serif",
+            "body_font": "Inter, system-ui, sans-serif",
+            "fluid_heading_clamp": "clamp(2.25rem, 4vw + 1rem, 4rem)",
+            "fluid_body_clamp": "clamp(1rem, 1.2vw + 0.2rem, 1.125rem)",
+            "min_touch_target": "44px",
+            "hero_layout": "Asymmetric hero with ambient radial glow and floating glass cards",
+            "image_treatment": "Subtle border with ambient glow and rounded corners",
+            "motion": "Staggered hero entrance with smooth scroll reveals and 300ms transitions",
+        }
+    else:
+        defaults = {
+            "aesthetic_direction": "clean_saas",
+            "primary": "#2563EB",
+            "accent": "#4F46E5",
+            "background": "#FFFFFF",
+            "surface": "#F8FAFC",
+            "text": "#0F172A",
+            "text_muted": "#475569",
+            "glow_accent": "rgba(37, 99, 235, 0.12)",
+            "card_border": "1px solid #E2E8F0",
+            "card_shadow": "0 4px 20px rgba(0, 0, 0, 0.05)",
+            "heading_font": "Plus Jakarta Sans, system-ui, sans-serif",
+            "body_font": "Inter, system-ui, sans-serif",
+            "fluid_heading_clamp": "clamp(2.25rem, 4vw + 1rem, 3.75rem)",
+            "fluid_body_clamp": "clamp(1rem, 1.2vw + 0.2rem, 1.125rem)",
+            "min_touch_target": "44px",
+            "hero_layout": "Centered badge-accented hero with elevated interactive preview",
+            "image_treatment": "Crisp 1px border with soft multi-layer shadow",
+            "motion": "Snappy 200ms ease-out transitions and gentle fade-up scroll reveals",
+        }
+
+    res = dict(defaults)
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            if v and isinstance(v, str) and v.strip():
+                res[k] = v.strip()
+    return res
 
 
 HOME_PAGE_NAMES = {"index", "home", "homepage", "home-page", "landing", "landing-page", "main", "welcome"}
@@ -1656,12 +1728,22 @@ Return JSON only with keys: title, summary, architecture_type (single_page or mu
         design_prompt = f"""You are the UI Designer Agent. Create the visual direction the user will preview before approving the build.
 Brief: {prompt[:100000]}
 Plan: {json.dumps(data, ensure_ascii=False)[:9000]}
-Return JSON only: {{\"primary\":\"#RRGGBB\",\"accent\":\"#RRGGBB\",\"background\":\"#RRGGBB\",\"surface\":\"#RRGGBB\",\"text\":\"#RRGGBB\",\"heading_font\":\"font style\",\"body_font\":\"font style\",\"hero_layout\":\"one-sentence composition\",\"image_treatment\":\"one-sentence image direction\",\"motion\":\"one-sentence animation direction\"}}. Avoid generic SaaS styling unless asked. Never invent business facts."""
-        data["design_system"] = _parse_json(await ai_service._generate_content(
-            design_prompt, response_mime_type="application/json", feature_name="designer_agent",
-            preferred_provider="groq", provider_order_override=ANALYSIS_PROVIDER_ORDER,
-            request_timeout_seconds=60.0, max_local_model_attempts=1,
-        ))
+
+AESTHETIC ARCHETYPE DIRECTIVES (PHASE 9 PREMIUM VISUAL GENERATION):
+1. Premium Dark Luxe: Deep obsidian/charcoal canvas (#0B0D13, #0F1117), luminous text (#F8FAFC), controlled radial glow (rgba(99,102,241,0.18)), subtle glass borders (1px solid rgba(255,255,255,0.08)), ambient depth shadows.
+2. Clean Modern SaaS: Crisp snow/slate canvas (#FFFFFF, #F8FAFC), deep slate text (#0F172A), vibrant accent (#2563EB, #4F46E5), elevated card hierarchy with soft diffused shadows and subtle multi-layer borders.
+3. Multi-breakpoint fluid typography using clamp(), minimum 44px touch targets, and zero horizontal overflow.
+
+Return JSON only: {{\"aesthetic_direction\":\"dark_luxe\" or \"clean_saas\",\"primary\":\"#RRGGBB\",\"accent\":\"#RRGGBB\",\"background\":\"#RRGGBB\",\"surface\":\"#RRGGBB\",\"text\":\"#RRGGBB\",\"text_muted\":\"#RRGGBB\",\"glow_accent\":\"rgba(r,g,b,alpha)\",\"card_border\":\"border style\",\"card_shadow\":\"shadow style\",\"heading_font\":\"font style\",\"body_font\":\"font style\",\"fluid_heading_clamp\":\"clamp(...)\",\"fluid_body_clamp\":\"clamp(...)\",\"min_touch_target\":\"44px\",\"hero_layout\":\"one-sentence composition\",\"image_treatment\":\"one-sentence image direction\",\"motion\":\"one-sentence animation direction\"}}. Avoid generic filler. Never invent business facts."""
+        try:
+            raw_design = _parse_json(await ai_service._generate_content(
+                design_prompt, response_mime_type="application/json", feature_name="designer_agent",
+                preferred_provider="groq", provider_order_override=ANALYSIS_PROVIDER_ORDER,
+                request_timeout_seconds=60.0, max_local_model_attempts=1,
+            ))
+        except Exception:
+            raw_design = {}
+        data["design_system"] = _normalize_design_system(raw_design, category=category, genre=genre, prompt=prompt)
         data["project_specification"] = project_spec.model_dump()
         data["architecture_tier"] = project_spec.architecture_type.value
         data["stack"] = stack

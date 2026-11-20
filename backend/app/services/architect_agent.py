@@ -65,6 +65,9 @@ MANDATORY ARCHITECTURAL DIRECTIVES:
 4. COMPONENT BOUNDARIES:
    - Define shared header (brand logo, navigation links, mobile drawer) and shared footer.
 
+5. VISUAL & RESPONSIVE DIRECTIVE (PHASE 9 PREMIUM VISUAL GENERATION):
+   - Every page must specify a visual_directive with fluid typography (clamp()), min_touch_target ("44px"), zero_horizontal_overflow (true), and ambient_glow (true).
+
 Return JSON ONLY matching this structure:
 {{
   "site_title": "Site title",
@@ -104,7 +107,15 @@ Return JSON ONLY matching this structure:
       "primary_ctas": [
         {{"label": "Explore Portfolio", "href": "projects.html"}},
         {{"label": "Get In Touch", "href": "contact.html"}}
-      ]
+      ],
+      "visual_directive": {{
+        "fluid_heading_clamp": "clamp(2.25rem, 4vw + 1rem, 4rem)",
+        "fluid_body_clamp": "clamp(1rem, 1.2vw + 0.2rem, 1.125rem)",
+        "min_touch_target": "44px",
+        "zero_horizontal_overflow": true,
+        "mobile_breakpoint": "768px",
+        "ambient_glow": true
+      }}
     }}
   ]
 }}"""
@@ -156,6 +167,10 @@ Return JSON ONLY matching this structure:
                 spec["role"] = "gateway_homepage" if fname == "index.html" else "deep_content_page"
             if not spec.get("outbound_links"):
                 spec["outbound_links"] = [p.get("filename", "") for p in original_pages if p.get("filename") != fname]
+            vd = self._default_visual_directive(fname, name)
+            if isinstance(spec.get("visual_directive"), dict):
+                vd.update(spec["visual_directive"])
+            spec["visual_directive"] = vd
             normalized_pages.append(spec)
 
         manifest["pages"] = normalized_pages
@@ -212,7 +227,32 @@ Return JSON ONLY matching this structure:
             **({"project_specification": plan["project_specification"]} if plan.get("project_specification") else {}),
         }
 
+    def _default_visual_directive(self, filename: str, name: str) -> dict[str, Any]:
+        """Provides Phase 9 visual directives with fluid typography, touch target, and overflow tokens."""
+        return {
+            "fluid_heading_clamp": "clamp(2rem, 3.5vw + 0.8rem, 3.75rem)",
+            "fluid_body_clamp": "clamp(1rem, 1.2vw + 0.2rem, 1.125rem)",
+            "min_touch_target": "44px",
+            "zero_horizontal_overflow": True,
+            "mobile_breakpoint": "768px",
+            "card_elevation": "elevated_diffused_shadow",
+            "ambient_glow": True,
+        }
+
     def _create_page_spec(
+        self,
+        filename: str,
+        name: str,
+        index: int,
+        total_pages: int,
+        purpose: str,
+        sections: list[str],
+    ) -> dict[str, Any]:
+        spec = self._build_raw_page_spec(filename, name, index, total_pages, purpose, sections)
+        spec["visual_directive"] = self._default_visual_directive(filename, name)
+        return spec
+
+    def _build_raw_page_spec(
         self,
         filename: str,
         name: str,
