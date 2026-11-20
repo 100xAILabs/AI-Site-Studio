@@ -28,6 +28,7 @@ import TemplateCard from "@/components/marketplace/TemplateCard";
 import { useTemplate, useTemplates, useToggleFavorite, useToggleWishlist, useTemplateReviews, useCreateReview, useFollowStatus, useToggleFollow } from "@/hooks/useTemplates";
 import { cn, formatPrice, formatConvertedPrice, formatNumber, convertToUSD } from "@/lib/utils";
 import { useCartStore } from "@/store";
+import { useAuthStore } from "@/store/authStore";
 import { useCurrencyStore } from "@/store/currencyStore";
 import { API_URL, api } from "@/lib/api";
 import DownloadWarningModal from "@/components/modals/DownloadWarningModal";
@@ -720,7 +721,12 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
     }
     if (base && (base.includes("/preview/live/") || base.includes("api/v1/preview"))) {
       const glue = base.includes("?") ? "&" : "?";
-      const effectiveTok = token || useAuthStore.getState()?.token;
+      let effectiveTok = token || useAuthStore.getState()?.token;
+      if (!effectiveTok && typeof window !== "undefined") {
+        try {
+          effectiveTok = localStorage.getItem("aisitestudio_token") || sessionStorage.getItem("aisitestudio_token");
+        } catch (_) {}
+      }
       if (effectiveTok) {
         base += `${glue}token=${encodeURIComponent(effectiveTok)}`;
       }
