@@ -1172,8 +1172,9 @@ async def download_template(
 
     # Robust file UUID detection from URL or template model
     file_uuid = storage._parse_file_id(zip_url) if zip_url else None
-    if not file_uuid and template.source_file_id:
-        file_uuid = template.source_file_id
+    source_fid = getattr(template, "source_file_id", None)
+    if not file_uuid and source_fid:
+        file_uuid = source_fid
 
     if not zip_url and not file_uuid:
         raise HTTPException(status_code=400, detail="Source zip file not configured for this template")
