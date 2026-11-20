@@ -104,6 +104,7 @@ import RetailTemplateModal from "@/components/modals/RetailTemplateModal";
 import CreatorStudio from "@/components/dashboard/CreatorStudio";
 import MarketplaceRetailHub from "@/components/dashboard/MarketplaceRetailHub";
 import ThemeToggle from "@/components/layout/ThemeToggle";
+import SecretsEnvManager from "@/components/deploy/SecretsEnvManager";
 import "./Page.css";
 
 // Env-aware API base — reads VITE_API_URL from .env, falls back to localhost for development
@@ -643,6 +644,8 @@ function Dashboard() {
   const [deployBuildCommand, setDeployBuildCommand] = useState("npm run build");
   const [deployOutputDir, setDeployOutputDir] = useState("dist");
   const [deploying, setDeploying] = useState(false);
+  const [deployEnvVars, setDeployEnvVars] = useState({});
+  const [isDeployEnvValid, setIsDeployEnvValid] = useState(true);
   const [hostingPrice, setHostingPrice] = useState(null);
   const [acceptedHostingTerms, setAcceptedHostingTerms] = useState(false);
   const [hostingActionId, setHostingActionId] = useState("");
@@ -7127,6 +7130,7 @@ function Dashboard() {
                             build_command: deployBuildCommand,
                             output_dir: deployOutputDir,
                             accepted_hosting_terms: acceptedHostingTerms,
+                            env_vars: deployEnvVars,
                           };
                           const res = await api.post("/deployments/", payload, authToken ?? undefined);
 
@@ -7147,6 +7151,8 @@ function Dashboard() {
                           setDeployBranch("main");
                           setDeployBuildCommand("npm run build");
                           setDeployOutputDir("dist");
+                          setDeployEnvVars({});
+                          setIsDeployEnvValid(true);
 
                           // Open live build console for the new deployment
                           setSelectedDeployment(res);
@@ -7253,6 +7259,16 @@ function Dashboard() {
                         />
                       </div>
 
+                      {/* Phase 4: Dynamic Environment Variables & Secrets Manager */}
+                      <SecretsEnvManager
+                        templateId={deployTemplateId === "mock-project-id" ? null : deployTemplateId}
+                        initialEnv={deployEnvVars}
+                        onChange={(updatedEnv, isValid) => {
+                          setDeployEnvVars(updatedEnv);
+                          setIsDeployEnvValid(isValid);
+                        }}
+                      />
+
                       <div className="p-3.5 bg-[#141418] border border-[#27272a] rounded-xl space-y-1.5">
                         <div className="flex items-center gap-2 text-xs font-bold text-white uppercase tracking-wider">
                           <Globe className="w-4 h-4 text-[#dfb180]" /> Hosting Architecture
@@ -7265,14 +7281,18 @@ function Dashboard() {
                       <div className="flex justify-end gap-3 pt-3 border-t border-[#27272a]">
                         <button
                           type="button"
-                          onClick={() => setIsDeployModalOpen(false)}
+                          onClick={() => {
+                            setIsDeployModalOpen(false);
+                            setDeployEnvVars({});
+                            setIsDeployEnvValid(true);
+                          }}
                           className="px-5 py-2.5 bg-[#18181d] hover:bg-[#222228] text-white text-xs font-bold rounded-xl transition-all cursor-pointer border border-[#27272a] shadow-sm"
                         >
                           Cancel
                         </button>
                         <button
                           type="submit"
-                          disabled={deploying || !deploymentProviderData?.providers?.some((provider) => provider.id === deployProvider && provider.enabled)}
+                          disabled={deploying || !isDeployEnvValid || !deploymentProviderData?.providers?.some((provider) => provider.id === deployProvider && provider.enabled)}
                           className="px-6 py-2.5 bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] text-xs font-black rounded-xl transition-all disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-[#c89666]/20 border border-[#c89666]/40 cursor-pointer"
                         >
                           {deploying && <Loader2 className="w-4 h-4 animate-spin text-[#09090b]" />}
