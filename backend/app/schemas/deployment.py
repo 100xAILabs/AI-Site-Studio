@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 class DeploymentBase(BaseModel):
     project_name: str = Field(min_length=1, max_length=100)
-    provider: Literal["local", "vercel", "cloudflare", "netlify"] = "local"
+    provider: Literal["local", "vercel", "cloudflare", "netlify", "docker", "container"] = "local"
     template_id: Optional[uuid.UUID] = None
     branch: str = "main"
     build_command: str = "npm run build"

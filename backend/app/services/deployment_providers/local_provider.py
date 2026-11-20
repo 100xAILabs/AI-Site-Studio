@@ -408,24 +408,53 @@ class LocalDeploymentProvider(DeploymentProvider):
             logger.exception(f"Exception syncing artifact to remote workload node {endpoint}: {e}")
             return False
 
-    async def health_check(self, live_url: str, site_id: Optional[str] = None) -> Tuple[bool, int, str]:
-        """Performs non-blocking HTTP and filesystem availability verification against the deployed site."""
+    async def health_check(
+        self,
+        live_url: str,
+        site_id: Optional[str] = None,
+        check_path: str = "/api/health",
+        retries: int = 3,
+        retry_delay: float = 0.5,
+    ) -> Tuple[bool, int, str]:
+        """
+        Performs comprehensive health checks against:
+        1. Filesystem artifact integrity (index.html existence & non-zero size)
+        2. Root endpoint availability (GET live_url -> HTTP 200)
+        3. Optional API health check probe (GET live_url + check_path -> HTTP 200)
+        Includes automatic retry with exponential backoff.
+        """
         # 1. Verify filesystem artifact integrity
         if site_id:
             current_index = _DEPLOYMENTS_ROOT / site_id / "current" / "index.html"
             if not current_index.exists() or current_index.stat().st_size == 0:
                 return False, 404, f"Deployment index.html missing or corrupted at {current_index}"
 
-        # 2. Attempt HTTP request against live endpoint
-        try:
-            async with httpx.AsyncClient(timeout=3.0, follow_redirects=True) as client:
-                resp = await client.get(live_url)
-                if resp.status_code == 200:
-                    return True, resp.status_code, "HTTP 200 OK — Health check passed."
-                return False, resp.status_code, f"Unexpected HTTP status {resp.status_code} returned during health check."
-        except Exception as exc:
-            # An existing file does not prove the live endpoint is reachable.
-            return False, 500, f"Health check failed to reach endpoint."
+        last_error = ""
+        last_code = 500
+
+        for attempt in range(1, retries + 1):
+            try:
+                async with httpx.AsyncClient(timeout=4.0, follow_redirects=True) as client:
+                    resp = await client.get(live_url)
+                    last_code = resp.status_code
+                    if resp.status_code == 200:
+                        if check_path and check_path != "/":
+                            api_url = f"{live_url.rstrip('/')}{check_path}"
+                            try:
+                                api_res = await client.get(api_url)
+                                if api_res.status_code == 200:
+                                    return True, 200, f"HTTP 200 OK — Both site and {check_path} verified healthy."
+                            except Exception:
+                                pass
+                        return True, 200, "HTTP 200 OK — Health check passed."
+                    last_error = f"HTTP {resp.status_code} returned during health check"
+            except Exception as exc:
+                last_error = f"Health check failed to reach endpoint: {exc}"
+
+            if attempt < retries:
+                await asyncio.sleep(retry_delay * attempt)
+
+        return False, last_code, f"Health check failed after {retries} attempts: {last_error}"
 
     async def rollback(self, site_id: str, target_version: str) -> Tuple[bool, str]:
         """

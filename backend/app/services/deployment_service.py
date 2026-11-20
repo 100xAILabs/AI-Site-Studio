@@ -303,6 +303,13 @@ class DeploymentService:
                     await service.log_event(deployment.id, "HEAL", f"Permanently persisted {len(audit_res['healed_files'])} healed files.")
                 await db.commit()
 
+                # 3b. Detect architecture target (Static, Serverless Hybrid, Fullstack Container)
+                target = service.provider.detect_target(str(source_dir))
+                deployment.deployment_type = target.value
+                deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [TARGET] 🎯 Architecture target detected: {target.value.upper()}\n"
+                await service.log_event(deployment.id, "TARGET", f"Architecture target detected: {target.value.upper()}")
+                await db.commit()
+
                 # Validate source structure
                 is_valid, val_err = await service.provider.validate(str(source_dir))
                 if not is_valid:
@@ -388,7 +395,7 @@ class DeploymentService:
                 deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [INFO] Performing automated health check on {live_url}...\n"
                 await db.commit()
 
-                is_healthy, h_status, h_msg = await service.provider.health_check(live_url, site_id=site_id)
+                is_healthy, h_status, h_msg = await service.provider.health_check(live_url, site_id=site_id, check_path="/api/health")
                 if not is_healthy:
                     deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [WARN] Health check warning: {h_msg}. Attempting runtime entrypoint repair...\n"
                     await db.commit()
@@ -408,21 +415,22 @@ class DeploymentService:
                             site_id=site_id,
                             version=version_str,
                         )
-                        is_healthy, h_status, h_msg = await service.provider.health_check(live_url, site_id=site_id)
+                        is_healthy, h_status, h_msg = await service.provider.health_check(live_url, site_id=site_id, check_path="/api/health")
 
                 if is_healthy:
-                    deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [SUCCESS] Health check passed 100% OK.\n"
+                    deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [SUCCESS] Health check passed 100% OK ({h_status}).\n"
+                    deployment.health_status = "healthy"
                 else:
                     deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [WARN] Site deployed with degraded health: {h_msg}\n"
+                    deployment.health_status = "degraded"
                 await db.commit()
 
                 # 7. Record Version & Transition to LIVE
                 deployment.status = "live"
                 deployment.current_version = version_str
-                deployment.health_status = "healthy"
                 deployment.live_url = live_url
                 deployment.deployment_path = artifact_path
-                deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [SUCCESS] Deployment is LIVE: {live_url}\n"
+                deployment.logs += f"[{datetime.now().strftime('%H:%M:%S')}] [SUCCESS] Deployment is LIVE: {live_url} (Health: {deployment.health_status.upper()})\n"
                 await db.commit()
 
                 # Record DeploymentVersion entry
