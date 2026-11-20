@@ -281,7 +281,7 @@ def test_fullstack_scaffold_contact_react_page_contains_interactive_form():
     assert "api.post('/api/contact'" in contact_tsx
     assert "website" in contact_tsx  # Honeypot field in state and DOM
     assert "formLoadedAt" in contact_tsx  # Velocity detection
-    assert "Message Dispatched!" in contact_tsx
+    assert "Inquiry Dispatched!" in contact_tsx
 
 
 def test_hybrid_serverless_contact_dispatcher_contains_anti_spam():
@@ -290,5 +290,81 @@ def test_hybrid_serverless_contact_dispatcher_contains_anti_spam():
     contact_code = files["backend/api/contact.py"]
     assert "Spam bot detected" in contact_code
     assert "_dispatch_email" in contact_code
-    assert "NOTIFICATION_EMAIL" in contact_code
+    assert "recipient = payload.recipient_email" in contact_code
+    assert "phone" in contact_code
     assert "_RATE_LIMIT_STORE" in contact_code
+
+
+@pytest.mark.asyncio
+async def test_motel_room_availability_inquiry_with_phone_and_custom_destination():
+    """
+    Test user scenario:
+    A visitor requests room availability for 'Sunrise Motel'.
+    The motel owner configured a specific recipient email ('reservations@sunrisemotel.com').
+    The visitor provides their phone number ('+1-555-839-2001') and booking specifications.
+    The email engine must deliver the inquiry directly to 'reservations@sunrisemotel.com'
+    with telephone/WhatsApp callback actions and room specifications,
+    while sending an instant auto-reply confirmation to the guest.
+    """
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        payload = {
+            "name": "David Miller",
+            "email": "david.miller@traveler.com",
+            "phone": "+1-555-839-2001",
+            "subject": "Room Availability for 2 Guests (Dec 1-5)",
+            "message": "Hello, we are looking for a Deluxe Queen Room with ocean view from Dec 1 to Dec 5. Is there availability?",
+            "site_name": "Sunrise Bay Motel",
+            "recipient_email": "reservations@sunrisemotel.com",
+            "metadata": {
+                "check_in": "2026-12-01",
+                "check_out": "2026-12-05",
+                "room_type": "Deluxe Queen Suite",
+                "guests": "2 Adults",
+            },
+            "form_loaded_at": time.time() - 2.5,
+        }
+        res = await ac.post("/api/v1/email/contact", json=payload)
+        assert res.status_code == 200
+        data = res.json()
+        assert data["success"] is True
+        assert data["status"] == "sent"
+        assert data["customer_confirmation_sent"] is True
+
+        # Check mock sent messages to verify exact destination and content
+        adapter = email_engine.get_adapter()
+        assert isinstance(adapter, ConsoleMockEmailAdapter)
+        matching = [m for m in adapter.sent_messages if "reservations@sunrisemotel.com" in m.to]
+        assert len(matching) >= 1
+        admin_email = matching[-1]
+        assert "Sunrise Bay Motel" in admin_email.subject
+        assert "David Miller" in admin_email.html_body
+        assert "tel:+15558392001" in admin_email.html_body
+        assert "wa.me/15558392001" in admin_email.html_body
+        assert "Deluxe Queen Suite" in admin_email.html_body
+        assert "2026-12-01" in admin_email.html_body
+
+        # Check customer auto-reply
+        cust_matching = [m for m in adapter.sent_messages if "david.miller@traveler.com" in m.to]
+        assert len(cust_matching) >= 1
+        cust_email = cust_matching[-1]
+        assert "We received your message" in cust_email.subject
+        assert "Deluxe Queen Suite" in cust_email.html_body
+
+
+def test_contact_page_dynamic_phone_and_email_binding():
+    """
+    Test user scenario:
+    When the website owner edits or changes their frontend phone number or email,
+    the Contact page dynamically binds the new phone number to tel: and WhatsApp,
+    and binds the new email to recipient_email in the submission payload.
+    """
+    contact_code = fullstack_scaffold_generator._build_page_tsx("Contact", "Sunrise Motel")
+    assert "businessPhone" in contact_code
+    assert "businessEmail" in contact_code
+    assert "tel:${cleanPhone}" in contact_code
+    assert "wa.me/${cleanWa}" in contact_code
+    assert "recipient_email: businessEmail" in contact_code
+    assert "Call Now" in contact_code
+    assert "WhatsApp" in contact_code
+

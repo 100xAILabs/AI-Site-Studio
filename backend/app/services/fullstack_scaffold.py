@@ -657,8 +657,11 @@ async def _dispatch_email(to_email: str, subject: str, html_body: str) -> str:
 class ContactPayload(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     email: EmailStr
+    phone: Optional[str] = None
     subject: Optional[str] = Field("Website Inquiry", max_length=200)
     message: str = Field(..., min_length=5, max_length=5000)
+    recipient_email: Optional[EmailStr] = None  # Direct target email (e.g. motel manager)
+    metadata: Optional[Dict[str, Any]] = None  # Custom enquiry attributes (e.g. check-in, room type)
     website: Optional[str] = None  # Anti-spam honeypot (must be empty)
     form_loaded_at: Optional[float] = None  # Velocity check
 
@@ -682,14 +685,21 @@ async def submit_contact(payload: ContactPayload, request: Request):
     if not _check_rate_limit(client_ip):
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many inquiries. Please wait a minute.")
 
-    # 3. Dual Email Dispatch
-    admin_recipient = os.getenv("NOTIFICATION_EMAIL", "admin@example.com")
+    # 3. Destination Email (uses specific recipient if provided by website/form, else NOTIFICATION_EMAIL)
+    admin_recipient = payload.recipient_email or os.getenv("NOTIFICATION_EMAIL", "admin@example.com")
     site_title = os.getenv("SITE_NAME", "Website")
+
+    phone_html = f"<p><strong>Phone / Callback:</strong> <a href='tel:{payload.phone}' style='color: #38bdf8;'>{payload.phone}</a></p>" if payload.phone else ""
+    meta_html = ""
+    if payload.metadata:
+        meta_html = "<div style='margin: 14px 0; background: #0f172a; padding: 14px; border-radius: 6px; border: 1px solid #334155;'><p style='font-size: 11px; font-weight: bold; color: #38bdf8; text-transform: uppercase;'>Enquiry Specifications:</p>" + "".join(f"<p style='margin: 4px 0; font-size: 13px;'><strong>{k.replace('_', ' ').title()}:</strong> {v}</p>" for k, v in payload.metadata.items()) + "</div>"
 
     admin_html = f\"\"\"<div style="font-family: sans-serif; background: #0f172a; color: #f8fafc; padding: 24px; border-radius: 8px;">
         <h2 style="color: #38bdf8;">New Website Inquiry — {site_title}</h2>
         <p><strong>From:</strong> {payload.name} ({payload.email})</p>
+        {phone_html}
         <p><strong>Subject:</strong> {payload.subject}</p>
+        {meta_html}
         <div style="background: #1e293b; padding: 16px; border-left: 4px solid #38bdf8; border-radius: 4px; margin-top: 16px;">
             {payload.message}
         </div>
@@ -700,7 +710,7 @@ async def submit_contact(payload: ContactPayload, request: Request):
     customer_html = f\"\"\"<div style="font-family: sans-serif; background: #0f172a; color: #f8fafc; padding: 24px; border-radius: 8px;">
         <h2 style="color: #38bdf8;">We Received Your Message</h2>
         <p>Hello <strong>{payload.name}</strong>,</p>
-        <p>Thank you for reaching out regarding <em>\"{payload.subject}\"</em>. Our team has received your message and will respond shortly.</p>
+        <p>Thank you for reaching out to <strong>{site_title}</strong> regarding <em>\"{payload.subject}\"</em>. Our team has received your message and will follow up via email or phone shortly.</p>
     </div>\"\"\"
     await _dispatch_email(payload.email, f"We received your message — {site_title}", customer_html)
 
@@ -708,7 +718,8 @@ async def submit_contact(payload: ContactPayload, request: Request):
         "status": "success",
         "message": "Thank you! Your message has been sent successfully. A confirmation has been emailed to you.",
         "provider": provider_used,
-        "received": {"name": payload.name, "email": payload.email}
+        "recipient": admin_recipient,
+        "received": {"name": payload.name, "email": payload.email, "phone": payload.phone}
     }
 
 @router.post("/newsletter")
@@ -1681,15 +1692,32 @@ export default function Footer() {{
     def _build_page_tsx(self, page_name: str, project_name: str) -> str:
         if page_name.lower() in ("contact", "contactus", "getintouch"):
             return f'''import React, {{ useState, useEffect }} from 'react';
-import {{ Mail, Send, CheckCircle2, AlertCircle, Loader2, User, AtSign }} from 'lucide-react';
+import {{ Mail, Phone, Send, CheckCircle2, AlertCircle, Loader2, User, AtSign, Clock, MapPin, MessageCircle }} from 'lucide-react';
 import {{ api }} from '../api/client';
 
-export default function Contact() {{
+interface ContactProps {{
+  initialPhone?: string;
+  initialEmail?: string;
+  initialAddress?: string;
+}}
+
+export default function Contact({{
+  initialPhone = "+1 (555) 234-5678",
+  initialEmail = "contact@{_slugify(project_name)}.com",
+  initialAddress = "100 Oceanview Boulevard, Suite 400",
+}}: ContactProps) {{
+  // Business contact information (can be edited/overridden dynamically in frontend)
+  const [businessPhone, setBusinessPhone] = useState(initialPhone);
+  const [businessEmail, setBusinessEmail] = useState(initialEmail);
+  const [businessAddress, setBusinessAddress] = useState(initialAddress);
+
+  // Form submission state
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [subject, setSubject] = useState('');
+  const [phone, setPhone] = useState('');
+  const [subject, setSubject] = useState('Room Availability & Booking Inquiry');
   const [message, setMessage] = useState('');
-  const [website, setWebsite] = useState('');
+  const [website, setWebsite] = useState(''); // Anti-spam honeypot
   const [formLoadedAt, setFormLoadedAt] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -1698,6 +1726,9 @@ export default function Contact() {{
   useEffect(() => {{
     setFormLoadedAt(Date.now() / 1000);
   }}, []);
+
+  const cleanPhone = businessPhone.replace(/[^0-9+]/g, '');
+  const cleanWa = cleanPhone.replace('+', '');
 
   const handleSubmit = async (e: React.FormEvent) => {{
     e.preventDefault();
@@ -1709,54 +1740,114 @@ export default function Contact() {{
       const res = await api.post('/api/contact', {{
         name,
         email,
+        phone,
         subject: subject || 'Website Inquiry',
         message,
+        recipient_email: businessEmail, // Routes to the exact email shown on the page
+        site_name: '{project_name}',
         website,
         form_loaded_at: formLoadedAt,
       }});
       setSuccessMsg(res.data.message || 'Your inquiry was sent successfully!');
       setName('');
       setEmail('');
-      setSubject('');
+      setPhone('');
       setMessage('');
     }} catch (err: any) {{
-      setErrorMsg(err.response?.data?.detail || 'Failed to dispatch your message. Please retry.');
+      setErrorMsg(err.response?.data?.detail || 'Failed to dispatch your inquiry. Please retry.');
     }} finally {{
       setSubmitting(false);
     }}
   }};
 
   return (
-    <div className="max-w-3xl mx-auto space-y-8 animate-fadeIn">
+    <div className="max-w-5xl mx-auto space-y-12 animate-fadeIn pb-12">
       <div className="text-center space-y-3">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary-500/10 border border-primary-500/20 text-primary-400 text-xs font-semibold">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-primary-500/10 border border-primary-500/20 text-primary-400 text-xs font-semibold">
           <Mail className="w-3.5 h-3.5" />
-          <span>Get in Touch</span>
+          <span>Customer &amp; Reservations Desk</span>
         </div>
         <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">Contact {project_name}</h1>
-        <p className="text-slate-400 text-sm max-w-lg mx-auto">
-          Have questions or want to collaborate? Send us a message and our team will get back to you within 24 hours.
+        <p className="text-slate-400 text-sm max-w-xl mx-auto">
+          Have an inquiry, booking request, or need immediate assistance? Reach our desk directly by phone, WhatsApp, or through the inquiry form below.
         </p>
       </div>
 
-      <div className="p-8 rounded-2xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm shadow-xl">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="p-6 rounded-2xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm space-y-3">
+          <div className="w-10 h-10 rounded-xl bg-primary-500/10 text-primary-400 flex items-center justify-center">
+            <Phone className="w-5 h-5" />
+          </div>
+          <h3 className="font-bold text-white text-base">Phone &amp; Call Direct</h3>
+          <p className="text-xs text-slate-400 font-mono">{{businessPhone}}</p>
+          <div className="flex items-center gap-2 pt-2">
+            <a
+              href={{`tel:${{cleanPhone}}`}}
+              className="px-3 py-1.5 rounded-lg bg-primary-500 hover:bg-primary-600 text-slate-950 font-bold text-xs inline-flex items-center gap-1.5 transition text-decoration-none shadow-sm"
+            >
+              <Phone className="w-3 h-3" />
+              <span>Call Now</span>
+            </a>
+            <a
+              href={{`https://wa.me/${{cleanWa}}`}}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 font-bold text-xs inline-flex items-center gap-1.5 transition text-decoration-none border border-emerald-500/30"
+            >
+              <MessageCircle className="w-3 h-3" />
+              <span>WhatsApp</span>
+            </a>
+          </div>
+        </div>
+
+        <div className="p-6 rounded-2xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm space-y-3">
+          <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center">
+            <Mail className="w-5 h-5" />
+          </div>
+          <h3 className="font-bold text-white text-base">Direct Email Desk</h3>
+          <p className="text-xs text-slate-400 font-mono truncate">{{businessEmail}}</p>
+          <div className="pt-2">
+            <a
+              href={{`mailto:${{businessEmail}}`}}
+              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs inline-flex items-center gap-1.5 transition text-decoration-none border border-slate-700"
+            >
+              <Mail className="w-3 h-3" />
+              <span>Email Us</span>
+            </a>
+          </div>
+        </div>
+
+        <div className="p-6 rounded-2xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm space-y-3">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center">
+            <Clock className="w-5 h-5" />
+          </div>
+          <h3 className="font-bold text-white text-base">Desk Hours &amp; Location</h3>
+          <p className="text-xs text-slate-400 leading-relaxed">{{businessAddress}}</p>
+          <p className="text-xs font-semibold text-emerald-400 pt-1">Front Desk: 24/7 On-Duty</p>
+        </div>
+      </div>
+
+      <div className="p-8 sm:p-10 rounded-2xl border border-slate-800 bg-slate-900/70 backdrop-blur-md shadow-2xl">
         {{successMsg ? (
-          <div className="p-6 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-center space-y-3">
-            <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto" />
-            <h3 className="text-lg font-bold text-white">Message Dispatched!</h3>
-            <p className="text-xs text-slate-300 leading-relaxed">{{successMsg}}</p>
+          <div className="p-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-center space-y-3">
+            <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto" />
+            <h3 className="text-xl font-bold text-white">Inquiry Dispatched!</h3>
+            <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">{{successMsg}}</p>
+            <p className="text-[11px] text-slate-500">
+              A copy of your inquiry has also been emailed to your address.
+            </p>
             <button
               type="button"
               onClick={{() => setSuccessMsg(null)}}
-              className="mt-4 px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition"
+              className="mt-4 px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition cursor-pointer"
             >
-              Send Another Message
+              Send Another Inquiry
             </button>
           </div>
         ) : (
-          <form onSubmit={{handleSubmit}} className="space-y-5">
+          <form onSubmit={{handleSubmit}} className="space-y-6">
             {{errorMsg && (
-              <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs flex items-center gap-2.5">
+              <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs flex items-center gap-3">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{{errorMsg}}</span>
               </div>
@@ -1772,9 +1863,9 @@ export default function Contact() {{
               autoComplete="off"
             />
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Your Name *</label>
+                <label className="text-xs font-semibold text-slate-300">Your Full Name *</label>
                 <div className="relative">
                   <User className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
                   <input
@@ -1782,14 +1873,14 @@ export default function Contact() {{
                     required
                     value={{name}}
                     onChange={{(e) => setName(e.target.value)}}
-                    placeholder="Jane Doe"
+                    placeholder="John Doe"
                     className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-primary-500 focus:outline-none text-white text-xs"
                   />
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Your Email *</label>
+                <label className="text-xs font-semibold text-slate-300">Your Email Address *</label>
                 <div className="relative">
                   <AtSign className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
                   <input
@@ -1797,7 +1888,21 @@ export default function Contact() {{
                     required
                     value={{email}}
                     onChange={{(e) => setEmail(e.target.value)}}
-                    placeholder="jane@example.com"
+                    placeholder="john@example.com"
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-primary-500 focus:outline-none text-white text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">Your Phone / Mobile Number</label>
+                <div className="relative">
+                  <Phone className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                  <input
+                    type="tel"
+                    value={{phone}}
+                    onChange={{(e) => setPhone(e.target.value)}}
+                    placeholder="+1 (555) 000-0000"
                     className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-primary-500 focus:outline-none text-white text-xs"
                   />
                 </div>
@@ -1805,42 +1910,54 @@ export default function Contact() {{
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300">Subject</label>
-              <input
-                type="text"
+              <label className="text-xs font-semibold text-slate-300">Subject / Inquiry Type *</label>
+              <select
                 value={{subject}}
                 onChange={{(e) => setSubject(e.target.value)}}
-                placeholder="Partnership or project inquiry"
                 className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-primary-500 focus:outline-none text-white text-xs"
-              />
+              >
+                <option value="Room Availability & Booking Inquiry">Room Availability &amp; Booking Inquiry</option>
+                <option value="Check-in & Early Arrival Request">Check-in &amp; Early Arrival Request</option>
+                <option value="Corporate Rates & Extended Stay">Corporate Rates &amp; Extended Stay</option>
+                <option value="General Question & Assistance">General Question &amp; Assistance</option>
+              </select>
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-300">Message *</label>
+              <label className="text-xs font-semibold text-slate-300">Inquiry Details &amp; Message *</label>
               <textarea
                 required
                 rows={{4}}
                 value={{message}}
                 onChange={{(e) => setMessage(e.target.value)}}
-                placeholder="Tell us about your requirements..."
-                className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-primary-500 focus:outline-none text-white text-xs"
+                placeholder="Please specify check-in / check-out dates, number of guests, or room preferences..."
+                className="w-full px-3.5 py-3 rounded-xl bg-slate-950 border border-slate-800 focus:border-primary-500 focus:outline-none text-white text-xs"
               />
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 flex items-center justify-between text-xs text-slate-400">
+              <div className="flex items-center gap-2">
+                <Mail className="w-4 h-4 text-primary-400" />
+                <span>Inquiry will be routed directly to:</span>
+                <span className="font-mono text-white font-semibold">{{businessEmail}}</span>
+              </div>
+              <span className="text-[11px] text-emerald-400 font-semibold">&#10003; Dual notification auto-reply active</span>
             </div>
 
             <button
               type="submit"
               disabled={{submitting}}
-              className="w-full py-3 rounded-xl bg-primary-500 hover:bg-primary-600 disabled:opacity-50 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition shadow-lg shadow-primary-500/20 cursor-pointer"
+              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-primary-500 to-amber-500 hover:from-primary-400 hover:to-amber-400 disabled:opacity-50 text-slate-950 font-black text-xs flex items-center justify-center gap-2 transition shadow-lg shadow-primary-500/25 cursor-pointer uppercase tracking-wider"
             >
               {{submitting ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Dispatching Message...</span>
+                  <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                  <span>Submitting Inquiry...</span>
                 </>
               ) : (
                 <>
-                  <Send className="w-4 h-4" />
-                  <span>Send Message</span>
+                  <Send className="w-4 h-4 text-slate-950" />
+                  <span>Send Room Inquiry</span>
                 </>
               )}}
             </button>
@@ -2242,8 +2359,11 @@ async def _dispatch_email(to_addr: str, subject: str, html: str) -> str:
 class ContactSubmission(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     email: EmailStr
+    phone: Optional[str] = None
     subject: Optional[str] = Field("Website Contact Form Submission", max_length=200)
     message: str = Field(..., min_length=5, max_length=5000)
+    recipient_email: Optional[EmailStr] = None  # Direct target email (e.g. motel manager)
+    metadata: Optional[Dict[str, Any]] = None  # Custom enquiry attributes (e.g. room type, dates)
     website: Optional[str] = None
     form_loaded_at: Optional[float] = None
 
@@ -2258,13 +2378,20 @@ async def handle_contact_form(payload: ContactSubmission, request: Request):
     if not _check_rate_limit(client_ip):
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many inquiries. Please wait a minute.")
 
-    recipient = os.getenv("NOTIFICATION_EMAIL", "admin@example.com")
+    recipient = payload.recipient_email or os.getenv("NOTIFICATION_EMAIL", "admin@example.com")
     site_title = os.getenv("SITE_NAME", "Static Website")
+
+    phone_html = f"<p><strong>Phone / Callback:</strong> <a href='tel:{payload.phone}' style='color: #38bdf8;'>{payload.phone}</a></p>" if payload.phone else ""
+    meta_html = ""
+    if payload.metadata:
+        meta_html = "<div style='margin: 12px 0; background: #0f172a; padding: 12px; border-radius: 6px;'>" + "".join(f"<p style='margin: 4px 0;'><strong>{k.replace('_', ' ').title()}:</strong> {v}</p>" for k, v in payload.metadata.items()) + "</div>"
 
     admin_html = f\"\"\"<div style="font-family: sans-serif; background: #0f172a; color: #f8fafc; padding: 24px; border-radius: 8px;">
         <h2 style="color: #38bdf8;">New Inquiry — {site_title}</h2>
         <p><strong>From:</strong> {payload.name} ({payload.email})</p>
+        {phone_html}
         <p><strong>Subject:</strong> {payload.subject}</p>
+        {meta_html}
         <div style="background: #1e293b; padding: 16px; border-left: 4px solid #38bdf8; border-radius: 4px; margin-top: 16px;">
             {payload.message}
         </div>
@@ -2275,7 +2402,7 @@ async def handle_contact_form(payload: ContactSubmission, request: Request):
     customer_html = f\"\"\"<div style="font-family: sans-serif; background: #0f172a; color: #f8fafc; padding: 24px; border-radius: 8px;">
         <h2 style="color: #38bdf8;">We Received Your Message</h2>
         <p>Hello <strong>{payload.name}</strong>,</p>
-        <p>Thank you for reaching out regarding <em>\"{payload.subject}\"</em>. Our team will get back to you shortly.</p>
+        <p>Thank you for reaching out to <strong>{site_title}</strong> regarding <em>\"{payload.subject}\"</em>. Our team will get back to you shortly.</p>
     </div>\"\"\"
     await _dispatch_email(payload.email, f"We received your message — {site_title}", customer_html)
 
@@ -2283,7 +2410,8 @@ async def handle_contact_form(payload: ContactSubmission, request: Request):
         "status": "success",
         "message": "Thank you! Your message has been sent successfully. A confirmation has been emailed to you.",
         "provider": provider,
-        "received": {"name": payload.name, "email": payload.email}
+        "recipient": recipient,
+        "received": {"name": payload.name, "email": payload.email, "phone": payload.phone}
     }
 '''
 

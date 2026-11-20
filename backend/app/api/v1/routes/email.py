@@ -80,8 +80,10 @@ async def submit_contact_form(payload: ContactSubmissionRequest, request: Reques
         sender_email=payload.email,
         subject=payload.subject or "Website Inquiry",
         message=payload.message,
+        sender_phone=payload.phone,
         recipient_email=payload.recipient_email,
         site_name=payload.site_name or "AI Site Studio Website",
+        metadata=payload.metadata,
     )
 
     if not admin_res.success:

@@ -124,8 +124,39 @@ def render_admin_inquiry_html(
     sender_email: str,
     subject: str,
     message: str,
+    sender_phone: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Generates clean, responsive HTML notification email for the website owner."""
+    phone_row = ""
+    if sender_phone:
+        clean_digits = "".join(ch for ch in sender_phone if ch.isdigit() or ch == "+")
+        wa_digits = clean_digits.replace("+", "")
+        phone_row = f"""<tr>
+                  <td style="padding: 6px 0; font-size: 13px; color: #8e90a5;">Phone:</td>
+                  <td style="padding: 6px 0; font-size: 13px; color: #ffffff; font-weight: 600;">
+                    <a href="tel:{clean_digits}" style="color: #ffffff; text-decoration: underline;">{sender_phone}</a>
+                    <a href="https://wa.me/{wa_digits}" style="margin-left: 10px; font-size: 11px; color: #25d366; text-decoration: none; font-weight: 700; background: rgba(37,211,102,0.15); padding: 2px 8px; border-radius: 4px;">WhatsApp</a>
+                  </td>
+                </tr>"""
+
+    metadata_block = ""
+    if metadata and isinstance(metadata, dict):
+        rows = []
+        for k, v in metadata.items():
+            formatted_key = k.replace("_", " ").title()
+            rows.append(f"""<tr>
+                <td style="padding: 6px 12px; font-size: 12px; color: #8e90a5; border-bottom: 1px solid #1f212e;">{formatted_key}:</td>
+                <td style="padding: 6px 12px; font-size: 12px; color: #ffffff; font-weight: 600; border-bottom: 1px solid #1f212e;">{v}</td>
+            </tr>""")
+        rows_str = "".join(rows)
+        metadata_block = f"""<div style="margin-top: 18px; margin-bottom: 18px;">
+            <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #c89666; margin-bottom: 8px;">Enquiry Details &amp; Specifications:</div>
+            <table role="presentation" width="100%" style="background-color: #0c0d14; border: 1px solid #1f212e; border-radius: 6px; border-collapse: collapse;">
+                {rows_str}
+            </table>
+        </div>"""
+
     return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -159,11 +190,14 @@ def render_admin_inquiry_html(
                     <a href="mailto:{sender_email}" style="color: #c89666; text-decoration: none;">{sender_email}</a>
                   </td>
                 </tr>
+                {phone_row}
                 <tr>
                   <td style="padding: 6px 0; font-size: 13px; color: #8e90a5;">Subject:</td>
                   <td style="padding: 6px 0; font-size: 13px; color: #ffffff;">{subject}</td>
                 </tr>
               </table>
+
+              {metadata_block}
 
               <div style="font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: #8e90a5; margin-bottom: 8px;">Message Content:</div>
               <div style="background-color: #0c0d14; border-left: 3px solid #c89666; border-radius: 4px; padding: 16px; font-size: 14px; line-height: 1.6; color: #d0d2e0; white-space: pre-wrap;">{message}</div>
@@ -193,8 +227,19 @@ def render_customer_confirmation_html(
     site_name: str,
     sender_name: str,
     subject: str,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Generates auto-reply confirmation email to reassure the customer their message was received."""
+    metadata_snippet = ""
+    if metadata and isinstance(metadata, dict):
+        items = "".join(f"<li><strong>{k.replace('_', ' ').title()}:</strong> {v}</li>" for k, v in metadata.items())
+        metadata_snippet = f"""<div style="background-color: #0c0d14; border: 1px solid #1f212e; border-radius: 8px; padding: 14px 18px; margin: 18px 0; text-align: left;">
+            <p style="margin: 0 0 8px 0; font-size: 12px; font-weight: 700; color: #c89666; text-transform: uppercase;">Your Enquiry Specifications:</p>
+            <ul style="margin: 0; padding-left: 18px; font-size: 13px; color: #d0d2e0; line-height: 1.6;">
+                {items}
+            </ul>
+        </div>"""
+
     return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -217,14 +262,15 @@ def render_customer_confirmation_html(
             <td style="padding: 32px;">
               <p style="font-size: 15px; line-height: 1.5; color: #ffffff; margin-top: 0;">Hello <strong>{sender_name}</strong>,</p>
               <p style="font-size: 14px; line-height: 1.6; color: #a4a7be;">
-                Thank you for reaching out to us regarding <em>"{subject}"</em>. We have received your inquiry and our team is already reviewing your details.
+                Thank you for contacting <strong>{site_name}</strong> regarding <em>"{subject}"</em>. We have received your inquiry and our team is already reviewing your details.
               </p>
+              {metadata_snippet}
               <div style="background-color: #0c0d14; border: 1px solid #1f212e; border-radius: 8px; padding: 18px; margin: 24px 0; text-align: center;">
                 <p style="margin: 0; font-size: 13px; color: #10b981; font-weight: 600;">
                   &#10003; Your message has been logged in our priority queue.
                 </p>
                 <p style="margin: 8px 0 0 0; font-size: 12px; color: #767990;">
-                  A representative will follow up with you within 24 business hours.
+                  A representative will follow up with you directly via email or phone shortly.
                 </p>
               </div>
               <p style="font-size: 13px; line-height: 1.6; color: #767990; margin-bottom: 0;">
@@ -582,32 +628,38 @@ class EmailEngine:
         sender_email: str,
         subject: str,
         message: str,
+        sender_phone: Optional[str] = None,
         recipient_email: Optional[str] = None,
         site_name: str = "Website",
+        metadata: Optional[Dict[str, Any]] = None,
         custom_env: Optional[Dict[str, str]] = None,
     ) -> Tuple[EmailSendResult, Optional[EmailSendResult]]:
         """
         Dispatches dual email:
-        1. Admin Inquiry Notification -> NOTIFICATION_EMAIL / recipient_email
+        1. Admin/Recipient Inquiry Notification -> recipient_email / NOTIFICATION_EMAIL
         2. Customer Auto-Reply Confirmation -> sender_email
         """
         env = custom_env or os.environ
         admin_to = recipient_email or env.get("NOTIFICATION_EMAIL") or env.get("SMTP_USER") or "admin@example.com"
         adapter = self.get_adapter(custom_env=env)
 
-        # 1. Admin Email
+        # 1. Admin / Recipient Email
         admin_html = render_admin_inquiry_html(
             site_name=site_name,
             sender_name=sender_name,
             sender_email=sender_email,
             subject=subject,
             message=message,
+            sender_phone=sender_phone,
+            metadata=metadata,
         )
+        phone_txt = f"\nPhone: {sender_phone}" if sender_phone else ""
+        meta_txt = ("\n" + "\n".join(f"{k}: {v}" for k, v in metadata.items())) if metadata else ""
         admin_msg = EmailMessage(
             to=[admin_to],
             subject=f"[{site_name}] New Inquiry: {subject}",
             html_body=admin_html,
-            text_body=f"New inquiry from {sender_name} ({sender_email}):\n\n{message}",
+            text_body=f"New inquiry from {sender_name} ({sender_email}){phone_txt}:{meta_txt}\n\n{message}",
             reply_to=sender_email,
         )
         admin_result = await adapter.send(admin_msg)
@@ -617,12 +669,13 @@ class EmailEngine:
             site_name=site_name,
             sender_name=sender_name,
             subject=subject,
+            metadata=metadata,
         )
         customer_msg = EmailMessage(
             to=[sender_email],
             subject=f"We received your message — {site_name}",
             html_body=customer_html,
-            text_body=f"Hello {sender_name},\n\nWe received your message regarding '{subject}'. Our team will respond shortly.",
+            text_body=f"Hello {sender_name},\n\nWe received your inquiry regarding '{subject}' for {site_name}. Our team will follow up directly via email or phone shortly.",
         )
         customer_result = await adapter.send(customer_msg)
 
