@@ -393,22 +393,31 @@ class DeploymentReadinessAuditor:
 
                 # B. Deprecated startup event conversion to lifespan
                 if f'@{app_var}.on_event("startup")' in main_code or f"@{app_var}.on_event('startup')" in main_code or '@app.on_event("startup")' in main_code or "@app.on_event('startup')" in main_code:
+                    import_prefix = ""
                     if "asynccontextmanager" not in main_code:
-                        main_code = "from contextlib import asynccontextmanager\n" + main_code
+                        import_prefix = "from contextlib import asynccontextmanager\n"
 
                     lifespan_def = (
-                        f"@asynccontextmanager\n"
+                        f"{import_prefix}@asynccontextmanager\n"
                         f"async def lifespan({app_var}: FastAPI):\n"
                         f"    yield\n\n"
                     )
                     main_code = re.sub(
-                        rf'@(?:{app_var}|app)\.on_event\([\'"]startup[\'"]\)\s*async\s+def\s+[a-zA-Z0-9_]+\s*\([^)]*\):[^@\n]*(?:pass)?',
+                        rf'@(?:{app_var}|app)\.on_event\([\'"]startup[\'"]\)\s*(?:async\s+)?def\s+[a-zA-Z0-9_]+\s*\([^)]*\):(?:\s*\n(?:\s+[^\n]*|\s*))*',
                         "",
                         main_code
                     )
                     main_code = lifespan_def + main_code
-                    main_code = re.sub(r'FastAPI\s*\(([^)]*)\)', r'FastAPI(\1, lifespan=lifespan)', main_code)
-                    main_code = re.sub(r'lifespan=lifespan,\s*lifespan=lifespan', 'lifespan=lifespan', main_code)
+
+                    def _inject_lifespan(match):
+                        inner = match.group(1).strip()
+                        if not inner:
+                            return "FastAPI(lifespan=lifespan)"
+                        if "lifespan=" in inner:
+                            return match.group(0)
+                        return f"FastAPI({inner}, lifespan=lifespan)"
+
+                    main_code = re.sub(r'FastAPI\s*\(([^)]*)\)', _inject_lifespan, main_code)
                     findings.append(f"[Lifespan Sweep] Converted deprecated @{app_var}.on_event('startup') to asynccontextmanager lifespan")
 
                 if main_code != orig_main:
