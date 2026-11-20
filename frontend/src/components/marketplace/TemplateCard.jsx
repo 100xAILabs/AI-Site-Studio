@@ -120,12 +120,12 @@ export default function TemplateCard({
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  window.location.href = `/preview?template=${template.id || templateSlug}`;
+                  window.open(`/demo/${templateSlug || template.id}`, '_blank');
                 }}
                 className="overlay-btn-preview"
               >
                 <Eye className="overlay-icon" />
-                Live Demo
+                Live Demo ↗
               </button>
               <button
                 onClick={handleAddToCart}

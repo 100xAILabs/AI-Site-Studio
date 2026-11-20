@@ -28,6 +28,7 @@ const StudioPage = lazy(() => import('./app/studio/page.jsx'));
 const StudioLaunchPage = lazy(() => import('./app/studio/launch/page.jsx'));
 const StudioDeployPage = lazy(() => import('./app/studio/deploy/page.jsx'));
 const PreviewPage = lazy(() => import('./app/preview/page.jsx'));
+const LiveDemoPage = lazy(() => import('./app/demo/page.jsx'));
 const StorybookPage = lazy(() => import('./app/storybook/page.jsx'));
 const PricingPage = lazy(() => import('./app/pricing/page.jsx'));
 const SubscribePage = lazy(() => import('./app/subscribe/page.jsx'));
@@ -126,6 +127,8 @@ function AppRouteContent() {
           <Route path="/auth/complete" element={<AuthCompletePage />} />
           <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/preview" element={<PreviewPage />} />
+          <Route path="/demo/:slug" element={<LiveDemoPage />} />
+          <Route path="/demo" element={<LiveDemoPage />} />
           <Route path="/storybook" element={<StorybookPage />} />
           <Route path="/cart" element={<Checkout />} />
           <Route path="/checkout" element={<Checkout />} />

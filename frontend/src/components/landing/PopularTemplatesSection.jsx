@@ -184,12 +184,12 @@ export default function PopularTemplatesSection() {
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            navigate(`/preview?template=${templateSlug}`);
+                            window.open(`/demo/${templateSlug}`, '_blank');
                           }}
-                          title="Open in Live Canvas Editor"
+                          title="Open Live Interactive Demo"
                         >
                           <Eye className="w-3.5 h-3.5 mr-1.5" />
-                          <span>Live Preview</span>
+                          <span>Live Demo ↗</span>
                         </button>
                       </div>
                     </div>
