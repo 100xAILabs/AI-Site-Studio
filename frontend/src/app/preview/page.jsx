@@ -907,18 +907,42 @@ export default function PreviewPage() {
     { id: "pricing.html", title: "Pricing", icon: "💳", sectionKey: "pricing", path: "pricing.html" },
     { id: "contact.html", title: "Contact", icon: "✉️", sectionKey: "contact", path: "contact.html" },
   ]);
-  const [activePage, setActivePage] = useState("index.html");
+  const [activePage, setActivePage] = useState(() => searchParams.get("page") || "index.html");
   const [showAddPageModal, setShowAddPageModal] = useState(false);
   const [newPageName, setNewPageName] = useState("");
   const [newPagePreset, setNewPagePreset] = useState("content");
 
-  const handleSelectPage = (page) => {
+  const handleSelectPage = async (page) => {
     const isFile = page.id && !page.id.startsWith("#");
     setActivePage(page.id);
     setEditorMode("manual");
     if (isFile) {
       // Force fresh reload of the canvas iframe for the selected subpage file
       setIframeKey((k) => k + 1);
+      // Fetch dynamic extracted sections and component fields for this specific active page
+      try {
+        const targetId = effectiveTemplateId || templateId || initialTemplateId;
+        if (targetId && targetId !== "default") {
+          const effectiveToken = authToken || useAuthStore.getState()?.token;
+          const extRes = await api.get(`/preview/live/${targetId}/extracted-data?page=${encodeURIComponent(page.id)}`, {}, effectiveToken);
+          if (extRes && extRes.status === "success" && extRes.sections) {
+            setSectionProps((prev) => ({
+              ...prev,
+              ...extRes.sections
+            }));
+            if (extRes.sections_list && extRes.sections_list.length > 0) {
+              const realDetected = extRes.sections_list.map((s) => ({
+                ...s,
+                icon: ICON_MAP[s.icon] || SECTION_ICONS[s.id] || Globe
+              }));
+              setSections(realDetected);
+              setSelectedSectionId((prev) => realDetected.some((s) => s.id === prev) ? prev : realDetected[0].id);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Could not fetch page-specific extracted data:", err);
+      }
     } else {
       const sId = page.id.replace("#", "");
       setSelectedSectionId(sId);
@@ -1278,33 +1302,42 @@ export default function PreviewPage() {
             setSections(realDetected);
             setSelectedSectionId((prev) => realDetected.some((s) => s.id === prev) ? prev : realDetected[0].id);
 
-            // Populate top multi-page switcher if only 1 page exists
-            setPages((prevPages) => {
-              if (!prevPages || prevPages.length <= 1) {
-                const currentFw = (extracted.framework || templateData?.framework || "").toLowerCase();
-                const isReact = currentFw.includes("react") || currentFw.includes("next");
-                const isVue = currentFw.includes("vue");
-                const rootPageId = isReact ? "App.jsx" : isVue ? "App.vue" : "index.html";
-                const rootTitle = isReact ? "App (Home)" : isVue ? "App (Home)" : "Home";
-                const rootIcon = isReact ? "⚛️" : isVue ? "🟢" : "🏠";
-                const sectionPages = [
-                  { id: rootPageId, title: rootTitle, icon: rootIcon, path: rootPageId, sectionKey: "navbar" }
-                ];
-                realDetected.forEach((sec) => {
-                  if (sec.id !== "navbar" && sec.id !== "footer") {
-                    sectionPages.push({
-                      id: `#${sec.id}`,
-                      title: sec.name,
-                      icon: "📑",
-                      path: `#${sec.id}`,
-                      sectionKey: sec.id
-                    });
-                  }
-                });
-                return sectionPages;
-              }
-              return prevPages;
-            });
+            // Populate top multi-page switcher with real extracted template pages
+            if (extracted.pages && Array.isArray(extracted.pages) && extracted.pages.length > 0) {
+              setPages(extracted.pages);
+              const qPage = searchParams.get("page");
+              const targetPage = qPage && extracted.pages.some((p) => p.id === qPage)
+                ? qPage
+                : (extracted.active_page || extracted.pages[0].id);
+              setActivePage(targetPage);
+            } else {
+              setPages((prevPages) => {
+                if (!prevPages || prevPages.length <= 1) {
+                  const currentFw = (extracted.framework || templateData?.framework || "").toLowerCase();
+                  const isReact = currentFw.includes("react") || currentFw.includes("next");
+                  const isVue = currentFw.includes("vue");
+                  const rootPageId = isReact ? "App.jsx" : isVue ? "App.vue" : "index.html";
+                  const rootTitle = isReact ? "App (Home)" : isVue ? "App (Home)" : "Home";
+                  const rootIcon = isReact ? "⚛️" : isVue ? "🟢" : "🏠";
+                  const sectionPages = [
+                    { id: rootPageId, title: rootTitle, icon: rootIcon, path: rootPageId, sectionKey: "navbar" }
+                  ];
+                  realDetected.forEach((sec) => {
+                    if (sec.id !== "navbar" && sec.id !== "footer") {
+                      sectionPages.push({
+                        id: `#${sec.id}`,
+                        title: sec.name,
+                        icon: "📑",
+                        path: `#${sec.id}`,
+                        sectionKey: sec.id
+                      });
+                    }
+                  });
+                  return sectionPages;
+                }
+                return prevPages;
+              });
+            }
             return;
           }
         }
@@ -1650,6 +1683,7 @@ export default function PreviewPage() {
           secondary_color: brand.secondary_color,
           contact_email: sectionProps.contact?.email || brand.contact_email,
           contact_phone: sectionProps.contact?.phone || brand.contact_phone,
+          page: activePage,
           page_edits,
           use_ai: !!useAi
         }, effectiveToken);
@@ -1671,7 +1705,7 @@ export default function PreviewPage() {
           queryClient.invalidateQueries({ queryKey: ["templates"] });
         } catch (_) {}
 
-        navigate(`/preview?template=${newDraftId}&mode=live`, { replace: true });
+        navigate(`/preview?template=${newDraftId}&mode=live${activePage ? `&page=${encodeURIComponent(activePage)}` : ""}`, { replace: true });
         setViewMode("live");
         setIframeKey((prev) => prev + 1);
         setShowSaveSuccess(true);

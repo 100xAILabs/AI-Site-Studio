@@ -176,9 +176,9 @@ class TemplateService:
 
         response = TemplateResponse.model_validate(template)
         
-        # Dynamically inspect ZIP files ONLY if included_pages has never been determined
+        # Dynamically inspect ZIP files if included_pages has never been determined or defaulted to ['Home']
         download_assets = template.download_assets or {}
-        if (not template.included_pages or len(template.included_pages) == 0) and "zip" in download_assets:
+        if (not template.included_pages or len(template.included_pages) <= 1 or template.included_pages == ["Home"]) and "zip" in download_assets:
             try:
                 import re
                 zip_url = download_assets["zip"]
@@ -190,45 +190,48 @@ class TemplateService:
                 from sqlalchemy import select
                 result = await self.db.execute(select(StoredFile).where(StoredFile.id == file_id))
                 stored_file = result.scalar_one_or_none()
-                if stored_file:
+                if stored_file and stored_file.data:
                     import zipfile
                     import io
                     with zipfile.ZipFile(io.BytesIO(stored_file.data), "r") as z_in:
                         namelist = z_in.namelist()
-                        
-                        # Find base directory of index.html
-                        base_dir = ""
-                        for name in namelist:
-                            if name.endswith("index.html"):
-                                if "/" in name:
-                                    base_dir = name.rsplit("index.html", 1)[0]
-                                break
-                        
                         pages = []
+
+                        # Look for HTML pages
                         for name in namelist:
-                            if name.startswith(base_dir) and (name.endswith(".html") or name.endswith(".jsx") or name.endswith(".js") or name.endswith(".tsx") or name.endswith(".ts")):
-                                rel_name = name[len(base_dir):]
-                                if "/" not in rel_name and rel_name != "" and not rel_name.startswith("__MACOSX"):
-                                    pages.append(rel_name)
-                        
-                        # Dynamic section detection for single-page templates
-                        if len(pages) <= 1:
-                            try:
-                                index_content = z_in.read(base_dir + "index.html").decode("utf-8", errors="ignore")
-                                anchors = re.findall(r'href="#([a-zA-Z0-9_-]+)"', index_content)
-                                seen = set()
-                                for anchor in anchors:
-                                    if anchor.lower() not in ["home", "top", "carousel", "header", "footer", "wrapper", "main"] and anchor not in seen:
-                                        seen.add(anchor)
-                                        pages.append(f"{anchor}.html")
-                            except Exception:
-                                pass
-                                
-                        if not pages:
+                            if name.startswith("__MACOSX") or "/." in name:
+                                continue
+                            fn = os.path.basename(name)
+                            fn_lower = fn.lower()
+                            if fn_lower.endswith(".html") and fn_lower not in ["404.html", "500.html"]:
+                                if fn not in pages:
+                                    pages.append(fn)
+
+                        # Look for React / Vue pages in pages/, views/, routes/, or app/
+                        for name in namelist:
+                            if name.startswith("__MACOSX") or "/." in name:
+                                continue
+                            fn = os.path.basename(name)
+                            fn_lower = fn.lower()
+                            name_norm = name.replace("\\", "/").lower()
+                            if any(p_dir in name_norm for p_dir in ["/pages/", "/views/", "/routes/", "/app/"]):
+                                if fn_lower.endswith((".jsx", ".tsx", ".vue")):
+                                    base_no_ext = os.path.splitext(fn)[0].lower()
+                                    if base_no_ext not in ["layout", "loading", "error", "not-found", "404", "app"]:
+                                        if fn not in pages:
+                                            pages.append(fn)
+
+                        # If React/Vue and we have App.jsx/App.vue, ensure Home is included
+                        has_app = any(os.path.basename(n).lower() in ["app.jsx", "app.tsx", "app.vue", "home.jsx", "home.vue"] for n in namelist)
+                        if has_app and not any(p.lower().startswith("home") or p.lower().startswith("app") for p in pages):
+                            pages.insert(0, "Home.jsx" if any(n.endswith(".jsx") for n in namelist) else "Home")
+                        elif not pages:
                             pages = ["index.html"]
-                        response.included_pages = sorted(list(set(pages)))
-                        # Persist permanently in database so it is never re-scanned
-                        template.included_pages = response.included_pages
+
+                        response.included_pages = pages
+                        template.included_pages = pages
+                        template.pages_count = max(len(pages), 1)
+                        response.pages_count = template.pages_count
                         await self.db.commit()
             except Exception:
                 pass
