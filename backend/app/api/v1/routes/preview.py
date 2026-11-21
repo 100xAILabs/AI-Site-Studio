@@ -4247,7 +4247,7 @@ async def start_demo_session(
     return {
         "status": "success",
         "session_token": session_token,
-        "remaining_seconds": 1800,
+        "remaining_seconds": 300,
         "template_id": payload.template_id
     }
 
@@ -4260,7 +4260,7 @@ async def get_demo_session_status(
     return {
         "status": "success",
         "expired": False,
-        "remaining_seconds": 1800
+        "remaining_seconds": 300
     }
 
 

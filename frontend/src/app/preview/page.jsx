@@ -1412,7 +1412,7 @@ export default function PreviewPage() {
   }, [customDraftId, templateData, activeTemplateId]);
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Field Edit Handler: Natural Backspace & Typing
+  // Field Edit Handler: Natural Backspace & Typing (In-place live canvas DOM update)
   // ─────────────────────────────────────────────────────────────────────────
   const handleFieldChange = (key, value) => {
     const prevVal = sectionProps[currentSection?.id]?.[key];
@@ -1425,7 +1425,7 @@ export default function PreviewPage() {
       }
     }));
 
-    // If changing themeColor, instantly propagate to all live preview iframes
+    // If changing themeColor, instantly propagate to all live preview iframes via postMessage
     if (key === "themeColor" && typeof value === "string") {
       try {
         if (effectiveTemplateId) {
@@ -1435,12 +1435,10 @@ export default function PreviewPage() {
       } catch (_) {}
       dispatchLiveIframeColor(value);
     } else {
-      // Instantly dispatch live content update to center demo iframe ("like copy-paste")
+      // Instantly dispatch live content update to center demo iframe without reloading
       dispatchLiveContentUpdate(currentSection?.id, key, value, prevVal);
     }
-
-    // Auto-fork marketplace template into private draft so master is never edited
-    ensureUserDraftCopy();
+    // Do NOT auto-fork or change templateId on keystrokes, keeping the preview canvas 100% stable until user clicks Save
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -2194,6 +2192,12 @@ export default function PreviewPage() {
   }
 
   const currentColorForIframe = sectionProps[currentSection?.id]?.themeColor || sectionProps.navbar?.themeColor || sectionProps.hero?.themeColor || brand?.primary_color || "";
+  const stableColorForIframeRef = useRef(currentColorForIframe);
+  useEffect(() => {
+    // Synchronize initial primaryColor query parameter only when the iframe is explicitly reloaded (e.g. on manual save, reset, or page navigation)
+    stableColorForIframeRef.current = currentColorForIframe;
+  }, [iframeKey]);
+
   const detectedFrameworkParam = (templateData?.framework || "").toLowerCase();
   const effectiveToken = (() => {
     if (authToken) return authToken;
@@ -2222,8 +2226,9 @@ export default function PreviewPage() {
     return "";
   })();
 
+  // Keep liveServerUrl completely stable during keystrokes and color changes to eliminate automatic canvas refreshing
   const liveServerUrl = effectiveTemplateId && effectiveTemplateId !== "default"
-    ? `${API_BASE}/preview/live/${effectiveTemplateId}${pageRouteParam ? `/${pageRouteParam}` : "/"}?v=${iframeKey}${currentColorForIframe ? `&primaryColor=${encodeURIComponent(currentColorForIframe)}` : ""}${detectedFrameworkParam ? `&framework=${encodeURIComponent(detectedFrameworkParam)}` : ""}${effectiveToken ? `&token=${encodeURIComponent(effectiveToken)}` : ""}`
+    ? `${API_BASE}/preview/live/${effectiveTemplateId}${pageRouteParam ? `/${pageRouteParam}` : "/"}?v=${iframeKey}${stableColorForIframeRef.current ? `&primaryColor=${encodeURIComponent(stableColorForIframeRef.current)}` : ""}${detectedFrameworkParam ? `&framework=${encodeURIComponent(detectedFrameworkParam)}` : ""}${effectiveToken ? `&token=${encodeURIComponent(effectiveToken)}` : ""}`
     : null;
 
   return (

@@ -1,6 +1,6 @@
 """
 DemoSession ORM model — tracks temporary live demo sessions.
-Enforces 30-minute access locks and automated permanent deletion of generated website data.
+Enforces 5-minute access locks and automated permanent deletion of generated website data.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 class DemoSession(UUIDMixin, TimestampMixin, Base):
     """
-    Tracks an active 30-minute user live demo session on a generated website.
+    Tracks an active 5-minute user live demo session on a generated website.
     When expired, abandoned, tab closed, or server stopped, all details
     shared inside the generated website are permanently wiped.
     """
@@ -60,7 +60,7 @@ class DemoSession(UUIDMixin, TimestampMixin, Base):
     template: Mapped["Template"] = relationship()
 
     def is_expired(self) -> bool:
-        """Check if the 30-minute demo duration has elapsed."""
+        """Check if the 5-minute demo duration has elapsed."""
         now = datetime.now(timezone.utc)
         return now >= self.expires_at
 
