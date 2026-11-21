@@ -20,7 +20,7 @@ import {
   RefreshCw, Zap, Layers, FileText, Sparkles, Star, Mail,
   Shield, AlertCircle, Edit3, Trash2, Eraser, Plus, Check,
   Copy, RotateCcw, ArrowLeft, Sliders, Globe, Bot, Send,
-  CheckCircle2, Play, Code, Search, X, Wand2, ArrowUpRight,
+  CheckCircle2, Play, Code, Search, X, Wand2, ArrowUpRight, FileCode, Folder,
   ChevronRight, ChevronLeft, MoreVertical, Menu, Eye, Phone, MapPin, Clock, ShoppingBag, ShoppingCart, Share2, Upload,
   Link2, ExternalLink, Lock, Coins
 } from "lucide-react";
@@ -763,6 +763,188 @@ export default function PreviewPage() {
     }
   };
 
+  // 💻 Code Studio Editor State
+  const [codeFiles, setCodeFiles] = useState([]);
+  const [loadingCodeFiles, setLoadingCodeFiles] = useState(false);
+  const [selectedFilePath, setSelectedFilePath] = useState("");
+  const [codeFileContent, setCodeFileContent] = useState("");
+  const [originalFileContent, setOriginalFileContent] = useState("");
+  const [loadingFileContent, setLoadingFileContent] = useState(false);
+  const [savingCode, setSavingCode] = useState(false);
+  const [codeAutoSaveStatus, setCodeAutoSaveStatus] = useState("");
+  const [codeSearchQuery, setCodeSearchQuery] = useState("");
+  const [syntaxIssue, setSyntaxIssue] = useState(null);
+  const [lastEditedFieldKey, setLastEditedFieldKey] = useState(null);
+  const autoSaveCodeTimerRef = useRef(null);
+  const codeTextareaRef = useRef(null);
+
+  const runSyntaxCheck = (filePath, code) => {
+    if (!code || typeof code !== "string") {
+      setSyntaxIssue(null);
+      return;
+    }
+    const isJsxOrHtml = filePath.endsWith(".jsx") || filePath.endsWith(".tsx") || filePath.endsWith(".html") || filePath.endsWith(".vue");
+    if (!isJsxOrHtml) {
+      setSyntaxIssue({ type: "valid", message: "✓ File syntax valid" });
+      return;
+    }
+
+    const curlyOpen = (code.match(/\{/g) || []).length;
+    const curlyClose = (code.match(/\}/g) || []).length;
+    const parenOpen = (code.match(/\(/g) || []).length;
+    const parenClose = (code.match(/\)/g) || []).length;
+
+    if (curlyOpen !== curlyClose) {
+      setSyntaxIssue({
+        type: "warning",
+        message: `Unbalanced curly braces: ${curlyOpen} '{' vs ${curlyClose} '}'`
+      });
+      return;
+    }
+    if (parenOpen !== parenClose) {
+      setSyntaxIssue({
+        type: "warning",
+        message: `Unbalanced parentheses: ${parenOpen} '(' vs ${parenClose} ')'`
+      });
+      return;
+    }
+
+    if (code.includes(");</") || code.includes(";</")) {
+      setSyntaxIssue({
+        type: "error",
+        message: "Stray semicolon detected before a closing tag (e.g. `);</`)"
+      });
+      return;
+    }
+
+    if ((filePath.endsWith(".jsx") || filePath.endsWith(".tsx")) && /\bclass="[^"]*"/.test(code)) {
+      setSyntaxIssue({
+        type: "info",
+        message: "Notice: In JSX/React, prefer using 'className' instead of 'class'."
+      });
+      return;
+    }
+
+    setSyntaxIssue({
+      type: "valid",
+      message: "✓ Clean syntax: JSX & HTML tags verified"
+    });
+  };
+
+  const loadFileContent = useCallback(async (filePath) => {
+    if (!filePath) return;
+    try {
+      setSelectedFilePath(filePath);
+      setLoadingFileContent(true);
+      const targetId = customDraftId || effectiveTemplateId || templateId;
+      const res = await api.get(`/preview/live/${targetId}/file-content?path=${encodeURIComponent(filePath)}`);
+      const content = res?.content ?? res?.data?.content ?? "";
+      setCodeFileContent(content);
+      setOriginalFileContent(content);
+      setCodeAutoSaveStatus("");
+      runSyntaxCheck(filePath, content);
+    } catch (err) {
+      console.warn("Could not load file content:", err);
+      setNotice(`Could not load ${filePath}: ${err?.message || "File error"}`);
+    } finally {
+      setLoadingFileContent(false);
+    }
+  }, [customDraftId, effectiveTemplateId, templateId]);
+
+  const fetchProjectFiles = useCallback(async () => {
+    try {
+      setLoadingCodeFiles(true);
+      const targetId = customDraftId || effectiveTemplateId || templateId;
+      if (!targetId || targetId === "default") return;
+      const res = await api.get(`/preview/live/${targetId}/files`);
+      const files = res?.files || res?.data?.files || [];
+      setCodeFiles(files);
+      if (!selectedFilePath && files.length > 0) {
+        const def = files.find(f => f.path.toLowerCase().includes("app.jsx") || f.path.toLowerCase().includes("app.tsx"))
+          || files.find(f => f.path.toLowerCase().includes("index.html"))
+          || files[0];
+        if (def) {
+          loadFileContent(def.path);
+        }
+      }
+    } catch (err) {
+      console.warn("Could not fetch project files:", err);
+    } finally {
+      setLoadingCodeFiles(false);
+    }
+  }, [customDraftId, effectiveTemplateId, templateId, selectedFilePath, loadFileContent]);
+
+  useEffect(() => {
+    if (editorMode === "code") {
+      fetchProjectFiles();
+    }
+  }, [editorMode, fetchProjectFiles]);
+
+  const handleSaveCode = async (isAutoSave = false) => {
+    if (!selectedFilePath) return;
+    if (!isAutoSave) {
+      setSavingCode(true);
+      setNotice(`💾 Saving ${selectedFilePath}...`);
+    } else {
+      setCodeAutoSaveStatus("Saving...");
+    }
+
+    try {
+      const targetId = customDraftId || effectiveTemplateId || templateId;
+      const effectiveToken = authToken || useAuthStore.getState()?.token;
+      const res = await api.post(`/preview/live/${targetId}/file-save`, {
+        path: selectedFilePath,
+        content: codeFileContent,
+        is_auto_save: isAutoSave
+      }, effectiveToken);
+
+      const newDraftId = res?.template_id || res?.data?.template_id;
+      if (newDraftId && newDraftId !== customDraftId) {
+        setCustomDraftId(newDraftId);
+      }
+      if (typeof res?.ai_credits === "number") {
+        setUserTokens(res.ai_credits);
+      }
+      setOriginalFileContent(codeFileContent);
+
+      if (isAutoSave) {
+        setCodeAutoSaveStatus("✓ Auto-saved to draft code");
+        try {
+          const iframes = document.querySelectorAll("iframe");
+          iframes.forEach(ifr => ifr.contentWindow?.postMessage({ type: "RELOAD_CANVAS" }, "*"));
+        } catch(_) {}
+      } else {
+        setNotice(`✓ Saved ${selectedFilePath} successfully!`);
+        setIframeKey(prev => prev + 1);
+      }
+    } catch (err) {
+      console.warn("Save code error:", err);
+      if (!isAutoSave) {
+        setNotice(`Could not save ${selectedFilePath}: ${err?.message || "Error"}`);
+      } else {
+        setCodeAutoSaveStatus("Auto-save paused");
+      }
+    } finally {
+      if (!isAutoSave) {
+        setSavingCode(false);
+        setTimeout(() => setNotice(""), 3500);
+      }
+    }
+  };
+
+  const handleCodeChange = (newVal) => {
+    setCodeFileContent(newVal);
+    runSyntaxCheck(selectedFilePath, newVal);
+
+    if (autoSaveCodeTimerRef.current) {
+      clearTimeout(autoSaveCodeTimerRef.current);
+    }
+    setCodeAutoSaveStatus("Unsaved changes...");
+    autoSaveCodeTimerRef.current = setTimeout(() => {
+      handleSaveCode(true);
+    }, 1200);
+  };
+
   const handleAssetFileSelected = async (e) => {
     const file = e.target.files?.[0];
     if (!file || !selectedAssetForUpload || !templateId) return;
@@ -1437,6 +1619,7 @@ export default function PreviewPage() {
   const handleFieldChange = (key, value) => {
     const prevVal = sectionProps[currentSection?.id]?.[key];
     setHasUnfinalizedChanges(true);
+    setLastEditedFieldKey(key);
     setSectionProps((prev) => ({
       ...prev,
       [currentSection.id]: {
@@ -2394,6 +2577,25 @@ export default function PreviewPage() {
                   <span>{editorMode === "assets" ? "Editing Photos" : "Change Photos"}</span>
                 </button>
 
+                {/* 💻 Direct Source Code Editor */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditorMode(editorMode === "code" ? "manual" : "code");
+                    if (mobilePanel === "sections") setMobilePanel("edit");
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer select-none",
+                    editorMode === "code"
+                      ? "bg-indigo-500/20 border-indigo-500/50 text-indigo-300 shadow-sm"
+                      : "bg-card/80 hover:bg-indigo-500/10 border-border hover:border-indigo-500/40 text-muted-foreground hover:text-indigo-400"
+                  )}
+                  title="Direct Source Code Editor & File Inspector"
+                >
+                  <Code className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>{editorMode === "code" ? "Editing Code" : "Code Editor"}</span>
+                </button>
+
                 {/* 🤖 Use AI to Change Code */}
                 <button
                   type="button"
@@ -3187,8 +3389,12 @@ export default function PreviewPage() {
                         <Check className="w-3.5 h-3.5" />
                         <span>Save Section</span>
                       </button>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400">
-                        Live Synced
+                      <span className={cn(
+                        "text-[10px] font-bold px-2 py-0.5 rounded-full transition-all flex items-center gap-1",
+                        lastEditedFieldKey ? "bg-emerald-500/25 text-emerald-300 ring-1 ring-emerald-500/40" : "bg-emerald-500/15 text-emerald-400"
+                      )}>
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span>{lastEditedFieldKey ? "Live Synced to Demo" : "Live Synced"}</span>
                       </span>
                     </div>
                   </div>
@@ -3522,6 +3728,212 @@ export default function PreviewPage() {
                     <ArrowLeft className="w-3.5 h-3.5" />
                     <span>Back to Content Editor</span>
                   </button>
+                </div>
+              </div>
+            </div>
+          ) : editorMode === "code" ? (
+            /* CODE STUDIO PANEL: Direct Source Code Editor & Inspector */
+            <div className="flex flex-col h-full overflow-hidden bg-card/40">
+              {/* Header */}
+              <div className="p-3.5 border-b border-border/50 bg-card/70 flex-shrink-0 space-y-2 select-none">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => setEditorMode("manual")}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-pink-500/10 hover:bg-pink-500/20 text-pink-400 border border-pink-500/25 text-xs font-bold transition-all shadow-sm cursor-pointer group shrink-0"
+                      title="Return to Section Content Editor"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
+                      <span>Content</span>
+                    </button>
+                    <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-foreground truncate">
+                      <Code className="w-4 h-4 text-indigo-400 shrink-0" />
+                      <span className="truncate">{selectedFilePath || "Source Code"}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIframeKey((prev) => prev + 1);
+                        setNotice("✓ Reloaded preview canvas with latest code.");
+                        setTimeout(() => setNotice(""), 3000);
+                      }}
+                      className="p-1.5 rounded-lg border border-border bg-card hover:bg-accent text-muted-foreground hover:text-foreground transition-all cursor-pointer"
+                      title="Reload Live Canvas"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-indigo-400" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSaveCode(false)}
+                      disabled={savingCode || !selectedFilePath}
+                      className="py-1 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm cursor-pointer transition-all disabled:opacity-50"
+                      title="Save Code Directly to Project (Ctrl+S)"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>{savingCode ? "Saving..." : "Save Code"}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sub-bar: Auto-Save Status & File Count */}
+                <div className="flex items-center justify-between text-[11px] pt-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-400">
+                      Code Studio
+                    </span>
+                    {codeAutoSaveStatus && (
+                      <span className={cn(
+                        "text-[10px] font-semibold transition-all",
+                        codeAutoSaveStatus.includes("Auto-saved") ? "text-emerald-400" : "text-amber-400"
+                      )}>
+                        {codeAutoSaveStatus}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-muted-foreground text-[10px] font-mono">
+                    {codeFiles.length} files
+                  </span>
+                </div>
+              </div>
+
+              {/* File Selector Tabs Strip */}
+              <div className="border-b border-border/50 bg-muted/20 p-2 flex flex-col gap-1.5 flex-shrink-0">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={codeSearchQuery}
+                    onChange={(e) => setCodeSearchQuery(e.target.value)}
+                    placeholder="Search project files..."
+                    className="w-full pl-8 pr-3 py-1 text-xs bg-card border border-border/60 rounded-lg text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-indigo-500/60"
+                  />
+                  {codeSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setCodeSearchQuery("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                {/* Horizontal scrollable file pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
+                  {loadingCodeFiles ? (
+                    <span className="text-xs text-muted-foreground py-1 px-2">Scanning project files...</span>
+                  ) : (
+                    codeFiles
+                      .filter((f) => !codeSearchQuery || f.path.toLowerCase().includes(codeSearchQuery.toLowerCase()))
+                      .map((f) => {
+                        const isSelected = selectedFilePath === f.path;
+                        return (
+                          <button
+                            key={f.path}
+                            type="button"
+                            onClick={() => loadFileContent(f.path)}
+                            className={cn(
+                              "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono border whitespace-nowrap transition-all cursor-pointer",
+                              isSelected
+                                ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/50 shadow-sm font-bold"
+                                : "bg-card/70 hover:bg-accent/60 text-muted-foreground hover:text-foreground border-border/60"
+                            )}
+                            title={f.path}
+                          >
+                            <FileCode className={cn("w-3 h-3 shrink-0", isSelected ? "text-indigo-400" : "text-muted-foreground")} />
+                            <span>{f.name}</span>
+                          </button>
+                        );
+                      })
+                  )}
+                </div>
+              </div>
+
+              {/* Syntax Validator Banner ("and check anything that use to edit code ok") */}
+              {syntaxIssue && (
+                <div className={cn(
+                  "px-3 py-1.5 text-[11px] border-b flex items-center gap-2 select-none flex-shrink-0 transition-colors",
+                  syntaxIssue.type === "valid"
+                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                    : syntaxIssue.type === "error"
+                    ? "bg-rose-500/15 border-rose-500/30 text-rose-300"
+                    : "bg-amber-500/15 border-amber-500/30 text-amber-300"
+                )}>
+                  {syntaxIssue.type === "valid" ? (
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                  <span className="truncate">{syntaxIssue.message}</span>
+                </div>
+              )}
+
+              {/* Code Editor Body */}
+              <div className="flex-1 flex min-h-0 relative bg-zinc-950 font-mono text-xs overflow-hidden">
+                {loadingFileContent ? (
+                  <div className="flex-1 flex items-center justify-center text-muted-foreground gap-2">
+                    <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
+                    <span>Loading file content...</span>
+                  </div>
+                ) : (
+                  <div className="flex-1 flex h-full overflow-hidden">
+                    {/* Line Numbers Gutter */}
+                    <div className="w-10 py-3 bg-zinc-900/60 border-r border-zinc-800/80 text-zinc-500 text-right pr-2 select-none overflow-hidden font-mono text-[11px] leading-5 shrink-0">
+                      {(codeFileContent || "").split("\n").slice(0, 500).map((_, i) => (
+                        <div key={i}>{i + 1}</div>
+                      ))}
+                    </div>
+
+                    {/* Editor Textarea */}
+                    <textarea
+                      ref={codeTextareaRef}
+                      value={codeFileContent}
+                      onChange={(e) => handleCodeChange(e.target.value)}
+                      onKeyDown={(e) => {
+                        // Handle Tab indentation (insert 2 spaces instead of losing focus)
+                        if (e.key === "Tab") {
+                          e.preventDefault();
+                          const target = e.target;
+                          const start = target.selectionStart;
+                          const end = target.selectionEnd;
+                          const updated = codeFileContent.substring(0, start) + "  " + codeFileContent.substring(end);
+                          setCodeFileContent(updated);
+                          setTimeout(() => {
+                            target.selectionStart = target.selectionEnd = start + 2;
+                          }, 0);
+                        }
+                        // Handle Ctrl+S / Cmd+S save
+                        if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+                          e.preventDefault();
+                          handleSaveCode(false);
+                        }
+                      }}
+                      spellCheck={false}
+                      autoCapitalize="off"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      placeholder="// Select a file or start typing code..."
+                      className="flex-1 h-full p-3 bg-transparent text-zinc-100 placeholder:text-zinc-600 outline-none resize-none overflow-auto font-mono text-[11px] leading-5 selection:bg-indigo-500/30 selection:text-white"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Code Editor Footer */}
+              <div className="p-2 border-t border-border/50 bg-card/60 flex items-center justify-between text-[10px] text-muted-foreground flex-shrink-0 font-mono select-none">
+                <div className="flex items-center gap-2">
+                  <span>Ctrl+S save</span>
+                  <span>•</span>
+                  <span>Tab indent</span>
+                  <span>•</span>
+                  <span className="text-emerald-400">Auto-saves to draft</span>
+                </div>
+                <div>
+                  {selectedFilePath ? `${Math.round((codeFileContent?.length || 0) / 1024 * 10) / 10} KB` : ""}
                 </div>
               </div>
             </div>

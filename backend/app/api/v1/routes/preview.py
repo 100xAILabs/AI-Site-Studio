@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, HTTPException, Body, Response, Request, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Body, Response, Request, UploadFile, File, Form, Query
 from sqlalchemy import select, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -111,6 +111,418 @@ class ManualEditRequest(BaseModel):
 class AIEditRequest(BaseModel):
     prompt: LongStr = Field(min_length=1, max_length=4000)
     model: Optional[ShortStr] = None
+
+
+class SaveFileRequest(BaseModel):
+    path: str
+    content: str
+    is_auto_save: bool = False
+
+
+def get_studio_live_sync_js() -> str:
+    """
+    Returns the comprehensive, unified client-side live preview synchronization script.
+    Injected into all runners (React, Vue, Svelte, Angular, HTML) so that live updates
+    are instantaneous and visually highlight the updated elements in the demo canvas.
+    """
+    return """
+    (function() {
+      function highlightEdited(el) {
+        if (!el) return;
+        try {
+          var target = el.nodeType === 1 ? el : el.parentElement;
+          if (!target || !target.style) return;
+          var prevOutline = target.style.outline;
+          var prevBoxShadow = target.style.boxShadow;
+          var prevTransition = target.style.transition;
+          target.style.transition = 'outline 0.2s ease, box-shadow 0.2s ease';
+          target.style.outline = '2px solid #10b981';
+          target.style.boxShadow = '0 0 16px rgba(16, 185, 129, 0.45)';
+          setTimeout(function() {
+            target.style.outline = prevOutline;
+            target.style.boxShadow = prevBoxShadow;
+            target.style.transition = prevTransition;
+          }, 1200);
+        } catch (_) {}
+      }
+
+      function applyLiveThemeColor(color) {
+        if (!color) return;
+        try {
+          var st = document.getElementById('studio-live-theme-override');
+          if (!st) {
+            st = document.createElement('style');
+            st.id = 'studio-live-theme-override';
+            document.head.appendChild(st);
+          }
+          st.textContent = ':root { --primary: ' + color + ' !important; --accent: ' + color + ' !important; --color-primary: ' + color + ' !important; }';
+          ['--c-primary', '--color-primary', '--primary', '--theme-color', '--accent'].forEach(function(p) {
+            try { document.documentElement.style.setProperty(p, color, 'important'); } catch(_) {}
+          });
+        } catch (e) {
+          console.warn('[Studio Live Preview] Theme update error:', e);
+        }
+      }
+
+      function applyLiveContent(data) {
+        if (!data) return;
+        var sectionId = data.sectionId || '';
+        var key = data.key || '';
+        var value = data.value;
+        var originalText = (data.originalText || data.prevValue || '').toString().trim();
+        if (typeof value === 'undefined' || value === null) return;
+
+        var secEl = null;
+        if (sectionId) {
+          var sIdClean = (sectionId || '').toLowerCase().trim();
+          secEl = document.querySelector(
+            '[data-section="' + sectionId + '"], ' +
+            '#' + sectionId + ', ' +
+            '.' + sectionId + ', ' +
+            'section#' + sectionId + ', ' +
+            'section.' + sectionId + ', ' +
+            '[id*="' + sectionId + '"], ' +
+            '[class*="' + sectionId + '-section"], ' +
+            '[class*="' + sectionId + '_section"], ' +
+            '[class*="' + sectionId + 'Section"], ' +
+            '[class*="' + sectionId + '"], ' +
+            '[data-section*="' + sectionId + '"]'
+          );
+          if (!secEl) {
+            if (sIdClean.indexOf('hero') !== -1 || sIdClean.indexOf('banner') !== -1) {
+              secEl = document.querySelector('section.hero-section, .hero-section, header.hero, .hero, #hero, [class*="hero"], main > section:first-of-type');
+            } else if (sIdClean.indexOf('nav') !== -1 || sIdClean.indexOf('header') !== -1) {
+              secEl = document.querySelector('nav, header, .navbar, .nav-container, [class*="navbar"]');
+            } else if (sIdClean.indexOf('foot') !== -1) {
+              secEl = document.querySelector('footer, .footer, [class*="footer"]');
+            } else if (sIdClean.indexOf('feature') !== -1) {
+              secEl = document.querySelector('#features, .features-section, [class*="feature"]');
+            } else if (sIdClean.indexOf('about') !== -1 || sIdClean.indexOf('story') !== -1) {
+              secEl = document.querySelector('#about, .about-section, [class*="about"]');
+            } else if (sIdClean.indexOf('pricing') !== -1 || sIdClean.indexOf('plan') !== -1) {
+              secEl = document.querySelector('#pricing, .pricing-section, [class*="pricing"]');
+            } else if (sIdClean.indexOf('contact') !== -1 || sIdClean.indexOf('reach') !== -1) {
+              secEl = document.querySelector('#contact, .contact-section, [class*="contact"]');
+            }
+          }
+        }
+        var root = secEl || document.getElementById('root') || document.getElementById('app') || document.body;
+
+        // Headline / Section Title
+        if (key === 'headline' || key === 'title') {
+          var h1 = root.querySelector('h1, .hero-title, [data-bind="headline"], [data-bind="title"], header h1, main h1, .section-title');
+          if (!h1 && secEl) h1 = secEl.querySelector('h1, h2, .title');
+          if (!h1) h1 = document.querySelector('h1, .hero-title');
+          if (h1) {
+            var highlightSpan = h1.querySelector('.highlight, .text-primary, .accent, .accent-text, span');
+            if (highlightSpan && typeof value === 'string' && value.indexOf(' ') !== -1) {
+              var words = value.split(' ');
+              var lastWord = words.pop();
+              h1.textContent = words.join(' ') + ' ';
+              highlightSpan.textContent = lastWord;
+              h1.appendChild(highlightSpan);
+            } else {
+              h1.textContent = value;
+            }
+            highlightEdited(h1);
+          }
+          return;
+        }
+
+        // Subtitle / Story / Description
+        if (key === 'subheadline' || key === 'subtitle' || key === 'story' || key === 'description') {
+          var p = root.querySelector('.hero-sub, .hero-subtitle, .subtitle, [data-bind="subheadline"], [data-bind="subtitle"], [data-bind="story"], [data-bind="description"], .hero-description, .about-text, .lead, p.lead, header p, .story-content');
+          if (!p && secEl) p = secEl.querySelector('p');
+          if (!p) p = document.querySelector('.hero-sub, .hero-subtitle, p.lead, header p');
+          if (p) {
+            p.textContent = value;
+            highlightEdited(p);
+          }
+          return;
+        }
+
+        // Brand Name
+        if (key === 'brandName' || key === 'businessName') {
+          var brandEls = document.querySelectorAll('.brand-logo, .brand-name, .logo, .nav-logo, .navbar-brand, a.brand-logo, [data-bind="brandName"], [data-bind="businessName"], .logo-text, header .brand, .footer-logo');
+          brandEls.forEach(function(el) {
+            var span = el.querySelector('span:not(.pulse), strong');
+            if (span) { span.textContent = value; } else { el.textContent = value; }
+            highlightEdited(el);
+          });
+          document.title = value + ' – Live Preview';
+          return;
+        }
+
+        // Logo Monogram
+        if (key === 'logoText') {
+          var logoEls = document.querySelectorAll('.brand-code, .logo-monogram, [data-bind="logoText"], .logo-code, .monogram, .logo-mark, .brand-mark, .navbar-logo, .logo');
+          logoEls.forEach(function(el) {
+            var textNode = Array.from(el.childNodes).find(function(n) { return n.nodeType === 3 && n.nodeValue.trim(); });
+            if (textNode) textNode.nodeValue = textNode.nodeValue.replace(textNode.nodeValue.trim(), value);
+            else if (!el.querySelector('span, strong, svg, img, i')) el.textContent = value;
+            else {
+              var mark = el.querySelector('.brand-code, .logo-monogram, .logo-mark, .brand-mark, [data-bind="logoText"]');
+              if (mark) mark.textContent = value;
+            }
+            highlightEdited(el);
+          });
+          return;
+        }
+
+        // Badge Text
+        if (key === 'badgeText') {
+          var badge = root.querySelector('.hero-badge, .badge, .pill, .status-pill, .case-badge, [data-bind="badgeText"]');
+          if (!badge) badge = document.querySelector('.hero-badge, .badge, .pill, .status-pill');
+          if (badge) {
+            var pulse = badge.querySelector('.pulse');
+            if (pulse) {
+              badge.innerHTML = '';
+              badge.appendChild(pulse);
+              badge.appendChild(document.createTextNode(' ' + value));
+            } else {
+              badge.textContent = value;
+            }
+            highlightEdited(badge);
+          }
+          return;
+        }
+
+        // Primary Button / CTA
+        if (key === 'primaryCta' || key === 'ctaText' || key === 'buttonText') {
+          var btn = root.querySelector('.hero-cta, .btn-primary, .cta-button, .primary-btn, [data-bind="primaryCta"], [data-bind="ctaText"], [data-bind="buttonText"], button[type="submit"]');
+          if (!btn && secEl) btn = secEl.querySelector('.btn, button, a.btn');
+          if (!btn) btn = document.querySelector('.hero-cta, .btn-primary, .cta-button, .primary-btn');
+          if (btn) {
+            var icon = btn.querySelector('i');
+            if (icon) {
+              btn.innerHTML = '';
+              btn.appendChild(icon);
+              btn.appendChild(document.createTextNode(' ' + value));
+            } else {
+              btn.textContent = value;
+            }
+            highlightEdited(btn);
+          }
+          return;
+        }
+        if (key === 'primaryCtaLink' || key === 'ctaLink') {
+          var btnL = root.querySelector('.hero-cta, .btn-primary, .cta-button, .primary-btn, [data-bind="primaryCta"], a[href]');
+          if (btnL && btnL.tagName === 'A') {
+            btnL.setAttribute('href', value);
+            highlightEdited(btnL);
+          }
+          return;
+        }
+
+        // Secondary Button / CTA
+        if (key === 'secondaryCta') {
+          var sBtn = root.querySelector('.btn-secondary, .btn-outline, .secondary-cta, .btn-ghost, [data-bind="secondaryCta"]');
+          if (sBtn) {
+            var sIcon = sBtn.querySelector('i');
+            if (sIcon) {
+              sBtn.innerHTML = '';
+              sBtn.appendChild(sIcon);
+              sBtn.appendChild(document.createTextNode(' ' + value));
+            } else {
+              sBtn.textContent = value;
+            }
+            highlightEdited(sBtn);
+          }
+          return;
+        }
+        if (key === 'secondaryCtaLink') {
+          var sBtnL = root.querySelector('.btn-secondary, .btn-outline, .secondary-cta, a[href]');
+          if (sBtnL && sBtnL.tagName === 'A') {
+            sBtnL.setAttribute('href', value);
+            highlightEdited(sBtnL);
+          }
+          return;
+        }
+
+        // Contact info
+        if (key === 'phone') {
+          var phoneEls = document.querySelectorAll('a[href^="tel:"], .phone, .contact-phone, [data-bind="phone"]');
+          phoneEls.forEach(function(el) {
+            el.textContent = value;
+            if (el.tagName === 'A') el.setAttribute('href', 'tel:' + value);
+            highlightEdited(el);
+          });
+          return;
+        }
+        if (key === 'email') {
+          var emailEls = document.querySelectorAll('a[href^="mailto:"], .email, .contact-email, [data-bind="email"]');
+          emailEls.forEach(function(el) {
+            el.textContent = value;
+            if (el.tagName === 'A') el.setAttribute('href', 'mailto:' + value);
+            highlightEdited(el);
+          });
+          return;
+        }
+        if (key === 'address') {
+          var addrEls = document.querySelectorAll('.address, .contact-address, address, [data-bind="address"]');
+          addrEls.forEach(function(el) {
+            el.textContent = value;
+            highlightEdited(el);
+          });
+          return;
+        }
+
+        // Nav Links
+        if (key === 'navLinks' && Array.isArray(value)) {
+          var navAnchors = document.querySelectorAll('nav a:not(.brand-logo):not(.logo):not(.nav-logo), .nav-links a, .nav-item a, header nav a, header ul li a');
+          value.forEach(function(linkText, idx) {
+            if (navAnchors[idx]) {
+              navAnchors[idx].textContent = linkText;
+              highlightEdited(navAnchors[idx]);
+            }
+          });
+          return;
+        }
+
+        // Cards Array
+        if (key === 'cards' && Array.isArray(value)) {
+          var cards = [];
+          var parentGrid = null;
+          if (secEl) {
+            parentGrid = secEl.querySelector('.stats-grid, .features-grid, .cards-grid, .grid, [class*="grid"], [class*="cards"], [class*="list"], [class*="items"], [class*="row"]');
+            cards = Array.from(secEl.querySelectorAll('.stat-card, .feature-card, .service-card, .portfolio-card, .card, [class*="card"], [class*="stat"], [class*="feature"], [class*="service"], [class*="portfolio"], [data-card]'));
+            if (cards.length === 0 && parentGrid) cards = Array.from(parentGrid.children);
+          }
+          if (cards.length === 0) {
+            cards = Array.from(root.querySelectorAll('.stat-card, .feature-card, .service-card, .portfolio-card, .card, [class*="card"], [class*="stat"], [class*="feature"], .grid > div, [class*="grid"] > div, [data-card]'));
+          }
+          if (!parentGrid && cards.length > 0) parentGrid = cards[0].parentElement;
+
+          value.forEach(function(cardItem, idx) {
+            if (!cards[idx] && cards.length > 0 && parentGrid) {
+              var lastCard = cards[cards.length - 1];
+              var newCard = lastCard.cloneNode(true);
+              newCard.setAttribute('data-studio-dynamic', 'true');
+              parentGrid.appendChild(newCard);
+              cards.push(newCard);
+            }
+            if (cards[idx]) {
+              var cTitle = cards[idx].querySelector('h1, h2, h3, h4, h5, .card-title, .title, strong, b');
+              if (cTitle && (typeof cardItem.title !== 'undefined')) cTitle.textContent = cardItem.title;
+              if (cTitle && cardItem.titleColor) cTitle.style.color = cardItem.titleColor;
+              var cDesc = cards[idx].querySelector('p, .card-desc, .desc, span.desc');
+              if (cDesc && (typeof (cardItem.desc || cardItem.description) !== 'undefined')) cDesc.textContent = cardItem.desc || cardItem.description;
+              if (cDesc && cardItem.descColor) cDesc.style.color = cardItem.descColor;
+              var cTag = cards[idx].querySelector('.card-tag, .tag, .badge, .pill, span.tag');
+              if (cTag && (typeof cardItem.tag !== 'undefined')) cTag.textContent = cardItem.tag;
+              if (cTag && cardItem.tagColor) cTag.style.color = cardItem.tagColor;
+              var cStack = cards[idx].querySelector('.card-stack, .stack, .tech, small');
+              if (cStack && (typeof cardItem.stack !== 'undefined')) cStack.textContent = cardItem.stack;
+              if (cStack && cardItem.stackColor) cStack.style.color = cardItem.stackColor;
+              if (cardItem.boxColor) {
+                cards[idx].style.backgroundColor = cardItem.boxColor;
+                cards[idx].style.borderColor = cardItem.boxColor + '55';
+              }
+              if (cardItem.color) cards[idx].style.color = cardItem.color;
+              var targetLink = cardItem.link || cardItem.href || cardItem.url;
+              if (typeof targetLink !== 'undefined') {
+                var cLink = cards[idx].tagName === 'A' ? cards[idx] : cards[idx].querySelector('a');
+                if (cLink) cLink.setAttribute('href', targetLink);
+              }
+              highlightEdited(cards[idx]);
+            }
+          });
+          return;
+        }
+
+        // Colors
+        if (key === 'headlineColor' || key === 'titleColor' || key === 'sectionTitleColor') {
+          var h1El = root.querySelector('h1, .hero-title, [data-bind="headline"], [data-bind="title"], header h1, main h1, .section-title');
+          if (!h1El && secEl) h1El = secEl.querySelector('h1, h2, .title');
+          if (!h1El) h1El = document.querySelector('h1, .hero-title');
+          if (h1El) {
+            h1El.style.color = value || '';
+            h1El.querySelectorAll('span:not(.pulse)').forEach(function(s) { s.style.color = value || ''; });
+            highlightEdited(h1El);
+          }
+          return;
+        }
+        if (key === 'subtitleColor' || key === 'subheadlineColor' || key === 'storyColor' || key === 'descriptionColor' || key === 'taglineColor') {
+          var pEl = root.querySelector('.hero-sub, .hero-subtitle, .subtitle, [data-bind="subheadline"], [data-bind="subtitle"], [data-bind="story"], [data-bind="description"], .hero-description, .about-text, .lead, p.lead, header p, .story-content, .tagline');
+          if (!pEl && secEl) pEl = secEl.querySelector('p');
+          if (!pEl) pEl = document.querySelector('.hero-sub, .hero-subtitle, p.lead, header p');
+          if (pEl) {
+            pEl.style.color = value || '';
+            highlightEdited(pEl);
+          }
+          return;
+        }
+        if (key === 'badgeColor' || key === 'tagColor') {
+          var bEl = root.querySelector('.hero-badge, .badge, .pill, .status-pill, .case-badge, [data-bind="badgeText"]');
+          if (!bEl) bEl = document.querySelector('.hero-badge, .badge, .pill, .status-pill');
+          if (bEl) {
+            bEl.style.color = value || '';
+            if (value) bEl.style.borderColor = value + '44';
+            highlightEdited(bEl);
+          }
+          return;
+        }
+        if (key === 'ctaColor' || key === 'primaryCtaColor' || key === 'buttonColor' || key === 'buttonTextColor') {
+          var cBtn = root.querySelector('.hero-cta, .btn-primary, .cta-button, .primary-btn, [data-bind="primaryCta"], [data-bind="ctaText"], [data-bind="buttonText"], button[type="submit"]');
+          if (!cBtn && secEl) cBtn = secEl.querySelector('.btn, button, a.btn');
+          if (!cBtn) cBtn = document.querySelector('.hero-cta, .btn-primary, .cta-button, .primary-btn');
+          if (cBtn) {
+            cBtn.style.color = value || '';
+            highlightEdited(cBtn);
+          }
+          return;
+        }
+
+        // Smart Universal Text Walker
+        if (typeof value === 'string' && value.trim()) {
+          var targetToFind = originalText;
+          if (targetToFind && targetToFind.length >= 2) {
+            var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+            var node;
+            while ((node = walker.nextNode())) {
+              if (node.nodeValue && node.nodeValue.indexOf(targetToFind) !== -1) {
+                node.nodeValue = node.nodeValue.replace(targetToFind, value);
+                if (node.parentElement) highlightEdited(node.parentElement);
+                return;
+              }
+            }
+          }
+          if (data.prevValue && String(data.prevValue).trim()) {
+            var pv = String(data.prevValue).trim();
+            if (pv.length >= 2) {
+              var walker2 = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+              var n2;
+              while ((n2 = walker2.nextNode())) {
+                if (n2.nodeValue && n2.nodeValue.indexOf(pv) !== -1) {
+                  n2.nodeValue = n2.nodeValue.replace(pv, value);
+                  if (n2.parentElement) highlightEdited(n2.parentElement);
+                  return;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      window.addEventListener('message', function(evt) {
+        if (!evt.data) return;
+        if (evt.data.type === 'UPDATE_THEME_COLOR' && evt.data.color) {
+          applyLiveThemeColor(evt.data.color);
+        }
+        if (evt.data.type === 'UPDATE_CONTENT') {
+          applyLiveContent(evt.data);
+        }
+        if (evt.data.type === 'SCROLL_TO_SECTION' && evt.data.sectionId) {
+          var sId = evt.data.sectionId;
+          var targetEl = document.getElementById(sId) || document.querySelector('.' + sId) || document.querySelector('[data-section="' + sId + '"]') || (sId === 'navbar' ? document.querySelector('nav, header') : null);
+          if (targetEl) targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        if (evt.data.type === 'RELOAD_CANVAS') {
+          window.location.reload();
+        }
+      });
+    })();
+    """
 
 
 async def check_and_deduct_tokens(
@@ -2331,6 +2743,349 @@ async def fork_live_preview_draft(
         "title": new_template.title,
         "is_new_clone": True,
         "message": f"Template copied to your private draft ({new_template.title}). The marketplace version is completely protected."
+    }
+
+
+@router.get("/live/{template_id}/files")
+async def list_preview_project_files(
+    template_id: str,
+    raw_request: Request,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Returns an organized list of all source and asset files in the project
+    for the live in-browser Code Editor & Inspector.
+    """
+    template_repo = TemplateRepository(db)
+    template = await template_repo.get_by_id(template_id)
+    if not template:
+        res = await db.execute(select(Template).where(Template.slug == template_id))
+        template = res.scalar_one_or_none()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template.id))
+    
+    if not os.path.isdir(preview_dir) or not os.listdir(preview_dir):
+        from app.core.local_project_manager import local_project_manager
+        lp_dir = local_project_manager.get_local_project_dir(template.slug or template.id, version="latest")
+        if lp_dir and os.path.isdir(str(lp_dir)):
+            os.makedirs(preview_dir, exist_ok=True)
+            shutil.copytree(str(lp_dir), preview_dir, dirs_exist_ok=True, ignore=shutil.ignore_patterns("node_modules", ".git"))
+        else:
+            download_assets = template.download_assets or {}
+            zip_url = download_assets.get("zip")
+            if zip_url:
+                match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
+                if match:
+                    sf_res = await db.execute(select(StoredFile).where(StoredFile.id == uuid.UUID(match.group(1))))
+                    sf = sf_res.scalar_one_or_none()
+                    if sf and sf.data:
+                        os.makedirs(preview_dir, exist_ok=True)
+                        security_scanner.sanitize_extract_zip(sf.data, Path(preview_dir))
+
+    if os.path.isdir(preview_dir):
+        subitems = [os.path.join(preview_dir, i) for i in os.listdir(preview_dir) if not i.startswith(".")]
+        if len(subitems) == 1 and os.path.isdir(subitems[0]):
+            inner = subitems[0]
+            for s_item in os.listdir(inner):
+                src_f = os.path.join(inner, s_item)
+                dst_f = os.path.join(preview_dir, s_item)
+                if os.path.exists(dst_f):
+                    if os.path.isdir(dst_f):
+                        shutil.rmtree(dst_f, ignore_errors=True)
+                    else:
+                        os.remove(dst_f)
+                shutil.move(src_f, dst_f)
+            try:
+                os.rmdir(inner)
+            except Exception:
+                pass
+
+    ignored_dirs = {"node_modules", ".git", "dist", "build", ".output", ".next", ".cache", ".turbo", "__macosx"}
+    code_exts = {
+        ".jsx": "javascript",
+        ".tsx": "typescript",
+        ".js": "javascript",
+        ".ts": "typescript",
+        ".html": "html",
+        ".css": "css",
+        ".scss": "scss",
+        ".json": "json",
+        ".vue": "vue",
+        ".svelte": "svelte",
+        ".md": "markdown",
+        ".svg": "xml",
+        ".py": "python",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".txt": "plaintext"
+    }
+
+    files_list = []
+    if os.path.isdir(preview_dir):
+        for root, dirs, files in os.walk(preview_dir):
+            dirs[:] = [d for d in dirs if d.lower() not in ignored_dirs and not d.startswith(".")]
+            for f in files:
+                if f.startswith("."):
+                    continue
+                ext = os.path.splitext(f)[1].lower()
+                full_path = os.path.join(root, f)
+                rel_path = os.path.relpath(full_path, preview_dir).replace("\\", "/")
+                
+                try:
+                    f_size = os.path.getsize(full_path)
+                except OSError:
+                    f_size = 0
+                
+                is_code = ext in code_exts
+                lang = code_exts.get(ext, "plaintext")
+                
+                files_list.append({
+                    "path": rel_path,
+                    "name": f,
+                    "size": f_size,
+                    "extension": ext,
+                    "is_code": is_code,
+                    "language": lang
+                })
+
+    def sort_key(item):
+        p = item["path"].lower()
+        if p in ("src/app.jsx", "src/app.tsx", "app.jsx", "app.tsx"):
+            return (0, p)
+        if p == "index.html":
+            return (1, p)
+        if p in ("src/index.css", "src/app.css", "index.css", "styles.css"):
+            return (2, p)
+        if p in ("src/main.jsx", "src/main.tsx", "main.jsx", "main.js"):
+            return (3, p)
+        if p == "package.json":
+            return (4, p)
+        if item["is_code"]:
+            return (5, p)
+        return (6, p)
+
+    files_list.sort(key=sort_key)
+
+    return {
+        "status": "success",
+        "template_id": str(template.id),
+        "title": template.title,
+        "framework": template.framework or "react",
+        "total_files": len(files_list),
+        "files": files_list
+    }
+
+
+@router.get("/live/{template_id}/file-content")
+async def get_preview_file_content(
+    template_id: str,
+    path: str = Query(..., description="Relative file path"),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Safely reads and returns the raw text content of a project file for the in-browser Code Editor.
+    """
+    from app.core.local_project_manager import _clean_rel_path
+    clean_p = _clean_rel_path(path)
+    if not clean_p:
+        raise HTTPException(status_code=400, detail="Invalid or unsafe file path")
+
+    template_repo = TemplateRepository(db)
+    template = await template_repo.get_by_id(template_id)
+    if not template:
+        res = await db.execute(select(Template).where(Template.slug == template_id))
+        template = res.scalar_one_or_none()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template.id))
+    file_path = os.path.join(preview_dir, clean_p)
+
+    content = None
+    if os.path.isfile(file_path):
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to read file: {e}")
+    else:
+        from app.core.local_project_manager import local_project_manager
+        lp_dir = local_project_manager.get_local_project_dir(template.slug or template.id, version="latest")
+        if lp_dir:
+            lp_file = lp_dir / clean_p
+            if lp_file.is_file():
+                try:
+                    content = lp_file.read_text(encoding="utf-8", errors="replace")
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=f"Failed to read file: {e}")
+
+    if content is None:
+        raise HTTPException(status_code=404, detail=f"File '{clean_p}' not found in project")
+
+    ext = os.path.splitext(clean_p)[1].lower()
+    code_exts = {
+        ".jsx": "javascript",
+        ".tsx": "typescript",
+        ".js": "javascript",
+        ".ts": "typescript",
+        ".html": "html",
+        ".css": "css",
+        ".scss": "scss",
+        ".json": "json",
+        ".vue": "vue",
+        ".svelte": "svelte",
+        ".md": "markdown",
+        ".svg": "xml",
+        ".py": "python",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".txt": "plaintext"
+    }
+
+    return {
+        "status": "success",
+        "path": clean_p,
+        "content": content,
+        "size": len(content),
+        "language": code_exts.get(ext, "plaintext")
+    }
+
+
+@router.post("/live/{template_id}/file-save")
+async def save_preview_file(
+    template_id: str,
+    body: SaveFileRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Direct code saving endpoint:
+    Saves edited source code directly into the user draft project on disk,
+    updates the database zip archive, and refreshes the live preview.
+    0 tokens for auto-save, 1 token for explicit manual save.
+    """
+    from app.core.local_project_manager import _clean_rel_path, local_project_manager
+    clean_p = _clean_rel_path(body.path)
+    if not clean_p:
+        raise HTTPException(status_code=400, detail="Invalid or unsafe file path")
+
+    template_repo = TemplateRepository(db)
+    template = await template_repo.get_by_id(template_id)
+    if not template:
+        res = await db.execute(select(Template).where(Template.slug == template_id))
+        template = res.scalar_one_or_none()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    # Enforce token limit (0 for auto-save, 1 for explicit save)
+    token_cost = 0 if body.is_auto_save else 1
+    remaining_tokens = await check_and_deduct_tokens(current_user, db, cost=token_cost, operation_name="code_edit")
+
+    is_user_owned_draft = (
+        template.status == TemplateStatus.DRAFT
+        and current_user
+        and template.seller_id == current_user.id
+    )
+
+    if not is_user_owned_draft:
+        from app.services.template_service import template_service
+        template = await template_service.create_or_get_buyer_draft_copy(
+            template_id=str(template.id),
+            buyer_id=current_user.id,
+            db=db
+        )
+        template_id = str(template.id)
+
+    preview_dir = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template.id))
+    os.makedirs(preview_dir, exist_ok=True)
+    file_disk_path = os.path.join(preview_dir, clean_p)
+    os.makedirs(os.path.dirname(file_disk_path), exist_ok=True)
+
+    # 1. Write updated content to disk in preview_dir
+    with open(file_disk_path, "w", encoding="utf-8") as f:
+        f.write(body.content)
+
+    # 2. Persist to local_project_manager
+    try:
+        local_project_manager.save_project_revision(
+            template_id=template.id,
+            files={clean_p: body.content},
+            instruction=f"Direct code editor update: {clean_p}",
+            slug=template.slug
+        )
+    except Exception as e_lp:
+        logger.warning(f"Failed to save revision to local_project_manager: {e_lp}")
+
+    # 3. Update StoredFile ZIP in DB so it is permanently preserved
+    try:
+        download_assets = template.download_assets or {}
+        zip_url = download_assets.get("zip")
+        stored_file = None
+        if zip_url:
+            match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", str(zip_url))
+            if match:
+                sf_res = await db.execute(select(StoredFile).where(StoredFile.id == uuid.UUID(match.group(1))))
+                stored_file = sf_res.scalar_one_or_none()
+
+        in_mem = io.BytesIO()
+        if stored_file and stored_file.data:
+            with zipfile.ZipFile(io.BytesIO(stored_file.data), "r") as zin:
+                with zipfile.ZipFile(in_mem, "w", zipfile.ZIP_DEFLATED) as zout:
+                    replaced_any = False
+                    for item in zin.infolist():
+                        norm_item = os.path.normpath(item.filename).replace("\\", "/")
+                        if norm_item == clean_p or norm_item.endswith("/" + clean_p):
+                            zout.writestr(item, body.content.encode("utf-8"))
+                            replaced_any = True
+                        else:
+                            zout.writestr(item, zin.read(item.filename))
+                    if not replaced_any:
+                        zout.writestr(clean_p, body.content.encode("utf-8"))
+        else:
+            with zipfile.ZipFile(in_mem, "w", zipfile.ZIP_DEFLATED) as zout:
+                for root, _, files in os.walk(preview_dir):
+                    if any(d in root.replace("\\", "/").split("/") for d in ["node_modules", ".git", "dist", "build"]):
+                        continue
+                    for fname in files:
+                        fp = os.path.join(root, fname)
+                        rel_zip = os.path.relpath(fp, preview_dir).replace("\\", "/")
+                        zout.write(fp, rel_zip)
+
+        new_zip_bytes = in_mem.getvalue()
+        new_stored_file = StoredFile(
+            storage_key=f"templates/{uuid.uuid4().hex}/customized.zip",
+            original_filename=f"code_edit_{clean_p.replace('/', '_')}.zip",
+            content_type="application/zip",
+            size=len(new_zip_bytes),
+            data=new_zip_bytes
+        )
+        db.add(new_stored_file)
+        await db.flush()
+        template.download_assets = {
+            **(template.download_assets or {}),
+            "zip": f"/api/v1/files/{new_stored_file.id}"
+        }
+        db.add(template)
+        await db.commit()
+    except Exception as e_zip:
+        logger.warning(f"Could not update database zip archive: {e_zip}")
+
+    # 4. Clear any stale build / dist caches
+    for b_dir in ["dist", "build", ".output", "out"]:
+        b_p = os.path.join(preview_dir, b_dir)
+        if os.path.exists(b_p):
+            shutil.rmtree(b_p, ignore_errors=True)
+
+    return {
+        "status": "success",
+        "message": f"Successfully saved {clean_p} to your draft codebase.",
+        "path": clean_p,
+        "template_id": str(template.id),
+        "ai_credits": remaining_tokens
     }
 
 
@@ -5383,37 +6138,7 @@ async def serve_live_preview(
                     "    }\n"
                     "\n"
                     "    // 10. Live Editor Synchronization Listener (Updates React DOM in real-time)\n"
-                    "    window.addEventListener('message', function(evt) {\n"
-                    "      if (!evt.data) return;\n"
-                    "      if (evt.data.type === 'UPDATE_THEME_COLOR' && evt.data.color) {\n"
-                    "        let st = document.getElementById('studio-live-theme-override');\n"
-                    "        if (!st) {\n"
-                    "          st = document.createElement('style');\n"
-                    "          st.id = 'studio-live-theme-override';\n"
-                    "          document.head.appendChild(st);\n"
-                    "        }\n"
-                    "        st.textContent = ':root { --primary: ' + evt.data.color + ' !important; --accent: ' + evt.data.color + ' !important; }';\n"
-                    "      }\n"
-                    "      if (evt.data.type === 'UPDATE_CONTENT' && evt.data.value) {\n"
-                    "        const val = String(evt.data.value);\n"
-                    "        const prev = evt.data.prevValue ? String(evt.data.prevValue) : null;\n"
-                    "        const walker = document.createTreeWalker(document.getElementById('root') || document.body, NodeFilter.SHOW_TEXT, null, false);\n"
-                    "        let node;\n"
-                    "        while ((node = walker.nextNode())) {\n"
-                    "          if (prev && node.nodeValue && node.nodeValue.includes(prev)) {\n"
-                    "            node.nodeValue = node.nodeValue.replace(prev, val);\n"
-                    "            break;\n"
-                    "          }\n"
-                    "        }\n"
-                    "      }\n"
-                    "      if (evt.data.type === 'SCROLL_TO_SECTION' && evt.data.sectionId) {\n"
-                    "        const sId = evt.data.sectionId;\n"
-                    "        const targetEl = document.getElementById(sId) || document.querySelector('.' + sId) || document.querySelector('[data-section=\"' + sId + '\"]') || (sId === 'navbar' ? document.querySelector('nav, header') : null);\n"
-                    "        if (targetEl) {\n"
-                    "          targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });\n"
-                    "        }\n"
-                    "      }\n"
-                    "    });\n"
+                    f"    {get_studio_live_sync_js()}\n"
                     "  </script>\n"
                     f"  {watermark_payload}\n"
                     "</body>\n</html>"
@@ -5640,18 +6365,7 @@ async def serve_live_preview(
                     "      const appEl = document.getElementById('app');\n"
                     "      if (appEl) appEl.innerHTML = '<div style=\"padding:2rem;font-family:sans-serif;color:#e11d48;\"><h3>Vue Preview Ready</h3><p>' + (e && e.message || 'Rendered') + '</p></div>';\n"
                     "    }\n"
-                    "    window.addEventListener('message', function(evt) {\n"
-                    "      if (!evt.data) return;\n"
-                    "      if (evt.data.type === 'UPDATE_THEME_COLOR' && evt.data.color) {\n"
-                    "        let st = document.getElementById('studio-live-theme-override');\n"
-                    "        if (!st) {\n"
-                    "          st = document.createElement('style');\n"
-                    "          st.id = 'studio-live-theme-override';\n"
-                    "          document.head.appendChild(st);\n"
-                    "        }\n"
-                    "        st.textContent = ':root { --primary: ' + evt.data.color + ' !important; --accent: ' + evt.data.color + ' !important; }';\n"
-                    "      }\n"
-                    "    });\n"
+                    f"    {get_studio_live_sync_js()}\n"
                     "  </script>\n"
                     f"  {watermark_payload}\n"
                     "</body>\n</html>"
@@ -5712,18 +6426,7 @@ async def serve_live_preview(
                     f"    {clean_ng_html}\n"
                     "  </app-root>\n"
                     "  <script>\n"
-                    "    window.addEventListener('message', function(evt) {\n"
-                    "      if (!evt.data) return;\n"
-                    "      if (evt.data.type === 'UPDATE_THEME_COLOR' && evt.data.color) {\n"
-                    "        let st = document.getElementById('studio-live-theme-override');\n"
-                    "        if (!st) {\n"
-                    "          st = document.createElement('style');\n"
-                    "          st.id = 'studio-live-theme-override';\n"
-                    "          document.head.appendChild(st);\n"
-                    "        }\n"
-                    "        st.textContent = ':root { --primary: ' + evt.data.color + ' !important; --accent: ' + evt.data.color + ' !important; }';\n"
-                    "      }\n"
-                    "    });\n"
+                    f"    {get_studio_live_sync_js()}\n"
                     "  </script>\n"
                     f"  {watermark_payload}\n"
                     "</body>\n</html>"
@@ -5795,18 +6498,7 @@ async def serve_live_preview(
                     f"        document.getElementById('app').innerHTML = `{escaped_html}`;\n"
                     "      }\n"
                     "    })();\n"
-                    "    window.addEventListener('message', function(evt) {\n"
-                    "      if (!evt.data) return;\n"
-                    "      if (evt.data.type === 'UPDATE_THEME_COLOR' && evt.data.color) {\n"
-                    "        let st = document.getElementById('studio-live-theme-override');\n"
-                    "        if (!st) {\n"
-                    "          st = document.createElement('style');\n"
-                    "          st.id = 'studio-live-theme-override';\n"
-                    "          document.head.appendChild(st);\n"
-                    "        }\n"
-                    "        st.textContent = ':root { --primary: ' + evt.data.color + ' !important; --accent: ' + evt.data.color + ' !important; }';\n"
-                    "      }\n"
-                    "    });\n"
+                    f"    {get_studio_live_sync_js()}\n"
                     "  </script>\n"
                     f"  {watermark_payload}\n"
                     "</body>\n</html>"
@@ -7132,6 +7824,25 @@ async def serve_live_preview(
           applyLiveThemeColor(initColor);
         }}
 
+        function highlightEdited(el) {{
+          if (!el) return;
+          try {{
+            var target = el.nodeType === 1 ? el : el.parentElement;
+            if (!target || !target.style) return;
+            var prevOutline = target.style.outline;
+            var prevBoxShadow = target.style.boxShadow;
+            var prevTransition = target.style.transition;
+            target.style.transition = 'outline 0.2s ease, box-shadow 0.2s ease';
+            target.style.outline = '2px solid #10b981';
+            target.style.boxShadow = '0 0 16px rgba(16, 185, 129, 0.45)';
+            setTimeout(function() {{
+              target.style.outline = prevOutline;
+              target.style.boxShadow = prevBoxShadow;
+              target.style.transition = prevTransition;
+            }}, 1200);
+          }} catch (_) {{}}
+        }}
+
         // 5. Real-Time Visual DOM Synchronizer ("Like Copy-Paste")
         function applyLiveContent(data) {{
           if (!data) return;
@@ -7671,6 +8382,9 @@ async def serve_live_preview(
             if (targetEl) {{
               targetEl.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
             }}
+          }}
+          if (evt.data && evt.data.type === 'RELOAD_CANVAS') {{
+            window.location.reload();
           }}
         }});
         // 3. AI Site Studio Demo Guardian — auto-wipe data on tab close or navigation away
