@@ -2312,12 +2312,12 @@ async def fork_live_preview_draft(
     # Clone local files on disk
     local_project_manager.clone_project(template.slug or template.id, new_template.id, new_template.slug, new_template.title)
 
-    # Warm preview directory if needed
+    # Warm preview directory if needed (never copy node_modules or .git across preview directories)
     src_preview = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(template.id))
     dst_preview = os.path.join(tempfile.gettempdir(), "ai_site_studio", "live_previews", str(new_template.id))
     if os.path.isdir(src_preview) and not os.path.exists(dst_preview):
         try:
-            shutil.copytree(src_preview, dst_preview)
+            shutil.copytree(src_preview, dst_preview, ignore=shutil.ignore_patterns("node_modules", ".git"))
         except Exception:
             pass
 
@@ -6513,6 +6513,21 @@ async def serve_live_preview(
                 else:
                     serve_root = preview_dir
 
+            # Check if modern framework source files exist (React, Vue, Svelte, Angular)
+            has_fw_sources = any(
+                f.lower().endswith((".jsx", ".tsx", ".vue", ".svelte", ".component.ts", ".component.html"))
+                for r, d, files in os.walk(preview_dir)
+                for f in files
+                if "node_modules" not in r and ".git" not in r and "dist" not in r and "build" not in r
+            )
+
+            # Modern framework projects (React, Vue, Svelte, Angular, etc.) must run via the
+            # Universal In-Browser Standalone Runner so that live editing, theme synchronization,
+            # device responsiveness, and subcomponents execute live with zero CORS/bundle issues!
+            if has_fw_sources or template_fw_str in ("react", "nextjs", "vue", "nuxt", "svelte", "angular") or (request.query_params.get("framework") or "").lower() in ("react", "vue", "svelte", "angular"):
+                logger.info("Serving modern framework template %s (%s) directly via in-browser runner", template_id, template_fw_str)
+                return await serve_fallback(f"Preview compilation: in-browser runner for {template_fw_str or 'framework'}")
+
             if package_json_path:
                 project_root = os.path.dirname(package_json_path)
 
@@ -6528,7 +6543,7 @@ async def serve_live_preview(
                             if build_dir:
                                 break
 
-                # Compile any package-based SPA (React, Vue, Angular, etc.) into a static bundle.
+                # Compile any remaining non-framework package-based SPA into a static bundle.
                 if not build_dir:
                     try:
                         from app.services.deployment_providers.local_provider import local_deployment_provider
@@ -6547,21 +6562,6 @@ async def serve_live_preview(
                             )
                     except Exception as e_build:
                         logger.exception("Auto-compilation failed for %s preview %s", template_fw_str or "framework", template_id)
-
-            # Check if modern framework source files exist (React, Vue, Svelte, Angular)
-            has_fw_sources = any(
-                f.lower().endswith((".jsx", ".tsx", ".vue", ".svelte", ".component.ts", ".component.html"))
-                for r, d, files in os.walk(preview_dir)
-                for f in files
-                if "node_modules" not in r and ".git" not in r and "dist" not in r and "build" not in r
-            )
-
-            # Modern framework projects (React, Vue, Svelte, Angular, etc.) must run via the
-            # Universal In-Browser Standalone Runner so that live editing, theme synchronization,
-            # device responsiveness, and subcomponents execute live with zero CORS/bundle issues!
-            if has_fw_sources or template_fw_str in ("react", "nextjs", "vue", "nuxt", "svelte", "angular") or (request.query_params.get("framework") or "").lower() in ("react", "vue", "svelte", "angular"):
-                logger.info("Serving modern framework template %s (%s) directly via in-browser runner", template_id, template_fw_str)
-                return await serve_fallback(f"Preview compilation: in-browser runner for {template_fw_str or 'framework'}")
 
             if build_dir:
                 serve_root = build_dir

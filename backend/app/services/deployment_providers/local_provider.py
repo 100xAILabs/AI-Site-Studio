@@ -258,18 +258,38 @@ class LocalDeploymentProvider(DeploymentProvider):
             logs.extend("  " + line for line in build_output)
 
             if build_code != 0:
-                # Attempt autonomous build diagnosis and repair
-                try:
-                    from app.services.deployment_readiness_auditor import deployment_readiness_auditor
-                    healed, _ = deployment_readiness_auditor.diagnose_and_heal_build_failure("\n".join(build_output), project_root)
-                    if healed:
-                        logs.append("🔄 Re-attempting build after automated healing...")
+                combined_err = "\n".join(build_output)
+                # If node_modules or build tool binary was corrupted or missing from disk
+                if "err_module_not_found" in combined_err.lower() or "cannot find module" in combined_err.lower():
+                    nm_dir = os.path.join(project_root, "node_modules")
+                    if os.path.isdir(nm_dir):
+                        logs.append("🧹 Detected corrupted build tool dependency — performing fresh install...")
+                        shutil.rmtree(nm_dir, ignore_errors=True)
+                        await asyncio.to_thread(
+                            _run_process,
+                            npm_process_args(npm_cmd, "install", "--include=dev", "--no-audit", "--no-fund"),
+                            project_root,
+                            tenant_clean_env,
+                        )
+                        logs.append("🔄 Re-attempting build after fresh dependency installation...")
                         build_code, build_output = await asyncio.to_thread(
                             _run_process, build_args, project_root, tenant_clean_env
                         )
                         logs.extend("  " + line for line in build_output)
-                except Exception:
-                    pass
+
+                # Attempt autonomous build diagnosis and repair
+                if build_code != 0:
+                    try:
+                        from app.services.deployment_readiness_auditor import deployment_readiness_auditor
+                        healed, _ = deployment_readiness_auditor.diagnose_and_heal_build_failure("\n".join(build_output), project_root)
+                        if healed:
+                            logs.append("🔄 Re-attempting build after automated healing...")
+                            build_code, build_output = await asyncio.to_thread(
+                                _run_process, build_args, project_root, tenant_clean_env
+                            )
+                            logs.extend("  " + line for line in build_output)
+                    except Exception:
+                        pass
 
             if build_code != 0:
                 logs.append(f"❌ Build failed with exit code {build_code}")

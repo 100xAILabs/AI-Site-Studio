@@ -295,12 +295,12 @@ class LocalProjectManager:
             src_to_copy = source_latest if (source_latest.exists() and source_latest.is_dir()) else source_dir
             if target_latest.exists():
                 shutil.rmtree(target_latest, ignore_errors=True)
-            shutil.copytree(src_to_copy, target_latest, dirs_exist_ok=True)
+            shutil.copytree(src_to_copy, target_latest, dirs_exist_ok=True, ignore=shutil.ignore_patterns("node_modules", ".git"))
 
             src_before_copy = source_before if (source_before.exists() and source_before.is_dir()) else src_to_copy
             if target_before.exists():
                 shutil.rmtree(target_before, ignore_errors=True)
-            shutil.copytree(src_before_copy, target_before, dirs_exist_ok=True)
+            shutil.copytree(src_before_copy, target_before, dirs_exist_ok=True, ignore=shutil.ignore_patterns("node_modules", ".git"))
 
         meta = {
             "template_id": str(target_template_id),
