@@ -303,10 +303,46 @@ async def list_live_preview_assets(
         raise HTTPException(status_code=404, detail="Template not found")
 
     cap_clean = check_preview_token(str(template.id), cap) if cap else None
-    if template.status != TemplateStatus.PUBLISHED and cap_clean is None:
-        auth_ok = current_user and (current_user.id == template.seller_id or current_user.role == UserRole.ADMIN)
-        if not auth_ok:
-            raise HTTPException(status_code=404, detail="Template not found")
+
+    # Determine user authorization status matching serve_live_preview
+    is_admin = bool(current_user and getattr(current_user, "role", None) in (UserRole.ADMIN, "admin", "super_admin"))
+    is_owner = bool(current_user and template.seller_id and current_user.id == template.seller_id)
+    user_tier = str(getattr(current_user, "subscription_tier", "") or "").lower()
+    is_extreme = bool(current_user and (getattr(current_user, "is_pro_subscriber", False) or user_tier in ("extreme", "agency", "enterprise", "pro", "creator_pro")))
+
+    has_purchased = False
+    if current_user and template:
+        target_ids = [template.id]
+        if getattr(template, "forked_from_template_id", None):
+            target_ids.append(template.forked_from_template_id)
+        from app.models.order import Order, OrderItem, OrderStatus
+        po_res = await db.execute(
+            select(OrderItem.id)
+            .join(Order, OrderItem.order_id == Order.id)
+            .where(
+                Order.user_id == current_user.id,
+                Order.status == OrderStatus.COMPLETED,
+                OrderItem.template_id.in_(target_ids)
+            )
+            .limit(1)
+        )
+        has_purchased = po_res.scalar_one_or_none() is not None
+
+    is_authorized = bool(
+        template.status == TemplateStatus.PUBLISHED
+        or cap_clean is not None
+        or is_admin
+        or is_owner
+        or is_extreme
+        or has_purchased
+        or bool(template.is_free)
+    )
+
+    if not is_authorized:
+        raise HTTPException(
+            status_code=403,
+            detail="Private preview requires authorization. Please purchase this template or upgrade to Extreme to access this private project."
+        )
 
     slug = template.slug if (template and template.slug) else raw_id
 
@@ -931,10 +967,46 @@ async def get_live_preview_extracted_data(
         raise HTTPException(status_code=404, detail="Template not found")
 
     cap_clean = check_preview_token(str(template.id), cap) if cap else None
-    if template.status != TemplateStatus.PUBLISHED and cap_clean is None:
-        auth_ok = current_user and (current_user.id == template.seller_id or current_user.role == UserRole.ADMIN)
-        if not auth_ok:
-            raise HTTPException(status_code=404, detail="Template not found")
+
+    # Determine user authorization status matching serve_live_preview
+    is_admin = bool(current_user and getattr(current_user, "role", None) in (UserRole.ADMIN, "admin", "super_admin"))
+    is_owner = bool(current_user and template.seller_id and current_user.id == template.seller_id)
+    user_tier = str(getattr(current_user, "subscription_tier", "") or "").lower()
+    is_extreme = bool(current_user and (getattr(current_user, "is_pro_subscriber", False) or user_tier in ("extreme", "agency", "enterprise", "pro", "creator_pro")))
+
+    has_purchased = False
+    if current_user and template:
+        target_ids = [template.id]
+        if getattr(template, "forked_from_template_id", None):
+            target_ids.append(template.forked_from_template_id)
+        from app.models.order import Order, OrderItem, OrderStatus
+        po_res = await db.execute(
+            select(OrderItem.id)
+            .join(Order, OrderItem.order_id == Order.id)
+            .where(
+                Order.user_id == current_user.id,
+                Order.status == OrderStatus.COMPLETED,
+                OrderItem.template_id.in_(target_ids)
+            )
+            .limit(1)
+        )
+        has_purchased = po_res.scalar_one_or_none() is not None
+
+    is_authorized = bool(
+        template.status == TemplateStatus.PUBLISHED
+        or cap_clean is not None
+        or is_admin
+        or is_owner
+        or is_extreme
+        or has_purchased
+        or bool(template.is_free)
+    )
+
+    if not is_authorized:
+        raise HTTPException(
+            status_code=403,
+            detail="Private preview requires authorization. Please purchase this template or upgrade to Extreme to access this private project."
+        )
         
     title = (template.title if template else None) or "Web Template"
     clean_brand = title.split("—")[0].split("-")[0].split("|")[0].strip()
@@ -1009,18 +1081,18 @@ async def get_live_preview_extracted_data(
                 if base_c == target_page_clean or os.path.splitext(base_c)[0] == os.path.splitext(target_page_clean)[0]:
                     main_f = c
                     break
-        if not main_f:
+        else:
             for c in candidates:
                 if os.path.basename(c).lower() == "index.html":
                     main_f = c
                     break
-        if not main_f:
-            for c in candidates:
-                if c.endswith(".html"):
-                    main_f = c
-                    break
-        if not main_f and candidates:
-            main_f = candidates[0]
+            if not main_f:
+                for c in candidates:
+                    if c.endswith(".html"):
+                        main_f = c
+                        break
+            if not main_f and candidates:
+                main_f = candidates[0]
             
         if main_f and os.path.exists(main_f):
             try:
@@ -1220,14 +1292,111 @@ async def get_live_preview_extracted_data(
         seen_ids.add("navbar")
 
         # 4. Discover and Parse Sections across primary and other components
-        candidate_soups = [(primary_fname, soup)]
-        for fname, fcode in sorted_files[1:]:
-            base_lower = os.path.basename(fname).lower()
-            if any(skip in base_lower for skip in ["config", "test", "spec", "setup", "router", "provider", "context", "store"]):
-                continue
-            if fname.endswith((".jsx", ".tsx", ".vue")):
-                f_soup = BeautifulSoup(re.sub(r'\bclassName=', 'class=', fcode), "html.parser")
-                candidate_soups.append((fname, f_soup))
+        is_subpage = bool(target_page_clean and target_page_clean not in ["home.jsx", "home.tsx", "home.vue", "app.jsx", "app.tsx", "app.vue", "index.html", "home"])
+        if is_subpage:
+            candidate_soups = [(primary_fname, soup)]
+            # If the subpage has no explicit <section> tags, extract rich subpage blocks directly
+            has_explicit_sections = bool(soup.find_all(["section", "footer"]) or soup.find_all(class_=re.compile(r"(?:hero|feature|about|service|pricing|contact|footer|content)-section", re.I)))
+            if not has_explicit_sections:
+                # 1. Header / Overview
+                h_main = soup.find(["h1", "h2"])
+                dash_header = soup.find(class_=re.compile(r"dash-header|user-block|header|banner|hero", re.I))
+                if h_main or dash_header:
+                    h_text = clean_text(h_main.get_text()) if h_main else (clean_text(dash_header.get_text())[:40] if dash_header else "Overview")
+                    p_desc = soup.find("p")
+                    d_text = clean_text(p_desc.get_text()) if p_desc else ""
+                    out_sections["page_header"] = {
+                        "title": h_text,
+                        "headline": h_text,
+                        "subheadline": d_text,
+                        "description": d_text,
+                        "themeColor": pcolor,
+                        "primaryCta": "Get Started"
+                    }
+                    out_sections_list.append({
+                        "id": "page_header",
+                        "name": "Page Header / Overview",
+                        "category": "Hero & Banner",
+                        "icon": "Zap",
+                        "desc": f"Header banner: {h_text}",
+                        "targetSection": "page_header"
+                    })
+                    seen_ids.add("page_header")
+
+                # 2. Cards & Processes
+                cards = soup.find_all(class_=re.compile(r"\bcard\b|hover-scale", re.I))
+                if cards:
+                    c_list = []
+                    for c_idx, c in enumerate(cards):
+                        c_title_el = c.find(["h1", "h2", "h3", "h4", "strong"])
+                        c_desc_el = c.find("p")
+                        c_tag_el = c.find(class_=re.compile(r"icon|tag|badge|pill", re.I))
+                        c_btn_el = c.find(["a", "button", "link"])
+                        t_txt = clean_text(c_title_el.get_text()) if c_title_el else f"Card #{c_idx + 1}"
+                        d_txt = clean_text(c_desc_el.get_text()) if c_desc_el else ""
+                        tg_txt = clean_text(c_tag_el.get_text()) if c_tag_el else ""
+                        b_txt = clean_text(c_btn_el.get_text()) if c_btn_el else "Open"
+                        c_link = c_btn_el.get("href") or c_btn_el.get("to") or "" if c_btn_el else ""
+                        c_list.append({"title": t_txt, "desc": d_txt, "tag": tg_txt, "link": c_link, "href": c_link, "buttonText": b_txt})
+
+                    sec_cards_data = {
+                        "title": "Process Selection & Cards",
+                        "headline": "Process Selection & Cards",
+                        "description": f"{len(c_list)} interactive cards configured on this page",
+                        "themeColor": pcolor,
+                        "cards": c_list
+                    }
+                    for i, c in enumerate(c_list, start=1):
+                        sec_cards_data[f"card{i}_title"] = c["title"]
+                        sec_cards_data[f"card{i}_desc"] = c["desc"]
+                        sec_cards_data[f"card{i}_tag"] = c["tag"]
+                        sec_cards_data[f"card{i}_link"] = c["link"]
+                        sec_cards_data[f"card{i}_btn"] = c["buttonText"]
+
+                    out_sections["process_cards"] = sec_cards_data
+                    out_sections_list.append({
+                        "id": "process_cards",
+                        "name": "Process Cards & Selection",
+                        "category": "Capabilities & Services",
+                        "icon": "Layers",
+                        "desc": f"Interactive cards: {', '.join(c['title'] for c in c_list[:3])}",
+                        "targetSection": "process_cards"
+                    })
+                    seen_ids.add("process_cards")
+
+                # 3. Forms & Controls
+                forms = soup.find_all(["form", "textarea", "input"])
+                if forms:
+                    f_title_el = soup.find(class_=re.compile(r"form-title|setting|alert", re.I)) or soup.find(["h2", "h3", "h4"])
+                    f_title = clean_text(f_title_el.get_text()) if f_title_el else "Input & Form Controls"
+                    btn_sub = soup.find(["button", "input"], type=re.compile(r"submit", re.I)) or soup.find("button", class_=re.compile(r"btn-primary|btn-red|btn-blue", re.I))
+                    b_sub_text = clean_text(btn_sub.get_text()) if btn_sub else "Submit Form"
+
+                    out_sections["form_section"] = {
+                        "title": f_title,
+                        "headline": f_title,
+                        "description": "Interactive form fields and submission controls",
+                        "primaryCta": b_sub_text,
+                        "themeColor": pcolor
+                    }
+                    out_sections_list.append({
+                        "id": "form_section",
+                        "name": "Form & Submission",
+                        "category": "Inquiry & Leads",
+                        "icon": "Mail",
+                        "desc": f"Interactive form with {len(forms)} controls",
+                        "targetSection": "form_section"
+                    })
+                    seen_ids.add("form_section")
+        else:
+            candidate_soups = [(primary_fname, soup)]
+            for fname, fcode in sorted_files[1:]:
+                base_lower = os.path.basename(fname).lower()
+                if any(skip in base_lower for skip in ["config", "test", "spec", "setup", "router", "provider", "context", "store"]):
+                    continue
+                if fname.endswith((".jsx", ".tsx", ".vue")):
+                    f_soup = BeautifulSoup(re.sub(r'\bclassName=', 'class=', fcode), "html.parser")
+                    candidate_soups.append((fname, f_soup))
 
         for cfname, csoup in candidate_soups:
             sec_elements = csoup.find_all(["section", "footer"])
@@ -2349,7 +2518,7 @@ async def edit_live_preview_manual(
 
     # 2. Fast, Guaranteed Direct Deterministic Replacements across all files
     try:
-        extracted = await get_live_preview_extracted_data(original_template_id, page=request.page, db=db)
+        extracted = await get_live_preview_extracted_data(original_template_id, page=request.page, db=db, current_user=current_user)
     except Exception as ex_ext:
         logger.warning(f"Could not pre-extract sections for direct replacement: {ex_ext}")
         extracted = {}
@@ -4927,6 +5096,40 @@ async def serve_live_preview(
                     "    window.global = window;\n"
                     "    window._components = window._components || {};\n"
                     "\n"
+                    "    // 1b. Mock API & Fetch Interceptor (prevents unauthenticated 401 redirects in preview runner)\n"
+                    "    const _origFetch = window.fetch;\n"
+                    "    window.fetch = async function(url, opts) {\n"
+                    "      const s = String(url || '');\n"
+                    "      if (s.includes('/auth/me') || s.includes('/me')) {\n"
+                    "        return new Response(JSON.stringify({\n"
+                    "          id: 'demo-user',\n"
+                    "          username: 'DemoUser',\n"
+                    "          email: 'user@example.com',\n"
+                    "          platform: 'google',\n"
+                    "          guardian_email: 'guardian@example.com'\n"
+                    "        }), { status: 200, headers: { 'Content-Type': 'application/json' } });\n"
+                    "      }\n"
+                    "      if (s.includes('/get-guardian')) {\n"
+                    "        return new Response(JSON.stringify({ guardian_email: 'guardian@example.com' }), { status: 200, headers: { 'Content-Type': 'application/json' } });\n"
+                    "      }\n"
+                    "      if (s.includes('/analyze') || s.includes('/api/')) {\n"
+                    "        return new Response(JSON.stringify({\n"
+                    "          ok: true,\n"
+                    "          ml_label: 'LOW',\n"
+                    "          suicide_risk: 0.05,\n"
+                    "          threat_risk: 0.08,\n"
+                    "          sentiment: 'Positive & Safe',\n"
+                    "          crisis_keywords: [],\n"
+                    "          model_type: 'Standard Transformer Ensemble'\n"
+                    "        }), { status: 200, headers: { 'Content-Type': 'application/json' } });\n"
+                    "      }\n"
+                    "      try {\n"
+                    "        return await _origFetch(url, opts);\n"
+                    "      } catch (_) {\n"
+                    "        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });\n"
+                    "      }\n"
+                    "    };\n"
+                    "\n"
                     "    // 2. Standard Hooks & React Globals\n"
                     "    const {\n"
                     "      useState, useEffect, useRef, useMemo, useCallback, useContext,\n"
@@ -5165,7 +5368,7 @@ async def serve_live_preview(
                     "        if (keys.length > 0) targetComp = window[keys[0]];\n"
                     "      }\n"
                     "      if (targetComp) {\n"
-                    "        reactRoot.render(React.createElement(ErrorBoundary, null, React.createElement(targetComp)));\n"
+                    "        reactRoot.render(React.createElement(ErrorBoundary, null, React.createElement(BrowserRouter, null, React.createElement(targetComp))));\n"
                     "      } else {\n"
                     "        container.innerHTML = '<div style=\"padding:2rem;font-family:sans-serif;color:#38bdf8;\"><h3>React Preview Mounted</h3></div>';\n"
                     "      }\n"

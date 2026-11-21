@@ -924,12 +924,16 @@ export default function PreviewPage() {
         const targetId = effectiveTemplateId || templateId || initialTemplateId;
         if (targetId && targetId !== "default") {
           const effectiveToken = authToken || useAuthStore.getState()?.token;
-          const extRes = await api.get(`/preview/live/${targetId}/extracted-data?page=${encodeURIComponent(page.id)}`, {}, effectiveToken);
+          const extRes = await api.get(`/preview/live/${targetId}/extracted-data?page=${encodeURIComponent(page.id)}`, effectiveToken);
           if (extRes && extRes.status === "success" && extRes.sections) {
             setSectionProps((prev) => ({
               ...prev,
               ...extRes.sections
             }));
+            initialSectionPropsRef.current = {
+              ...initialSectionPropsRef.current,
+              ...extRes.sections
+            };
             if (extRes.sections_list && extRes.sections_list.length > 0) {
               const realDetected = extRes.sections_list.map((s) => ({
                 ...s,

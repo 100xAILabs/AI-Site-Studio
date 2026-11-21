@@ -39,13 +39,13 @@ class DemoSession(UUIDMixin, TimestampMixin, Base):
         String(100), unique=True, index=True, nullable=False, default=lambda: uuid.uuid4().hex
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
-    duration_seconds: Mapped[int] = mapped_column(Integer, default=1800, nullable=False)  # 30 minutes
+    duration_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False)  # 5 minutes
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc) + timedelta(minutes=30),
+        default=lambda: datetime.now(timezone.utc) + timedelta(minutes=5),
         nullable=False,
         index=True
     )

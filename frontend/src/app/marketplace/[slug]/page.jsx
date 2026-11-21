@@ -1393,7 +1393,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
             </div>
             <div className="flex items-center gap-1.5">
               <Check className="w-3 h-3 shrink-0" style={{ color: '#10b981' }} />
-              <span className="text-foreground/90 font-medium">{template?.pages_count || template?.included_pages?.length || 1} Pages Included</span>
+              <span className="text-foreground/90 font-medium">{Math.max(template?.included_pages?.length || 0, template?.pages_count || 1)} Pages Included</span>
             </div>
           </div>
         </div>
