@@ -2918,6 +2918,12 @@ function Dashboard() {
             <div className="db-templates-grid">
               {filteredPurchased.map((item) => {
                 const isExtended = isUserPro || String(item.license_type || "").toLowerCase() === "extended";
+                const userDraft = customizedItems.find(c =>
+                  (c.forked_from_template_id && String(c.forked_from_template_id) === String(item.template_id || item.id)) ||
+                  (c.id && String(c.id) === String(item.template_id || item.id)) ||
+                  (item.slug && c.slug && c.slug.startsWith(item.slug.split("-custom-")[0].split("-draft-")[0].split("-user-")[0]))
+                );
+                const targetStudioId = userDraft ? userDraft.id : (item.template_id || item.id);
 
                 return (
                   <div key={item.id} className="db-template-card group">
@@ -3011,7 +3017,7 @@ function Dashboard() {
                       <div className="db-template-actions-box">
                         {/* Primary AI Studio Action */}
                         <Link
-                          href={`/preview?templateId=${item.template_id || item.id}`}
+                          href={`/preview?template=${targetStudioId}&mode=live`}
                           className="db-btn-ai-studio"
                         >
                           <Sparkles className="w-3.5 h-3.5 text-white" />
@@ -3023,7 +3029,7 @@ function Dashboard() {
                           <button
                             type="button"
                             onClick={() => {
-                              setDeployTemplateId(item.template_id || item.id);
+                              setDeployTemplateId(targetStudioId);
                               setDeployProjectName(item.title || "My Website");
                               setIsDeployModalOpen(true);
                             }}
@@ -3107,7 +3113,15 @@ function Dashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/30">
-                  {filteredPurchased.map((item) => (
+                  {filteredPurchased.map((item) => {
+                    const userDraft = customizedItems.find(c =>
+                      (c.forked_from_template_id && String(c.forked_from_template_id) === String(item.template_id || item.id)) ||
+                      (c.id && String(c.id) === String(item.template_id || item.id)) ||
+                      (item.slug && c.slug && c.slug.startsWith(item.slug.split("-custom-")[0].split("-draft-")[0].split("-user-")[0]))
+                    );
+                    const targetStudioId = userDraft ? userDraft.id : (item.template_id || item.id);
+
+                    return (
                     <tr key={item.id} className="hover:bg-muted/20 transition-colors">
                       <td className="p-4">
                         <div className="flex items-center gap-3">
@@ -3137,7 +3151,7 @@ function Dashboard() {
                       <td className="p-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <Link
-                            href={`/preview?templateId=${item.template_id || item.id}`}
+                            href={`/preview?template=${targetStudioId}&mode=live`}
                             className="px-2.5 py-1.5 bg-primary text-white text-[11px] font-bold rounded-lg flex items-center gap-1 text-decoration-none shadow-sm"
                           >
                             <Sparkles className="w-3 h-3" /> Redesign
@@ -3170,7 +3184,8 @@ function Dashboard() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

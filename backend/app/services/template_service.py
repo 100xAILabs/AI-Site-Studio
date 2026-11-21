@@ -570,3 +570,92 @@ class TemplateService:
             await self.db.rollback()
             return False
 
+
+async def create_or_get_buyer_draft_copy(
+    db: AsyncSession,
+    buyer_id: uuid.UUID,
+    marketplace_template: Template
+) -> Template:
+    """
+    Creates or returns a private draft copy of a purchased marketplace template
+    stored under the buyer's account details (seller_id = buyer_id).
+    Ensures that when a user buys a template:
+    1. It is stored under the buyer's own database records and file storage.
+    2. The original marketplace template remains completely untouched and pristine.
+    3. When the buyer opens the editor, it directly accesses their own database copy.
+    """
+    from sqlalchemy import select, or_
+    from app.core.local_project_manager import local_project_manager
+
+    slug_base = (marketplace_template.slug or "template").split("-custom-")[0].split("-draft-")[0].split("-user-")[0]
+    ed_res = await db.execute(
+        select(Template).where(
+            Template.seller_id == buyer_id,
+            Template.status == TemplateStatus.DRAFT,
+            or_(
+                Template.forked_from_template_id == marketplace_template.id,
+                Template.slug.like(f"{slug_base}-draft-%"),
+                Template.slug.like(f"{slug_base}-user-%")
+            )
+        )
+    )
+    existing_draft = ed_res.scalars().first()
+    if existing_draft:
+        return existing_draft
+
+    new_slug = f"{slug_base}-user-{buyer_id.hex[:6]}-{uuid.uuid4().hex[:6]}"
+    new_title = f"{marketplace_template.title} (My Project)"
+    clean_tags = [t for t in (marketplace_template.tags or []) if t != "studio-project"]
+    if "customized-draft" not in clean_tags:
+        clean_tags.append("customized-draft")
+
+    new_template = Template(
+        title=new_title,
+        short_description=marketplace_template.short_description,
+        description=marketplace_template.description,
+        slug=new_slug,
+        price=marketplace_template.price,
+        original_price=marketplace_template.original_price,
+        is_free=marketplace_template.is_free,
+        is_on_sale=marketplace_template.is_on_sale,
+        category_id=marketplace_template.category_id,
+        status=TemplateStatus.DRAFT,
+        is_marketplace=False,
+        template_origin="custom_draft",
+        forked_from_template_id=marketplace_template.id,
+        seller_id=buyer_id,
+        thumbnail_url=marketplace_template.thumbnail_url,
+        preview_url=marketplace_template.preview_url,
+        tags=clean_tags,
+        framework=marketplace_template.framework,
+        pages_count=marketplace_template.pages_count,
+        has_dark_mode=marketplace_template.has_dark_mode,
+        is_responsive=marketplace_template.is_responsive,
+        is_rtl_supported=marketplace_template.is_rtl_supported,
+        is_ai_ready=True,
+        compatibility=marketplace_template.compatibility,
+        version=marketplace_template.version,
+        license_type=marketplace_template.license_type,
+        industry=marketplace_template.industry,
+        color_scheme=marketplace_template.color_scheme,
+        seo_keywords=marketplace_template.seo_keywords,
+        included_pages=marketplace_template.included_pages,
+        download_assets=(marketplace_template.download_assets or {}).copy() if marketplace_template.download_assets else {}
+    )
+    db.add(new_template)
+    await db.flush()
+
+    try:
+        local_project_manager.clone_project(
+            marketplace_template.slug or marketplace_template.id,
+            new_template.id,
+            new_template.slug,
+            new_template.title
+        )
+    except Exception as e_clone:
+        import logging
+        logging.getLogger("template_service").warning("Could not clone local project for buyer %s: %s", buyer_id, e_clone)
+
+    return new_template
+
+

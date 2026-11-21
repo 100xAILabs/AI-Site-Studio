@@ -1183,6 +1183,24 @@ export default function PreviewPage() {
         if (data) {
           setTemplateData(data);
 
+          // If the template is already an owned draft, bind directly to it
+          if (data.status === "draft" && data.seller_id === user?.id) {
+            setCustomDraftId(data.id);
+          } else if (isSignedIn && data.status === "published" && !customDraftId) {
+            // Check if user already owns a private draft clone for this purchased template
+            api.post(`/preview/live/${activeTemplateId}/fork-draft`, {}, effectiveToken).then((fRes) => {
+              const dId = fRes?.draft_id || fRes?.data?.draft_id;
+              if (dId && !cancelled) {
+                setCustomDraftId(dId);
+                try {
+                  const u = new URL(window.location.href);
+                  u.searchParams.set("template", dId);
+                  window.history.replaceState(null, "", u.pathname + u.search);
+                } catch (_) {}
+              }
+            }).catch(() => {});
+          }
+
           const fwStr = (data.framework || "").toLowerCase();
           const isReactTemplate = fwStr.includes("react") || fwStr.includes("next");
           const isVueTemplate = fwStr.includes("vue");
@@ -1414,6 +1432,8 @@ export default function PreviewPage() {
   // ─────────────────────────────────────────────────────────────────────────
   // Field Edit Handler: Natural Backspace & Typing (In-place live canvas DOM update)
   // ─────────────────────────────────────────────────────────────────────────
+  const autoSaveTimerRef = useRef(null);
+
   const handleFieldChange = (key, value) => {
     const prevVal = sectionProps[currentSection?.id]?.[key];
     setHasUnfinalizedChanges(true);
@@ -1438,7 +1458,14 @@ export default function PreviewPage() {
       // Instantly dispatch live content update to center demo iframe without reloading
       dispatchLiveContentUpdate(currentSection?.id, key, value, prevVal);
     }
-    // Do NOT auto-fork or change templateId on keystrokes, keeping the preview canvas 100% stable until user clicks Save
+
+    // Debounced silent background auto-save to user's database copy (Zero frontend refresh)
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+    autoSaveTimerRef.current = setTimeout(() => {
+      handleSaveManual(false, true);
+    }, 1500);
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1629,13 +1656,15 @@ export default function PreviewPage() {
   const [savingManual, setSavingManual] = useState(false);
   const [savingWithAi, setSavingWithAi] = useState(false);
 
-  const handleSaveManual = async (useAi = false) => {
-    if (useAi) {
-      setSavingWithAi(true);
-      setNotice("⚡ Verifying codebase synthesis and saving changes...");
-    } else {
-      setSavingManual(true);
-      setNotice("⚡ Fast-saving your changes directly...");
+  const handleSaveManual = async (useAi = false, isAutoSave = false) => {
+    if (!isAutoSave) {
+      if (useAi) {
+        setSavingWithAi(true);
+        setNotice("⚡ Verifying codebase synthesis and saving changes...");
+      } else {
+        setSavingManual(true);
+        setNotice("⚡ Fast-saving your changes directly...");
+      }
     }
     try {
       if (activeTemplateId !== "default") {
@@ -1687,14 +1716,17 @@ export default function PreviewPage() {
           contact_phone: sectionProps.contact?.phone || brand.contact_phone,
           page: activePage,
           page_edits,
-          use_ai: !!useAi
+          use_ai: !!useAi,
+          is_auto_save: !!isAutoSave
         }, effectiveToken);
         const newDraftId = res?.template_id || res?.data?.template_id;
         if (!newDraftId) throw new Error("The save endpoint did not return a draft ID.");
         if (typeof res?.ai_credits === "number") {
           setUserTokens(res.ai_credits);
         }
-        setCustomDraftId(newDraftId);
+        if (newDraftId !== customDraftId) {
+          setCustomDraftId(newDraftId);
+        }
         if (initialSectionPropsRef) {
           initialSectionPropsRef.current = JSON.parse(JSON.stringify(sectionProps));
         }
@@ -1707,29 +1739,43 @@ export default function PreviewPage() {
           queryClient.invalidateQueries({ queryKey: ["templates"] });
         } catch (_) {}
 
-        navigate(`/preview?template=${newDraftId}&mode=live${activePage ? `&page=${encodeURIComponent(activePage)}` : ""}`, { replace: true });
-        setViewMode("live");
-        setIframeKey((prev) => prev + 1);
-        setShowSaveSuccess(true);
-        if (useAi) {
-          setNotice("✓ Save complete: Entire codebase verified & saved to your private draft!");
+        if (!isAutoSave) {
+          navigate(`/preview?template=${newDraftId}&mode=live${activePage ? `&page=${encodeURIComponent(activePage)}` : ""}`, { replace: true });
+          setViewMode("live");
+          setIframeKey((prev) => prev + 1);
+          setShowSaveSuccess(true);
+          if (useAi) {
+            setNotice("✓ Save complete: Entire codebase verified & saved to your private draft!");
+          } else {
+            setNotice("✓ Saved directly to your private project draft!");
+          }
         } else {
-          setNotice("✓ Saved directly to your private project draft!");
+          // Silent auto-save: seamlessly sync URL state without reloading iframe or interrupting user typing
+          try {
+            const u = new URL(window.location.href);
+            u.searchParams.set("template", newDraftId);
+            window.history.replaceState(null, "", u.pathname + u.search);
+          } catch (_) {}
+          setNotice("✓ All changes auto-saved to your draft");
         }
         return true;
       } else {
         setNotice("Preview changes are local to this session. Select a template to save a draft.");
       }
     } catch (e) {
-      console.warn(e);
-      if (e?.status === 402 || e?.message?.includes("token") || e?.message?.includes("credit")) {
-        setShowTokensDepletedModal(true);
+      if (!isAutoSave) {
+        console.warn(e);
+        if (e?.status === 402 || e?.message?.includes("token") || e?.message?.includes("credit")) {
+          setShowTokensDepletedModal(true);
+        }
+        setNotice(`Could not save changes: ${e?.message || "Please try again."}`);
       }
-      setNotice(`Could not save changes: ${e?.message || "Please try again."}`);
     } finally {
-      setSavingManual(false);
-      setSavingWithAi(false);
-      setTimeout(() => setNotice(""), 6000);
+      if (!isAutoSave) {
+        setSavingManual(false);
+        setSavingWithAi(false);
+      }
+      setTimeout(() => setNotice(""), 3500);
     }
   };
   const handleFinalizeChanges = async (useAi = false) => {

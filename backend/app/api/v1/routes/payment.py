@@ -526,6 +526,17 @@ async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Op
                     license_type=LicenseType.REGULAR if item.license_type != "extended" else LicenseType.EXTENDED,
                     is_active=True,
                 )
+
+                # Store private template draft copy directly under the buyer's account in database & disk
+                tmpl = tmpls_by_id.get(item.template_id)
+                if tmpl:
+                    try:
+                        from app.services.template_service import create_or_get_buyer_draft_copy
+                        buyer_draft = await create_or_get_buyer_draft_copy(db, order.user_id, tmpl)
+                        lic.notes = f"custom_draft_id={buyer_draft.id}"
+                    except Exception as e_draft:
+                        logger.warning("Could not create buyer draft for order item %s: %s", item.id, e_draft)
+
                 db.add(lic)
                 existing_lic_tids.add(item.template_id)
                 if recipient_email:

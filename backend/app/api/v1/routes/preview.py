@@ -105,6 +105,7 @@ class ManualEditRequest(BaseModel):
     page: Optional[str] = None
     page_edits: Optional[Dict[str, Any]] = None
     use_ai: bool = False
+    is_auto_save: bool = False
 
 
 class AIEditRequest(BaseModel):
@@ -2353,8 +2354,9 @@ async def edit_live_preview_manual(
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
-    # Enforce token limit (1 token per save/code edit operation)
-    remaining_tokens = await check_and_deduct_tokens(current_user, db, cost=1, operation_name="manual_edit")
+    # Enforce token limit: 0 tokens deducted for debounced background auto-save, 1 token for explicit user save
+    token_cost = 0 if request.is_auto_save else 1
+    remaining_tokens = await check_and_deduct_tokens(current_user, db, cost=token_cost, operation_name="manual_edit")
         
     original_template_id = str(template.id)
     is_new_clone = False
