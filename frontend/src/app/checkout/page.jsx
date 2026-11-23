@@ -93,7 +93,7 @@ export default function Checkout() {
     removeCoupon,
   } = useCartStore();
 
-  const [paymentGateway, setPaymentGateway] = useState("stripe"); // Default to Stripe Checkout (Live)
+  const [paymentGateway, setPaymentGateway] = useState("razorpay"); // Default to Razorpay (Domestic/UPI/Cards)
   const [authToken, setAuthToken] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [stripeVerifying, setStripeVerifying] = useState(false);
@@ -1185,30 +1185,8 @@ export default function Checkout() {
                       </span>
                     </div>
 
-                    {/* Gateway Switcher: Stripe vs Razorpay */}
+                    {/* Gateway Switcher: Razorpay vs Stripe */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => setPaymentGateway("stripe")}
-                        className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
-                          paymentGateway === "stripe"
-                            ? "border-indigo-500 bg-indigo-500/15 ring-2 ring-indigo-500/50 shadow-md shadow-indigo-500/10"
-                            : "border-border/60 bg-background/40 hover:border-border"
-                        }`}
-                      >
-                        <div className="w-9 h-9 rounded-lg bg-[#635bff]/20 border border-[#635bff]/40 flex items-center justify-center text-[#635bff] shrink-0">
-                          <Globe className="w-5 h-5 text-indigo-400" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <strong className="text-sm text-foreground">Stripe Checkout</strong>
-                            <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Recommended · Live</span>
-                          </div>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">Visa, Mastercard, Amex, Apple Pay, Google Pay &amp; Global Cards</p>
-                          <span className="text-xs font-bold text-indigo-400 block mt-1.5">{formattedTotalString} USD</span>
-                        </div>
-                      </button>
-
                       <button
                         type="button"
                         onClick={() => setPaymentGateway("razorpay")}
@@ -1224,10 +1202,32 @@ export default function Checkout() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between">
                             <strong className="text-sm text-foreground">Razorpay</strong>
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">UPI · Cards (INR)</span>
+                            <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Default</span>
                           </div>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">UPI (GPay / PhonePe), NetBanking, Debit &amp; Credit Cards</p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">UPI, NetBanking, Debit &amp; Credit Cards (INR)</p>
                           <span className="text-xs font-bold text-emerald-400 block mt-1.5">{inrAmountString}</span>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setPaymentGateway("stripe")}
+                        className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                          paymentGateway === "stripe"
+                            ? "border-indigo-500 bg-indigo-500/15 ring-2 ring-indigo-500/50 shadow-md shadow-indigo-500/10"
+                            : "border-border/60 bg-background/40 hover:border-border"
+                        }`}
+                      >
+                        <div className="w-9 h-9 rounded-lg bg-[#635bff]/20 border border-[#635bff]/40 flex items-center justify-center text-[#635bff] shrink-0">
+                          <Globe className="w-5 h-5 text-indigo-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <strong className="text-sm text-foreground">Stripe</strong>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">International</span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">Visa, Mastercard, Amex, Apple Pay, Google Pay &amp; Global Cards</p>
+                          <span className="text-xs font-bold text-indigo-400 block mt-1.5">{formattedTotalString} USD</span>
                         </div>
                       </button>
                     </div>
