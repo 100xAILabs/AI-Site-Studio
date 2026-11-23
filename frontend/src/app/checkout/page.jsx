@@ -838,11 +838,11 @@ export default function Checkout() {
               {/* 3. Purchased Template Packages List */}
               <div style={{ marginBottom: "2.5rem" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.25rem" }}>
-                  <h2 style={{ fontSize: "1.1rem", fontWeight: 800, color: "#ffffff", display: "flex", alignItems: "center", gap: "0.5rem", margin: 0 }}>
+                  <h2 className="text-foreground" style={{ fontSize: "1.1rem", fontWeight: 800, display: "flex", alignItems: "center", gap: "0.5rem", margin: 0 }}>
                     <Sparkles className="w-4 h-4 text-[#dfb180]" />
                     <span>Your Purchased Templates ({purchasedTemplates.length || 1})</span>
                   </h2>
-                  <span style={{ fontSize: "0.8rem", color: "#94a3b8" }}>All files and live editor ready</span>
+                  <span className="text-muted-foreground" style={{ fontSize: "0.8rem" }}>All files and live editor ready</span>
                 </div>
 
                 {purchasedTemplates.map((item, idx) => {
@@ -1063,7 +1063,7 @@ export default function Checkout() {
                         <button
                           type="button"
                           onClick={addSampleTemplates}
-                          className="px-4 py-2 rounded-xl text-xs font-semibold text-[#dfb180] bg-[#c89666]/10 border border-[#c89666]/30 hover:bg-[#c89666]/20 cursor-pointer"
+                          className="px-4 py-2 rounded-xl text-xs font-semibold text-amber-700 dark:text-[#dfb180] bg-[#c89666]/10 border border-[#c89666]/30 hover:bg-[#c89666]/20 cursor-pointer"
                         >
                           + Add Sample Items from Mockup
                         </button>
@@ -1071,7 +1071,7 @@ export default function Checkout() {
                     </div>
                   ) : directCheckoutItem ? (
                     <div className="cart-items-stack">
-                      <div className="cart-item-card" style={{ borderColor: "rgba(200, 150, 102, 0.4)", background: "rgba(18, 18, 22, 0.85)" }}>
+                      <div className="cart-item-card" style={{ borderColor: "rgba(200, 150, 102, 0.4)" }}>
                         <div className="cart-item-info-group">
                           <div className="cart-item-thumb">
                             <img
@@ -1103,7 +1103,7 @@ export default function Checkout() {
                         </div>
 
                         <div className="cart-item-actions-group">
-                          <span className="cart-item-price-val text-xl font-bold text-white">
+                          <span className="cart-item-price-val text-xl font-bold text-foreground">
                             {formatMoney(directCheckoutItem.price)}
                           </span>
                         </div>
@@ -1343,7 +1343,7 @@ export default function Checkout() {
                           <span>Testing or Sandbox Payments</span>
                         </div>
                         <p className="text-[11px] text-muted-foreground leading-relaxed">
-                          For test card enter <code className="text-amber-300 font-mono bg-black/40 px-1 py-0.5 rounded">4111 1111 1111 1111</code> (any future expiry e.g. 12/28, CVV 123) or test UPI <code className="text-amber-300 font-mono bg-black/40 px-1 py-0.5 rounded">success@razorpay</code>.
+                          For test card enter <code className="text-amber-600 dark:text-amber-300 font-mono bg-amber-500/15 dark:bg-black/40 px-1 py-0.5 rounded">4111 1111 1111 1111</code> (any future expiry e.g. 12/28, CVV 123) or test UPI <code className="text-amber-600 dark:text-amber-300 font-mono bg-amber-500/15 dark:bg-black/40 px-1 py-0.5 rounded">success@razorpay</code>.
                         </p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
