@@ -79,6 +79,7 @@ async def get_my_subscription(
     """
     entitlement_service = EntitlementService(db)
     entitlements = await entitlement_service.get_user_entitlements(current_user)
+    await db.commit()
     return entitlements
 
 

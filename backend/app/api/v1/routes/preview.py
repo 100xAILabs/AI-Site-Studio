@@ -532,8 +532,8 @@ async def check_and_deduct_tokens(
     operation_name: str = "editor_edit"
 ) -> int:
     """
-    Validates that user has sufficient AI tokens/credits, deducts them,
-    and returns remaining balance. Raises 402 if depleted.
+    Validates that user has sufficient AI credits, deducts them,
+    writes to usage ledger, and returns remaining balance. Raises 402 if depleted.
     """
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required to edit templates.")
@@ -544,17 +544,26 @@ async def check_and_deduct_tokens(
         return user.ai_credits if user.ai_credits is not None else 9999
 
     credits_available = user.ai_credits if user.ai_credits is not None else 0
-    if credits_available < cost:
+    if cost > 0 and credits_available < cost:
         raise HTTPException(
             status_code=402,
-            detail=f"Insufficient AI tokens. You have {credits_available} token{'s' if credits_available == 1 else ''} remaining (requires {cost}). Please top up your tokens or upgrade your subscription plan to continue editing."
+            detail=f"Insufficient AI credits. You have {credits_available} credit{'s' if credits_available == 1 else ''} remaining (requires {cost}). Please top up your credits or upgrade your plan to continue editing."
         )
 
-    user.ai_credits = max(0, credits_available - cost)
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
-    return user.ai_credits
+    if cost > 0:
+        from app.services.entitlement_service import EntitlementService
+        ent_svc = EntitlementService(db)
+        await ent_svc.deduct_ai_credits(
+            user=user,
+            operation=operation_name,
+            credits_override=cost,
+            provider="system",
+            model_name="editor",
+        )
+        await db.commit()
+        await db.refresh(user)
+
+    return user.ai_credits if user.ai_credits is not None else 0
 
 
 
@@ -2955,8 +2964,8 @@ async def save_preview_file(
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
-    # Enforce token limit (0 for auto-save, 1 for explicit save)
-    token_cost = 0 if body.is_auto_save else 1
+    # Enforce token limit (0 for auto-save, 2 for explicit normal save)
+    token_cost = 0 if body.is_auto_save else 2
     remaining_tokens = await check_and_deduct_tokens(current_user, db, cost=token_cost, operation_name="code_edit")
 
     is_user_owned_draft = (
@@ -3083,8 +3092,8 @@ async def edit_live_preview_manual(
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
-    # Enforce token limit: 0 tokens deducted for debounced background auto-save, 1 token for explicit user save
-    token_cost = 0 if request.is_auto_save else 1
+    # Enforce token limit: 0 tokens deducted for debounced background auto-save, 2 credits for explicit normal save
+    token_cost = 0 if request.is_auto_save else 2
     remaining_tokens = await check_and_deduct_tokens(current_user, db, cost=token_cost, operation_name="manual_edit")
         
     original_template_id = str(template.id)
@@ -3603,9 +3612,9 @@ async def edit_live_preview_manual(
         from app.services.entitlement_service import EntitlementService
         await enforce_user_limit(str(current_user.id), "template-ai-edit")
         ent_svc = EntitlementService(db)
-        can_op, reason, _ = await ent_svc.check_ai_generation_entitlement(current_user, "conversational_edit")
+        can_op, reason, _ = await ent_svc.check_ai_generation_entitlement(current_user, "ai_save")
         if not can_op:
-            raise HTTPException(status_code=402, detail=reason or "Insufficient AI credits")
+            raise HTTPException(status_code=402, detail=reason or "Insufficient AI credits (5 credits required for AI Save).")
         files_str = ""
         ordered_files = sorted(
             files_dict.items(),
@@ -3712,7 +3721,8 @@ Here are the codebase files:
             raw_code = await ai_service._generate_content(edit_prompt, response_mime_type="application/json", feature_name="code_assistant")
             await ent_svc.deduct_ai_credits(
                 user=current_user,
-                operation="conversational_edit",
+                operation="ai_save",
+                credits_override=5,
                 provider="gemini",
                 model_name="gemini-1.5-flash",
                 metadata={"business": request.business_name},
@@ -4614,16 +4624,13 @@ async def edit_live_preview_ai(
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
-    # Enforce token limit (2 tokens per AI edit operation)
-    remaining_tokens = await check_and_deduct_tokens(current_user, db, cost=2, operation_name="ai_edit")
+    # Enforce token-based credit limit (credits proportional to prompt & response tokens)
+    from app.core.plans import calculate_ai_edit_token_credits
+    token_cost = calculate_ai_edit_token_credits(request.prompt)
+    remaining_tokens = await check_and_deduct_tokens(current_user, db, cost=token_cost, operation_name="ai_edit")
 
     from app.core.request_limits import enforce_user_limit
-    from app.services.entitlement_service import EntitlementService
     await enforce_user_limit(str(current_user.id), "template-ai-edit")
-    ent_svc = EntitlementService(db)
-    can_op, reason, _ = await ent_svc.check_ai_generation_entitlement(current_user, "conversational_edit")
-    if not can_op:
-        raise HTTPException(status_code=402, detail=reason or "Insufficient AI credits")
         
     # If the template is PUBLISHED or belongs to another user, clone/fork it so the user modifies their own private DRAFT copy
     is_user_owned_draft = (
@@ -6181,7 +6188,7 @@ async def serve_live_preview(
                     "              boxShadow: '0 20px 40px rgba(0,0,0,0.5)'\n"
                     "            }\n"
                     "          },\n"
-                    "            React.createElement('h3', { style: { color: '#f87171', margin: '0 0 0.75rem 0', fontSize: '18px' } }, 'âš ï¸  React Component Notice'),\n"
+                    "            React.createElement('h3', { style: { color: '#f87171', margin: '0 0 0.75rem 0', fontSize: '18px' } }, '⚠️ React Component Notice'),\n"
                     "            React.createElement('p', { style: { color: '#94a3b8', fontSize: '14px', lineHeight: 1.6 } }, String(this.state.error && this.state.error.message || 'Component render warning')),\n"
                     "            React.createElement('button', {\n"
                     "              onClick: () => location.reload(),\n"
@@ -7641,6 +7648,10 @@ async def serve_live_preview(
                         html_content = html_content.replace("<html>", f"<html>\n  <head>{viewport_meta}</head>", 1)
                     else:
                         html_content = f"<head>{viewport_meta}</head>\n" + html_content
+
+                # 1b. Enforce modern motion system (hero entrance animations, scroll reveals, hover lifts)
+                from app.services.site_compiler import inject_modern_motion_system
+                html_content = inject_modern_motion_system(html_content)
     
                 # 1b. Inject dynamic query parameter customizations into HTML for live preview customization
                 customized = request.query_params.get("customized") == "true"

@@ -616,7 +616,7 @@ export default function PreviewPage() {
   const isSignedIn = useAuthStore((s) => s.isSignedIn);
   const authToken = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
-  const [userTokens, setUserTokens] = useState(user?.ai_credits ?? 10);
+  const [userTokens, setUserTokens] = useState(user?.ai_credits ?? 0);
   const [showTokensDepletedModal, setShowTokensDepletedModal] = useState(false);
 
   useEffect(() => {
@@ -2524,10 +2524,10 @@ export default function PreviewPage() {
               onClick={() => handleFinalizeChanges(false)}
               disabled={savingManual || savingWithAi}
               className="sb-primary-gradient-btn"
-              title="Fast direct save: Saves your edits directly into files instantly"
+              title="Fast direct save: Saves your edits directly into files (uses 2 credits)"
             >
               <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
-              <span>{savingManual ? "Saving..." : "Save"}</span>
+              <span>{savingManual ? "Saving..." : "Save (2 cr)"}</span>
             </button>
 
             <button
@@ -2535,10 +2535,10 @@ export default function PreviewPage() {
               onClick={() => handleFinalizeChanges(true)}
               disabled={savingManual || savingWithAi}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] text-xs font-bold shadow-lg shadow-black/40 transition-all border border-[#c89666]/30 cursor-pointer disabled:opacity-50"
-              title="Deep Synthesis Save: Scans and verifies the entire codebase"
+              title="AI Deep Save: Scans and refactors the entire codebase with AI (uses 5 credits)"
             >
               <Sparkles className={`w-3.5 h-3.5 text-amber-300 ${savingWithAi ? "animate-spin" : ""}`} />
-              <span>{savingWithAi ? "Synthesizing..." : "Deep Save"}</span>
+              <span>{savingWithAi ? "Synthesizing..." : "AI Save (5 cr)"}</span>
             </button>
 
             {hasUnfinalizedChanges && (
@@ -2607,20 +2607,20 @@ export default function PreviewPage() {
               onClick={() => handleFinalizeChanges(false)}
               disabled={savingManual || savingWithAi}
               className="sb-primary-gradient-btn py-1.5 px-2.5 text-xs flex items-center gap-1"
-              title="Fast direct save"
+              title="Fast direct save (uses 2 credits)"
             >
               <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
-              <span>{savingManual ? "Saving" : "Save"}</span>
+              <span>{savingManual ? "Saving" : "Save (2 cr)"}</span>
             </button>
             <button
               type="button"
               onClick={() => handleFinalizeChanges(true)}
               disabled={savingManual || savingWithAi}
               className="py-1.5 px-2.5 rounded-xl bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] text-[#09090b] text-xs font-bold flex items-center gap-1 border border-[#c89666]/30 disabled:opacity-50"
-              title="Smart full-stack save across entire codebase"
+              title="AI Deep Save across entire codebase (uses 5 credits)"
             >
               <Sparkles className={`w-3 h-3 text-amber-300 ${savingWithAi ? "animate-spin" : ""}`} />
-              <span>{savingWithAi ? "Saving..." : "Smart Save"}</span>
+              <span>{savingWithAi ? "Saving..." : "AI Save (5 cr)"}</span>
             </button>
 
             {templateData && (

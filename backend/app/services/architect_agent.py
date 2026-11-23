@@ -68,6 +68,9 @@ MANDATORY ARCHITECTURAL DIRECTIVES:
 5. VISUAL & RESPONSIVE DIRECTIVE (PHASE 9 PREMIUM VISUAL GENERATION):
    - Every page must specify a visual_directive with fluid typography (clamp()), min_touch_target ("44px"), zero_horizontal_overflow (true), and ambient_glow (true).
 
+6. MODERN MOTION & ANIMATION DIRECTIVE:
+   - Mandate an interactive motion architecture for every page: hero entrance keyframes, IntersectionObserver-powered scroll reveals for cards and sections, card hover elevation (translateY(-6px) + glow), tactile button press states, and elevated navbar on scroll. Zero static flat designs.
+
 Return JSON ONLY matching this structure:
 {{
   "site_title": "Site title",

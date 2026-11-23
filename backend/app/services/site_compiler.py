@@ -7,6 +7,314 @@ from .agent_memory import agent_memory
 
 logger = logging.getLogger(__name__)
 
+MOTION_CSS = """<style id="studio-motion-engine">
+:root {
+  --studio-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --studio-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --studio-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+html {
+  scroll-behavior: smooth !important;
+}
+
+/* 1. Universal Hero Entrance Keyframes */
+@keyframes studioFadeInUp {
+  0% {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes studioFadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes studioFloatSlow {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-7px); }
+}
+
+@keyframes studioPulseGlow {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+
+/* Staggered Hero Elements Entrance */
+header, .navbar, .nav-container {
+  animation: studioFadeIn 0.8s var(--studio-ease-out) both;
+}
+
+.hero h1, header + main > section:first-of-type h1, main > section:first-child h1, .hero-title {
+  animation: studioFadeInUp 0.9s var(--studio-ease-out) 0.08s both;
+}
+
+.hero p, header + main > section:first-of-type p, main > section:first-child p, .hero-subtitle, .lead {
+  animation: studioFadeInUp 0.9s var(--studio-ease-out) 0.22s both;
+}
+
+.hero .buttons, .hero .cta, .hero .cta-group,
+header + main > section:first-of-type a.button, header + main > section:first-of-type button,
+main > section:first-child a.button, main > section:first-child button {
+  animation: studioFadeInUp 0.9s var(--studio-ease-out) 0.36s both;
+}
+
+.hero img, .hero-media, .hero-image, .hero-visual,
+header + main > section:first-of-type img {
+  animation: studioFadeInUp 1s var(--studio-ease-out) 0.3s both;
+}
+
+/* 2. Scroll Reveal Animations */
+.studio-reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.85s var(--studio-ease-out), transform 0.85s var(--studio-ease-out);
+  will-change: opacity, transform;
+}
+
+.studio-reveal.is-revealed {
+  opacity: 1 !important;
+  transform: translateY(0) !important;
+}
+
+.studio-reveal-left {
+  opacity: 0;
+  transform: translateX(-30px);
+  transition: opacity 0.85s var(--studio-ease-out), transform 0.85s var(--studio-ease-out);
+}
+.studio-reveal-left.is-revealed {
+  opacity: 1 !important;
+  transform: translateX(0) !important;
+}
+
+.studio-reveal-right {
+  opacity: 0;
+  transform: translateX(30px);
+  transition: opacity 0.85s var(--studio-ease-out), transform 0.85s var(--studio-ease-out);
+}
+.studio-reveal-right.is-revealed {
+  opacity: 1 !important;
+  transform: translateX(0) !important;
+}
+
+/* Staggered Delay Utilities */
+.delay-100 { transition-delay: 0.1s !important; }
+.delay-200 { transition-delay: 0.2s !important; }
+.delay-300 { transition-delay: 0.3s !important; }
+.delay-400 { transition-delay: 0.4s !important; }
+.delay-500 { transition-delay: 0.5s !important; }
+
+/* 3. Modern Interactive Card & Showcase Micro-Interactions */
+.card, article, .feature, .service-card, .project-card, .pricing-card, .testimonial-card, .portfolio-card {
+  transition: transform 0.35s var(--studio-ease-out), box-shadow 0.35s var(--studio-ease-out), border-color 0.35s var(--studio-ease-out) !important;
+}
+
+.card:hover, article:hover, .feature:hover, .service-card:hover, .project-card:hover, .pricing-card:hover, .testimonial-card:hover, .portfolio-card:hover {
+  transform: translateY(-6px) scale(1.008) !important;
+  box-shadow: 0 20px 35px -10px rgba(0, 0, 0, 0.15), 0 0 22px rgba(99, 102, 241, 0.12) !important;
+}
+
+/* Card image zoom effect on hover */
+.card:hover img, article:hover img, .project-card:hover img, .portfolio-card:hover img, .feature:hover img {
+  transform: scale(1.04);
+}
+.card img, article img, .project-card img, .portfolio-card img, .feature img {
+  transition: transform 0.5s var(--studio-ease-out) !important;
+}
+
+/* 4. Tactile Buttons & Controls */
+button, .button, a.button, a.btn, .btn, input[type="submit"] {
+  position: relative;
+  transition: transform 0.25s var(--studio-ease-out), box-shadow 0.25s var(--studio-ease-out), filter 0.25s var(--studio-ease-out), background-color 0.25s var(--studio-ease-out) !important;
+  cursor: pointer;
+}
+
+button:hover, .button:hover, a.button:hover, a.btn:hover, .btn:hover, input[type="submit"]:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.08);
+  box-shadow: 0 10px 22px -6px rgba(49, 86, 201, 0.35);
+}
+
+button:active, .button:active, a.button:active, a.btn:active, .btn:active, input[type="submit"]:active {
+  transform: translateY(0) scale(0.97) !important;
+}
+
+/* 5. Ambient Badges & Floats */
+.badge, .chip, .tag, [class*="badge"], [class*="pill"] {
+  display: inline-flex;
+  align-items: center;
+  transition: transform 0.25s var(--studio-ease-out);
+}
+.badge:hover, .chip:hover, .tag:hover {
+  transform: scale(1.06);
+}
+.floating-accent, .animate-float {
+  animation: studioFloatSlow 4s ease-in-out infinite;
+}
+
+/* 6. Elevated Header on Scroll */
+header.header-scrolled, nav.nav-scrolled {
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.15) !important;
+  transition: backdrop-filter 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* 7. Strict Accessibility: Respect prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .studio-reveal, .studio-reveal-left, .studio-reveal-right {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+</style>
+<noscript>
+  <style>
+    .studio-reveal, .studio-reveal-left, .studio-reveal-right {
+      opacity: 1 !important;
+      transform: none !important;
+    }
+  </style>
+</noscript>"""
+
+MOTION_SCRIPT = """<script id="studio-motion-script">
+(function() {
+  if (window.__STUDIO_MOTION_LOADED__) return;
+  window.__STUDIO_MOTION_LOADED__ = true;
+
+  function initMotionSystem() {
+    var prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (prefersReducedMotion) {
+      document.querySelectorAll('.studio-reveal, .studio-reveal-left, .studio-reveal-right').forEach(function(el) {
+        el.classList.add('is-revealed');
+      });
+      return;
+    }
+
+    var targetSelectors = [
+      'section:not(:first-of-type)',
+      '.grid > *',
+      '.cards > *',
+      '.card-grid > *',
+      '.product-grid > *',
+      '.team-grid > *',
+      '.services-grid > *',
+      '.card',
+      'article',
+      '.feature',
+      '.project-card',
+      '.pricing-card',
+      '.testimonial',
+      '.faq-item'
+    ];
+
+    var targets = document.querySelectorAll(targetSelectors.join(', '));
+    targets.forEach(function(el) {
+      if (el.closest('header, nav, #drawerOverlay, [class*="drawer"], [class*="modal"], [id*="modal"]')) return;
+      if (!el.classList.contains('studio-reveal') && !el.classList.contains('is-revealed')) {
+        el.classList.add('studio-reveal');
+        var parent = el.parentElement;
+        if (parent && (parent.classList.contains('grid') || parent.classList.contains('cards') || parent.classList.contains('card-grid') || parent.classList.contains('product-grid') || parent.children.length > 1)) {
+          var childIndex = Array.prototype.indexOf.call(parent.children, el);
+          if (childIndex > 0 && childIndex < 6) {
+            el.style.transitionDelay = (childIndex * 0.08) + 's';
+          }
+        }
+      }
+    });
+
+    if ('IntersectionObserver' in window) {
+      var revealObserver = new IntersectionObserver(function(entries, observer) {
+        entries.forEach(function(entry) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-revealed');
+            observer.unobserve(entry.target);
+          }
+        });
+      }, {
+        root: null,
+        rootMargin: '0px 0px -30px 0px',
+        threshold: 0.06
+      });
+
+      document.querySelectorAll('.studio-reveal, .studio-reveal-left, .studio-reveal-right').forEach(function(el) {
+        var rect = el.getBoundingClientRect();
+        if (rect.top < window.innerHeight && rect.bottom > 0) {
+          el.classList.add('is-revealed');
+        } else {
+          revealObserver.observe(el);
+        }
+      });
+    } else {
+      document.querySelectorAll('.studio-reveal, .studio-reveal-left, .studio-reveal-right').forEach(function(el) {
+        el.classList.add('is-revealed');
+      });
+    }
+
+    var header = document.querySelector('header') || document.querySelector('nav');
+    if (header) {
+      window.addEventListener('scroll', function() {
+        if (window.scrollY > 20) {
+          header.classList.add('header-scrolled');
+          header.classList.add('nav-scrolled');
+        } else {
+          header.classList.remove('header-scrolled');
+          header.classList.remove('nav-scrolled');
+        }
+      }, { passive: true });
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initMotionSystem);
+  } else {
+    initMotionSystem();
+  }
+})();
+</script>"""
+
+
+def inject_modern_motion_system(html: str) -> str:
+    """
+    Enriches generated HTML with a modern, zero-dependency CSS motion kit
+    and an IntersectionObserver scroll-reveal runtime.
+    Guarantees fluid hero entrances, scroll reveals, card hover lifts,
+    and button micro-interactions while strictly respecting prefers-reduced-motion.
+    """
+    if not html or not isinstance(html, str):
+        return html
+
+    # 1. Inject Motion CSS into <head>
+    if "studio-motion-engine" not in html:
+        if "</head>" in html:
+            html = html.replace("</head>", f"{MOTION_CSS}\n</head>", 1)
+        elif "<head>" in html:
+            html = html.replace("<head>", f"<head>\n{MOTION_CSS}", 1)
+        else:
+            html = f"{MOTION_CSS}\n{html}"
+
+    # 2. Inject Motion Runtime Script before </body>
+    if "studio-motion-script" not in html:
+        if "</body>" in html:
+            html = html.replace("</body>", f"\n{MOTION_SCRIPT}\n</body>", 1)
+        elif "</html>" in html:
+            html = html.replace("</html>", f"\n{MOTION_SCRIPT}\n</html>", 1)
+        else:
+            html = f"{html}\n{MOTION_SCRIPT}"
+
+    return html
+
 
 def generate_sitemap_xml(filenames: list[str], base_url: str = "https://example.com") -> str:
     """Generates standard compliant sitemap.xml for multi-page package."""
@@ -304,10 +612,8 @@ def normalize_multi_page_navigation(
                 flags=re.IGNORECASE,
             )
 
-        # Enforce smooth scroll behavior for clean in-page jump transitions
-        if "</head>" in html and "scroll-behavior: smooth" not in html:
-            smooth_css = '<style id="studio-smooth-scroll">html { scroll-behavior: smooth !important; }</style>\n</head>'
-            html = html.replace("</head>", smooth_css, 1)
+        # Enforce modern motion system (smooth scrolling, hero entrance, scroll reveals, card/button hover lift)
+        html = inject_modern_motion_system(html)
 
         repaired_pages[fname] = html
 

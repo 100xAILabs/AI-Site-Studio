@@ -40,7 +40,7 @@ async def free_user(db: AsyncSession) -> User:
         full_name="Free Tester",
         role=UserRole.BUYER,
         subscription_tier=PlanTier.FREE.value,
-        ai_credits=0,
+        ai_credits=10,
         is_active=True,
         is_email_verified=True,
     )
@@ -119,20 +119,21 @@ async def extreme_user(db: AsyncSession) -> User:
 async def test_free_user_first_generation_free_and_second_blocked(db: AsyncSession, free_user: User):
     ent_svc = EntitlementService(db)
 
-    # 1st attempt: Must be permitted under free trial (0 credits required)
+    # 1st attempt: User has 10 initial signup credits, operation costs 10 credits -> permitted
     allowed, reason, required_credits = await ent_svc.check_ai_generation_entitlement(
         free_user, operation="website_generation"
     )
     assert allowed is True
-    assert required_credits == 0
+    assert required_credits == 10
 
-    # Deduct / record trial generation
+    # Deduct credits for generation
     success, msg, deducted_credits, est_cost = await ent_svc.deduct_ai_credits(
         free_user,
         operation="website_generation",
     )
     assert success is True
-    assert deducted_credits == 0
+    assert deducted_credits == 10
+    assert free_user.ai_credits == 0
 
     # Verify trial history recorded
     stmt = select(TrialHistory).where(
@@ -143,13 +144,13 @@ async def test_free_user_first_generation_free_and_second_blocked(db: AsyncSessi
     trial_records = res.scalars().all()
     assert len(trial_records) == 1
 
-    # 2nd attempt: Must be BLOCKED because free trial has been used and credits = 0
+    # 2nd attempt: Must be BLOCKED because user credits are now depleted (0 credits available)
     allowed2, reason2, required_credits2 = await ent_svc.check_ai_generation_entitlement(
         free_user, operation="website_generation"
     )
     assert allowed2 is False
-    assert required_credits2 == 5
-    assert "used your 1 free generation" in reason2
+    assert required_credits2 == 10
+    assert "Insufficient AI credits" in reason2
 
 
 # ==============================================================================
@@ -264,14 +265,14 @@ async def test_extreme_credit_deduction_and_domain_subsidy(db: AsyncSession, ext
         operation="website_generation",
     )
     assert success is True
-    assert deducted_credits == 5
-    assert extreme_user.ai_credits == 995
+    assert deducted_credits == 10
+    assert extreme_user.ai_credits == 990
 
     # Verify usage ledger recorded
     stmt = select(UsageLedger).where(UsageLedger.user_id == extreme_user.id)
     ledger_entries = (await db.execute(stmt)).scalars().all()
     assert len(ledger_entries) == 1
-    assert ledger_entries[0].credits_consumed == 5
+    assert ledger_entries[0].credits_consumed == 10
     assert ledger_entries[0].operation == "website_generation"
 
     # Test Promotional Domain Credit (Capped at $15 USD, single redemption)

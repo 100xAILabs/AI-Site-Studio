@@ -56,13 +56,31 @@ class EntitlementService:
         tier_on_user = normalize_plan_id(getattr(user, "subscription_tier", "free") or "free")
         now = datetime.now(timezone.utc)
 
+        # Check if paid subscription has expired / finished
+        if tier_on_user != "free":
+            expires_at = getattr(user, "subscription_expires_at", None)
+            if expires_at:
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+                if expires_at < now:
+                    tier_on_user = "free"
+                    user.subscription_tier = "free"
+                    user.subscription_status = "expired"
+                    user.ai_credits = 0  # Unused tokens from finished plan expire completely
+                    self.db.add(user)
+                    if sub:
+                        sub.plan_id = "free"
+                        sub.status = "expired"
+                        self.db.add(sub)
+                    await self.db.flush()
+
         if not sub:
             sub = UserSubscription(
                 user_id=user.id,
                 plan_id=tier_on_user,
                 billing_cycle="monthly",
                 payment_provider="manual",
-                status="active",
+                status="active" if tier_on_user != "free" else getattr(user, "subscription_status", "active"),
                 start_date=now,
                 current_period_start=now,
                 current_period_end=user.subscription_expires_at or (now + timedelta(days=30)),
@@ -86,8 +104,26 @@ class EntitlementService:
         """
         sub = await self.get_or_create_user_subscription(user)
         plan_id = normalize_plan_id(sub.plan_id)
-        plan_cfg = get_plan_config(plan_id)
         now = datetime.now(timezone.utc)
+
+        # 1. Check if paid subscription plan has expired / finished
+        if plan_id != "free":
+            expires_at = user.subscription_expires_at or sub.current_period_end
+            if expires_at:
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+                if expires_at < now:
+                    plan_id = "free"
+                    user.subscription_tier = "free"
+                    user.subscription_status = "expired"
+                    user.ai_credits = 0  # When plan is finished, credits expire completely
+                    sub.plan_id = "free"
+                    sub.status = "expired"
+                    self.db.add(user)
+                    self.db.add(sub)
+                    await self.db.flush()
+
+        plan_cfg = get_plan_config(plan_id)
 
         # Check subscription status and grace period
         status = sub.status
@@ -97,8 +133,25 @@ class EntitlementService:
             grace_end = sub.grace_period_end if sub.grace_period_end.tzinfo else sub.grace_period_end.replace(tzinfo=timezone.utc)
             in_grace_period = now <= grace_end
 
-        # AI Credits
-        available_credits = user.ai_credits if user.ai_credits is not None else (10 if plan_id == "free" else 0)
+        # AI Credits policy:
+        # If user is on free tier after an expired or canceled subscription: credits remain 0 (no free rollover)
+        if plan_id == "free" and getattr(user, "subscription_status", "") in ("expired", "canceled"):
+            user.ai_credits = 0
+            self.db.add(user)
+            await self.db.flush()
+        # For active free tier accounts: ensure credits cannot exceed 10 (exactly 1 website generation allowance)
+        elif plan_id == "free" and (user.ai_credits is None or user.ai_credits > 10):
+            gen_count_stmt = select(func.count(UsageLedger.id)).where(
+                UsageLedger.user_id == user.id,
+                UsageLedger.operation.in_(["website_generation", "multipage_generation"]),
+            )
+            gen_count_res = await self.db.execute(gen_count_stmt)
+            gen_count = int(gen_count_res.scalar() or 0)
+            user.ai_credits = max(0, 10 - (gen_count * 10))
+            self.db.add(user)
+            await self.db.flush()
+
+        available_credits = user.ai_credits if user.ai_credits is not None else 0
         
         # Period start for usage queries
         period_start = sub.current_period_start or (now - timedelta(days=30))
@@ -241,47 +294,17 @@ class EntitlementService:
         if is_admin:
             return True, "Admin entitlement granted.", cost
 
-        if plan_id == "free":
-            # Free tier: 1st website generation is free
-            if operation in ("website_generation", "website_planning", "multipage_generation"):
-                stmt = select(func.count(TrialHistory.id)).where(
-                    TrialHistory.user_id == user.id,
-                    TrialHistory.trial_type == "generation",
-                )
-                res = await self.db.execute(stmt)
-                count = res.scalar() or 0
-                if count < 1:
-                    return True, "Initial free generation trial.", 0
+        # Pure credit-based entitlement model:
+        # Every operation (planning, website generation, AI editing) requires sufficient credits.
+        if available < cost:
+            tier_msg = "Pro or Extreme" if plan_id == "free" else "Extreme"
+            return (
+                False,
+                f"Insufficient AI credits (available: {available}, required: {cost}). Please purchase compute credits or upgrade to {tier_msg} to continue.",
+                cost,
+            )
 
-            # Subsequent operations require purchased credits
-            if available < cost:
-                return (
-                    False,
-                    f"You have used your 1 free generation. This operation requires {cost} AI credits, but you have {available}. Please purchase credits or upgrade to Pro (150 credits/mo) or Extreme (1,000 credits/mo).",
-                    cost,
-                )
-            return True, "Credits available.", cost
-
-        elif plan_id == "pro":
-            if available < cost:
-                return (
-                    False,
-                    f"Your Pro monthly credits are depleted (available: {available}, required: {cost}). Please top up credits or wait for your next billing renewal.",
-                    cost,
-                )
-            return True, "Pro credits available.", cost
-
-        elif plan_id == "extreme":
-            # Extreme tier MUST deduct from its 1,000 monthly credits!
-            if available < cost:
-                return (
-                    False,
-                    f"Your Extreme monthly credits are depleted (available: {available}, required: {cost}). Please top up discounted credits or wait for renewal.",
-                    cost,
-                )
-            return True, "Extreme credits available.", cost
-
-        return False, "Unrecognized plan entitlement.", cost
+        return True, "Credits available.", cost
 
     async def deduct_ai_credits(
         self,
@@ -303,7 +326,7 @@ class EntitlementService:
         plan_id = normalize_plan_id(sub.plan_id)
         cost = credits_override if credits_override is not None else get_operation_cost(operation)
 
-        # Check if this is the free user's 1st website generation
+        # Record generation history on 1st generation
         if not is_admin and plan_id == "free" and operation in ("website_generation", "website_planning", "multipage_generation"):
             stmt = select(func.count(TrialHistory.id)).where(
                 TrialHistory.user_id == user.id,
@@ -311,7 +334,6 @@ class EntitlementService:
             )
             res = await self.db.execute(stmt)
             if (res.scalar() or 0) < 1:
-                # Record the 1st generation trial
                 trial_rec = TrialHistory(
                     user_id=user.id,
                     trial_type="generation",
@@ -319,7 +341,6 @@ class EntitlementService:
                     is_active=True,
                 )
                 self.db.add(trial_rec)
-                cost = 0
 
         current_credits = user.ai_credits if user.ai_credits is not None else 0
         if not is_admin and cost > 0 and current_credits < cost:

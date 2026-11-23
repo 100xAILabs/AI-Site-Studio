@@ -1105,8 +1105,46 @@ async def get_me(
     db: AsyncSession = Depends(get_db)
 ) -> UserResponse:
     """Return the currently authenticated user's profile."""
+    from datetime import datetime, timezone
     from app.models.user import UserRole
     user_role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+
+    # Subscription expiration check:
+    # When credits run out or subscription plan is finished, unused tokens MUST NOT be preserved or shown.
+    # When plan finishes, tier becomes free, status becomes expired, and ai_credits = 0.
+    now_utc = datetime.now(timezone.utc)
+    tier = (current_user.subscription_tier or "free").lower()
+    user_updated = False
+
+    if tier != "free" and current_user.subscription_expires_at:
+        expires = (
+            current_user.subscription_expires_at
+            if current_user.subscription_expires_at.tzinfo
+            else current_user.subscription_expires_at.replace(tzinfo=timezone.utc)
+        )
+        if expires < now_utc:
+            current_user.subscription_tier = "free"
+            current_user.subscription_status = "expired"
+            current_user.ai_credits = 0
+            user_updated = True
+    elif tier == "free" and getattr(current_user, "subscription_status", "") in ("expired", "canceled"):
+        if (current_user.ai_credits or 0) > 0:
+            current_user.ai_credits = 0
+            user_updated = True
+
+    if user_updated:
+        try:
+            from app.services.entitlement_service import EntitlementService
+            ent_svc = EntitlementService(db)
+            sub = await ent_svc.get_or_create_user_subscription(current_user)
+            sub.plan_id = "free"
+            sub.status = "expired"
+            db.add(sub)
+        except Exception as e_sub:
+            logger.warning(f"Failed to sync subscription record in /me: {e_sub}")
+        db.add(current_user)
+        await db.commit()
+        await db.refresh(current_user)
 
     # Auto-detect location & currency if missing
     if not current_user.country or not current_user.currency or not current_user.country_code:

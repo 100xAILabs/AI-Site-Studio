@@ -45,6 +45,7 @@ from app.services.site_compiler import (
     inject_seo_and_social_tags,
     run_comprehensive_audit,
     normalize_multi_page_navigation,
+    inject_modern_motion_system,
 )
 
 logger = logging.getLogger(__name__)
@@ -88,8 +89,18 @@ STUDIO_CLINERULES = """# Studio website code rules
 - Treat the UI Designer's system as binding: reuse its palette, type scale, spacing, borders, shadows, and motion language on every page.
 - Keep the same brand header, navigation, and footer structure across pages; mark the current page and ensure every navigation link targets a generated filename or a real section anchor.
 - Use semantic accessible HTML, responsive CSS, visible focus, and prefers-reduced-motion.
-- Use purposeful motion. Avoid generic filler layouts and repeated card grids.
-- Make the site feel alive with an animated hero entrance, section reveals, and polished interaction transitions; respect prefers-reduced-motion.
+- PURPOSEFUL MODERN MOTION & ANIMATION SYSTEM (MANDATORY):
+  * The site must NEVER feel flat, motionless, or static. Implement a rich, lively, dynamic motion system across all pages:
+  * Hero Section Entrance: Staggered entrance animations for header (fade-in), hero H1 (fadeInUp 0.9s cubic-bezier(0.16, 1, 0.3, 1)), hero lead text (delay 0.15s), hero CTA buttons (delay 0.3s), and hero media/image (delay 0.25s).
+  * Scroll Reveals: Every major section, showcase card, feature block, testimonial, and article must use smooth scroll reveals. Use '.studio-reveal' or '.reveal' with subtle entrance translation (translateY(28px) -> translateY(0)) triggered via IntersectionObserver.
+  * Staggered Grids: When displaying grids of cards, features, or projects, stagger child delays (.delay-100, .delay-200, .delay-300).
+  * Tactile Micro-Interactions:
+    - Cards: On hover, smoothly lift (transform: translateY(-6px) scale(1.008)) with an elevated shadow and subtle accent glow (transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.35s). Images inside cards should zoom slightly on hover (transform: scale(1.04)).
+    - Buttons: On hover, lift (transform: translateY(-2px); filter: brightness(1.08); box-shadow: 0 10px 22px -6px rgba(49, 86, 201, 0.35)). On click/active, provide tactile feedback (transform: scale(0.97)).
+    - Badges/Pills: Gentle floating or ambient breathing effect.
+  * Header on Scroll: Navigation bar must transition to an elevated backdrop blur (backdrop-filter: blur(16px)) on scroll.
+  * Smooth Scrolling: Always ensure html { scroll-behavior: smooth !important; }.
+  * Accessibility: Always honor @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; } }.
 - At narrow widths, reflow content without horizontal scrolling; use fluid type and spacing, and verify the layout intent at 360px, 768px, and desktop widths.
 - Make every visible control perform a real browser-side action or clearly label it as a demo; do not leave dead buttons or placeholder links.
 - Use vanilla JavaScript for real client-side behavior and structured JSON for reusable site metadata when it fits the brief; keep core content readable in HTML if scripts are disabled.
@@ -871,21 +882,21 @@ img, video, iframe { max-width: 100%; height: auto; }
 
     style_blocks = re.findall(r"<style\b[^>]*>(.*?)</style\s*>", html, flags=re.IGNORECASE | re.DOTALL)
     if sum(len(css.strip()) for css in style_blocks) >= 180:
-        return html
+        return inject_modern_motion_system(html)
     baseline = """<style>
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#f7f8fb;color:#172033;font:16px/1.65 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}header,nav{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;padding:1rem clamp(1rem,5vw,4rem);background:#fff;border-bottom:1px solid #e3e8f0}nav a,header a{color:inherit;text-decoration:none;font-weight:600}main{width:min(100% - 2rem,1120px);margin:0 auto;padding:clamp(2rem,6vw,5rem) 0}section{margin-block:2rem}h1,h2,h3{line-height:1.15;letter-spacing:-.035em}h1{font-size:clamp(2.3rem,6vw,4.6rem);max-width:16ch}p{max-width:68ch;color:#556176}img{display:block;width:100%;max-width:100%;height:auto;object-fit:cover;border-radius:1rem}.grid,.cards,.product-grid,.card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:1.2rem}.card,article{padding:1.1rem;border:1px solid #e3e8f0;border-radius:1rem;background:#fff;box-shadow:0 8px 24px rgba(20,34,57,.06)}a.button,button,.button{display:inline-flex;align-items:center;justify-content:center;min-height:2.8rem;padding:.7rem 1rem;border:0;border-radius:.7rem;background:#3156c9;color:#fff;text-decoration:none;font:inherit;font-weight:650}a:focus-visible,button:focus-visible{outline:3px solid #79a4ff;outline-offset:3px}@media(max-width:640px){header,nav{align-items:flex-start}main{width:min(100% - 1.25rem,1120px)}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
 </style>"""
     head_end = html.lower().find("</head>")
     if head_end >= 0:
-        return f"{html[:head_end]}{baseline}\n{html[head_end:]}"
+        return inject_modern_motion_system(f"{html[:head_end]}{baseline}\n{html[head_end:]}")
     head_open = re.search(r"<head\b[^>]*>", html, flags=re.IGNORECASE)
     if head_open:
-        return f"{html[:head_open.end()]}{baseline}\n{html[head_open.end():]}"
+        return inject_modern_motion_system(f"{html[:head_open.end()]}{baseline}\n{html[head_open.end():]}")
     html_tag = re.search(r"<html\b[^>]*>", html, flags=re.IGNORECASE)
     if html_tag:
         head = f"<head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">{baseline}</head>"
-        return f"{html[:html_tag.end()]}{head}\n{html[html_tag.end():]}"
-    return f"{baseline}\n{html}"
+        return inject_modern_motion_system(f"{html[:html_tag.end()]}{head}\n{html[html_tag.end():]}")
+    return inject_modern_motion_system(f"{baseline}\n{html}")
 
 
 def _split_inline_assets(pages: dict[str, str]) -> tuple[dict[str, str], dict[str, str]]:

@@ -167,17 +167,23 @@ def get_plan_config(plan_id: str) -> Dict[str, Any]:
 
 AI_OPERATION_CREDIT_COSTS: Dict[str, int] = {
     "website_planning": 1,
-    "website_generation": 5,
-    "multipage_generation": 8,
-    "frontend_generation": 3,
-    "backend_generation": 4,
+    "website_generation": 10,
+    "multipage_generation": 10,
+    "frontend_generation": 5,
+    "backend_generation": 5,
     "database_generation": 2,
-    "conversational_edit": 2,
+    "normal_save": 2,
+    "manual_edit": 2,
+    "code_edit": 2,
+    "ai_save": 5,
+    "conversational_edit": 5,
+    "ai_edit": 2,
     "prompt_edit": 2,
+    "deployment_analysis": 5,
+    "auto_heal": 5,
     "seo_generation": 1,
     "ai_debugging": 2,
     "image_generation": 3,
-    "auto_heal": 5,
     "content_generation": 1,
     "color_palette": 1,
 }
@@ -186,6 +192,20 @@ AI_OPERATION_CREDIT_COSTS: Dict[str, int] = {
 def get_operation_cost(operation: str) -> int:
     """Returns credit cost for a given operation (defaults to 1 credit)."""
     return AI_OPERATION_CREDIT_COSTS.get(operation, 1)
+
+
+def calculate_ai_edit_token_credits(prompt: str, estimated_response_tokens: int = 400) -> int:
+    """
+    Calculates AI Edit credit cost relevant to prompt and response tokens:
+    Base cost is 2 credits. Longer or more complex edits scale proportionally to token usage.
+    """
+    if not prompt:
+        return 2
+    prompt_tokens = max(1, len(prompt) // 4)
+    total_tokens = prompt_tokens + estimated_response_tokens
+    # 250 tokens per credit, min 2 credits, max 20 credits
+    calculated = total_tokens // 250
+    return max(2, min(20, calculated))
 
 
 # ---------------------------------------------------------------------------

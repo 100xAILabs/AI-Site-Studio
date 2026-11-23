@@ -6193,7 +6193,7 @@ function Dashboard() {
                       <div className="p-3 bg-muted/20 rounded-xl">
                         <span className="text-[11px] text-muted-foreground uppercase font-semibold block">Generation Quota</span>
                         <div className="text-base font-bold text-foreground mt-0.5">
-                          {userSubData?.available_credits ?? user?.ai_credits ?? 10} Credits
+                          {userSubData?.available_credits ?? user?.ai_credits ?? 0} Credits
                         </div>
                         <span className="text-[10px] text-muted-foreground">
                           {userSubData?.entitlements?.ai_credits_monthly
@@ -6264,7 +6264,7 @@ function Dashboard() {
                         <Coins className="w-4 h-4 text-emerald-400" />
                       </div>
                       <div className="text-2xl font-black text-emerald-400">
-                        {billingReport?.summary?.current_ai_credits ?? user?.ai_credits ?? 10}
+                        {billingReport?.summary?.current_ai_credits ?? user?.ai_credits ?? 0}
                       </div>
                       <span className="text-[11px] text-emerald-400/80">Active compute quota</span>
                     </div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, ImagePlus, LoaderCircle, Sparkles, WandSparkles, Trash2, Layers, Tag, Eye, Brain, Check, FileText, Cpu } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, ImagePlus, LoaderCircle, Sparkles, WandSparkles, Trash2, Layers, Tag, Eye, Brain, Check, FileText, Cpu, Lock } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { useAppAuth } from "@/lib/auth";
 import { api, API_URL } from "@/lib/api";
@@ -119,6 +119,7 @@ export default function StudioPage() {
   const isGenerating = buildStore.isBuilding || generating;
   const currentActiveAgent = buildStore.activeAgent || activeAgent;
   const currentEvents = buildStore.events?.length ? buildStore.events : events;
+  const liveStreamRef = useRef(null);
   const [studioQuota, setStudioQuota] = useState(null);
 
   useEffect(() => {
@@ -227,6 +228,18 @@ export default function StudioPage() {
     }
     return AGENTS;
   }, [stack]);
+  const activeAgentIndex = pipelineAgents.indexOf(currentActiveAgent);
+  const completedAgentCount = pipelineAgents.filter((agent, index) => {
+    const failed = currentEvents.some((event) => event.agent === agent && event.status === "failed");
+    const completed = currentEvents.some((event) => event.agent === agent && event.status === "completed");
+    return !failed && (completed || (activeAgentIndex > index && activeAgentIndex !== -1));
+  }).length;
+  const remainingAgentCount = Math.max(0, pipelineAgents.length - completedAgentCount);
+
+  useEffect(() => {
+    const stream = liveStreamRef.current;
+    if (stream) stream.scrollTop = stream.scrollHeight;
+  }, [currentEvents.length]);
 
   // Restore state from store if available
   useEffect(() => {
@@ -265,6 +278,10 @@ export default function StudioPage() {
   async function buildPlan(event) {
     event.preventDefault();
     setError("");
+    if (studioQuota && !studioQuota.can_generate) {
+      setError(studioQuota.reason || "You need at least 10 AI credits to plan and generate a website. Please top up your credits or upgrade your plan.");
+      return;
+    }
     if (prompt.trim().length < 10) {
       setError("Add a few details about your website (at least 10 characters) to continue.");
       promptRef.current?.focus();
@@ -671,26 +688,36 @@ export default function StudioPage() {
           /* ── Step 1: Initial Prompt & Details Form ── */
           <form onSubmit={buildPlan} className="studio-brief-form grid gap-5 rounded-3xl border border-white/10 bg-white/[0.035] p-5 shadow-2xl shadow-black/20 sm:p-8">
             {studioQuota && (
-              studioQuota.is_free_generation_available ? (
-                <div className="studio-quota-notice flex items-center gap-2.5 p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs">
-                  <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span><strong>First website is free.</strong> No credits needed.</span>
+              studioQuota.can_generate ? (
+                <div className="studio-quota-notice flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span><strong>{studioQuota.ai_credits ?? 0} AI Credits Available.</strong> Generating a complete template uses 10 credits.</span>
+                  </div>
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-200">
+                    10 credits / site
+                  </span>
                 </div>
-              ) : studioQuota.free_generation_used && !studioQuota.can_generate ? (
-                <div className="flex items-center justify-between gap-3 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                    <span>You have used your 1 free website generation. To create more websites, please purchase automation credits or upgrade your plan.</span>
+              ) : (
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="block text-sm font-bold text-amber-300">Credits Depleted ({studioQuota.ai_credits ?? 0} / 10 required)</strong>
+                      <p className="text-xs text-amber-200/90 mt-1">
+                        {studioQuota.reason || "You need at least 10 AI credits to plan or generate a website. Please purchase compute credits or upgrade your plan."}
+                      </p>
+                    </div>
                   </div>
                   <button
                     type="button"
                     onClick={() => navigate("/pricing")}
-                    className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shrink-0 transition-colors cursor-pointer"
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs shrink-0 transition-all shadow-md shadow-amber-950/20 cursor-pointer"
                   >
-                    Buy Credits
+                    Buy Credits / Upgrade
                   </button>
                 </div>
-              ) : null
+              )
             )}
             <div>
               <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
@@ -771,18 +798,18 @@ export default function StudioPage() {
 
             {/* Quick Sub-Category Suggestion Chips */}
             {availableSubCategories.length > 0 && (
-              <div className="rounded-xl border border-[#c89666]/30 bg-[#c89666]/10 p-3">
-                <span className="text-xs font-semibold text-[#dfb180] mb-2 flex items-center gap-1.5">
+              <div className="studio-specialty-panel rounded-xl border border-[#c89666]/30 bg-[#c89666]/10 p-3">
+                <span className="studio-specialty-heading text-xs font-semibold text-[#dfb180] mb-2 flex items-center gap-1.5">
                   <Tag className="w-3.5 h-3.5 text-[#dfb180]" />
                   Popular {selectedCategory?.name} Specialties (click to auto-fill):
                 </span>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="studio-specialty-chips flex flex-wrap gap-1.5">
                   {availableSubCategories.map((sub) => (
                     <button
                       key={sub}
                       type="button"
                       onClick={() => setGenre(sub)}
-                      className={`text-xs px-2.5 py-1 rounded-lg border transition cursor-pointer ${genre.toLowerCase() === sub.toLowerCase()
+                      className={`studio-specialty-chip text-xs px-2.5 py-1 rounded-lg border transition cursor-pointer ${genre.toLowerCase() === sub.toLowerCase()
                         ? "bg-[#c89666]/20 border-[#c89666]/50 text-[#dfb180] font-bold shadow-sm"
                         : "bg-[#16161e] border-[#272733] text-zinc-300 hover:bg-[#1a1a24] hover:text-white"
                         }`}
@@ -803,16 +830,29 @@ export default function StudioPage() {
                     : "Your brief is ready. You can still refine the content in the next step."}
             </p>
             {error && <p role="alert" className="rounded-xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">{error}</p>}
-            <button type="submit" disabled={loadingPlan || !categoryId || !effectivePageStructure || prompt.trim().length < 10} className="studio-plan-submit inline-flex w-fit items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-amber-950/40 transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50">
-              <WandSparkles size={17} />
-              <span>Plan my website</span>
-              <ArrowRight size={16} />
+            <button
+              type="submit"
+              disabled={loadingPlan || (studioQuota && !studioQuota.can_generate) || !categoryId || !effectivePageStructure || prompt.trim().length < 10}
+              className="studio-plan-submit inline-flex w-fit items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-amber-950/40 transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {studioQuota && !studioQuota.can_generate ? (
+                <>
+                  <Lock size={17} />
+                  <span>Need 10 credits · Top up to plan</span>
+                </>
+              ) : (
+                <>
+                  <WandSparkles size={17} />
+                  <span>Plan my website</span>
+                  <ArrowRight size={16} />
+                </>
+              )}
             </button>
           </form>
         ) : isGenerating ? (
           /* ── Step 5: Multi-Agent Live Generation Screen ── */
-          <div className="rounded-3xl border border-[#c89666]/30 bg-gradient-to-b from-[#c89666] to-[#b5804f]/20 via-[#0c111b] to-[#070b12] p-6 sm:p-10 shadow-2xl">
-            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-6">
+          <div className="studio-generation-screen rounded-3xl border border-[#c89666]/30 bg-gradient-to-b from-[#c89666] to-[#b5804f]/20 via-[#0c111b] to-[#070b12] p-6 sm:p-10 shadow-2xl">
+            <div className="studio-generation-header flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-6">
               <div className="flex items-center gap-3">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#c89666]/15 border border-[#c89666]/30 text-[#dfb180]">
                   <LoaderCircle size={24} className="animate-spin text-[#dfb180]" />
@@ -827,48 +867,24 @@ export default function StudioPage() {
               </span>
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-2 mt-8">
-              {/* Agent Status List */}
-              <div className="rounded-2xl border border-white/10 bg-[#090d16] p-5">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Pipeline Execution</h3>
-                <div className="space-y-3">
-                  {pipelineAgents.map((name) => {
-                    const currentIndex = pipelineAgents.indexOf(currentActiveAgent);
-                    const myIndex = pipelineAgents.indexOf(name);
-                    const failed = currentEvents.some((event) => event.agent === name && event.status === "failed");
-                    const isDoneExplicit = currentEvents.some((event) => event.agent === name && event.status === "completed");
-                    const done = !failed && (isDoneExplicit || (currentIndex > myIndex && currentIndex !== -1));
-                    const active = currentActiveAgent === name;
-                    return (
-                      <div key={name} className={`flex items-center justify-between rounded-xl p-2.5 text-xs transition ${done ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-300" : failed ? "bg-amber-500/10 border border-amber-500/20 text-amber-300" : active ? "bg-[#c89666]/15 border border-[#c89666]/30 text-white font-bold" : "text-slate-500 border border-transparent"}`}>
-                        <div className="flex items-center gap-2.5">
-                          {done ? (
-                            <CheckCircle2 size={15} className="text-emerald-400" />
-                          ) : failed ? (
-                            <AlertCircle size={15} className="text-amber-300" />
-                          ) : active ? (
-                            <LoaderCircle size={15} className="animate-spin text-[#dfb180]" />
-                          ) : (
-                            <span className="h-3.5 w-3.5 rounded-full border border-slate-700" />
-                          )}
-                          <span>{name}</span>
-                        </div>
-                        <span className="text-[10px] font-semibold uppercase opacity-75">
-                          {done ? "Completed" : active ? "Active" : failed ? "Warning" : "Queued"}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Live Streaming Logs */}
-              <div className="flex flex-col rounded-2xl border border-white/10 bg-[#090d16] p-5">
+            <div className="studio-live-stream-panel mt-8 flex flex-col rounded-2xl border border-white/10 bg-[#090d16] p-5 sm:p-7">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Live Agent Stream</h3>
-                  <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <div>
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300">Live Agent Stream</h3>
+                    <p className="mt-1 text-xs text-slate-500">Agent activity and build updates appear here.</p>
+                  </div>
+                  <span className="studio-stream-live"><i /> LIVE</span>
                 </div>
-                <div className="flex-1 max-h-80 space-y-2 overflow-y-auto pr-1 font-mono text-[11px] text-slate-400">
+                <div className="studio-agent-progress" aria-live="polite">
+                  <div className="studio-agent-progress-labels">
+                    <strong>{completedAgentCount} of {pipelineAgents.length} agents complete</strong>
+                    <span>{remainingAgentCount} remaining</span>
+                  </div>
+                  <div className="studio-agent-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={pipelineAgents.length} aria-valuenow={completedAgentCount} aria-label="Agent completion progress">
+                    <i style={{ width: `${pipelineAgents.length ? (completedAgentCount / pipelineAgents.length) * 100 : 0}%` }} />
+                  </div>
+                </div>
+                <div ref={liveStreamRef} className="studio-live-stream flex-1 max-h-[32rem] space-y-2 overflow-y-auto pr-1 font-mono text-xs text-slate-400" aria-live="polite" aria-relevant="additions text">
                   {currentEvents.length === 0 ? (
                     <p className="text-slate-600 italic">Initializing multi-agent session...</p>
                   ) : (
@@ -876,7 +892,7 @@ export default function StudioPage() {
                       const agentLabel = event.agent || (event.type === "page" ? "Frontend Dev Agent" : "Pipeline");
                       const detailText = event.detail || (event.type === "page" && event.name ? `Building ${event.name} page (${event.filename || "HTML"})…` : event.name || event.message || event.type);
                       return (
-                        <div key={event.key} className="rounded-lg bg-black/30 p-2 border border-white/5">
+                        <div key={event.key} className="studio-stream-event rounded-lg bg-black/30 p-3 border border-white/5">
                           <span className="text-[#dfb180] font-semibold">{agentLabel}:</span>{" "}
                           <span className="text-slate-300">{detailText}</span>
                         </div>
@@ -884,7 +900,6 @@ export default function StudioPage() {
                     })
                   )}
                 </div>
-              </div>
             </div>
           </div>
         ) : (
@@ -963,7 +978,7 @@ export default function StudioPage() {
                     {plan.pages.map((page, index) => (
                       <article
                         key={page.filename}
-                        className={`rounded-2xl border p-4.5 transition-all duration-200 ${
+                        className={`studio-page-card rounded-2xl border p-4.5 transition-all duration-200 ${
                           page.included === false
                             ? "border-border/60 bg-muted/20 opacity-60"
                             : "border-border bg-card shadow-sm hover:border-primary/40 hover:shadow-md"
@@ -998,7 +1013,7 @@ export default function StudioPage() {
                           {page.purpose}
                         </p>
                         {!!page.sections?.length && (
-                          <div className="mt-3.5 pt-3 border-t border-border/60">
+                          <div className="studio-page-sections mt-3.5 pt-3 border-t border-border/60">
                             <div className="mb-2 flex items-center justify-between gap-2">
                               <div className="flex items-center gap-1.5">
                                 <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
@@ -1028,7 +1043,7 @@ export default function StudioPage() {
                                 </div>
                               )}
                             </div>
-                            <div className="flex flex-wrap gap-1.5" role="group" aria-label={`Sections for ${page.name}`}>
+                            <div className="studio-section-chips flex flex-wrap gap-1.5" role="group" aria-label={`Sections for ${page.name}`}>
                               {page.sections.map((section, sIdx) => {
                                 const info = formatSectionDisplay(section);
                                 const selected = (page.selected_sections || page.sections).some((s) => {
@@ -1044,7 +1059,7 @@ export default function StudioPage() {
                                     aria-checked={selected}
                                     onClick={() => togglePageSection(page.filename, section)}
                                     title={info.desc ? `${info.title} — ${info.desc}` : info.title}
-                                    className={`rounded-lg border px-2.5 py-1 text-[11px] font-medium transition cursor-pointer flex items-center gap-1.5 ${
+                                    className={`studio-section-chip rounded-lg border px-2.5 py-1 text-[11px] font-medium transition cursor-pointer flex items-center gap-1.5 ${
                                       selected
                                         ? "border-primary/50 bg-primary/15 text-primary font-semibold shadow-xs"
                                         : "border-border bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -1087,7 +1102,7 @@ export default function StudioPage() {
                       </span>
                     )}
                   </div>
-                  <div className="overflow-hidden rounded-2xl border border-border shadow-md" style={{ backgroundColor: safeColor(palette.background, "#f3f4f6"), color: safeColor(palette.text, "#172033") }}>
+                  <div className="studio-live-concept-preview overflow-hidden rounded-2xl border border-border shadow-md" style={{ backgroundColor: safeColor(palette.background, "#f3f4f6"), color: safeColor(palette.text, "#172033") }}>
                     <div className="flex items-center justify-between border-b border-border/40 px-4 py-3 text-xs">
                       <strong>{plan.title}</strong>
                       <div className="hidden gap-4 sm:flex">{plan.pages.filter((page) => page.included !== false || page.required).slice(0, 3).map((page) => <span key={page.filename} className="opacity-70">{page.name}</span>)}</div>
@@ -1109,18 +1124,36 @@ export default function StudioPage() {
 
                   {/* Design Tokens & Responsive Directives Preview */}
                   <div className="mt-4 pt-4 border-t border-border/60 grid gap-3 sm:grid-cols-2 text-xs">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Palette:</span>
+                    <div className="studio-palette-controls flex flex-wrap items-center gap-3">
+                      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Palette · customize</span>
                       {[
                         { label: "Primary", color: palette.primary || "#6d4aff" },
                         { label: "Accent", color: palette.accent || "#f28a64" },
                         { label: "Surface", color: palette.surface || "#ffffff" },
                         { label: "Canvas", color: palette.background || "#0f1117" },
                       ].map((item) => (
-                        <div key={item.label} className="flex items-center gap-1.5 rounded-lg border border-border/80 bg-muted/40 px-2 py-1" title={`${item.label}: ${item.color}`}>
-                          <span className="h-3 w-3 rounded-full border border-black/20" style={{ backgroundColor: safeColor(item.color, "#6d4aff") }} />
-                          <span className="font-mono text-[10px] text-foreground">{item.color}</span>
-                        </div>
+                        <label key={item.label} className="studio-color-control" title={`Change ${item.label.toLowerCase()} color`}>
+                          <span>{item.label}</span>
+                          <input
+                            type="color"
+                            aria-label={`${item.label} color`}
+                            value={safeColor(item.color, "#6d4aff")}
+                            onChange={(event) => {
+                              const scrollY = window.scrollY;
+                              const key = item.label === "Canvas" ? "background" : item.label.toLowerCase();
+                              const color = event.target.value;
+                              setPlan((current) => ({
+                                ...current,
+                                design_system: { ...(current.design_system || {}), [key]: color },
+                              }));
+                              setBuildPrompt("");
+                              requestAnimationFrame(() => {
+                                requestAnimationFrame(() => window.scrollTo(0, scrollY));
+                              });
+                            }}
+                          />
+                          <code>{item.color}</code>
+                        </label>
                       ))}
                     </div>
                     <div className="flex flex-wrap items-center sm:justify-end gap-2 text-[11px] text-muted-foreground">
@@ -1160,8 +1193,8 @@ export default function StudioPage() {
 
             {/* ── STEP 3: Clarification Questions ── */}
             {currentStep === 3 && (
-              <div className="space-y-6">
-                <div className="rounded-3xl border border-border bg-card p-5 sm:p-8 shadow-sm">
+              <div className="studio-clarification-step space-y-6">
+                <div className="studio-clarification-card rounded-3xl border border-border bg-card p-5 sm:p-8 shadow-sm">
                   <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Step 2 · Clarifications</p>
@@ -1173,16 +1206,16 @@ export default function StudioPage() {
                     </span>
                   </div>
 
-                  <div className="space-y-4 max-w-2xl mx-auto">
+                  <div className="studio-clarification-history space-y-4 max-w-2xl mx-auto">
                     {(plan.questions || []).map((question, index) => {
                       const id = question.id || `q-${index}`;
                       const wasAnswered = completedQuestions.includes(id);
                       const wasSkipped = skippedQuestions.includes(id);
                       if (!wasAnswered && !wasSkipped) return null;
                       return (
-                        <div key={id} className="space-y-2">
-                          <div className="max-w-[90%] rounded-2xl rounded-bl-sm border border-border bg-muted/40 px-4 py-3 text-sm text-foreground">{question.question}</div>
-                          <div className="ml-auto max-w-[90%] rounded-2xl rounded-br-sm bg-primary/15 border border-primary/25 px-4 py-3 text-sm text-primary font-medium">{wasSkipped ? "Skip for now" : answers[id]}</div>
+                        <div key={id} className="studio-clarification-pair">
+                          <div className="studio-clarification-question">{question.question}</div>
+                          <div className="studio-clarification-answer">{wasSkipped ? "Skip for now" : answers[id]}</div>
                         </div>
                       );
                     })}
@@ -1192,7 +1225,7 @@ export default function StudioPage() {
                       const id = question.id || `q-${activeClarificationIndex}`;
                       const value = answers[id] || "";
                       return (
-                        <div className="rounded-2xl border border-primary/30 bg-primary/5 p-5 space-y-4" key={id}>
+                        <div className="studio-active-question rounded-2xl border border-primary/30 bg-primary/5 p-5 space-y-4" key={id}>
                           <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-primary">
                             <span>Studio Question #{completedQuestions.length + skippedQuestions.length + 1}</span>
                             <span>{completedQuestions.length + skippedQuestions.length + 1} / {clarificationQuestions.length}</span>
@@ -1210,7 +1243,7 @@ export default function StudioPage() {
                           ) : (
                             <input id={`active-${id}`} value={value} onChange={(event) => updateAnswer(id, event.target.value)} placeholder={question.placeholder || "Type your answer…"} className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary" />
                           )}
-                          <div className="flex justify-end gap-2.5 pt-2">
+                          <div className="studio-question-actions flex justify-end gap-2.5 pt-2">
                             {!question.required && (
                               <button type="button" onClick={() => submitClarification(question, activeClarificationIndex)} className="rounded-xl border border-border px-4 py-2.5 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/40 transition cursor-pointer">
                                 Skip
@@ -1266,13 +1299,13 @@ export default function StudioPage() {
                   <span className="studio-stack-pill"><Cpu size={15} /> {stack === "vue-fastapi-postgresql" ? "Vue · FastAPI · PostgreSQL" : stack === "angular-fastapi-postgresql" ? "Angular · FastAPI · PostgreSQL" : stack === "react-fastapi-postgresql" ? "React · FastAPI · PostgreSQL" : "HTML · CSS · JavaScript"}</span>
                 </header>
 
-                <div className="studio-build-grid grid gap-6 lg:grid-cols-2">
-                  {/* Left: Image Assets */}
+                <div className="studio-build-grid grid gap-6">
+                  {/* Step 1: Image Assets */}
                   <section className="studio-assets-card rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
                     <div className="studio-section-heading">
                       <div className="studio-section-icon"><ImagePlus size={18} /></div>
                       <div>
-                        <h3>Project images</h3>
+                        <h3>01 · Add project images</h3>
                         <p>Optional · add up to 16 images</p>
                       </div>
                     </div>
@@ -1320,13 +1353,13 @@ export default function StudioPage() {
                     )}
                   </section>
 
-                  {/* Right: Editable Build Prompt */}
+                  {/* Step 2: Generate and review the editable build prompt */}
                   <section className="studio-brief-card rounded-3xl border border-white/10 bg-white/[0.035] p-5 sm:p-7">
                     <div className="studio-brief-card-header">
                       <div className="studio-section-heading">
                         <div className="studio-section-icon"><FileText size={18} /></div>
                         <div>
-                          <h3>Build brief</h3>
+                          <h3>02 · Generate your build prompt</h3>
                           <p>Review and edit what the agents will build</p>
                         </div>
                       </div>

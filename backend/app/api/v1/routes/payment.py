@@ -580,8 +580,9 @@ async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Op
                 except Exception as e_earn:
                     logger.warning("Could not record creator earning for item %s: %s", item.id, e_earn)
 
-        # Credit AI Gemini tokens if this order contains token pack credits
-        if order.extra_metadata and order.extra_metadata.get("credits_to_add"):
+        # Credit AI Gemini tokens ONLY if this order is a standalone credit pack (NOT a subscription plan)
+        is_subscription = bool(order.extra_metadata and order.extra_metadata.get("type") == "subscription_plan")
+        if order.extra_metadata and order.extra_metadata.get("credits_to_add") and not is_subscription:
             try:
                 credits_to_add = int(order.extra_metadata["credits_to_add"])
                 if not order.extra_metadata.get("credits_credited"):
@@ -595,7 +596,7 @@ async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Op
                 logger.warning("Could not credit AI tokens for order %s: %s", order.id, cred_err)
 
         # Upgrade user subscription tier if this order is a Pro/Agency subscription
-        if order.extra_metadata and order.extra_metadata.get("type") == "subscription_plan":
+        if is_subscription:
             try:
                 plan_id = str(order.extra_metadata.get("plan_id") or "pro").lower()
                 billing_cycle = str(order.extra_metadata.get("billing_cycle") or "monthly").lower()
@@ -609,10 +610,14 @@ async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Op
                     target_user.subscription_status = "active"
                     target_user.auto_renew = True
                     target_user.subscription_id = str(order.order_number)
-                    sub_credits = int(order.extra_metadata.get("credits_to_add") or 0)
-                    if sub_credits > 0 and not order.extra_metadata.get("credits_credited"):
-                        target_user.ai_credits = (target_user.ai_credits or 0) + sub_credits
-                        order.extra_metadata["credits_credited"] = True
+
+                    # USER RULE: "when they upgrade use only upgraded token not a previous one ok"
+                    # Strictly allocate the fresh upgraded plan's credits (no previous token rollover)
+                    from app.core.plans import get_plan_config
+                    plan_cfg = get_plan_config(plan_id)
+                    sub_credits = int(order.extra_metadata.get("credits_to_add") or plan_cfg.get("included_ai_credits", 0))
+                    target_user.ai_credits = sub_credits
+                    order.extra_metadata["credits_credited"] = True
 
                     # Synchronize authoritative primary UserSubscription record
                     try:
@@ -1437,6 +1442,8 @@ async def razorpay_webhook(
 
         if target_user:
             target_user.subscription_tier = "free"
+            target_user.subscription_status = "canceled"
+            target_user.ai_credits = 0  # Finished/revoked plan = 0 tokens
             await db.commit()
             logger.info(f"Razorpay webhook: {event} downgraded {target_user.email} to free")
             return {"status": "subscription_revoked", "user_email": target_user.email, "tier": "free"}
@@ -1834,6 +1841,7 @@ async def purchase_plan(
         current_user.subscription_expires_at = None
         current_user.subscription_status = "canceled"
         current_user.auto_renew = False
+        current_user.ai_credits = 0  # Finished/canceled plan = 0 tokens
         from app.services.entitlement_service import EntitlementService
         ent_svc = EntitlementService(db)
         sub = await ent_svc.get_or_create_user_subscription(current_user)

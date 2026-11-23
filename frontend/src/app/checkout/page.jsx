@@ -710,6 +710,7 @@ export default function Checkout() {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+  const usdAmountString = `$${Number(cartTotal || 0).toFixed(2)} USD`;
 
 
   // Helper to add sample templates if cart is empty for immediate testing
@@ -1378,7 +1379,7 @@ export default function Checkout() {
                             Visa, Amex, Apple / Google Pay
                           </p>
                           <span className="payment-method-amount text-xs font-bold text-indigo-700 dark:text-indigo-400 block mt-1.5">
-                            {formattedTotalString} USD
+                            {usdAmountString}
                           </span>
                         </div>
                         <div className="payment-method-indicator absolute top-3.5 right-3.5 flex items-center justify-center">
@@ -1494,7 +1495,7 @@ export default function Checkout() {
                         <Lock size={16} />
                         <span>
                           {paymentMethod === "stripe"
-                            ? `Pay with Stripe (${formattedTotalString} USD)`
+                            ? `Pay with Stripe (${usdAmountString})`
                             : paymentMethod === "upi"
                             ? `Pay via UPI (${inrAmountString})`
                             : paymentMethod === "netbanking"

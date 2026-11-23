@@ -240,9 +240,19 @@
 }
 
 .contact-select option {
-  background-color: #ffffff;
-  color: #f8fafc;
-  padding: 0.5rem;
+  background-color: hsl(var(--card));
+  color: hsl(var(--foreground));
+  padding: 0.65rem 0.75rem;
+}
+
+.contact-select {
+  min-height: 3.25rem;
+  color-scheme: light;
+}
+
+.dark .contact-select,
+[data-theme="dark"] .contact-select {
+  color-scheme: dark;
 }
 
 .contact-input::placeholder {

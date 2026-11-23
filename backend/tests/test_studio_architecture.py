@@ -10,6 +10,7 @@ from app.services.site_compiler import (
     inject_seo_and_social_tags,
     run_comprehensive_audit,
     normalize_multi_page_navigation,
+    inject_modern_motion_system,
 )
 
 
@@ -187,5 +188,28 @@ This is trailing markdown summary.
     # On projects.html, Home should NOT be active, and Projects should be active
     assert 'aria-current="page"' in repaired["projects.html"]
     assert len(logs) > 0
+
+
+def test_inject_modern_motion_system():
+    raw_html = "<!DOCTYPE html><html><head><title>Test</title></head><body><section class='hero'><h1>Title</h1></section></body></html>"
+    animated = inject_modern_motion_system(raw_html)
+
+    # 1. Engine CSS and Script injected
+    assert 'id="studio-motion-engine"' in animated
+    assert 'id="studio-motion-script"' in animated
+
+    # 2. Keyframes and utilities present
+    assert '@keyframes studioFadeInUp' in animated
+    assert '.studio-reveal' in animated
+    assert 'scroll-behavior: smooth !important' in animated
+
+    # 3. Accessibility & noscript fallbacks
+    assert 'prefers-reduced-motion: reduce' in animated
+    assert '<noscript>' in animated
+
+    # 4. Idempotency - double injection must not duplicate
+    double_animated = inject_modern_motion_system(animated)
+    assert double_animated.count('id="studio-motion-engine"') == 1
+    assert double_animated.count('id="studio-motion-script"') == 1
 
 

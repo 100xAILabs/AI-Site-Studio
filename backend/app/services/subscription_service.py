@@ -292,9 +292,9 @@ class SubscriptionService:
         user.subscription_expires_at = now + timedelta(days=cycle_days)
         user.auto_renew = True
 
-        # Grant monthly credits
+        # Grant monthly credits: USER RULE: "use only upgraded token not a previous one ok"
         credits_to_grant = plan_cfg["included_ai_credits"]
-        user.ai_credits = (user.ai_credits or 0) + credits_to_grant
+        user.ai_credits = credits_to_grant  # Fresh allocation, do NOT carry over previous unused tokens
 
         # Update primary UserSubscription
         user_sub = await self.entitlement_service.get_or_create_user_subscription(user)

@@ -1897,6 +1897,18 @@ async def self_heal_deployment(
     if not can_heal:
         raise HTTPException(status_code=403, detail=heal_block_reason)
 
+    can_ai, ai_reason, cost = await ent_svc.check_ai_generation_entitlement(current_user, "auto_heal")
+    if not can_ai:
+        raise HTTPException(status_code=402, detail=ai_reason or "Insufficient AI credits for Auto-Heal (5 credits required).")
+
+    await ent_svc.deduct_ai_credits(
+        user=current_user,
+        operation="auto_heal",
+        deployment_id=deployment.id,
+        provider="gemini",
+        model_name="gemini-1.5-flash",
+    )
+
     deployment.is_auto_heal_active = True
     await db.commit()
 
@@ -2601,6 +2613,21 @@ async def save_deployment_file(
     if deployment.user_id != current_user.id and not is_admin:
         raise HTTPException(status_code=403, detail="Access denied: You do not own this deployment.")
 
+    if not is_admin:
+        from app.services.entitlement_service import EntitlementService
+        ent_svc = EntitlementService(db)
+        can_save, reason, _ = await ent_svc.check_ai_generation_entitlement(current_user, "code_edit")
+        if not can_save:
+            raise HTTPException(status_code=402, detail=reason or "Insufficient AI credits (2 credits required to save code).")
+        await ent_svc.deduct_ai_credits(
+            user=current_user,
+            operation="code_edit",
+            deployment_id=deployment.id,
+            credits_override=2,
+            provider="system",
+            model_name="editor",
+        )
+
     user_label = "Admin" if is_admin else f"Owner ({current_user.email or current_user.name or 'User'})"
     healing_service = DeploymentHealingService(db)
     success, msg = await healing_service.save_file(
@@ -2664,19 +2691,24 @@ async def ai_edit_deployment(
     if not files_dict:
         raise HTTPException(status_code=400, detail="No editable files found for this deployment.")
 
+    from app.core.plans import calculate_ai_edit_token_credits
     from app.services.entitlement_service import EntitlementService
     ent_svc = EntitlementService(db)
-    can_edit, reason, cost = await ent_svc.check_ai_generation_entitlement(current_user, "conversational_edit")
-    if not can_edit:
-        raise HTTPException(status_code=402, detail=reason)
+    token_credits = calculate_ai_edit_token_credits(payload.prompt)
+    if not is_admin and (current_user.ai_credits or 0) < token_credits:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Insufficient AI credits (have {current_user.ai_credits or 0}, need {token_credits} credits based on prompt tokens)."
+        )
 
     await ent_svc.deduct_ai_credits(
         user=current_user,
-        operation="conversational_edit",
+        operation="ai_edit",
         deployment_id=deployment.id,
+        credits_override=token_credits,
         provider="gemini" if "gemini" in (payload.model or "") else "openai",
         model_name=payload.model or "gemini-1.5-flash",
-        metadata={"prompt": payload.prompt[:100], "file_path": payload.file_path},
+        metadata={"prompt": payload.prompt[:100], "file_path": payload.file_path, "credits": token_credits},
     )
 
     result = await ai_service.edit_website_with_ai(

@@ -516,3 +516,49 @@
     padding: 1rem 1.25rem;
   }
 }
+
+/* Warm light verification theme to match the sign-in flow. */
+.otp-page-container {
+  background-image: radial-gradient(circle at 14% 22%, hsl(var(--primary) / .1), transparent 30%), radial-gradient(circle at 84% 78%, rgba(102,91,145,.07), transparent 32%);
+}
+.otp-nav-header { box-sizing: border-box; }
+.otp-brand-logo { color: #29252b; }
+.otp-brand-text {
+  background: linear-gradient(135deg, #29252b 0%, #71675e 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.otp-home-btn { color: #625b62; background: rgba(255,255,255,.7); border-color: #e8ded4; }
+.otp-home-btn:hover { color: #9b6637; background: #fffaf4; border-color: #d8b995; }
+.otp-card {
+  background: linear-gradient(145deg, #fffdfa 0%, #f8f3ed 100%);
+  border: 1px solid #e8d9c9;
+  box-shadow: 0 28px 70px rgba(50,40,30,.14), 0 8px 24px rgba(189,134,81,.08);
+  animation: otp-card-enter 500ms cubic-bezier(.2,.75,.25,1) both;
+}
+.otp-back-action { color: #776d66; }
+.otp-back-action:hover { color: #a96f3b; }
+.otp-icon-container { background: linear-gradient(145deg, #fff3e3, #f6e5d2); border-color: #e8c9a6; color: #b77e4a; box-shadow: 0 8px 22px rgba(189,134,81,.12); }
+.otp-title { color: #29252b; }
+.otp-subtitle { color: #716b73; }
+.otp-email-box { background: #fff; border-color: #e8ded4; }
+.otp-email-icon { color: #b77e4a; }
+.otp-email-text { color: #403a40; }
+.otp-input-box {
+  background: #fff;
+  border-color: #e1d7ce;
+  color: #29252b;
+  caret-color: #b77e4a;
+  box-shadow: 0 2px 8px rgba(50,40,30,.035);
+}
+.otp-input-box:focus { border-color: #bd8651; background: #fffaf4; box-shadow: 0 0 0 4px rgba(189,134,81,.14); }
+.otp-input-box.filled { border-color: #d1a578; background: #fff9f1; }
+.otp-submit-btn { color: #fff; background: linear-gradient(110deg, #c28b56, #ad7443); box-shadow: 0 8px 20px rgba(173,116,67,.22); }
+.otp-submit-btn:disabled { background: #e7d8c8; color: #74675c; opacity: 1; }
+.otp-resend-wrapper { color: #716b73; }
+.otp-resend-btn { color: #a96f3b; }
+.otp-resend-btn:disabled { color: #8d8580; }
+.otp-tips-container { border-top-color: #e7ddd3; }
+.otp-tip-item { color: #756f75; }
+@keyframes otp-card-enter { from { opacity: 0; transform: translateY(14px) scale(.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@media (prefers-reduced-motion: reduce) { .otp-card { animation: none; } }

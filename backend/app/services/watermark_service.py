@@ -1,5 +1,5 @@
 """
-Watermark Service â€” Handles embedded (inside) multi-page template watermarks,
+Watermark Service — Handles embedded (inside) multi-page template watermarks,
 code-combined runtime assets, license verification, and automatic watermark removal
 for Pro subscribers and Extended/Commercial license holders.
 """
@@ -232,7 +232,7 @@ def generate_runtime_js(
 
     return f"""/**
  * AI Site Studio Runtime & License Integrity Guard
- * Standard Edition â€” Combined code and multi-page attribution.
+ * Standard Edition — Combined code and multi-page attribution.
  * (Automatically removed for Pro Subscribers & Extended License holders)
  */
 (function () {{
@@ -653,7 +653,7 @@ def generate_license_warning_text(
     Generates plain-text legal warning notice and code modification rules packaged into downloads.
     """
     return f"""================================================================================
-          AI SITE STUDIO â€” STANDARD EDITION LICENSE & CODE USAGE RULES
+          AI SITE STUDIO — STANDARD EDITION LICENSE & CODE USAGE RULES
 ================================================================================
 Template: {title}
 License:  Standard Regular License (Evaluation / Single End-Product)
@@ -665,47 +665,47 @@ This template package is subject to strict licensing, copyright, and telemetry g
 
 1. WATERMARK & ATTRIBUTION INTEGRITY (MANDATORY REQUIREMENT)
 --------------------------------------------------------------------------------
-â€¢ All multi-page embedded watermarks (diagonal semi-transparent "AI SITE STUDIO"
+• All multi-page embedded watermarks (diagonal semi-transparent "AI SITE STUDIO"
   background pattern) and floating attribution badges (#site-studio-watermark-badge)
   MUST remain visible and unaltered on every HTML page.
-â€¢ You may NOT hide, obscure, or alter watermark elements using CSS
+• You may NOT hide, obscure, or alter watermark elements using CSS
   (e.g., `display: none`, `opacity: 0`, `visibility: hidden`, or zero font-size).
-â€¢ The included `watermark-license.html` file and core runtime dependencies
+• The included `watermark-license.html` file and core runtime dependencies
   (`assets/css/site-studio-core.css`, `assets/js/site-studio-runtime.js`) MUST
   remain inside the project root and subdirectories.
 
 2. PERMITTED VS. PROHIBITED CODE MODIFICATIONS
 --------------------------------------------------------------------------------
-[âœ“] ALLOWED MODIFICATIONS:
-  â€¢ Customizing website content, text, headings, and descriptions for your company.
-  â€¢ Swapping out images, icons, logos, and graphic assets.
-  â€¢ Adjusting color palettes, typography, and page section layouts.
-  â€¢ Wiring contact forms, lead capture forms, and backend APIs.
-  â€¢ Hosting and deploying the site on your personal domain WITH watermarks intact.
+[✓] ALLOWED MODIFICATIONS:
+  • Customizing website content, text, headings, and descriptions for your company.
+  • Swapping out images, icons, logos, and graphic assets.
+  • Adjusting color palettes, typography, and page section layouts.
+  • Wiring contact forms, lead capture forms, and backend APIs.
+  • Hosting and deploying the site on your personal domain WITH watermarks intact.
 
-[âœ—] STRICTLY PROHIBITED (LICENSE VIOLATIONS):
-  â€¢ Removing or modifying the watermark overlay, corner badge, or runtime scripts.
-  â€¢ Deleting `watermark-license.html` to disguise the template's standard origin.
-  â€¢ Reselling, re-distributing, sharing, or sub-licensing the source code on other
+[✗] STRICTLY PROHIBITED (LICENSE VIOLATIONS):
+  • Removing or modifying the watermark overlay, corner badge, or runtime scripts.
+  • Deleting `watermark-license.html` to disguise the template's standard origin.
+  • Reselling, re-distributing, sharing, or sub-licensing the source code on other
     marketplaces, GitHub public repos, or file sharing sites.
-  â€¢ Delivering watermarked Standard templates to clients as custom 100% original work.
+  • Delivering watermarked Standard templates to clients as custom 100% original work.
 
 3. AUTOMATED TAMPER TELEMETRY & LEGAL ENFORCEMENT
 --------------------------------------------------------------------------------
-â€¢ This template package includes automated client-side and backend runtime integrity
+• This template package includes automated client-side and backend runtime integrity
   checks that verify license compliance.
-â€¢ If attribution badges, watermarks, or license files are altered or deleted, the
+• If attribution badges, watermarks, or license files are altered or deleted, the
   runtime guard immediately blocks the display with a License Integrity Error and
   dispatches a security alert to our platform telemetry receiver.
-â€¢ Intentional copyright infringement or license stripping will result in immediate
+• Intentional copyright infringement or license stripping will result in immediate
   revocation of all usage rights, DMCA takedown notices, and legal action.
 
 4. NEED 100% WHITE-LABEL (ZERO WATERMARK)?
 --------------------------------------------------------------------------------
 If you need pristine, unwatermarked source code for commercial client delivery,
 agency handoffs, or resale:
-  â€¢ Upgrade to an active PRO SUBSCRIPTION ($29/month) for unlimited clean downloads.
-  â€¢ Or purchase an EXTENDED COMMERCIAL LICENSE for this specific template.
+  • Upgrade to an active PRO SUBSCRIPTION ($19/month) for unlimited clean downloads.
+  • Or purchase an EXTENDED COMMERCIAL LICENSE for this specific template.
   Visit: http://localhost:5173/pricing
 ================================================================================
 """
@@ -731,7 +731,7 @@ def generate_watermark_license_page(title: str = "Website Template", genre: str 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>License &amp; Watermark Notice â€” {title}</title>
+  <title>License &amp; Watermark Notice — {title}</title>
   <style>
     :root {{
       --bg: #0b0f19;
@@ -1011,7 +1011,7 @@ def generate_watermark_license_page(title: str = "Website Template", genre: str 
     </div>
 
     <div class="info-card">
-      <h3>âš ï¸ Notice: Standard Edition Watermarks Active</h3>
+      <h3>⚠️ Notice: Standard Edition Watermarks Active</h3>
       <p>
         This template is currently running under the <strong>Standard Edition</strong> with active multi-page watermarks:
         an all-over semi-transparent background watermark pattern (<code>AI SITE STUDIO</code>) and a floating attribution badge.
@@ -1024,11 +1024,11 @@ def generate_watermark_license_page(title: str = "Website Template", genre: str 
         <h4 class="tier-title">Standard Edition (Current)</h4>
         <p class="tier-desc">Combined code with embedded Site Studio background watermark &amp; attribution.</p>
         <ul class="tier-list">
-          <li class="cross">âœ• All-over semi-transparent background watermark on all pages</li>
-          <li class="cross">âœ• Floating attribution badge and license runtime guard</li>
-          <li class="cross">âœ• Cannot resell or deliver as original work to clients</li>
-          <li class="check">âœ“ Full source code access for evaluation</li>
-          <li class="check">âœ“ Responsive mobile reflow</li>
+          <li class="cross">✕ All-over semi-transparent background watermark on all pages</li>
+          <li class="cross">✕ Floating attribution badge and license runtime guard</li>
+          <li class="cross">✕ Cannot resell or deliver as original work to clients</li>
+          <li class="check">✓ Full source code access for evaluation</li>
+          <li class="check">✓ Responsive mobile reflow</li>
         </ul>
       </div>
 
@@ -1036,20 +1036,20 @@ def generate_watermark_license_page(title: str = "Website Template", genre: str 
         <h4 class="tier-title">Pro &amp; Extended Commercial License</h4>
         <p class="tier-desc">Automatic watermark removal &amp; full white-label commercial rights.</p>
         <ul class="tier-list">
-          <li class="check">âœ“ <strong>ZERO WATERMARK</strong> (100% White-Label)</li>
-          <li class="check">âœ“ Background watermark pattern completely removed</li>
-          <li class="check">âœ“ All runtime guards and dependencies stripped cleanly</li>
-          <li class="check">âœ“ Full commercial rights to deploy, resell, and deliver to clients</li>
+          <li class="check">✓ <strong>ZERO WATERMARK</strong> (100% White-Label)</li>
+          <li class="check">✓ Background watermark pattern completely removed</li>
+          <li class="check">✓ All runtime guards and dependencies stripped cleanly</li>
+          <li class="check">✓ Full commercial rights to deploy, resell, and deliver to clients</li>
         </ul>
       </div>
     </div>
 
     <div class="action-row">
       <a href="{marketplace_url}" id="buy-license-btn" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="background: linear-gradient(135deg, #4f46e5, #7c3aed); box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4);">
-        âš¡ Buy Official Commercial License &amp; Remove All Watermarks
+        ⚡ Buy Official Commercial License &amp; Remove All Watermarks
       </a>
       <a href="{pricing_url}" id="pro-sub-btn" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" style="border-color: rgba(99, 102, 241, 0.5); color: #818cf8;">
-        âœ¦ Pro Subscription ($29/mo) â€” Unlimited Clean Downloads
+        ✦ Pro Subscription ($19/mo) — Unlimited Clean Downloads
       </a>
       <a href="index.html" class="btn btn-secondary">
         Return to Home Page (index.html)
@@ -1089,7 +1089,7 @@ def generate_commercial_license_page(title: str = "Website Template", buyer_name
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Commercial License Certificate â€” {title}</title>
+  <title>Commercial License Certificate — {title}</title>
   <style>
     body {{
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -1179,7 +1179,7 @@ def generate_commercial_license_page(title: str = "Website Template", buyer_name
       gap: 8px;
     }}
     .cert-rights li::before {{
-      content: "âœ“";
+      content: "✓";
       color: #10b981;
       font-weight: bold;
     }}
@@ -1189,7 +1189,7 @@ def generate_commercial_license_page(title: str = "Website Template", buyer_name
   <div class="cert-card">
     <div class="cert-header">
       <div style="font-weight: 800; font-size: 18px; color: #fff;">AI Site Studio</div>
-      <div class="cert-badge">âœ¦ White-Label Commercial License</div>
+      <div class="cert-badge">✦ White-Label Commercial License</div>
     </div>
     <h1>Certificate of Commercial License &amp; Zero-Watermark Rights</h1>
     <p>This document verifies that this template source code has been delivered in pristine, white-label format with zero watermarks or platform attribution.</p>

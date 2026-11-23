@@ -24,6 +24,7 @@ from app.core.dependencies import get_current_user
 from app.core.request_limits import enforce_user_limit
 from app.models.user import User
 from app.models.studio_build import StudioBuild, StudioBuildEvent, StudioBuildMessage
+from app.models.subscription import TrialHistory
 from app.services.studio_service import studio_service, detect_stack_from_prompt
 
 router = APIRouter()
@@ -135,13 +136,67 @@ class StudioMessageRequest(BaseModel):
         return value
 
 
+async def _check_user_can_plan_or_generate(user: User, db: AsyncSession, action: str = "plan") -> tuple[bool, str]:
+    """
+    Evaluates whether the user has sufficient AI credits to plan or generate a website template.
+    Every template generation costs 10 AI credits (covered by starting signup credits or plan/top-up credits).
+    Extreme plan subscribers receive 1,000 monthly credits and each generation costs 10 credits.
+    """
+    is_admin = getattr(user, "role", "") in ("admin", "super_admin") or getattr(user, "is_admin", False)
+    if is_admin:
+        return True, ""
+
+    # Check if subscription has expired / finished
+    now_utc = datetime.now(timezone.utc)
+    tier = (user.subscription_tier or "free").lower()
+    if tier != "free" and user.subscription_expires_at:
+        expires = (
+            user.subscription_expires_at
+            if user.subscription_expires_at.tzinfo
+            else user.subscription_expires_at.replace(tzinfo=timezone.utc)
+        )
+        if expires < now_utc:
+            user.subscription_tier = "free"
+            user.subscription_status = "expired"
+            user.ai_credits = 0  # Finished plan = 0 tokens
+            db.add(user)
+            await db.flush()
+    elif tier == "free" and getattr(user, "subscription_status", "") in ("expired", "canceled"):
+        if (user.ai_credits or 0) > 0:
+            user.ai_credits = 0
+            db.add(user)
+            await db.flush()
+
+    user_credits = user.ai_credits if user.ai_credits is not None else 0
+    required_credits = 10
+
+    if user_credits < required_credits:
+        verb = "plan or create" if action == "plan" else "generate"
+        return (
+            False,
+            f"You need at least {required_credits} AI credits to {verb} a website template (you currently have {user_credits}). Please purchase credits or upgrade your plan to continue."
+        )
+
+    return True, ""
+
+
 @router.post("/plan")
 async def create_studio_plan(
     request: StudioPlanRequest,
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     limit = 200 if settings.DEBUG else 50
     await enforce_user_limit(str(current_user.id), "studio-plan", limit=limit, window_seconds=3600)
+
+    # Free tier and Pro tier quota enforcement for planning
+    allowed, reason = await _check_user_can_plan_or_generate(current_user, db, action="plan")
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=reason,
+        )
+
     try:
         plan = await studio_service.plan(
             request.prompt,
@@ -160,10 +215,20 @@ async def create_studio_plan(
 @router.post("/prompt")
 async def create_studio_build_prompt(
     request: StudioPromptRequest,
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     limit = 200 if settings.DEBUG else 50
     await enforce_user_limit(str(current_user.id), "studio-prompt", limit=limit, window_seconds=3600)
+
+    # Free tier and Pro tier quota enforcement for build prompt creation
+    allowed, reason = await _check_user_can_plan_or_generate(current_user, db, action="plan")
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=reason,
+        )
+
     try:
         build_prompt = await studio_service.create_build_prompt(
             prompt=request.prompt,
@@ -189,46 +254,54 @@ async def get_studio_quota(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Returns the user's Studio website generation quota:
-    - Free tier: 1 website 100% free. Additional websites require AI credits (5 credits each).
-    - Pro tier: Included in subscription (uses monthly AI credits).
-    - Extreme tier: Unlimited friction-free generation.
+    Returns the user's Studio website generation quota based purely on AI compute credits:
+    - 10 AI credits required to generate a website template.
     """
-    tier = (current_user.subscription_tier or "free").lower()
     is_admin = getattr(current_user, "role", "") in ("admin", "super_admin") or getattr(current_user, "is_admin", False)
-    is_extreme = tier in ("extreme", "agency", "enterprise")
-    is_pro = tier == "pro"
+
+    # Check if subscription has expired / finished
+    now_utc = datetime.now(timezone.utc)
+    tier = (current_user.subscription_tier or "free").lower()
+    if tier != "free" and current_user.subscription_expires_at:
+        expires = (
+            current_user.subscription_expires_at
+            if current_user.subscription_expires_at.tzinfo
+            else current_user.subscription_expires_at.replace(tzinfo=timezone.utc)
+        )
+        if expires < now_utc:
+            current_user.subscription_tier = "free"
+            current_user.subscription_status = "expired"
+            current_user.ai_credits = 0
+            db.add(current_user)
+            await db.commit()
+            await db.refresh(current_user)
+            tier = "free"
+    elif tier == "free" and getattr(current_user, "subscription_status", "") in ("expired", "canceled"):
+        if (current_user.ai_credits or 0) > 0:
+            current_user.ai_credits = 0
+            db.add(current_user)
+            await db.commit()
+            await db.refresh(current_user)
 
     stmt_count = select(func.count(StudioBuild.id)).where(
         StudioBuild.user_id == current_user.id,
-        StudioBuild.status == "completed"
+        StudioBuild.status.in_(["completed", "running"])
     )
-    res_count = await db.execute(stmt_count)
-    completed_builds = res_count.scalar() or 0
+    completed_builds = (await db.execute(stmt_count)).scalar() or 0
 
-    can_generate = True
-    reason = None
+    can_generate, reason = await _check_user_can_plan_or_generate(current_user, db, action="generate")
     user_credits = current_user.ai_credits if current_user.ai_credits is not None else 0
-
-    if not is_admin and not is_extreme:
-        if tier == "free":
-            if completed_builds >= 1 and user_credits < 5:
-                can_generate = False
-                reason = "You have used your 1 free website generation. To create more websites, please purchase AI credits or upgrade your plan."
-        elif is_pro:
-            if user_credits < 5:
-                can_generate = False
-                reason = "Your Pro monthly AI credits are depleted. Please top up your credits to generate more websites."
+    required_credits = 0 if is_admin else 10
 
     return {
         "tier": tier,
         "completed_builds": completed_builds,
-        "is_free_generation_available": (tier == "free" and completed_builds == 0),
-        "free_generation_used": (tier == "free" and completed_builds >= 1),
         "ai_credits": user_credits,
+        "credits_required": required_credits,
         "can_generate": can_generate,
         "reason": reason,
-        "credits_required": 0 if (tier == "free" and completed_builds == 0) or is_extreme or is_admin else 5,
+        "is_free_generation_available": user_credits >= 10,
+        "free_generation_used": user_credits < 10,
     }
 
 
@@ -254,10 +327,17 @@ async def generate_studio_project(
     is_extreme = tier in ("extreme", "agency", "enterprise")
     is_pro = tier == "pro"
 
+    # Central Entitlement & Studio Quota Check for Website Generation
+    allowed, quota_reason = await _check_user_can_plan_or_generate(current_user, db, action="generate")
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=quota_reason,
+        )
+
     from app.services.entitlement_service import EntitlementService
     ent_service = EntitlementService(db)
 
-    # Central Entitlement Check for Website Generation
     can_generate, reason, required_credits = await ent_service.check_ai_generation_entitlement(
         user=current_user, operation="website_generation"
     )
