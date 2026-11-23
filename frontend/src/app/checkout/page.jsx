@@ -59,6 +59,7 @@ import { COUNTRY_TAX_RATES, detectBrowserCountry } from "@/lib/tax";
 import Image from "@/components/Image";
 import Link from "@/components/Link";
 import InteractivePaymentModal from "@/components/modals/InteractivePaymentModal";
+import { usePurchasedTemplateIds } from "@/hooks/usePurchasedTemplateIds";
 import "./Page.css";
 
 const ENABLE_EXTERNAL_GATEWAYS = true;
@@ -69,6 +70,7 @@ export default function Checkout() {
   const { user } = useAppUser();
   const { userCurrency, rates } = useCurrencyStore();
   const router = useRouter();
+  const { isPurchased } = usePurchasedTemplateIds();
 
   const {
     items,
@@ -983,53 +985,88 @@ export default function Checkout() {
                     <div className="cart-items-stack">
                       {items.map((item) => {
                         const itemTotalUsd = (Number(item.price) || 0) * (item.quantity || 1);
+                        const alreadyPurchased = isPurchased(item.templateId || item.id || item.slug);
                         return (
-                          <div key={item.templateId || item.id} className="cart-item-card">
-                            <div className="cart-item-info-group">
-                              <div className="cart-item-thumb">
-                                <img
-                                  src={item.thumbnail || item.thumbnail_url || "/landing/template_saas.png"}
-                                  alt={item.title}
-                                  onError={(e) => {
-                                    e.target.onerror = null;
-                                    e.target.src = "/landing/modern_villa.jpg";
-                                  }}
-                                />
-                              </div>
-                              <div className="cart-item-details">
-                                <h3 className="cart-item-title">{item.title}</h3>
-                                <p className="cart-item-subtitle">
-                                  {item.subtitle || "Exclusive Accommodation Website Template"}
-                                </p>
-                                <div className="cart-item-badges">
-                                  <span className="cart-badge-lifetime">
-                                    <Crown size={12} className="text-amber-400" />
-                                    <span>Lifetime Access</span>
-                                  </span>
-                                  <span className="cart-badge-framework">
-                                    {item.framework || "HTML5 / CSS / JS"}
-                                  </span>
-                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                                    ✦ Commercial License (Zero Watermark)
-                                  </span>
+                          <div key={item.templateId || item.id} className={cn("cart-item-card flex-col items-stretch", alreadyPurchased && "border-amber-500/40 bg-amber-500/5")}>
+                            <div className="flex items-center justify-between w-full">
+                              <div className="cart-item-info-group">
+                                <div className="cart-item-thumb">
+                                  <img
+                                    src={item.thumbnail || item.thumbnail_url || "/landing/template_saas.png"}
+                                    alt={item.title}
+                                    onError={(e) => {
+                                      e.target.onerror = null;
+                                      e.target.src = "/landing/modern_villa.jpg";
+                                    }}
+                                  />
+                                </div>
+                                <div className="cart-item-details">
+                                  <h3 className="cart-item-title">{item.title}</h3>
+                                  <p className="cart-item-subtitle">
+                                    {item.subtitle || "Exclusive Accommodation Website Template"}
+                                  </p>
+                                  <div className="cart-item-badges">
+                                    {alreadyPurchased ? (
+                                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
+                                        <Check size={11} className="text-amber-400" /> Already Purchased &amp; Owned
+                                      </span>
+                                    ) : (
+                                      <>
+                                        <span className="cart-badge-lifetime">
+                                          <Crown size={12} className="text-amber-400" />
+                                          <span>Lifetime Access</span>
+                                        </span>
+                                        <span className="cart-badge-framework">
+                                          {item.framework || "HTML5 / CSS / JS"}
+                                        </span>
+                                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                          ✦ Commercial License (Zero Watermark)
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
+
+                              <div className="cart-item-actions-group">
+                                <span className={cn("cart-item-price-val", alreadyPurchased && "line-through text-muted-foreground opacity-60")}>
+                                  {formatMoney(itemTotalUsd)}
+                                </span>
+
+                                <button
+                                  type="button"
+                                  onClick={() => removeItem(item.templateId || item.id)}
+                                  className="cart-delete-item-btn"
+                                  title="Remove template"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
                             </div>
 
-                            <div className="cart-item-actions-group">
-                              <span className="cart-item-price-val">
-                                {formatMoney(itemTotalUsd)}
-                              </span>
-
-                              <button
-                                type="button"
-                                onClick={() => removeItem(item.templateId || item.id)}
-                                className="cart-delete-item-btn"
-                                title="Remove template"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </div>
+                            {alreadyPurchased && (
+                              <div className="mt-2.5 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+                                <div className="flex items-center gap-2 text-amber-300 font-semibold">
+                                  <AlertCircle size={15} className="shrink-0 text-amber-400" />
+                                  <span>You already own this template! Download is available in your library.</span>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <Link
+                                    href={`/marketplace/${item.slug || item.templateId || item.id}`}
+                                    className="px-3 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold text-[11px] transition-colors"
+                                  >
+                                    Go to Download ↗
+                                  </Link>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeItem(item.templateId || item.id)}
+                                    className="px-3 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 font-bold text-[11px] transition-colors cursor-pointer"
+                                  >
+                                    Remove from Cart
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         );
                       })}

@@ -39,12 +39,26 @@ class TemplateService:
         # Get user interaction flags sequentially (AsyncSession is single-concurrency)
         favorited_ids: set = set()
         wishlisted_ids: set = set()
+        purchased_ids: set = set()
         if current_user:
             try:
                 fav_res = await self.favorites.get_favorited_ids(current_user.id)
                 wish_res = await self.wishlist.get_wishlisted_ids(current_user.id)
                 favorited_ids = set(fav_res)
                 wishlisted_ids = set(wish_res)
+
+                from app.models.order import Order, OrderItem, OrderStatus
+                from sqlalchemy import select
+                purch_stmt = (
+                    select(OrderItem.template_id)
+                    .join(Order, Order.id == OrderItem.order_id)
+                    .where(
+                        Order.user_id == current_user.id,
+                        Order.status == OrderStatus.COMPLETED,
+                    )
+                )
+                purch_res = await self.db.execute(purch_stmt)
+                purchased_ids = set(purch_res.scalars().all())
             except Exception as e_fav:
                 pass
 
@@ -77,6 +91,7 @@ class TemplateService:
                     "seller_id": t.seller_id,
                     "is_favorited": t.id in favorited_ids if current_user else None,
                     "is_wishlisted": t.id in wishlisted_ids if current_user else None,
+                    "is_purchased": t.id in purchased_ids if current_user else None,
                 }
             )
             for t in templates

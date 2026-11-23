@@ -23,6 +23,7 @@ import { cn, formatPrice, formatConvertedPrice, formatNumber, discountPercent } 
 import { useCartStore } from "@/store";
 import { useCurrencyStore } from "@/store/currencyStore";
 import { useAppUser } from "@/lib/auth";
+import { usePurchasedTemplateIds } from "@/hooks/usePurchasedTemplateIds";
 import "./TemplateCard.css";
 
 const StarRating = ({ rating, count }) => (
@@ -54,12 +55,23 @@ export default function TemplateCard({
   const addToCart = useCartStore((s) => s.addItem);
   const isInCart = useCartStore((s) => s.isInCart(template.id));
   const { userCurrency, rates } = useCurrencyStore();
+  const { isPurchased: checkPurchased } = usePurchasedTemplateIds();
+
+  const isPurchased = Boolean(
+    template.is_purchased ||
+    checkPurchased(template.id) ||
+    checkPurchased(template.slug)
+  );
 
   const effectivePrice = Number(template.price) > 0 ? Number(template.price) : 49;
 
   const handleAddToCart = (e) => {
     e.preventDefault();
     e.stopPropagation();
+    if (isPurchased) {
+      window.location.href = `/marketplace/${templateSlug}`;
+      return;
+    }
     addToCart({
       templateId: template.id || template.slug,
       title: template.title || template.displayName,
@@ -127,23 +139,43 @@ export default function TemplateCard({
                 <Eye className="overlay-icon" />
                 Live Demo ↗
               </button>
-              <button
-                onClick={handleAddToCart}
-                className={cn(
-                  "overlay-btn-cart",
-                  isInCart ? "in-cart" : "add-to-cart"
-                )}
-              >
-                {isInCart ? (
-                  <><Check className="overlay-icon" /> Added</>
-                ) : (
-                  <><ShoppingCart className="overlay-icon" /> Add to Cart</>
-                )}
-              </button>
+              {isPurchased ? (
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window.location.href = `/marketplace/${templateSlug}`;
+                  }}
+                  className="overlay-btn-cart purchased"
+                  title="You own this template — View details & download"
+                >
+                  <Check className="overlay-icon" />
+                  Purchased ✓
+                </button>
+              ) : (
+                <button
+                  onClick={handleAddToCart}
+                  className={cn(
+                    "overlay-btn-cart",
+                    isInCart ? "in-cart" : "add-to-cart"
+                  )}
+                >
+                  {isInCart ? (
+                    <><Check className="overlay-icon" /> Added</>
+                  ) : (
+                    <><ShoppingCart className="overlay-icon" /> Add to Cart</>
+                  )}
+                </button>
+              )}
             </motion.div>
 
             {/* Badges */}
             <div className="card-badge-list">
+              {isPurchased && (
+                <span className="card-badge-item purchased">
+                  ✓ Purchased
+                </span>
+              )}
               {template.is_bestseller && (
                 <span className="card-badge-item bestseller">
                   Bestseller
@@ -253,13 +285,22 @@ export default function TemplateCard({
             {/* Price Row */}
             <div className="card-price-row">
               <div className="price-val-container">
-                <span className="price-val">
-                  {formatPrice(effectivePrice, "USD")}
-                </span>
-                {template.original_price && template.original_price > effectivePrice && (
-                  <span className="original-price-val">
-                    {formatPrice(template.original_price, "USD")}
+                {isPurchased ? (
+                  <span className="card-purchased-pill">
+                    <Check className="w-3 h-3 text-emerald-400" />
+                    <span>In Library</span>
                   </span>
+                ) : (
+                  <>
+                    <span className="price-val">
+                      {formatPrice(effectivePrice, "USD")}
+                    </span>
+                    {template.original_price && template.original_price > effectivePrice && (
+                      <span className="original-price-val">
+                        {formatPrice(template.original_price, "USD")}
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
               <span className="card-developer-name" title={template.developer_name || "Site Studio"}>
@@ -269,21 +310,36 @@ export default function TemplateCard({
 
             {/* Action Bar (Mobile & Tablet) */}
             <div className="card-mobile-action-bar">
-              <button
-                type="button"
-                onClick={handleAddToCart}
-                className={cn(
-                  "card-mobile-cart-btn",
-                  isInCart && "in-cart"
-                )}
-                aria-label={isInCart ? "Item added to cart" : "Add item to cart"}
-              >
-                {isInCart ? (
-                  <><Check className="card-cart-icon" /> Added</>
-                ) : (
-                  <><ShoppingCart className="card-cart-icon" /> Add to Cart</>
-                )}
-              </button>
+              {isPurchased ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window.location.href = `/marketplace/${templateSlug}`;
+                  }}
+                  className="card-mobile-cart-btn purchased"
+                  aria-label="View purchased template in library"
+                >
+                  <Check className="card-cart-icon text-emerald-400" /> In Library
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleAddToCart}
+                  className={cn(
+                    "card-mobile-cart-btn",
+                    isInCart && "in-cart"
+                  )}
+                  aria-label={isInCart ? "Item added to cart" : "Add item to cart"}
+                >
+                  {isInCart ? (
+                    <><Check className="card-cart-icon" /> Added</>
+                  ) : (
+                    <><ShoppingCart className="card-cart-icon" /> Add to Cart</>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>

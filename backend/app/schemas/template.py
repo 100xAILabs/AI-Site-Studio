@@ -254,6 +254,7 @@ class TemplateCardResponse(BaseModel):
     seller_id: Optional[uuid.UUID] = None
     is_favorited: Optional[bool] = None
     is_wishlisted: Optional[bool] = None
+    is_purchased: Optional[bool] = None
 
     model_config = {"from_attributes": True}
 

@@ -482,6 +482,7 @@ class FastCatalogManager:
         filters: TemplateFilterParams = None,
         favorited_ids: Optional[Set[uuid.UUID]] = None,
         wishlisted_ids: Optional[Set[uuid.UUID]] = None,
+        purchased_ids: Optional[Set[uuid.UUID]] = None,
     ) -> TemplateListResponse:
         """
         Produce a full TemplateListResponse in under 1 millisecond.
@@ -520,6 +521,7 @@ class FastCatalogManager:
                 seller_id=item.get("seller_id"),
                 is_favorited=(item_id in favorited_ids) if favorited_ids is not None else None,
                 is_wishlisted=(item_id in wishlisted_ids) if wishlisted_ids is not None else None,
+                is_purchased=(item_id in purchased_ids) if purchased_ids is not None else None,
             )
             cards.append(card)
 

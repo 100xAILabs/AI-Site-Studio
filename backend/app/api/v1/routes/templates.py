@@ -150,6 +150,7 @@ async def list_templates(
     if not filters.semantic:
         favorited_ids = None
         wishlisted_ids = None
+        purchased_ids = None
         if current_user:
             from app.repositories.favorite_repo import FavoriteRepository, WishlistRepository
             fav_repo = FavoriteRepository(db)
@@ -160,6 +161,19 @@ async def list_templates(
                 wish_res = await wish_repo.get_wishlisted_ids(current_user.id)
                 favorited_ids = set(fav_res)
                 wishlisted_ids = set(wish_res)
+
+                from app.models.order import Order, OrderItem, OrderStatus
+                from sqlalchemy import select
+                purch_stmt = (
+                    select(OrderItem.template_id)
+                    .join(Order, Order.id == OrderItem.order_id)
+                    .where(
+                        Order.user_id == current_user.id,
+                        Order.status == OrderStatus.COMPLETED,
+                    )
+                )
+                purch_res = await db.execute(purch_stmt)
+                purchased_ids = set(purch_res.scalars().all())
             except Exception as e_fav:
                 logger.warning(f"Failed to fetch user interaction IDs: {e_fav}")
 
@@ -168,6 +182,7 @@ async def list_templates(
             filters=filters,
             favorited_ids=favorited_ids,
             wishlisted_ids=wishlisted_ids,
+            purchased_ids=purchased_ids,
         )
         if response:
             response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=300"
