@@ -2106,6 +2106,14 @@ export default function PreviewPage() {
 
   const isHomePage = !activePage || activePage === "index.html" || activePage === "App.jsx" || activePage === "App.vue";
   const pageRouteParam = !isHomePage ? activePage : "";
+
+  const currentColorForIframe = sectionProps[currentSection?.id]?.themeColor || sectionProps.navbar?.themeColor || sectionProps.hero?.themeColor || brand?.primary_color || "";
+  const stableColorForIframeRef = useRef(currentColorForIframe);
+  useEffect(() => {
+    // Synchronize initial primaryColor query parameter only when the iframe is explicitly reloaded (e.g. on manual save, reset, or page navigation)
+    stableColorForIframeRef.current = currentColorForIframe;
+  }, [iframeKey]);
+
   // 🔒 Lock Check: Require sign-in to access Site Studio Editor
   if (!isSignedIn) {
     return (
@@ -2239,13 +2247,6 @@ export default function PreviewPage() {
       </div>
     );
   }
-
-  const currentColorForIframe = sectionProps[currentSection?.id]?.themeColor || sectionProps.navbar?.themeColor || sectionProps.hero?.themeColor || brand?.primary_color || "";
-  const stableColorForIframeRef = useRef(currentColorForIframe);
-  useEffect(() => {
-    // Synchronize initial primaryColor query parameter only when the iframe is explicitly reloaded (e.g. on manual save, reset, or page navigation)
-    stableColorForIframeRef.current = currentColorForIframe;
-  }, [iframeKey]);
 
   const detectedFrameworkParam = (templateData?.framework || "").toLowerCase();
   const effectiveToken = (() => {
