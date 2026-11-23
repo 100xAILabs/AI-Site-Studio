@@ -76,6 +76,15 @@ export default function CreatorStudio({
   const [templateSearch, setTemplateSearch] = useState("");
   const [selectedTemplateForRetail, setSelectedTemplateForRetail] = useState(null);
   const [isRetailModalOpen, setIsRetailModalOpen] = useState(false);
+  const [copiedStorefront, setCopiedStorefront] = useState(false);
+
+  const handleCopyStorefront = (url) => {
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(url);
+      setCopiedStorefront(true);
+      setTimeout(() => setCopiedStorefront(false), 2000);
+    }
+  };
 
   // Payout request modal state
   const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
@@ -387,7 +396,7 @@ export default function CreatorStudio({
           <PlusCircle className="w-4 h-4" />
           <span>Add New Template</span>
           {readyToRetail.length > 0 && (
-            <span className="cs-nav-count bg-emerald-500/20 text-emerald-400">
+            <span className="cs-nav-count ready">
               {readyToRetail.length} ready
             </span>
           )}
@@ -447,124 +456,194 @@ export default function CreatorStudio({
         <div className="space-y-6">
           {/* Metrics Grid */}
           <div className="cs-metrics-grid">
-            <div className="cs-metric-card">
+            <div className="cs-metric-card gold">
               <div className="cs-metric-top">
                 <span className="cs-metric-label">Gross Sales</span>
-                <div className="cs-metric-icon-wrap">
-                  <DollarSign className="w-4 h-4 text-[#dfb180]" />
+                <div className="cs-metric-icon-wrap gold">
+                  <DollarSign className="w-4 h-4" />
                 </div>
               </div>
               <div className="cs-metric-value">${grossSales.toFixed(2)}</div>
-              <div className="cs-metric-subtext">Total customer checkouts</div>
+              <div className="cs-metric-subtext">
+                <span className="cs-metric-pill emerald">Volume</span>
+                <span>Total customer checkouts</span>
+              </div>
             </div>
 
-            <div className="cs-metric-card">
+            <div className="cs-metric-card emerald">
               <div className="cs-metric-top">
                 <span className="cs-metric-label">Net Creator Earnings</span>
-                <div className="cs-metric-icon-wrap">
-                  <TrendingUp className="w-4 h-4 text-emerald-400" />
+                <div className="cs-metric-icon-wrap emerald">
+                  <TrendingUp className="w-4 h-4" />
                 </div>
               </div>
-              <div className="cs-metric-value text-emerald-400">${netEarnings.toFixed(2)}</div>
-              <div className="cs-metric-subtext">{100 - commissionRate}% creator share</div>
+              <div className="cs-metric-value" style={{ color: "#34d399" }}>${netEarnings.toFixed(2)}</div>
+              <div className="cs-metric-subtext">
+                <span className="cs-metric-pill emerald">{100 - commissionRate}% share</span>
+                <span>Creator take-home</span>
+              </div>
             </div>
 
-            <div className="cs-metric-card">
+            <div className="cs-metric-card emerald">
               <div className="cs-metric-top">
                 <span className="cs-metric-label">Available Balance</span>
-                <div className="cs-metric-icon-wrap">
-                  <Wallet className="w-4 h-4 text-emerald-400" />
+                <div className="cs-metric-icon-wrap emerald">
+                  <Wallet className="w-4 h-4" />
                 </div>
               </div>
               <div className="cs-metric-value">${availableBalance.toFixed(2)}</div>
-              <div className="cs-metric-subtext">Ready for withdrawal</div>
+              <div className="cs-metric-subtext">
+                <span className="cs-metric-pill emerald">Ready</span>
+                <span>Withdrawable now</span>
+              </div>
             </div>
 
-            <div className="cs-metric-card">
+            <div className="cs-metric-card amber">
               <div className="cs-metric-top">
                 <span className="cs-metric-label">Pending Balance</span>
-                <div className="cs-metric-icon-wrap">
-                  <Clock className="w-4 h-4 text-amber-400" />
+                <div className="cs-metric-icon-wrap amber">
+                  <Clock className="w-4 h-4" />
                 </div>
               </div>
-              <div className="cs-metric-value text-amber-400">${pendingEarnings.toFixed(2)}</div>
-              <div className="cs-metric-subtext">{holdingDays}-day dispute holding period</div>
+              <div className="cs-metric-value" style={{ color: "#fbbf24" }}>${pendingEarnings.toFixed(2)}</div>
+              <div className="cs-metric-subtext">
+                <span className="cs-metric-pill amber">{holdingDays}d hold</span>
+                <span>Dispute holding escrow</span>
+              </div>
             </div>
 
-            <div className="cs-metric-card">
+            <div className="cs-metric-card indigo">
               <div className="cs-metric-top">
                 <span className="cs-metric-label">Published Templates</span>
-                <div className="cs-metric-icon-wrap">
-                  <Globe className="w-4 h-4 text-blue-400" />
+                <div className="cs-metric-icon-wrap indigo">
+                  <Globe className="w-4 h-4" />
                 </div>
               </div>
               <div className="cs-metric-value">{publishedCount}</div>
-              <div className="cs-metric-subtext">Live on marketplace</div>
+              <div className="cs-metric-subtext">
+                <span className="cs-metric-pill blue">Live</span>
+                <span>Live in catalog</span>
+              </div>
             </div>
 
-            <div className="cs-metric-card">
+            <div className="cs-metric-card purple">
               <div className="cs-metric-top">
                 <span className="cs-metric-label">Under Admin Review</span>
-                <div className="cs-metric-icon-wrap">
-                  <Clock className="w-4 h-4 text-purple-400" />
+                <div className="cs-metric-icon-wrap purple">
+                  <Clock className="w-4 h-4" />
                 </div>
               </div>
               <div className="cs-metric-value">{pendingCount}</div>
-              <div className="cs-metric-subtext">Pending moderation</div>
+              <div className="cs-metric-subtext">
+                <span className="cs-metric-pill purple">Pending</span>
+                <span>Fast moderation queue</span>
+              </div>
             </div>
 
-            <div className="cs-metric-card">
+            <div className="cs-metric-card cyan">
               <div className="cs-metric-top">
                 <span className="cs-metric-label">Total Views</span>
-                <div className="cs-metric-icon-wrap">
-                  <Eye className="w-4 h-4 text-cyan-400" />
+                <div className="cs-metric-icon-wrap cyan">
+                  <Eye className="w-4 h-4" />
                 </div>
               </div>
               <div className="cs-metric-value">{totalViews}</div>
-              <div className="cs-metric-subtext">Verified template views</div>
+              <div className="cs-metric-subtext">
+                <span className="cs-metric-pill cyan">Impressions</span>
+                <span>Verified template views</span>
+              </div>
             </div>
 
-            <div className="cs-metric-card">
+            <div className="cs-metric-card rose">
               <div className="cs-metric-top">
                 <span className="cs-metric-label">Total Purchases</span>
-                <div className="cs-metric-icon-wrap">
-                  <ShoppingBag className="w-4 h-4 text-pink-400" />
+                <div className="cs-metric-icon-wrap rose">
+                  <ShoppingBag className="w-4 h-4" />
                 </div>
               </div>
               <div className="cs-metric-value">{totalPurchases}</div>
-              <div className="cs-metric-subtext">Completed orders</div>
+              <div className="cs-metric-subtext">
+                <span className="cs-metric-pill pink">Orders</span>
+                <span>Completed orders</span>
+              </div>
             </div>
           </div>
 
           {/* Dedicated Creator Storefront Banner */}
-          <div className="p-5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-zinc-900/80 to-zinc-900 border border-[#dfb180]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[#dfb180]/15 flex items-center justify-center shrink-0 border border-[#dfb180]/30">
-                <Store className="w-5 h-5 text-[#dfb180]" />
+          <div className="cs-storefront-banner">
+            <div className="cs-storefront-left">
+              <div className="cs-storefront-icon">
+                <Store className="w-6 h-6" />
               </div>
               <div>
-                <div className="flex items-center gap-2">
-                  <h4 className="font-bold text-sm text-foreground">
+                <div className="cs-storefront-title-row">
+                  <h4 className="cs-storefront-title">
                     Your Dedicated Storefront on Our Domain
                   </h4>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#dfb180]/20 text-[#dfb180] font-semibold uppercase tracking-wider">
+                  <span className="cs-storefront-tag">
                     {user?.creator_brand_name || "Branded"}
                   </span>
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <div className="cs-storefront-desc">
                   {user?.creator_store_slug ? (
-                    <>
-                      Live at: <code className="text-[#dfb180] font-medium">/creator/{user.creator_store_slug}</code> • Payout Gateway:{" "}
-                      <span className="capitalize text-zinc-300 font-medium">{user.payout_method || "Stripe"}</span> • Distribution:{" "}
-                      <span className="capitalize text-zinc-300 font-medium">{user.storefront_distribution || "Dual (Both)"}</span>
-                    </>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                      <span>Live at:</span>
+                      <code>/creator/{user.creator_store_slug}</code>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleCopyStorefront(
+                            `${typeof window !== "undefined" ? window.location.origin : ""}/creator/${user.creator_store_slug}`
+                          )
+                        }
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "0.25rem",
+                          background: "rgba(255, 255, 255, 0.08)",
+                          border: "1px solid rgba(255, 255, 255, 0.15)",
+                          borderRadius: "0.4rem",
+                          padding: "0.15rem 0.5rem",
+                          color: "#f1f5f9",
+                          fontSize: "0.7rem",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {copiedStorefront ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-400" />
+                            <span style={{ color: "#34d399" }}>Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>Copy Link</span>
+                          </>
+                        )}
+                      </button>
+                      <span style={{ color: "#64748b" }}>•</span>
+                      <span>
+                        Gateway:{" "}
+                        <strong style={{ color: "#e2e8f0", textTransform: "capitalize" }}>
+                          {user.payout_method || "Stripe"}
+                        </strong>
+                      </span>
+                      <span style={{ color: "#64748b" }}>•</span>
+                      <span>
+                        Distribution:{" "}
+                        <strong style={{ color: "#e2e8f0", textTransform: "capitalize" }}>
+                          {user.storefront_distribution || "Dual (Both)"}
+                        </strong>
+                      </span>
+                    </div>
                   ) : (
                     "Set up your studio name, logo, banner, and payout gateways (Stripe, Razorpay, PayPal, Bank) to activate your live storefront URL on our domain."
                   )}
-                </p>
+                </div>
               </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
+            <div className="cs-storefront-actions">
               {user?.creator_store_slug ? (
                 <Link
                   href={`/creator/${user.creator_store_slug}`}
@@ -587,27 +666,27 @@ export default function CreatorStudio({
 
           {/* Quick Retailing Banner if User Has Generated Sites Ready to Retail */}
           {readyToRetail.length > 0 && (
-            <div className="p-5 rounded-2xl bg-[#c89666]/10 border border-[#c89666]/25 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#c89666]/20 flex items-center justify-center shrink-0">
-                  <Sparkles className="w-5 h-5 text-[#dfb180]" />
+            <div className="cs-retail-banner">
+              <div className="cs-retail-left">
+                <div className="cs-retail-icon">
+                  <Sparkles className="w-6 h-6" />
                 </div>
                 <div>
-                  <h4 className="font-bold text-sm text-foreground">
+                  <h4 className="cs-retail-title">
                     You have {readyToRetail.length} AI-generated website{readyToRetail.length > 1 ? "s" : ""} ready to retail!
                   </h4>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Publish your customized websites directly to the global marketplace and start earning revenue.
+                  <p className="cs-retail-desc">
+                    Publish your customized websites directly to the global marketplace and start earning revenue with automated 80% splits.
                   </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setActiveTab("add-template")}
-                className="cs-btn-primary shrink-0 self-start sm:self-auto"
+                className="cs-retail-btn"
               >
                 <span>Select &amp; Retail Now</span>
-                <ArrowRight className="w-3.5 h-3.5" />
+                <ArrowRight className="w-4 h-4" />
               </button>
             </div>
           )}
@@ -631,8 +710,20 @@ export default function CreatorStudio({
               </div>
 
               {recentOrders.length === 0 ? (
-                <div className="py-8 text-center text-xs text-muted-foreground">
-                  No purchases recorded yet. Your sales will appear here as soon as buyers check out your templates.
+                <div className="cs-empty-state">
+                  <div className="cs-empty-icon gold">
+                    <ShoppingBag className="w-6 h-6" />
+                  </div>
+                  <h4 className="cs-empty-title">No customer orders yet</h4>
+                  <p className="cs-empty-desc">
+                    When buyers purchase your templates, transactions, buyer info, and real-time 80% splits will appear here.
+                  </p>
+                  <div className="cs-empty-action">
+                    <Link href="/marketplace" className="cs-btn-secondary text-xs">
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>View Marketplace Catalog</span>
+                    </Link>
+                  </div>
                 </div>
               ) : (
                 <div className="cs-table-wrap">
@@ -685,25 +776,41 @@ export default function CreatorStudio({
               </div>
 
               {bestTemplates.length === 0 ? (
-                <div className="py-8 text-center text-xs text-muted-foreground">
-                  Publish your generated websites to start tracking popularity and earnings per template.
+                <div className="cs-empty-state">
+                  <div className="cs-empty-icon gold">
+                    <TrendingUp className="w-6 h-6" />
+                  </div>
+                  <h4 className="cs-empty-title">No performance data yet</h4>
+                  <p className="cs-empty-desc">
+                    Publish your AI-generated websites to start tracking customer views, conversions, and top-selling templates.
+                  </p>
+                  <div className="cs-empty-action">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("add-template")}
+                      className="cs-btn-primary text-xs"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Retail First Website</span>
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-3">
                   {bestTemplates.map((t, idx) => (
                     <div
                       key={idx}
-                      className="flex items-center justify-between p-3 rounded-xl bg-card/60 border border-border/40 gap-3"
+                      className="flex items-center justify-between p-3 rounded-xl bg-black/40 border border-white/10 gap-3"
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         {t.thumbnail_url ? (
                           <img
                             src={t.thumbnail_url}
                             alt={t.title}
-                            className="w-10 h-10 rounded-lg object-cover shrink-0 border border-border/30"
+                            className="w-10 h-10 rounded-lg object-cover shrink-0 border border-white/10"
                           />
                         ) : (
-                          <div className="w-10 h-10 rounded-lg bg-card flex items-center justify-center shrink-0 border border-border/30">
+                          <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center shrink-0 border border-white/10">
                             <Globe className="w-5 h-5 text-muted-foreground" />
                           </div>
                         )}
@@ -797,7 +904,7 @@ export default function CreatorStudio({
                 return (
                   <div
                     key={t.id}
-                    className="p-4 rounded-xl bg-card border border-border/40 hover:border-border transition-all flex flex-col justify-between gap-3"
+                    className="cs-item-card"
                   >
                     <div>
                       {/* Image Preview */}
@@ -929,7 +1036,7 @@ export default function CreatorStudio({
                 {readyToRetail.map((item) => (
                   <div
                     key={item.id}
-                    className="p-4 rounded-xl bg-card border border-border/40 hover:border-[#dfb180]/40 transition-all flex flex-col justify-between gap-3 group"
+                    className="cs-item-card group"
                   >
                     <div>
                       <div className="relative aspect-video rounded-lg overflow-hidden bg-secondary/30 mb-3 border border-border/20">

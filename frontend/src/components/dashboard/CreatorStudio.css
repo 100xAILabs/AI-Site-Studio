@@ -1,28 +1,43 @@
 /* =========================================================================
-   CREATOR STUDIO — HIGH-FIDELITY THEMED STYLESHEET
+   CREATOR STUDIO — ULTRA-ADVANCED HIGH-FIDELITY DESIGN SYSTEM
+   Matches world-class SaaS dashboards (Linear, Stripe, Vercel, Supabase)
    ========================================================================= */
 
 .cs-wrapper {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1.75rem;
   width: 100%;
+  color: #f1f5f9;
 }
 
-/* ── Top Header ─────────────────────────────────────────────────────────── */
+/* ── 1. Top Header Cockpit ─────────────────────────────────────────────────── */
 .cs-header {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 1.5rem;
-  background: var(--card, rgba(22, 27, 34, 0.7));
-  backdrop-filter: blur(16px);
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
-  border-radius: 1rem;
+  gap: 1.25rem;
+  padding: 1.5rem 1.75rem;
+  background: linear-gradient(145deg, rgba(22, 27, 36, 0.85) 0%, rgba(13, 17, 23, 0.95) 100%);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 1.25rem;
+  box-shadow: 0 16px 36px -12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  position: relative;
+  overflow: hidden;
 }
 
-@media (min-width: 640px) {
+.cs-header::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, rgba(223, 177, 128, 0.6) 50%, transparent 100%);
+}
+
+@media (min-width: 768px) {
   .cs-header {
     flex-direction: row;
     align-items: center;
@@ -32,21 +47,22 @@
 .cs-header-left {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 1.25rem;
 }
 
 .cs-avatar-wrap {
   position: relative;
-  width: 3.25rem;
-  height: 3.25rem;
-  border-radius: 0.875rem;
-  background: linear-gradient(135deg, rgba(200, 150, 102, 0.2), rgba(223, 177, 128, 0.1));
-  border: 1px solid rgba(223, 177, 128, 0.3);
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 1rem;
+  background: linear-gradient(135deg, rgba(223, 177, 128, 0.25) 0%, rgba(200, 150, 102, 0.1) 100%);
+  border: 1.5px solid rgba(223, 177, 128, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  shrink: 0;
+  flex-shrink: 0;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4), 0 0 20px rgba(223, 177, 128, 0.15);
 }
 
 .cs-avatar-img {
@@ -58,20 +74,20 @@
 .cs-title-wrap {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.35rem;
 }
 
 .cs-title-row {
   display: flex;
   align-items: center;
-  gap: 0.625rem;
+  gap: 0.75rem;
   flex-wrap: wrap;
 }
 
 .cs-title {
-  font-size: 1.25rem;
+  font-size: 1.4rem;
   font-weight: 800;
-  color: var(--foreground, #f3f4f6);
+  color: #ffffff;
   margin: 0;
   letter-spacing: -0.02em;
 }
@@ -79,85 +95,94 @@
 .cs-tier-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.2rem 0.55rem;
+  gap: 0.35rem;
+  padding: 0.25rem 0.65rem;
   border-radius: 9999px;
   font-size: 0.7rem;
-  font-weight: 700;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   background: rgba(223, 177, 128, 0.15);
   color: #dfb180;
-  border: 1px solid rgba(223, 177, 128, 0.35);
+  border: 1px solid rgba(223, 177, 128, 0.4);
+  box-shadow: 0 0 12px rgba(223, 177, 128, 0.2);
 }
 
 .cs-subtitle {
-  font-size: 0.8125rem;
-  color: var(--muted-foreground, #9ca3af);
+  font-size: 0.85rem;
+  color: #94a3b8;
   margin: 0;
+  line-height: 1.4;
 }
 
 .cs-header-actions {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.65rem;
   flex-wrap: wrap;
 }
 
 .cs-btn-secondary {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.5rem 0.875rem;
+  gap: 0.45rem;
+  padding: 0.55rem 1rem;
   border-radius: 0.75rem;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  background: var(--secondary, rgba(255, 255, 255, 0.05));
-  color: var(--foreground, #f3f4f6);
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  font-size: 0.825rem;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.06);
+  color: #f1f5f9;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .cs-btn-secondary:hover {
-  background: var(--secondary-hover, rgba(255, 255, 255, 0.1));
+  background: rgba(255, 255, 255, 0.12);
   border-color: rgba(223, 177, 128, 0.4);
+  color: #ffffff;
+  transform: translateY(-1px);
 }
 
 .cs-btn-primary {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.5rem 0.95rem;
+  gap: 0.45rem;
+  padding: 0.55rem 1.15rem;
   border-radius: 0.75rem;
-  font-size: 0.8125rem;
-  font-weight: 700;
-  background: linear-gradient(135deg, #dfb180, #c89666);
-  color: #121212;
+  font-size: 0.825rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #dfb180 0%, #c89666 100%);
+  color: #0d1117;
   border: none;
   cursor: pointer;
-  transition: all 0.15s ease;
-  box-shadow: 0 4px 12px rgba(200, 150, 102, 0.25);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 6px 18px rgba(200, 150, 102, 0.35);
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .cs-btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(200, 150, 102, 0.35);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(200, 150, 102, 0.5);
+  filter: brightness(1.06);
 }
 
-/* ── Navigation Tabs ────────────────────────────────────────────────────── */
+/* ── 2. Segmented Navigation Tabs Bar ──────────────────────────────────────── */
 .cs-nav-bar {
   display: flex;
   align-items: center;
-  gap: 0.375rem;
-  padding: 0.375rem;
-  background: var(--card, rgba(22, 27, 34, 0.5));
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
-  border-radius: 0.875rem;
+  gap: 0.4rem;
+  padding: 0.4rem;
+  background: rgba(14, 18, 25, 0.9);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1rem;
   overflow-x: auto;
   scrollbar-width: none;
+  box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.4);
 }
 
 .cs-nav-bar::-webkit-scrollbar {
@@ -168,60 +193,122 @@
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem 0.875rem;
-  border-radius: 0.625rem;
-  font-size: 0.8125rem;
+  padding: 0.55rem 1rem;
+  border-radius: 0.75rem;
+  font-size: 0.825rem;
   font-weight: 600;
-  color: var(--muted-foreground, #9ca3af);
+  color: #94a3b8;
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.15s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .cs-nav-btn:hover {
-  color: var(--foreground, #f3f4f6);
-  background: rgba(255, 255, 255, 0.04);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .cs-nav-btn.active {
   color: #dfb180;
-  background: rgba(223, 177, 128, 0.12);
-  font-weight: 700;
+  background: linear-gradient(135deg, rgba(223, 177, 128, 0.18) 0%, rgba(200, 150, 102, 0.08) 100%);
+  border: 1px solid rgba(223, 177, 128, 0.35);
+  font-weight: 800;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .cs-nav-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 1.125rem;
-  height: 1.125rem;
-  padding: 0 0.3rem;
-  font-size: 0.6875rem;
-  font-weight: 700;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 800;
   border-radius: 9999px;
   background: rgba(223, 177, 128, 0.25);
   color: #dfb180;
+  border: 1px solid rgba(223, 177, 128, 0.3);
 }
 
-/* ── Metrics Grid ───────────────────────────────────────────────────────── */
+.cs-nav-count.ready {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+/* ── 3. High-Tech Stat Metrics Grid ────────────────────────────────────────── */
 .cs-metrics-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(4, 1fr);
   gap: 1rem;
 }
 
+@media (max-width: 1200px) {
+  .cs-metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .cs-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .cs-metric-card {
-  padding: 1.25rem;
-  background: var(--card, rgba(22, 27, 34, 0.7));
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
-  border-radius: 0.875rem;
+  padding: 1.35rem 1.4rem;
+  background: linear-gradient(145deg, rgba(22, 27, 36, 0.85) 0%, rgba(13, 17, 23, 0.95) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1.15rem;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  justify-content: space-between;
+  gap: 0.65rem;
   position: relative;
   overflow: hidden;
+  box-shadow: 0 10px 28px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cs-metric-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(223, 177, 128, 0.35);
+  box-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.7), 0 0 20px rgba(223, 177, 128, 0.08);
+}
+
+.cs-metric-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.12) 50%, transparent 100%);
+}
+
+.cs-metric-card.gold::before {
+  background: linear-gradient(90deg, transparent 0%, rgba(223, 177, 128, 0.6) 50%, transparent 100%);
+}
+.cs-metric-card.emerald::before {
+  background: linear-gradient(90deg, transparent 0%, rgba(16, 185, 129, 0.6) 50%, transparent 100%);
+}
+.cs-metric-card.amber::before {
+  background: linear-gradient(90deg, transparent 0%, rgba(245, 158, 11, 0.6) 50%, transparent 100%);
+}
+.cs-metric-card.indigo::before {
+  background: linear-gradient(90deg, transparent 0%, rgba(99, 102, 241, 0.6) 50%, transparent 100%);
+}
+.cs-metric-card.purple::before {
+  background: linear-gradient(90deg, transparent 0%, rgba(168, 85, 247, 0.6) 50%, transparent 100%);
+}
+.cs-metric-card.cyan::before {
+  background: linear-gradient(90deg, transparent 0%, rgba(6, 182, 212, 0.6) 50%, transparent 100%);
+}
+.cs-metric-card.rose::before {
+  background: linear-gradient(90deg, transparent 0%, rgba(244, 63, 94, 0.6) 50%, transparent 100%);
 }
 
 .cs-metric-top {
@@ -231,46 +318,290 @@
 }
 
 .cs-metric-label {
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.725rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted-foreground, #9ca3af);
+  letter-spacing: 0.06em;
+  color: #94a3b8;
 }
 
 .cs-metric-icon-wrap {
-  width: 2rem;
-  height: 2rem;
-  border-radius: 0.5rem;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.7rem;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   background: rgba(255, 255, 255, 0.05);
-  color: var(--muted-foreground, #9ca3af);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #cbd5e1;
+}
+
+.cs-metric-icon-wrap.gold {
+  background: rgba(223, 177, 128, 0.12);
+  border-color: rgba(223, 177, 128, 0.3);
+  color: #dfb180;
+}
+.cs-metric-icon-wrap.emerald {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #34d399;
+}
+.cs-metric-icon-wrap.amber {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
+}
+.cs-metric-icon-wrap.indigo {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: rgba(99, 102, 241, 0.3);
+  color: #818cf8;
+}
+.cs-metric-icon-wrap.purple {
+  background: rgba(168, 85, 247, 0.12);
+  border-color: rgba(168, 85, 247, 0.3);
+  color: #c084fc;
+}
+.cs-metric-icon-wrap.cyan {
+  background: rgba(6, 182, 212, 0.12);
+  border-color: rgba(6, 182, 212, 0.3);
+  color: #22d3ee;
+}
+.cs-metric-icon-wrap.rose {
+  background: rgba(244, 63, 94, 0.12);
+  border-color: rgba(244, 63, 94, 0.3);
+  color: #fb7185;
 }
 
 .cs-metric-value {
-  font-size: 1.625rem;
-  font-weight: 800;
-  color: var(--foreground, #f3f4f6);
-  letter-spacing: -0.02em;
+  font-size: 1.85rem;
+  font-weight: 850;
+  color: #ffffff;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
 }
 
 .cs-metric-subtext {
-  font-size: 0.75rem;
-  color: var(--muted-foreground, #9ca3af);
+  font-size: 0.775rem;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
 }
 
-/* ── Content Card Container ─────────────────────────────────────────────── */
+.cs-metric-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.675rem;
+  font-weight: 700;
+  padding: 0.12rem 0.5rem;
+  border-radius: 9999px;
+}
+
+.cs-metric-pill.emerald {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+.cs-metric-pill.amber {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+.cs-metric-pill.blue {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+.cs-metric-pill.purple {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+.cs-metric-pill.cyan {
+  background: rgba(6, 182, 212, 0.15);
+  color: #22d3ee;
+  border: 1px solid rgba(6, 182, 212, 0.3);
+}
+
+/* ── 4. Dedicated Storefront Hero Banner ───────────────────────────────────── */
+.cs-storefront-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1.4rem 1.65rem;
+  background: linear-gradient(135deg, rgba(32, 26, 20, 0.8) 0%, rgba(20, 24, 32, 0.9) 50%, rgba(14, 18, 25, 0.95) 100%);
+  border: 1px solid rgba(223, 177, 128, 0.35);
+  border-radius: 1.25rem;
+  box-shadow: 0 12px 32px -10px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(223, 177, 128, 0.18);
+  flex-wrap: wrap;
+}
+
+.cs-storefront-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-width: 280px;
+  flex: 1;
+}
+
+.cs-storefront-icon {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 0.9rem;
+  background: rgba(223, 177, 128, 0.15);
+  border: 1px solid rgba(223, 177, 128, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #dfb180;
+  flex-shrink: 0;
+  box-shadow: 0 0 16px rgba(223, 177, 128, 0.2);
+}
+
+.cs-storefront-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.cs-storefront-title {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 0;
+}
+
+.cs-storefront-tag {
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+  background: rgba(223, 177, 128, 0.2);
+  color: #dfb180;
+  border: 1px solid rgba(223, 177, 128, 0.35);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.cs-storefront-desc {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin: 0;
+  line-height: 1.45;
+}
+
+.cs-storefront-desc code {
+  color: #dfb180;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-weight: 700;
+  padding: 0.1rem 0.35rem;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 0.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cs-storefront-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-shrink: 0;
+}
+
+/* ── 5. AI Websites Ready to Retail Banner (Fixes Stretched Button!) ────────── */
+.cs-retail-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1.35rem 1.65rem;
+  background: linear-gradient(135deg, rgba(200, 150, 102, 0.14) 0%, rgba(16, 185, 129, 0.08) 50%, rgba(15, 20, 28, 0.95) 100%);
+  border: 1px solid rgba(223, 177, 128, 0.4);
+  border-radius: 1.25rem;
+  box-shadow: 0 12px 32px -10px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(223, 177, 128, 0.2);
+  flex-wrap: wrap;
+}
+
+.cs-retail-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-width: 280px;
+  flex: 1;
+}
+
+.cs-retail-icon {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 0.9rem;
+  background: linear-gradient(135deg, rgba(223, 177, 128, 0.25) 0%, rgba(16, 185, 129, 0.15) 100%);
+  border: 1px solid rgba(223, 177, 128, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #dfb180;
+  flex-shrink: 0;
+  box-shadow: 0 0 18px rgba(200, 150, 102, 0.25);
+}
+
+.cs-retail-title {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 0 0 0.25rem 0;
+}
+
+.cs-retail-desc {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin: 0;
+  line-height: 1.45;
+}
+
+.cs-retail-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1.45rem;
+  border-radius: 0.85rem;
+  font-size: 0.825rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #dfb180 0%, #c89666 100%);
+  color: #0d1117;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(200, 150, 102, 0.4);
+  white-space: nowrap;
+  flex-shrink: 0;
+  max-width: max-content;
+  align-self: center;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cs-retail-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 26px rgba(200, 150, 102, 0.55);
+  filter: brightness(1.06);
+}
+
+/* ── 6. Advanced Content Cards & Panels ────────────────────────────────────── */
 .cs-card {
-  background: var(--card, rgba(22, 27, 34, 0.7));
-  backdrop-filter: blur(16px);
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
-  border-radius: 1rem;
-  padding: 1.5rem;
+  background: linear-gradient(145deg, rgba(22, 27, 36, 0.85) 0%, rgba(13, 17, 23, 0.95) 100%);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1.25rem;
+  padding: 1.5rem 1.65rem;
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  box-shadow: 0 12px 32px -10px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .cs-card-header {
@@ -279,50 +610,103 @@
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 .cs-card-title {
-  font-size: 1.125rem;
-  font-weight: 700;
-  color: var(--foreground, #f3f4f6);
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #ffffff;
   margin: 0;
+  letter-spacing: -0.01em;
 }
 
 .cs-card-desc {
-  font-size: 0.8125rem;
-  color: var(--muted-foreground, #9ca3af);
-  margin: 0.2rem 0 0 0;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin: 0.25rem 0 0 0;
 }
 
-/* ── Tables ─────────────────────────────────────────────────────────────── */
+/* ── 7. Sophisticated Empty States ─────────────────────────────────────────── */
+.cs-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2.75rem 1.5rem;
+  gap: 0.75rem;
+}
+
+.cs-empty-icon {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  margin-bottom: 0.25rem;
+}
+
+.cs-empty-icon.gold {
+  background: rgba(223, 177, 128, 0.1);
+  border-color: rgba(223, 177, 128, 0.25);
+  color: #dfb180;
+}
+
+.cs-empty-title {
+  font-size: 0.95rem;
+  font-weight: 750;
+  color: #f1f5f9;
+  margin: 0;
+}
+
+.cs-empty-desc {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  max-width: 380px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.cs-empty-action {
+  margin-top: 0.5rem;
+}
+
+/* ── 8. High-Contrast Tables ──────────────────────────────────────────────── */
 .cs-table-wrap {
   width: 100%;
   overflow-x: auto;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .cs-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.8125rem;
+  font-size: 0.825rem;
   text-align: left;
 }
 
 .cs-table th {
-  padding: 0.75rem 1rem;
-  font-size: 0.75rem;
-  font-weight: 700;
+  padding: 0.85rem 1rem;
+  font-size: 0.725rem;
+  font-weight: 750;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted-foreground, #9ca3af);
-  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .cs-table td {
-  padding: 0.875rem 1rem;
-  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.04));
-  color: var(--foreground, #f3f4f6);
+  padding: 0.95rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  color: #f1f5f9;
   vertical-align: middle;
 }
 
@@ -331,103 +715,107 @@
 }
 
 .cs-table tr:hover td {
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.025);
 }
 
-/* ── Status Badges ──────────────────────────────────────────────────────── */
+/* ── 9. Status Badges ─────────────────────────────────────────────────────── */
 .cs-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.2rem 0.55rem;
+  gap: 0.35rem;
+  padding: 0.25rem 0.65rem;
   border-radius: 9999px;
-  font-size: 0.6875rem;
-  font-weight: 700;
+  font-size: 0.7rem;
+  font-weight: 750;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
 }
 
 .cs-badge-success {
   background: rgba(16, 185, 129, 0.15);
   color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  border: 1px solid rgba(16, 185, 129, 0.35);
 }
 
 .cs-badge-warning {
   background: rgba(245, 158, 11, 0.15);
   color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  border: 1px solid rgba(245, 158, 11, 0.35);
 }
 
 .cs-badge-danger {
   background: rgba(239, 68, 68, 0.15);
   color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  border: 1px solid rgba(239, 68, 68, 0.35);
 }
 
 .cs-badge-info {
   background: rgba(59, 130, 246, 0.15);
   color: #60a5fa;
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  border: 1px solid rgba(59, 130, 246, 0.35);
 }
 
 .cs-badge-neutral {
-  background: rgba(156, 163, 175, 0.15);
-  color: #9ca3af;
-  border: 1px solid rgba(156, 163, 175, 0.3);
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.3);
 }
 
-/* ── Upgrade Gate ───────────────────────────────────────────────────────── */
+/* ── 10. Upgrade Gate Screen (For Free/Pro Users) ───────────────────────────── */
 .cs-gate-container {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 3.5rem 1.5rem;
-  background: var(--card, rgba(22, 27, 34, 0.7));
-  backdrop-filter: blur(20px);
-  border: 1px solid rgba(223, 177, 128, 0.3);
-  border-radius: 1.25rem;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.3);
+  padding: 3.5rem 2rem;
+  background: linear-gradient(145deg, rgba(22, 27, 36, 0.9) 0%, rgba(13, 17, 23, 0.98) 100%);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(223, 177, 128, 0.35);
+  border-radius: 1.5rem;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(223, 177, 128, 0.2);
   gap: 1.75rem;
   max-width: 720px;
   margin: 0 auto;
 }
 
 .cs-gate-icon-wrap {
-  width: 4.5rem;
-  height: 4.5rem;
+  width: 5rem;
+  height: 5rem;
   border-radius: 1.25rem;
   background: linear-gradient(135deg, rgba(223, 177, 128, 0.25), rgba(200, 150, 102, 0.1));
-  border: 1px solid rgba(223, 177, 128, 0.4);
+  border: 1.5px solid rgba(223, 177, 128, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 8px 24px rgba(223, 177, 128, 0.2);
+  box-shadow: 0 10px 28px rgba(223, 177, 128, 0.25);
 }
 
 .cs-gate-title {
-  font-size: 1.75rem;
-  font-weight: 800;
-  color: var(--foreground, #f3f4f6);
-  letter-spacing: -0.02em;
+  font-size: 1.85rem;
+  font-weight: 850;
+  color: #ffffff;
+  letter-spacing: -0.025em;
   margin: 0;
 }
 
 .cs-gate-text {
-  font-size: 0.9375rem;
-  color: var(--muted-foreground, #9ca3af);
+  font-size: 0.95rem;
+  color: #94a3b8;
   line-height: 1.6;
   max-width: 580px;
   margin: 0;
 }
 
+.cs-gate-text strong {
+  color: #f1f5f9;
+}
+
 .cs-gate-features {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 0.75rem;
+  gap: 0.85rem;
   width: 100%;
-  max-width: 540px;
+  max-width: 560px;
   text-align: left;
 }
 
@@ -440,13 +828,13 @@
 .cs-gate-feat-item {
   display: flex;
   align-items: flex-start;
-  gap: 0.625rem;
-  padding: 0.75rem;
-  border-radius: 0.75rem;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  font-size: 0.8125rem;
-  color: var(--foreground, #f3f4f6);
+  gap: 0.65rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 0.825rem;
+  color: #f1f5f9;
 }
 
 .cs-gate-pricing {
@@ -456,77 +844,79 @@
 }
 
 .cs-gate-price-big {
-  font-size: 2.25rem;
+  font-size: 2.5rem;
   font-weight: 900;
   color: #dfb180;
 }
 
 .cs-gate-price-sub {
-  font-size: 0.875rem;
-  color: var(--muted-foreground, #9ca3af);
+  font-size: 0.9rem;
+  color: #94a3b8;
 }
 
-/* ── Wizard / Publishing Form ───────────────────────────────────────────── */
+/* ── 11. Wizard / Form Controls ───────────────────────────────────────────── */
 .cs-form-group {
   display: flex;
   flex-direction: column;
-  gap: 0.375rem;
+  gap: 0.45rem;
 }
 
 .cs-label {
-  font-size: 0.8125rem;
+  font-size: 0.825rem;
   font-weight: 700;
-  color: var(--foreground, #f3f4f6);
+  color: #f1f5f9;
 }
 
 .cs-input, .cs-select, .cs-textarea {
   width: 100%;
-  padding: 0.625rem 0.875rem;
-  border-radius: 0.625rem;
-  background: var(--input, rgba(255, 255, 255, 0.05));
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
-  color: var(--foreground, #f3f4f6);
+  padding: 0.7rem 0.95rem;
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #ffffff;
   font-size: 0.875rem;
   outline: none;
-  transition: border-color 0.15s ease;
+  transition: all 0.2s ease;
 }
 
 .cs-input:focus, .cs-select:focus, .cs-textarea:focus {
   border-color: #dfb180;
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 0 0 3px rgba(223, 177, 128, 0.15);
 }
 
 .cs-revenue-preview {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 1rem;
-  border-radius: 0.75rem;
+  gap: 0.6rem;
+  padding: 1.15rem;
+  border-radius: 0.85rem;
   background: rgba(223, 177, 128, 0.08);
-  border: 1px solid rgba(223, 177, 128, 0.2);
+  border: 1px solid rgba(223, 177, 128, 0.25);
 }
 
 .cs-rev-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.8125rem;
-  color: var(--muted-foreground, #9ca3af);
+  font-size: 0.825rem;
+  color: #94a3b8;
 }
 
 .cs-rev-row.highlight {
-  font-size: 0.9375rem;
+  font-size: 0.975rem;
   font-weight: 800;
   color: #34d399;
-  border-top: 1px solid rgba(223, 177, 128, 0.15);
-  padding-top: 0.5rem;
+  border-top: 1px solid rgba(223, 177, 128, 0.2);
+  padding-top: 0.6rem;
 }
 
-/* ── Modal Backdrop & Dialog ────────────────────────────────────────────── */
+/* ── 12. Modal Backdrop & Dialog ──────────────────────────────────────────── */
 .cs-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(8px);
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(10px);
   z-index: 9999;
   display: flex;
   align-items: center;
@@ -535,14 +925,35 @@
 }
 
 .cs-modal-dialog {
-  background: var(--card, #161b22);
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
-  border-radius: 1rem;
+  background: linear-gradient(145deg, rgba(22, 27, 36, 0.98) 0%, rgba(13, 17, 23, 0.98) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 1.25rem;
   width: 100%;
-  max-width: 480px;
-  padding: 1.5rem;
+  max-width: 500px;
+  padding: 1.75rem;
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
+
+/* ── 13. Template & Project Listing Cards ─────────────────────────────────── */
+.cs-item-card {
+  padding: 1.25rem;
+  border-radius: 1rem;
+  background: linear-gradient(145deg, rgba(25, 29, 38, 0.8) 0%, rgba(15, 18, 25, 0.95) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1rem;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cs-item-card:hover {
+  border-color: rgba(223, 177, 128, 0.35);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px -6px rgba(0, 0, 0, 0.7), 0 0 16px rgba(223, 177, 128, 0.08);
+}
+

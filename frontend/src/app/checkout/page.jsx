@@ -106,6 +106,7 @@ export default function Checkout() {
   const [promoInput, setPromoInput] = useState("");
   const [purchasedTemplates, setPurchasedTemplates] = useState([]);
   const [copiedKeyId, setCopiedKeyId] = useState(null);
+  const [copiedCmdId, setCopiedCmdId] = useState(null);
 
   const [liveRate, setLiveRate] = useState(94.834);
 
@@ -218,6 +219,14 @@ export default function Checkout() {
     }
     setCopiedKeyId(keyId);
     setTimeout(() => setCopiedKeyId(null), 2500);
+  };
+
+  const handleCopyCmd = (cmdId, text) => {
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(text);
+    }
+    setCopiedCmdId(cmdId);
+    setTimeout(() => setCopiedCmdId(null), 2500);
   };
 
   const handleCompleteSuccessFlow = async (orderToProcess) => {
@@ -761,77 +770,65 @@ export default function Checkout() {
           )}
 
           {paymentStep === "success" ? (
-            <div className="checkout-success-container max-w-4xl mx-auto py-6 px-4">
+            <div className="success-screen-wrapper">
               {/* 1. Header Banner */}
-              <div className="text-center mb-8">
-                <div
-                  style={{
-                    width: "4.5rem",
-                    height: "4.5rem",
-                    borderRadius: "50%",
-                    backgroundColor: "rgba(16, 185, 129, 0.15)",
-                    border: "1px solid rgba(16, 185, 129, 0.3)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#10b981",
-                    margin: "0 auto 1rem auto",
-                    boxShadow: "0 10px 25px -5px rgba(16, 185, 129, 0.2)",
-                  }}
-                >
+              <div className="success-hero">
+                <div className="success-badge-glow">
                   <ShieldCheck className="w-10 h-10 text-emerald-400" />
                 </div>
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-xs font-bold uppercase tracking-wider mb-2">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Order Confirmed & License Active</span>
+                <div className="success-pill-status">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Order Confirmed &amp; License Active</span>
                 </div>
-                <h1 className="text-2xl sm:text-3xl font-extrabold text-foreground tracking-tight">
+                <h1 className="success-hero-title">
                   Payment Successful!
                 </h1>
-                <p className="text-sm text-muted-foreground mt-1 max-w-lg mx-auto">
+                <p className="success-hero-desc">
                   Order <strong>#{initiatedOrder?.order_number || "ASS-ORDER"}</strong> has been processed successfully. Your commercial license has been provisioned and clean source code is ready.
                 </p>
               </div>
 
               {/* 2. Commercial License Certificate Card */}
-              <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-card/70 to-emerald-950/40 border border-emerald-500/30 mb-8 shadow-xl">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-emerald-500/20">
-                  <div className="flex items-center gap-2.5">
-                    <Shield className="w-5 h-5 text-emerald-400 shrink-0" />
+              <div className="success-cert-card">
+                <div className="success-cert-header">
+                  <div className="success-cert-brand">
+                    <div className="success-cert-shield">
+                      <Shield className="w-5 h-5 text-emerald-400" />
+                    </div>
                     <div>
-                      <h3 className="text-sm font-bold text-foreground">Commercial License Certificate</h3>
-                      <p className="text-[11px] text-emerald-200/80">Lifetime Commercial Rights • Unlimited Client Deployments • 100% Watermark-Free</p>
+                      <h3 className="success-cert-title">Commercial License Certificate</h3>
+                      <p className="success-cert-sub">Lifetime Commercial Rights • Unlimited Client Deployments • 100% Watermark-Free</p>
                     </div>
                   </div>
-                  <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[11px] font-mono font-bold self-start sm:self-auto">
+                  <span className="success-cert-badge">
                     VERIFIED COMMERCIAL
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 text-xs">
-                  <div className="p-2.5 rounded-xl bg-black/40 border border-white/5">
-                    <span className="text-[10px] text-muted-foreground uppercase font-semibold block">Order Reference</span>
-                    <span className="font-mono font-bold text-foreground">#{initiatedOrder?.order_number || "ASS-ORDER"}</span>
+                <div className="success-cert-grid">
+                  <div className="success-cert-cell">
+                    <span className="success-cell-label">Order Reference</span>
+                    <span className="success-cell-val font-mono">#{initiatedOrder?.order_number || "ASS-ORDER"}</span>
                   </div>
-                  <div className="p-2.5 rounded-xl bg-black/40 border border-white/5">
-                    <span className="text-[10px] text-muted-foreground uppercase font-semibold block">Source Delivery</span>
-                    <span className="font-bold text-emerald-400">Clean ZIP (Zero Watermarks)</span>
+                  <div className="success-cert-cell">
+                    <span className="success-cell-label">Source Delivery</span>
+                    <span className="success-cell-val" style={{ color: "#34d399" }}>Clean ZIP (Zero Watermarks)</span>
                   </div>
-                  <div className="p-2.5 rounded-xl bg-black/40 border border-white/5">
-                    <span className="text-[10px] text-muted-foreground uppercase font-semibold block">Studio Preview Access</span>
-                    <span className="font-bold text-[#dfb180]">Interactive Editor Unlocked</span>
+                  <div className="success-cert-cell">
+                    <span className="success-cell-label">Studio Preview Access</span>
+                    <span className="success-cell-val" style={{ color: "#dfb180" }}>Interactive Editor Unlocked</span>
                   </div>
                 </div>
               </div>
 
               {/* 3. Purchased Template Packages List */}
-              <div className="space-y-6 mb-8">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-base font-bold text-foreground flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-primary" />
+              <div style={{ marginBottom: "2.5rem" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.25rem" }}>
+                  <h2 style={{ fontSize: "1.1rem", fontWeight: 800, color: "#ffffff", display: "flex", alignItems: "center", gap: "0.5rem", margin: 0 }}>
+                    <Sparkles className="w-4 h-4 text-[#dfb180]" />
                     <span>Your Purchased Templates ({purchasedTemplates.length || 1})</span>
                   </h2>
-                  <span className="text-xs text-muted-foreground">All files and live editor ready</span>
+                  <span style={{ fontSize: "0.8rem", color: "#94a3b8" }}>All files and live editor ready</span>
                 </div>
 
                 {purchasedTemplates.map((item, idx) => {
@@ -844,78 +841,73 @@ export default function Checkout() {
                   return (
                     <div
                       key={targetId || idx}
-                      className="p-5 rounded-2xl border border-border/80 bg-card/60 backdrop-blur-md shadow-lg hover:border-primary/40 transition-all space-y-4"
+                      className="success-product-card"
                     >
-                      {/* Top Row: Thumbnail + Title + Primary Action */}
-                      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-                        <div className="flex items-center gap-3.5">
+                      {/* Top Row: Thumbnail + Title */}
+                      <div className="success-product-top">
+                        <div className="success-product-thumb">
                           {item.thumbnail ? (
                             <img
                               src={item.thumbnail}
                               alt={itemTitle}
-                              className="w-16 h-12 object-cover rounded-xl border border-border shrink-0"
                             />
                           ) : (
-                            <div className="w-16 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-lg shrink-0">
+                            <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.75rem" }}>
                               💻
                             </div>
                           )}
-                          <div>
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-primary/15 text-primary border border-primary/30">
-                                {itemFramework}
-                              </span>
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                                Commercial License
-                              </span>
-                            </div>
-                            <h3 className="text-base font-bold text-foreground">{itemTitle}</h3>
-                            <p className="text-xs text-muted-foreground">Lifetime updates • Complete clean source code</p>
-                          </div>
                         </div>
 
-                        {/* Top Action Buttons: Open in Preview Editor + Download Source ZIP */}
-                        <div className="flex items-center gap-2.5 w-full sm:w-auto">
-                          <Link
-                            href={`/preview?template=${targetId}`}
-                            className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl font-bold text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-all flex items-center justify-center gap-1.5 shadow-md shadow-primary/20 cursor-pointer"
-                            style={{ textDecoration: 'none' }}
-                          >
-                            <Sparkles className="w-3.5 h-3.5" />
-                            <span>Open in Preview Editor</span>
-                          </Link>
-
-                          <button
-                            type="button"
-                            onClick={() => handleDownloadItem(targetId)}
-                            className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl font-semibold text-xs border border-border bg-card/80 hover:bg-card text-foreground transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                          >
-                            <Download className="w-3.5 h-3.5 text-emerald-500" />
-                            <span>Download ZIP</span>
-                          </button>
+                        <div className="success-product-info">
+                          <div className="success-product-tags">
+                            <span className="success-tag-fw">{itemFramework}</span>
+                            <span className="success-tag-lic">Commercial License</span>
+                          </div>
+                          <h3 className="success-product-title">{itemTitle}</h3>
+                          <p className="success-product-sub">Lifetime updates • Unlimited client deployments • 100% clean standalone source code</p>
                         </div>
                       </div>
 
+                      {/* Prominent Action Buttons: Download Clean ZIP + Open in Studio Editor */}
+                      <div className="success-actions-row">
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadItem(targetId)}
+                          className="success-btn-download"
+                        >
+                          <Download className="w-4 h-4" />
+                          <span>Download Clean ZIP</span>
+                        </button>
+
+                        <Link
+                          href={`/preview?template=${targetId}`}
+                          className="success-btn-customize"
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          <span>Customize in Studio Editor</span>
+                        </Link>
+                      </div>
+
                       {/* License Key Bar */}
-                      <div className="p-3 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 overflow-hidden">
-                          <Tag className="w-3.5 h-3.5 text-[#dfb180] shrink-0" />
-                          <span className="text-[11px] text-muted-foreground shrink-0 font-medium">License Key:</span>
-                          <code className="text-xs font-mono font-bold text-[#dfb180] truncate">{licenseKey}</code>
+                      <div className="success-key-box">
+                        <div className="success-key-left">
+                          <Tag className="w-4 h-4 text-[#dfb180] shrink-0" />
+                          <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#94a3b8" }}>License Key:</span>
+                          <code className="success-key-text">{licenseKey}</code>
                         </div>
                         <button
                           type="button"
                           onClick={() => handleCopyKey(targetId, licenseKey)}
-                          className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-white/5 hover:bg-white/10 text-foreground transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
+                          className="success-copy-btn"
                         >
                           {copiedKeyId === targetId ? (
                             <>
-                              <Check className="w-3 h-3 text-emerald-400" />
-                              <span className="text-emerald-400">Copied!</span>
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                              <span style={{ color: "#34d399" }}>Copied!</span>
                             </>
                           ) : (
                             <>
-                              <Copy className="w-3 h-3" />
+                              <Copy className="w-3.5 h-3.5" />
                               <span>Copy Key</span>
                             </>
                           )}
@@ -923,30 +915,73 @@ export default function Checkout() {
                       </div>
 
                       {/* Included Assets Checklist & Quickstart */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1 text-xs">
-                        <div className="p-3 rounded-xl bg-card/40 border border-border/50 space-y-1.5">
-                          <span className="text-[11px] font-bold text-foreground block">Included in this Package:</span>
-                          <ul className="space-y-1 text-muted-foreground text-[11.5px]">
-                            <li className="flex items-center gap-1.5">
-                              <Check className="w-3 h-3 text-emerald-400" />
+                      <div className="success-bottom-grid">
+                        <div className="success-inclusions-box">
+                          <span className="success-inclusions-title">Included in this Package</span>
+                          <ul className="success-inclusions-list">
+                            <li>
+                              <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                               <span>100% clean standalone source code (Zero watermarks)</span>
                             </li>
-                            <li className="flex items-center gap-1.5">
-                              <Check className="w-3 h-3 text-emerald-400" />
+                            <li>
+                              <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                               <span>Production build configs, assets, and responsive styles</span>
                             </li>
-                            <li className="flex items-center gap-1.5">
-                              <Check className="w-3 h-3 text-emerald-400" />
+                            <li>
+                              <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                               <span>Interactive live canvas editing in Studio Editor</span>
                             </li>
                           </ul>
                         </div>
 
-                        <div className="p-3 rounded-xl bg-black/50 border border-white/10 font-mono text-[11px] text-slate-300">
-                          <span className="text-[10px] uppercase font-bold text-muted-foreground block mb-1">Developer Quickstart:</span>
-                          <div className="text-emerald-400">unzip {item.slug || "template"}.zip</div>
-                          <div className="text-slate-400">cd {item.slug || "template"}</div>
-                          <div className="text-slate-300">npm install && npm run dev</div>
+                        <div className="success-terminal-box">
+                          <div className="success-terminal-top">
+                            <div className="success-terminal-dots">
+                              <span className="success-dot red" />
+                              <span className="success-dot yellow" />
+                              <span className="success-dot green" />
+                            </div>
+                            <span className="success-terminal-title">Developer Quickstart</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleCopyCmd(
+                                  targetId,
+                                  `unzip ${item.slug || "template"}.zip && cd ${item.slug || "template"} && npm install && npm run dev`
+                                )
+                              }
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "0.3rem",
+                                padding: "0.2rem 0.55rem",
+                                borderRadius: "0.4rem",
+                                background: "rgba(255, 255, 255, 0.06)",
+                                border: "1px solid rgba(255, 255, 255, 0.12)",
+                                color: "#cbd5e1",
+                                fontSize: "0.65rem",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              {copiedCmdId === targetId ? (
+                                <>
+                                  <Check className="w-3 h-3 text-emerald-400" />
+                                  <span style={{ color: "#34d399" }}>Copied!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3" />
+                                  <span>Copy Command</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                          <div className="success-terminal-body">
+                            <div style={{ color: "#34d399" }}>unzip {item.slug || "template"}.zip</div>
+                            <div style={{ color: "#94a3b8" }}>cd {item.slug || "template"}</div>
+                            <div style={{ color: "#f8fafc" }}>npm install &amp;&amp; npm run dev</div>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -955,23 +990,21 @@ export default function Checkout() {
               </div>
 
               {/* 4. Bottom Action Footer */}
-              <div className="pt-4 border-t border-border/60 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="success-footer-nav">
                 <Link
                   href="/dashboard?tab=buyer-templates"
-                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl font-bold text-xs bg-card hover:bg-card/80 border border-border text-foreground transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                  style={{ textDecoration: 'none' }}
+                  className="success-footer-btn-primary"
                 >
-                  <ShoppingBag className="w-3.5 h-3.5 text-primary" />
+                  <ShoppingBag className="w-4 h-4 text-[#dfb180]" />
                   <span>Go to My Dashboard Purchases</span>
                 </Link>
 
                 <Link
                   href="/marketplace"
-                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl font-semibold text-xs border border-transparent hover:border-border text-muted-foreground hover:text-foreground transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                  style={{ textDecoration: 'none' }}
+                  className="success-footer-link"
                 >
                   <span>Browse More Templates</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                  <ArrowRight className="w-4 h-4" />
                 </Link>
               </div>
             </div>
