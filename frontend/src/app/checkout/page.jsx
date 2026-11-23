@@ -96,8 +96,6 @@ export default function Checkout() {
 
   const [paymentGateway, setPaymentGateway] = useState("razorpay"); // "razorpay" | "stripe"
   const [paymentMethod, setPaymentMethod] = useState("upi"); // "upi" | "card" | "netbanking" | "stripe"
-  const [copiedTestCard, setCopiedTestCard] = useState(false);
-  const [copiedTestUpi, setCopiedTestUpi] = useState(false);
   const [authToken, setAuthToken] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [stripeVerifying, setStripeVerifying] = useState(false);
@@ -1216,7 +1214,7 @@ export default function Checkout() {
                     </p>
                   </div>
                 ) : hasCartItems && (
-                  <div className="cart-glass-card cart-payment-methods-card p-5 rounded-2xl border border-primary/30 bg-primary/5 space-y-4">
+                  <div className="cart-glass-card cart-payment-methods-card space-y-4">
                     <div className="flex items-center justify-between pb-3 border-b border-border/50">
                       <div className="flex items-center gap-2.5">
                         <div className="w-8 h-8 rounded-lg bg-primary/15 border border-primary/30 flex items-center justify-center text-primary">
@@ -1227,7 +1225,7 @@ export default function Checkout() {
                           <p className="text-[11px] text-muted-foreground">Choose your preferred payment method &amp; gateway</p>
                         </div>
                       </div>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
                         <ShieldCheck className="w-3 h-3" /> 256-Bit SSL Encrypted
                       </span>
                     </div>
@@ -1238,24 +1236,37 @@ export default function Checkout() {
                       <button
                         type="button"
                         onClick={() => handleSelectPaymentMethod("upi")}
-                        className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                        className={`relative p-3.5 rounded-xl border text-left transition-all duration-200 cursor-pointer flex items-start gap-3 ${
                           paymentMethod === "upi"
-                            ? "border-[#c89666] bg-[#c89666]/15 ring-2 ring-[#c89666]/50 shadow-md shadow-[#c89666]/10"
-                            : "border-border/60 bg-background/40 hover:border-border hover:bg-background/60"
+                            ? "border-[#c89666] bg-[#c89666]/10 dark:bg-[#c89666]/15 ring-2 ring-[#c89666]/35 shadow-sm"
+                            : "border-border/60 bg-card/60 hover:border-border hover:bg-card/90"
                         }`}
                       >
-                        <div className="w-9 h-9 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
-                          <Smartphone className="w-5 h-5 text-emerald-400" />
+                        <div className="w-9 h-9 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5">
+                          <Smartphone className="w-4 h-4" />
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <strong className="text-sm text-foreground">UPI / QR Code</strong>
-                            <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        <div className="flex-1 min-w-0 pr-6">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-xs font-bold text-foreground">UPI / QR Code</span>
+                            <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25">
                               Instant • 0% Fee
                             </span>
                           </div>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">Google Pay, PhonePe, Paytm, BHIM</p>
-                          <span className="text-xs font-bold text-emerald-400 block mt-1.5">{inrAmountString}</span>
+                          <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                            Google Pay, PhonePe, Paytm, BHIM
+                          </p>
+                          <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 block mt-1.5">
+                            {inrAmountString}
+                          </span>
+                        </div>
+                        <div className="absolute top-3.5 right-3.5 flex items-center justify-center">
+                          <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all ${
+                            paymentMethod === "upi"
+                              ? "border-[#c89666] bg-[#c89666] text-white"
+                              : "border-muted-foreground/35 bg-transparent"
+                          }`}>
+                            {paymentMethod === "upi" && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                          </div>
                         </div>
                       </button>
 
@@ -1263,24 +1274,37 @@ export default function Checkout() {
                       <button
                         type="button"
                         onClick={() => handleSelectPaymentMethod("card")}
-                        className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                        className={`relative p-3.5 rounded-xl border text-left transition-all duration-200 cursor-pointer flex items-start gap-3 ${
                           paymentMethod === "card"
-                            ? "border-[#c89666] bg-[#c89666]/15 ring-2 ring-[#c89666]/50 shadow-md shadow-[#c89666]/10"
-                            : "border-border/60 bg-background/40 hover:border-border hover:bg-background/60"
+                            ? "border-[#c89666] bg-[#c89666]/10 dark:bg-[#c89666]/15 ring-2 ring-[#c89666]/35 shadow-sm"
+                            : "border-border/60 bg-card/60 hover:border-border hover:bg-card/90"
                         }`}
                       >
-                        <div className="w-9 h-9 rounded-lg bg-[#0c2340] border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0">
-                          <CreditCard className="w-5 h-5 text-blue-400" />
+                        <div className="w-9 h-9 rounded-lg bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0 mt-0.5">
+                          <CreditCard className="w-4 h-4" />
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <strong className="text-sm text-foreground">Cards (Domestic)</strong>
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                        <div className="flex-1 min-w-0 pr-6">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-xs font-bold text-foreground">Cards (Domestic)</span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/25">
                               INR
                             </span>
                           </div>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">RuPay, Visa, Mastercard in India</p>
-                          <span className="text-xs font-bold text-blue-400 block mt-1.5">{inrAmountString}</span>
+                          <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                            RuPay, Visa, Mastercard in India
+                          </p>
+                          <span className="text-xs font-bold text-blue-700 dark:text-blue-400 block mt-1.5">
+                            {inrAmountString}
+                          </span>
+                        </div>
+                        <div className="absolute top-3.5 right-3.5 flex items-center justify-center">
+                          <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all ${
+                            paymentMethod === "card"
+                              ? "border-[#c89666] bg-[#c89666] text-white"
+                              : "border-muted-foreground/35 bg-transparent"
+                          }`}>
+                            {paymentMethod === "card" && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                          </div>
                         </div>
                       </button>
 
@@ -1288,24 +1312,37 @@ export default function Checkout() {
                       <button
                         type="button"
                         onClick={() => handleSelectPaymentMethod("netbanking")}
-                        className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                        className={`relative p-3.5 rounded-xl border text-left transition-all duration-200 cursor-pointer flex items-start gap-3 ${
                           paymentMethod === "netbanking"
-                            ? "border-[#c89666] bg-[#c89666]/15 ring-2 ring-[#c89666]/50 shadow-md shadow-[#c89666]/10"
-                            : "border-border/60 bg-background/40 hover:border-border hover:bg-background/60"
+                            ? "border-[#c89666] bg-[#c89666]/10 dark:bg-[#c89666]/15 ring-2 ring-[#c89666]/35 shadow-sm"
+                            : "border-border/60 bg-card/60 hover:border-border hover:bg-card/90"
                         }`}
                       >
-                        <div className="w-9 h-9 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
-                          <Building2 className="w-5 h-5 text-amber-400" />
+                        <div className="w-9 h-9 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-700 dark:text-amber-400 shrink-0 mt-0.5">
+                          <Building2 className="w-4 h-4" />
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <strong className="text-sm text-foreground">NetBanking</strong>
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        <div className="flex-1 min-w-0 pr-6">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-xs font-bold text-foreground">NetBanking</span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/25">
                               50+ Banks
                             </span>
                           </div>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">SBI, HDFC, ICICI, Axis, Kotak</p>
-                          <span className="text-xs font-bold text-amber-400 block mt-1.5">{inrAmountString}</span>
+                          <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                            SBI, HDFC, ICICI, Axis, Kotak
+                          </p>
+                          <span className="text-xs font-bold text-amber-700 dark:text-amber-400 block mt-1.5">
+                            {inrAmountString}
+                          </span>
+                        </div>
+                        <div className="absolute top-3.5 right-3.5 flex items-center justify-center">
+                          <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all ${
+                            paymentMethod === "netbanking"
+                              ? "border-[#c89666] bg-[#c89666] text-white"
+                              : "border-muted-foreground/35 bg-transparent"
+                          }`}>
+                            {paymentMethod === "netbanking" && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                          </div>
                         </div>
                       </button>
 
@@ -1313,74 +1350,48 @@ export default function Checkout() {
                       <button
                         type="button"
                         onClick={() => handleSelectPaymentMethod("stripe")}
-                        className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                        className={`relative p-3.5 rounded-xl border text-left transition-all duration-200 cursor-pointer flex items-start gap-3 ${
                           paymentMethod === "stripe"
-                            ? "border-indigo-500 bg-indigo-500/15 ring-2 ring-indigo-500/50 shadow-md shadow-indigo-500/10"
-                            : "border-border/60 bg-background/40 hover:border-border hover:bg-background/60"
+                            ? "border-indigo-500 bg-indigo-500/10 dark:bg-indigo-500/15 ring-2 ring-indigo-500/35 shadow-sm"
+                            : "border-border/60 bg-card/60 hover:border-border hover:bg-card/90"
                         }`}
                       >
-                        <div className="w-9 h-9 rounded-lg bg-[#635bff]/20 border border-[#635bff]/40 flex items-center justify-center text-[#635bff] shrink-0">
-                          <Globe className="w-5 h-5 text-indigo-400" />
+                        <div className="w-9 h-9 rounded-lg bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5">
+                          <Globe className="w-4 h-4" />
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <strong className="text-sm text-foreground">Stripe Global</strong>
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                        <div className="flex-1 min-w-0 pr-6">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-xs font-bold text-foreground">Stripe Global</span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/25">
                               International
                             </span>
                           </div>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">Visa, Mastercard, Amex, Apple / Google Pay</p>
-                          <span className="text-xs font-bold text-indigo-400 block mt-1.5">{formattedTotalString} USD</span>
+                          <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                            Visa, Amex, Apple / Google Pay
+                          </p>
+                          <span className="text-xs font-bold text-indigo-700 dark:text-indigo-400 block mt-1.5">
+                            {formattedTotalString} USD
+                          </span>
+                        </div>
+                        <div className="absolute top-3.5 right-3.5 flex items-center justify-center">
+                          <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all ${
+                            paymentMethod === "stripe"
+                              ? "border-indigo-500 bg-indigo-500 text-white"
+                              : "border-muted-foreground/35 bg-transparent"
+                          }`}>
+                            {paymentMethod === "stripe" && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                          </div>
                         </div>
                       </button>
                     </div>
 
-                    {/* Razorpay Test Mode Helper Card */}
-                    <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-1.5 text-amber-400 font-bold">
-                          <AlertCircle className="w-4 h-4 shrink-0" />
-                          <span>Testing or Sandbox Payments</span>
-                        </div>
-                        <p className="text-[11px] text-muted-foreground leading-relaxed">
-                          For test card enter <code className="text-amber-600 dark:text-amber-300 font-mono bg-amber-500/15 dark:bg-black/40 px-1 py-0.5 rounded">4111 1111 1111 1111</code> (any future expiry e.g. 12/28, CVV 123) or test UPI <code className="text-amber-600 dark:text-amber-300 font-mono bg-amber-500/15 dark:bg-black/40 px-1 py-0.5 rounded">success@razorpay</code>.
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (navigator?.clipboard?.writeText) {
-                              navigator.clipboard.writeText("4111 1111 1111 1111");
-                            }
-                            setCopiedTestCard(true);
-                            setTimeout(() => setCopiedTestCard(false), 2000);
-                          }}
-                          className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold text-[11px] transition-colors flex items-center gap-1 cursor-pointer"
-                        >
-                          {copiedTestCard ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                          <span>{copiedTestCard ? "Card Copied!" : "Copy Test Card"}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (navigator?.clipboard?.writeText) {
-                              navigator.clipboard.writeText("success@razorpay");
-                            }
-                            setCopiedTestUpi(true);
-                            setTimeout(() => setCopiedTestUpi(false), 2000);
-                          }}
-                          className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold text-[11px] transition-colors flex items-center gap-1 cursor-pointer"
-                        >
-                          {copiedTestUpi ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                          <span>{copiedTestUpi ? "UPI Copied!" : "Copy Test UPI"}</span>
-                        </button>
-                      </div>
+                    {/* Trust and encryption note */}
+                    <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/20 text-xs text-muted-foreground">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span className="text-[11px] leading-relaxed">
+                        Clicking <strong>{paymentMethod === "stripe" ? "Pay with Stripe" : paymentMethod === "upi" ? "Pay via UPI" : paymentMethod === "netbanking" ? "Pay via NetBanking" : "Pay via Card"}</strong> will open the secure 256-bit payment gateway. Clean, watermark-free source code and full commercial license unlocked immediately.
+                      </span>
                     </div>
-
-                    <p className="text-[11px] text-muted-foreground leading-relaxed pt-1">
-                      Clicking <strong>{paymentMethod === "stripe" ? "Pay with Stripe" : paymentMethod === "upi" ? "Pay with UPI" : paymentMethod === "netbanking" ? "Pay with NetBanking" : "Pay with Card"}</strong> will securely open the payment gateway. All purchases instantly unlock 100% clean, watermark-free source code with full commercial rights.
-                    </p>
                   </div>
                 )}
               </div>
@@ -1505,7 +1516,7 @@ export default function Checkout() {
                           {formattedTotalString}
                         </span>
                         <span className="cart-summary-approx-hint">
-                          Approx. {formattedTotalString} {activeCurrency}
+                          {activeCurrency === "INR" ? "All taxes & commercial license included" : `Approx. ${formattedTotalString} ${activeCurrency}`}
                         </span>
                       </div>
                     </div>
