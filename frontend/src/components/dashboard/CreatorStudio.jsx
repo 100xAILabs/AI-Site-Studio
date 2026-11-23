@@ -92,11 +92,15 @@ export default function CreatorStudio({
   const [payoutError, setPayoutError] = useState("");
   const [payoutSuccess, setPayoutSuccess] = useState("");
 
-  // Bank settings form state
+  // Payout settings form state
+  const [payoutMethod, setPayoutMethod] = useState(user?.payout_method || "bank");
   const [bankName, setBankName] = useState(user?.payout_bank_name || "");
   const [accountNumber, setAccountNumber] = useState(user?.payout_account_number || "");
   const [ifscCode, setIfscCode] = useState(user?.payout_ifsc_code || "");
   const [accountHolder, setAccountHolder] = useState(user?.payout_account_holder_name || "");
+  const [upiId, setUpiId] = useState(user?.payout_razorpay_vpa || user?.creator_payout_details?.upi_id || "");
+  const [stripeEmail, setStripeEmail] = useState(user?.payout_stripe_email || user?.creator_payout_details?.stripe_email || "");
+  const [paypalEmail, setPaypalEmail] = useState(user?.payout_paypal_email || user?.creator_payout_details?.paypal_email || "");
   const [isSavingBank, setIsSavingBank] = useState(false);
   const [bankSaveMessage, setBankSaveMessage] = useState("");
 
@@ -177,6 +181,10 @@ export default function CreatorStudio({
         "/payouts/withdrawals",
         {
           amount: amountNum,
+          payout_method: payoutMethod,
+          upi_id: upiId || undefined,
+          stripe_email: stripeEmail || undefined,
+          paypal_email: paypalEmail || undefined,
           bank_name: bankName || undefined,
           account_number: accountNumber || undefined,
           ifsc_code: ifscCode || undefined,
@@ -1414,15 +1422,19 @@ export default function CreatorStudio({
       )}
 
       {/* ═════════════════════════════════════════════════════════════════════ */}
-      {/* TAB 8: CREATOR SETTINGS                                               */}
+      {/* TAB 8: CREATOR SETTINGS (MULTI-GATEWAY PAYOUT METHOD SELECTION)       */}
       {/* ═════════════════════════════════════════════════════════════════════ */}
       {activeTab === "settings" && (
         <div className="cs-card">
           <div className="cs-card-header">
             <div>
               <h3 className="cs-card-title">Creator Profile &amp; Payout Settings</h3>
-              <p className="cs-card-desc">Configure your payout banking details and creator preferences</p>
+              <p className="cs-card-desc">Choose how you receive your 80% creator sales revenue directly</p>
             </div>
+            <span className="cs-badge cs-badge-success">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              Automated Payouts
+            </span>
           </div>
 
           <form
@@ -1432,82 +1444,267 @@ export default function CreatorStudio({
               setBankSaveMessage("");
               try {
                 await api.patch(
-                  "/users/me",
+                  "/auth/me",
                   {
+                    payout_method: payoutMethod,
                     payout_bank_name: bankName,
                     payout_account_number: accountNumber,
                     payout_ifsc_code: ifscCode,
                     payout_account_holder_name: accountHolder,
+                    payout_razorpay_vpa: upiId,
+                    payout_upi_id: upiId,
+                    payout_stripe_email: stripeEmail,
+                    payout_paypal_email: paypalEmail,
                   },
                   authToken
                 );
-                setBankSaveMessage("Bank details saved successfully!");
-                setTimeout(() => setBankSaveMessage(""), 3000);
+                queryClient.invalidateQueries({ queryKey: ["creator-earnings"] });
+                queryClient.invalidateQueries({ queryKey: ["user"] });
+                setBankSaveMessage("Payout preferences and details saved successfully!");
+                setTimeout(() => setBankSaveMessage(""), 3500);
               } catch (err) {
-                setBankSaveMessage("Failed to save bank details: " + (err?.message || "Unknown error"));
+                setBankSaveMessage("Failed to save payout settings: " + (err?.response?.data?.detail || err?.message || "Unknown error"));
               } finally {
                 setIsSavingBank(false);
               }
             }}
-            className="space-y-4 max-w-xl"
+            className="space-y-6 max-w-2xl"
           >
-            <div className="cs-form-group">
-              <label className="cs-label">Bank Name</label>
-              <input
-                type="text"
-                value={bankName}
-                onChange={(e) => setBankName(e.target.value)}
-                placeholder="e.g. Chase Bank, HDFC Bank, Barclays"
-                className="cs-input"
-                required
-              />
+            {/* 1. Choose Payout Method Selector */}
+            <div>
+              <label className="cs-label block mb-2">Select Your Preferred Payout Gateway</label>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                {[
+                  { id: "bank", label: "Bank Transfer", icon: Building2, desc: "Direct NEFT / SWIFT", tag: "Wire" },
+                  { id: "upi", label: "UPI (India)", icon: Smartphone, desc: "Instant GPay / PhonePe", tag: "Zero Fee" },
+                  { id: "stripe", label: "Stripe Connect", icon: CreditCard, desc: "Cards in 135+ Currencies", tag: "Global" },
+                  { id: "razorpay", label: "Razorpay Route", icon: Zap, desc: "Domestic Settlement", tag: "Fast" },
+                  { id: "paypal", label: "PayPal", icon: Wallet, desc: "Worldwide Payouts", tag: "USD" },
+                ].map((item) => {
+                  const Icon = item.icon;
+                  const isSelected = payoutMethod === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setPayoutMethod(item.id)}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-2 ${
+                        isSelected
+                          ? "border-[#dfb180] bg-[#dfb180]/15 ring-2 ring-[#dfb180]/40 shadow-md shadow-[#dfb180]/10"
+                          : "border-white/10 bg-black/40 hover:border-white/20 hover:bg-white/5"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <div
+                          className={`w-7 h-7 rounded-lg flex items-center justify-center ${
+                            isSelected
+                              ? "bg-[#dfb180]/25 text-[#dfb180]"
+                              : "bg-white/5 text-muted-foreground"
+                          }`}
+                        >
+                          <Icon className="w-4 h-4" />
+                        </div>
+                        <span
+                          className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded ${
+                            isSelected
+                              ? "bg-[#dfb180]/20 text-[#dfb180]"
+                              : "bg-white/5 text-muted-foreground"
+                          }`}
+                        >
+                          {item.tag}
+                        </span>
+                      </div>
+                      <div>
+                        <strong className={`text-xs block font-bold ${isSelected ? "text-white" : "text-slate-300"}`}>
+                          {item.label}
+                        </strong>
+                        <span className="text-[10px] text-muted-foreground block line-clamp-1">{item.desc}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            <div className="cs-form-group">
-              <label className="cs-label">Account Number</label>
-              <input
-                type="text"
-                value={accountNumber}
-                onChange={(e) => setAccountNumber(e.target.value)}
-                placeholder="Account number or IBAN"
-                className="cs-input"
-                required
-              />
-            </div>
+            {/* 2. Dynamic Input Fields Based on Selected Gateway */}
+            {payoutMethod === "upi" && (
+              <div className="p-4 rounded-xl bg-black/40 border border-[#dfb180]/30 space-y-4">
+                <div className="flex items-center gap-2 text-xs text-[#dfb180] font-bold">
+                  <Smartphone className="w-4 h-4" />
+                  <span>UPI Instant Settlement Configuration</span>
+                </div>
+                <div className="cs-form-group">
+                  <label className="cs-label">UPI ID / Virtual Payment Address (VPA)</label>
+                  <input
+                    type="text"
+                    value={upiId}
+                    onChange={(e) => setUpiId(e.target.value)}
+                    placeholder="e.g. yourname@okhdfcbank or 9876543210@paytm"
+                    className="cs-input font-mono"
+                    required
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Earnings will be disbursed directly to your UPI-linked bank account (GPay, PhonePe, Paytm, BHIM, etc.).
+                  </span>
+                </div>
 
-            <div className="cs-form-group">
-              <label className="cs-label">IFSC / Routing / SWIFT Code</label>
-              <input
-                type="text"
-                value={ifscCode}
-                onChange={(e) => setIfscCode(e.target.value)}
-                placeholder="Branch IFSC or SWIFT code"
-                className="cs-input"
-                required
-              />
-            </div>
+                <div className="cs-form-group">
+                  <label className="cs-label">Account Holder / Registered Name</label>
+                  <input
+                    type="text"
+                    value={accountHolder}
+                    onChange={(e) => setAccountHolder(e.target.value)}
+                    placeholder="Full name as registered on UPI"
+                    className="cs-input"
+                  />
+                </div>
+              </div>
+            )}
 
-            <div className="cs-form-group">
-              <label className="cs-label">Account Holder Name</label>
-              <input
-                type="text"
-                value={accountHolder}
-                onChange={(e) => setAccountHolder(e.target.value)}
-                placeholder="Full name as printed on bank records"
-                className="cs-input"
-                required
-              />
+            {payoutMethod === "stripe" && (
+              <div className="p-4 rounded-xl bg-black/40 border border-indigo-500/30 space-y-4">
+                <div className="flex items-center gap-2 text-xs text-indigo-400 font-bold">
+                  <CreditCard className="w-4 h-4" />
+                  <span>Stripe Connect / Direct Card Payouts</span>
+                </div>
+                <div className="cs-form-group">
+                  <label className="cs-label">Stripe Account Email</label>
+                  <input
+                    type="email"
+                    value={stripeEmail}
+                    onChange={(e) => setStripeEmail(e.target.value)}
+                    placeholder="e.g. payments@yourdomain.com"
+                    className="cs-input"
+                    required
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Connect your Stripe Express or Custom account to receive automated credit/debit card payouts across 135+ currencies.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {payoutMethod === "razorpay" && (
+              <div className="p-4 rounded-xl bg-black/40 border border-blue-500/30 space-y-4">
+                <div className="flex items-center gap-2 text-xs text-blue-400 font-bold">
+                  <Zap className="w-4 h-4 text-[#dfb180]" />
+                  <span>Razorpay Route / Linked Account</span>
+                </div>
+                <div className="cs-form-group">
+                  <label className="cs-label">Razorpay Linked Account / VPA</label>
+                  <input
+                    type="text"
+                    value={upiId}
+                    onChange={(e) => setUpiId(e.target.value)}
+                    placeholder="acc_XXXXXXXXXXXXXX or upi@razorpay"
+                    className="cs-input font-mono"
+                    required
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Direct automated splits via Razorpay Route for merchant-to-merchant payouts.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {payoutMethod === "paypal" && (
+              <div className="p-4 rounded-xl bg-black/40 border border-blue-500/30 space-y-4">
+                <div className="flex items-center gap-2 text-xs text-blue-400 font-bold">
+                  <Wallet className="w-4 h-4" />
+                  <span>PayPal International Payout Configuration</span>
+                </div>
+                <div className="cs-form-group">
+                  <label className="cs-label">PayPal Email Address</label>
+                  <input
+                    type="email"
+                    value={paypalEmail}
+                    onChange={(e) => setPaypalEmail(e.target.value)}
+                    placeholder="paypal@yourdomain.com"
+                    className="cs-input"
+                    required
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Global USD, EUR, and GBP payouts will be sent directly to your verified PayPal balance.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Always allow configuring / backing up Bank Wire Details */}
+            <div className={`p-4 rounded-xl bg-black/40 border space-y-4 ${payoutMethod === "bank" ? "border-[#dfb180]/40" : "border-white/10"}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
+                  <Building2 className="w-4 h-4 text-[#dfb180]" />
+                  <span>Direct Bank Wire Details {payoutMethod !== "bank" && "(Backup Payout Option)"}</span>
+                </div>
+                {payoutMethod === "bank" && (
+                  <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-[#dfb180]/20 text-[#dfb180]">
+                    Primary Selected
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="cs-form-group">
+                  <label className="cs-label">Bank Name</label>
+                  <input
+                    type="text"
+                    value={bankName}
+                    onChange={(e) => setBankName(e.target.value)}
+                    placeholder="e.g. Chase Bank, HDFC Bank, Barclays"
+                    className="cs-input"
+                    required={payoutMethod === "bank"}
+                  />
+                </div>
+
+                <div className="cs-form-group">
+                  <label className="cs-label">Account Number / IBAN</label>
+                  <input
+                    type="text"
+                    value={accountNumber}
+                    onChange={(e) => setAccountNumber(e.target.value)}
+                    placeholder="Account number or IBAN"
+                    className="cs-input font-mono"
+                    required={payoutMethod === "bank"}
+                  />
+                </div>
+
+                <div className="cs-form-group">
+                  <label className="cs-label">IFSC / Routing / SWIFT Code</label>
+                  <input
+                    type="text"
+                    value={ifscCode}
+                    onChange={(e) => setIfscCode(e.target.value)}
+                    placeholder="Branch IFSC, Routing, or SWIFT"
+                    className="cs-input font-mono uppercase"
+                    required={payoutMethod === "bank"}
+                  />
+                </div>
+
+                <div className="cs-form-group">
+                  <label className="cs-label">Account Holder Legal Name</label>
+                  <input
+                    type="text"
+                    value={accountHolder}
+                    onChange={(e) => setAccountHolder(e.target.value)}
+                    placeholder="Full name as printed on bank records"
+                    className="cs-input"
+                    required={payoutMethod === "bank"}
+                  />
+                </div>
+              </div>
             </div>
 
             {bankSaveMessage && (
               <div
-                className={`p-3 rounded-lg text-xs font-semibold ${
+                className={`p-3 rounded-lg text-xs font-semibold flex items-center gap-2 ${
                   bankSaveMessage.includes("success")
                     ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
                     : "bg-red-500/10 text-red-400 border border-red-500/20"
                 }`}
               >
-                {bankSaveMessage}
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{bankSaveMessage}</span>
               </div>
             )}
 

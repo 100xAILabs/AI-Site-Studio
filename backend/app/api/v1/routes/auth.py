@@ -1134,6 +1134,7 @@ async def detect_and_update_location(
 
 
 @router.put("/me", response_model=UserResponse)
+@router.patch("/me", response_model=UserResponse)
 async def update_me(
     request: Request,
     current_user: User = Depends(get_current_user),
@@ -1162,6 +1163,30 @@ async def update_me(
         current_user.city = data["city"]
     if "currency" in data:
         current_user.currency = data["currency"]
+
+    # ── Payout Settings Updates ──────────────────────────────────────────────
+    if "payout_method" in data and data["payout_method"]:
+        current_user.payout_method = str(data["payout_method"]).lower().strip()
+    if "payout_bank_name" in data:
+        current_user.payout_bank_name = str(data["payout_bank_name"]).strip() if data["payout_bank_name"] else None
+    if "payout_account_number" in data:
+        current_user.payout_account_number = str(data["payout_account_number"]).strip() if data["payout_account_number"] else None
+    if "payout_ifsc_code" in data:
+        current_user.payout_ifsc_code = str(data["payout_ifsc_code"]).strip() if data["payout_ifsc_code"] else None
+    if "payout_account_holder_name" in data:
+        current_user.payout_account_holder_name = str(data["payout_account_holder_name"]).strip() if data["payout_account_holder_name"] else None
+    if "payout_razorpay_vpa" in data:
+        current_user.payout_razorpay_vpa = str(data["payout_razorpay_vpa"]).strip() if data["payout_razorpay_vpa"] else None
+    if "payout_upi_id" in data:
+        current_user.payout_razorpay_vpa = str(data["payout_upi_id"]).strip() if data["payout_upi_id"] else None
+    if "payout_stripe_email" in data:
+        current_user.payout_stripe_email = str(data["payout_stripe_email"]).strip() if data["payout_stripe_email"] else None
+    if "payout_paypal_email" in data:
+        current_user.payout_paypal_email = str(data["payout_paypal_email"]).strip() if data["payout_paypal_email"] else None
+
+    # Track if payout setup has been configured
+    if any(k.startswith("payout_") for k in data):
+        current_user.is_payout_setup_completed = True
         
     if "full_name" in data or "avatar_url" in data:
         from app.models.template import Template
