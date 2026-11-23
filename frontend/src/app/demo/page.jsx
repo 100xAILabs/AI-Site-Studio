@@ -84,8 +84,9 @@ export default function LiveDemoPage() {
   const addItem = useCartStore((s) => s.addItem);
   const templateId = template?.id || targetIdentifier;
 
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const previewUrl = targetIdentifier
-    ? `${API_URL}/preview/live/${targetIdentifier}/`
+    ? `${API_URL}/preview/live/${targetIdentifier}/${token ? `?token=${encodeURIComponent(token)}` : ""}`
     : "";
 
   const handleRefresh = () => {

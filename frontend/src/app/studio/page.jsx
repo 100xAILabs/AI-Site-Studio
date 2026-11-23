@@ -672,9 +672,9 @@ export default function StudioPage() {
           <form onSubmit={buildPlan} className="studio-brief-form grid gap-5 rounded-3xl border border-white/10 bg-white/[0.035] p-5 shadow-2xl shadow-black/20 sm:p-8">
             {studioQuota && (
               studioQuota.is_free_generation_available ? (
-                <div className="flex items-center gap-2.5 p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs">
+                <div className="studio-quota-notice flex items-center gap-2.5 p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs">
                   <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span><strong>Free Tier Perk:</strong> You can generate your first complete website for <strong>100% free</strong>! No credits needed.</span>
+                  <span><strong>First website is free.</strong> No credits needed.</span>
                 </div>
               ) : studioQuota.free_generation_used && !studioQuota.can_generate ? (
                 <div className="flex items-center justify-between gap-3 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs">
@@ -803,7 +803,7 @@ export default function StudioPage() {
                     : "Your brief is ready. You can still refine the content in the next step."}
             </p>
             {error && <p role="alert" className="rounded-xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">{error}</p>}
-            <button disabled={loadingPlan || !categoryId || !effectivePageStructure || prompt.trim().length < 10} className="inline-flex w-fit items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-amber-950/40 transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="submit" disabled={loadingPlan || !categoryId || !effectivePageStructure || prompt.trim().length < 10} className="studio-plan-submit inline-flex w-fit items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#c89666] to-[#b5804f] hover:from-[#dfb180] hover:to-[#c89666] px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-amber-950/40 transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50">
               <WandSparkles size={17} />
               <span>Plan my website</span>
               <ArrowRight size={16} />

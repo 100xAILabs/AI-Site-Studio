@@ -1231,12 +1231,14 @@ export default function Checkout() {
                     </div>
 
                     {/* 4 Interactive Payment Method Cards */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div className="payment-method-grid">
                       {/* 1. UPI & QR Code */}
                       <button
                         type="button"
+                        aria-pressed={paymentMethod === "upi"}
+                        data-selected={paymentMethod === "upi"}
                         onClick={() => handleSelectPaymentMethod("upi")}
-                        className={`relative p-3.5 rounded-xl border text-left transition-all duration-200 cursor-pointer flex items-start gap-3 ${
+                        className={`payment-method-option relative p-3.5 rounded-xl border text-left transition-all duration-200 cursor-pointer flex items-start gap-3 ${
                           paymentMethod === "upi"
                             ? "border-[#c89666] bg-[#c89666]/10 dark:bg-[#c89666]/15 ring-2 ring-[#c89666]/35 shadow-sm"
                             : "border-border/60 bg-card/60 hover:border-border hover:bg-card/90"
@@ -1245,21 +1247,21 @@ export default function Checkout() {
                         <div className="w-9 h-9 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5">
                           <Smartphone className="w-4 h-4" />
                         </div>
-                        <div className="flex-1 min-w-0 pr-6">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="text-xs font-bold text-foreground">UPI / QR Code</span>
-                            <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25">
+                        <div className="payment-method-content flex-1 min-w-0 pr-6">
+                          <div className="payment-method-title-row flex flex-wrap items-center gap-1.5">
+                            <span className="payment-method-title text-xs font-bold text-foreground">UPI / QR Code</span>
+                            <span className="payment-method-badge text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25">
                               Instant • 0% Fee
                             </span>
                           </div>
-                          <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                          <p className="payment-method-detail text-[11px] text-muted-foreground mt-0.5 truncate">
                             Google Pay, PhonePe, Paytm, BHIM
                           </p>
-                          <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 block mt-1.5">
+                          <span className="payment-method-amount text-xs font-bold text-emerald-700 dark:text-emerald-400 block mt-1.5">
                             {inrAmountString}
                           </span>
                         </div>
-                        <div className="absolute top-3.5 right-3.5 flex items-center justify-center">
+                        <div className="payment-method-indicator absolute top-3.5 right-3.5 flex items-center justify-center">
                           <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all ${
                             paymentMethod === "upi"
                               ? "border-[#c89666] bg-[#c89666] text-white"
@@ -1273,8 +1275,10 @@ export default function Checkout() {
                       {/* 2. Domestic Credit / Debit Cards */}
                       <button
                         type="button"
+                        aria-pressed={paymentMethod === "card"}
+                        data-selected={paymentMethod === "card"}
                         onClick={() => handleSelectPaymentMethod("card")}
-                        className={`relative p-3.5 rounded-xl border text-left transition-all duration-200 cursor-pointer flex items-start gap-3 ${
+                        className={`payment-method-option relative p-3.5 rounded-xl border text-left transition-all duration-200 cursor-pointer flex items-start gap-3 ${
                           paymentMethod === "card"
                             ? "border-[#c89666] bg-[#c89666]/10 dark:bg-[#c89666]/15 ring-2 ring-[#c89666]/35 shadow-sm"
                             : "border-border/60 bg-card/60 hover:border-border hover:bg-card/90"
@@ -1283,21 +1287,21 @@ export default function Checkout() {
                         <div className="w-9 h-9 rounded-lg bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0 mt-0.5">
                           <CreditCard className="w-4 h-4" />
                         </div>
-                        <div className="flex-1 min-w-0 pr-6">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="text-xs font-bold text-foreground">Cards (Domestic)</span>
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/25">
+                        <div className="payment-method-content flex-1 min-w-0 pr-6">
+                          <div className="payment-method-title-row flex flex-wrap items-center gap-1.5">
+                            <span className="payment-method-title text-xs font-bold text-foreground">Cards (Domestic)</span>
+                            <span className="payment-method-badge text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/25">
                               INR
                             </span>
                           </div>
-                          <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                          <p className="payment-method-detail text-[11px] text-muted-foreground mt-0.5 truncate">
                             RuPay, Visa, Mastercard in India
                           </p>
-                          <span className="text-xs font-bold text-blue-700 dark:text-blue-400 block mt-1.5">
+                          <span className="payment-method-amount text-xs font-bold text-blue-700 dark:text-blue-400 block mt-1.5">
                             {inrAmountString}
                           </span>
                         </div>
-                        <div className="absolute top-3.5 right-3.5 flex items-center justify-center">
+                        <div className="payment-method-indicator absolute top-3.5 right-3.5 flex items-center justify-center">
                           <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all ${
                             paymentMethod === "card"
                               ? "border-[#c89666] bg-[#c89666] text-white"
@@ -1311,8 +1315,10 @@ export default function Checkout() {
                       {/* 3. NetBanking */}
                       <button
                         type="button"
+                        aria-pressed={paymentMethod === "netbanking"}
+                        data-selected={paymentMethod === "netbanking"}
                         onClick={() => handleSelectPaymentMethod("netbanking")}
-                        className={`relative p-3.5 rounded-xl border text-left transition-all duration-200 cursor-pointer flex items-start gap-3 ${
+                        className={`payment-method-option relative p-3.5 rounded-xl border text-left transition-all duration-200 cursor-pointer flex items-start gap-3 ${
                           paymentMethod === "netbanking"
                             ? "border-[#c89666] bg-[#c89666]/10 dark:bg-[#c89666]/15 ring-2 ring-[#c89666]/35 shadow-sm"
                             : "border-border/60 bg-card/60 hover:border-border hover:bg-card/90"
@@ -1321,21 +1327,21 @@ export default function Checkout() {
                         <div className="w-9 h-9 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-700 dark:text-amber-400 shrink-0 mt-0.5">
                           <Building2 className="w-4 h-4" />
                         </div>
-                        <div className="flex-1 min-w-0 pr-6">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="text-xs font-bold text-foreground">NetBanking</span>
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/25">
+                        <div className="payment-method-content flex-1 min-w-0 pr-6">
+                          <div className="payment-method-title-row flex flex-wrap items-center gap-1.5">
+                            <span className="payment-method-title text-xs font-bold text-foreground">NetBanking</span>
+                            <span className="payment-method-badge text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/25">
                               50+ Banks
                             </span>
                           </div>
-                          <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                          <p className="payment-method-detail text-[11px] text-muted-foreground mt-0.5 truncate">
                             SBI, HDFC, ICICI, Axis, Kotak
                           </p>
-                          <span className="text-xs font-bold text-amber-700 dark:text-amber-400 block mt-1.5">
+                          <span className="payment-method-amount text-xs font-bold text-amber-700 dark:text-amber-400 block mt-1.5">
                             {inrAmountString}
                           </span>
                         </div>
-                        <div className="absolute top-3.5 right-3.5 flex items-center justify-center">
+                        <div className="payment-method-indicator absolute top-3.5 right-3.5 flex items-center justify-center">
                           <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all ${
                             paymentMethod === "netbanking"
                               ? "border-[#c89666] bg-[#c89666] text-white"
@@ -1349,8 +1355,10 @@ export default function Checkout() {
                       {/* 4. International Cards & Apple Pay (Stripe) */}
                       <button
                         type="button"
+                        aria-pressed={paymentMethod === "stripe"}
+                        data-selected={paymentMethod === "stripe"}
                         onClick={() => handleSelectPaymentMethod("stripe")}
-                        className={`relative p-3.5 rounded-xl border text-left transition-all duration-200 cursor-pointer flex items-start gap-3 ${
+                        className={`payment-method-option relative p-3.5 rounded-xl border text-left transition-all duration-200 cursor-pointer flex items-start gap-3 ${
                           paymentMethod === "stripe"
                             ? "border-indigo-500 bg-indigo-500/10 dark:bg-indigo-500/15 ring-2 ring-indigo-500/35 shadow-sm"
                             : "border-border/60 bg-card/60 hover:border-border hover:bg-card/90"
@@ -1359,21 +1367,21 @@ export default function Checkout() {
                         <div className="w-9 h-9 rounded-lg bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5">
                           <Globe className="w-4 h-4" />
                         </div>
-                        <div className="flex-1 min-w-0 pr-6">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="text-xs font-bold text-foreground">Stripe Global</span>
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/25">
+                        <div className="payment-method-content flex-1 min-w-0 pr-6">
+                          <div className="payment-method-title-row flex flex-wrap items-center gap-1.5">
+                            <span className="payment-method-title text-xs font-bold text-foreground">Stripe Global</span>
+                            <span className="payment-method-badge text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/25">
                               International
                             </span>
                           </div>
-                          <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                          <p className="payment-method-detail text-[11px] text-muted-foreground mt-0.5 truncate">
                             Visa, Amex, Apple / Google Pay
                           </p>
-                          <span className="text-xs font-bold text-indigo-700 dark:text-indigo-400 block mt-1.5">
+                          <span className="payment-method-amount text-xs font-bold text-indigo-700 dark:text-indigo-400 block mt-1.5">
                             {formattedTotalString} USD
                           </span>
                         </div>
-                        <div className="absolute top-3.5 right-3.5 flex items-center justify-center">
+                        <div className="payment-method-indicator absolute top-3.5 right-3.5 flex items-center justify-center">
                           <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all ${
                             paymentMethod === "stripe"
                               ? "border-indigo-500 bg-indigo-500 text-white"
@@ -1396,73 +1404,8 @@ export default function Checkout() {
                 )}
               </div>
 
-              {/* Right Column: 3D Bag Graphic + Order Summary Card */}
+              {/* Right Column: Order Summary Card */}
               <div className="cart-right-col">
-                {/* 3D Glowing Purple Bag Illustration */}
-                <div className="cart-3d-bag-wrap">
-                  <div className="cart-bag-glow-aura" />
-                  <span className="cart-sparkle-particle p1">✦</span>
-                  <span className="cart-sparkle-particle p2">✦</span>
-                  <span className="cart-sparkle-particle p3">★</span>
-                  <svg
-                    width="105"
-                    height="105"
-                    viewBox="0 0 160 160"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="cart-3d-bag-svg"
-                  >
-                    <defs>
-                      <linearGradient id="bag-body-grad" x1="20" y1="40" x2="140" y2="150" gradientUnits="userSpaceOnUse">
-                        <stop offset="0%" stopColor="#dfb180" />
-                        <stop offset="50%" stopColor="#c89666" />
-                        <stop offset="100%" stopColor="#b5804f" />
-                      </linearGradient>
-                      <linearGradient id="bag-front-sheen" x1="50" y1="50" x2="110" y2="140" gradientUnits="userSpaceOnUse">
-                        <stop offset="0%" stopColor="#f4ecdf" stopOpacity="0.8" />
-                        <stop offset="60%" stopColor="#dfb180" stopOpacity="0.4" />
-                        <stop offset="100%" stopColor="#29180b" stopOpacity="0.9" />
-                      </linearGradient>
-                      <linearGradient id="bag-handle-grad" x1="45" y1="10" x2="115" y2="50" gradientUnits="userSpaceOnUse">
-                        <stop offset="0%" stopColor="#faf7f2" />
-                        <stop offset="40%" stopColor="#e8d7be" />
-                        <stop offset="100%" stopColor="#c89666" />
-                      </linearGradient>
-                      <filter id="bag-shadow" x="0" y="0" width="160" height="160" filterUnits="userSpaceOnUse">
-                        <feDropShadow dx="0" dy="8" stdDeviation="10" floodColor="#000000" floodOpacity="0.5" />
-                      </filter>
-                    </defs>
-
-                    {/* Handle */}
-                    <path
-                      d="M56 50 C56 22, 104 22, 104 50"
-                      stroke="url(#bag-handle-grad)"
-                      strokeWidth="8"
-                      strokeLinecap="round"
-                      fill="none"
-                    />
-
-                    {/* Bag Main Body */}
-                    <g filter="url(#bag-shadow)">
-                      <path
-                        d="M32 50 L128 50 L140 142 C140 148, 134 152, 126 152 L34 152 C26 152, 20 148, 20 142 Z"
-                        fill="url(#bag-body-grad)"
-                      />
-                      {/* Front Facet / 3D Bevel */}
-                      <path
-                        d="M36 54 L124 54 L132 144 C132 148, 128 150, 122 150 L38 150 C32 150, 28 148, 28 144 Z"
-                        fill="url(#bag-front-sheen)"
-                      />
-                      {/* Specular Highlight Streak */}
-                      <path
-                        d="M42 60 L65 60 L55 142 L38 142 Z"
-                        fill="#ffffff"
-                        fillOpacity="0.18"
-                      />
-                    </g>
-                  </svg>
-                </div>
-
                 {/* Order Summary Card */}
                 <div className="cart-glass-card cart-summary-card">
                   <div className="cart-summary-header">

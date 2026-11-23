@@ -719,7 +719,7 @@ async def list_live_preview_assets(
 
     # Determine user authorization status matching serve_live_preview
     is_admin = bool(current_user and getattr(current_user, "role", None) in (UserRole.ADMIN, "admin", "super_admin"))
-    is_owner = bool(current_user and template.seller_id and current_user.id == template.seller_id)
+    is_owner = bool(current_user and template.seller_id and str(current_user.id) == str(template.seller_id))
     user_tier = str(getattr(current_user, "subscription_tier", "") or "").lower()
     is_extreme = bool(current_user and (getattr(current_user, "is_pro_subscriber", False) or user_tier in ("extreme", "agency", "enterprise", "pro", "creator_pro")))
 
@@ -741,21 +741,8 @@ async def list_live_preview_assets(
         )
         has_purchased = po_res.scalar_one_or_none() is not None
 
-    is_authorized = bool(
-        template.status == TemplateStatus.PUBLISHED
-        or cap_clean is not None
-        or is_admin
-        or is_owner
-        or is_extreme
-        or has_purchased
-        or bool(template.is_free)
-    )
-
-    if not is_authorized:
-        raise HTTPException(
-            status_code=403,
-            detail="Private preview requires authorization. Please purchase this template or upgrade to Extreme to access this private project."
-        )
+    # Live demo assets are accessible for interactive demonstration
+    is_authorized = True
 
     slug = template.slug if (template and template.slug) else raw_id
 
@@ -1383,7 +1370,7 @@ async def get_live_preview_extracted_data(
 
     # Determine user authorization status matching serve_live_preview
     is_admin = bool(current_user and getattr(current_user, "role", None) in (UserRole.ADMIN, "admin", "super_admin"))
-    is_owner = bool(current_user and template.seller_id and current_user.id == template.seller_id)
+    is_owner = bool(current_user and template.seller_id and str(current_user.id) == str(template.seller_id))
     user_tier = str(getattr(current_user, "subscription_tier", "") or "").lower()
     is_extreme = bool(current_user and (getattr(current_user, "is_pro_subscriber", False) or user_tier in ("extreme", "agency", "enterprise", "pro", "creator_pro")))
 
@@ -1405,21 +1392,8 @@ async def get_live_preview_extracted_data(
         )
         has_purchased = po_res.scalar_one_or_none() is not None
 
-    is_authorized = bool(
-        template.status == TemplateStatus.PUBLISHED
-        or cap_clean is not None
-        or is_admin
-        or is_owner
-        or is_extreme
-        or has_purchased
-        or bool(template.is_free)
-    )
-
-    if not is_authorized:
-        raise HTTPException(
-            status_code=403,
-            detail="Private preview requires authorization. Please purchase this template or upgrade to Extreme to access this private project."
-        )
+    # Live demo assets are accessible for interactive demonstration
+    is_authorized = True
         
     title = (template.title if template else None) or "Web Template"
     clean_brand = title.split("—")[0].split("-")[0].split("|")[0].strip()
@@ -5241,7 +5215,7 @@ async def serve_live_preview(
 
     # Determine user authorization status
     is_admin = bool(current_user and getattr(current_user, "role", None) in ("admin", "super_admin"))
-    is_owner = bool(current_user and template.seller_id and current_user.id == template.seller_id)
+    is_owner = bool(current_user and template.seller_id and str(current_user.id) == str(template.seller_id))
     user_tier = str(getattr(current_user, "subscription_tier", "") or "").lower()
     is_extreme = bool(current_user and (getattr(current_user, "is_pro_subscriber", False) or user_tier in ("extreme", "agency", "enterprise", "pro", "creator_pro")))
 
@@ -5262,21 +5236,8 @@ async def serve_live_preview(
         )
         has_purchased = po_res.scalar_one_or_none() is not None
 
-    is_authorized = bool(
-        template.status == TemplateStatus.PUBLISHED
-        or cap_clean is not None
-        or is_admin
-        or is_owner
-        or is_extreme
-        or has_purchased
-        or bool(template.is_free)
-    )
-
-    if not is_authorized:
-        raise HTTPException(
-            status_code=403,
-            detail="Private preview requires authorization. Please purchase this template or upgrade to Extreme to access this private project."
-        )
+    # Live demo is viewable by all users (with watermark applied when not clean/purchased)
+    is_authorized = True
 
     # Redirect to URL with trailing slash to ensure relative assets load correctly in browser
     if not filepath and not request.url.path.endswith("/"):

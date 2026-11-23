@@ -112,7 +112,7 @@ function StudioLaunchPage() {
         : "HTML5 + Modern CSS + JavaScript (Lightweight)";
 
   const targetIdentifier = effectiveTemplate?.id || effectiveTemplate?.slug || templateId;
-  const liveDemoUrl = targetIdentifier ? `${API_URL}/preview/live/${targetIdentifier}/` : "";
+  const liveDemoUrl = targetIdentifier ? `/demo/${encodeURIComponent(targetIdentifier)}` : "";
   const editorUrl = `/preview?template=${encodeURIComponent(targetIdentifier)}&mode=live${buildId ? `&build=${encodeURIComponent(buildId)}` : ""}`;
   const deployUrl = `/studio/deploy?template=${encodeURIComponent(targetIdentifier)}${buildId ? `&build=${encodeURIComponent(buildId)}` : ""}`;
 
