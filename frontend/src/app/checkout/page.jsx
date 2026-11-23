@@ -93,9 +93,11 @@ export default function Checkout() {
     removeCoupon,
   } = useCartStore();
 
-  const [paymentGateway, setPaymentGateway] = useState("razorpay"); // Strictly Razorpay
+  const [paymentGateway, setPaymentGateway] = useState("stripe"); // Default to Stripe Checkout (Live)
   const [authToken, setAuthToken] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [stripeVerifying, setStripeVerifying] = useState(false);
+  const [stripeNotice, setStripeNotice] = useState("");
   const [paymentStep, setPaymentStep] = useState("cart"); // "cart" | "paying" | "success"
   const [freeDownloadsComplete, setFreeDownloadsComplete] = useState(false);
   const [initiatedOrder, setInitiatedOrder] = useState(null);
@@ -131,6 +133,68 @@ export default function Checkout() {
       })
       .catch(() => { });
   }, []);
+
+  // ── Handle Stripe Return (Redirect from Stripe Hosted Checkout) ────────────
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const isSuccess = params.get("success") === "true";
+    const isCancelled = params.get("cancelled") === "true";
+    const orderId = params.get("order_id");
+    const sessionId = params.get("session_id");
+
+    if (isCancelled) {
+      setStripeNotice("Stripe checkout was cancelled. Your items remain saved in your cart.");
+      window.history.replaceState({}, "", "/checkout");
+      return;
+    }
+
+    if (isSuccess && orderId && sessionId) {
+      setStripeVerifying(true);
+      (async () => {
+        try {
+          const tok = authToken || (await getToken());
+          // 1. Verify payment session with backend Stripe verification endpoint
+          await api.post(
+            "/payment/verify",
+            {
+              order_id: orderId,
+              gateway: "stripe",
+              gateway_order_id: sessionId,
+              gateway_payment_id: sessionId,
+              gateway_signature: "stripe_checkout_success",
+            },
+            tok
+          );
+
+          // 2. Fetch completed order details from database
+          const orderRes = await api.get(`/orders/${orderId}`, tok);
+          if (orderRes) {
+            clearCart();
+            await handleCompleteSuccessFlow(orderRes);
+            setPaymentStep("success");
+            window.history.replaceState({}, "", "/checkout");
+          }
+        } catch (err) {
+          console.error("Stripe verification check:", err);
+          try {
+            const tok = authToken || (await getToken());
+            const orderRes = await api.get(`/orders/${orderId}`, tok);
+            if (orderRes?.status === "completed") {
+              clearCart();
+              await handleCompleteSuccessFlow(orderRes);
+              setPaymentStep("success");
+              window.history.replaceState({}, "", "/checkout");
+              return;
+            }
+          } catch (_) {}
+          setStripeNotice("Payment completed on Stripe! Your license is active in Purchased Templates.");
+        } finally {
+          setStripeVerifying(false);
+        }
+      })();
+    }
+  }, [authToken]);
 
   const handleDownloadItem = async (templateId) => {
     try {
@@ -679,6 +743,23 @@ export default function Checkout() {
             </div>
           </div>
 
+          {stripeNotice && (
+            <div className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center justify-between gap-3 animate-fade-in">
+              <div className="flex items-center gap-2.5">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>{stripeNotice}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStripeNotice("")}
+                className="text-muted-foreground hover:text-foreground cursor-pointer p-1"
+                aria-label="Dismiss message"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           {paymentStep === "success" ? (
             <div className="checkout-success-container max-w-4xl mx-auto py-6 px-4">
               {/* 1. Header Banner */}
@@ -1104,14 +1185,36 @@ export default function Checkout() {
                       </span>
                     </div>
 
-                    {/* Gateway Switcher: Razorpay vs Stripe */}
+                    {/* Gateway Switcher: Stripe vs Razorpay */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setPaymentGateway("stripe")}
+                        className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                          paymentGateway === "stripe"
+                            ? "border-indigo-500 bg-indigo-500/15 ring-2 ring-indigo-500/50 shadow-md shadow-indigo-500/10"
+                            : "border-border/60 bg-background/40 hover:border-border"
+                        }`}
+                      >
+                        <div className="w-9 h-9 rounded-lg bg-[#635bff]/20 border border-[#635bff]/40 flex items-center justify-center text-[#635bff] shrink-0">
+                          <Globe className="w-5 h-5 text-indigo-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <strong className="text-sm text-foreground">Stripe Checkout</strong>
+                            <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Recommended · Live</span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">Visa, Mastercard, Amex, Apple Pay, Google Pay &amp; Global Cards</p>
+                          <span className="text-xs font-bold text-indigo-400 block mt-1.5">{formattedTotalString} USD</span>
+                        </div>
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => setPaymentGateway("razorpay")}
                         className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
                           paymentGateway === "razorpay"
-                            ? "border-[#c89666] bg-[#c89666]/15 ring-1 ring-[#c89666]"
+                            ? "border-[#c89666] bg-[#c89666]/15 ring-2 ring-[#c89666]/50 shadow-md shadow-[#c89666]/10"
                             : "border-border/60 bg-background/40 hover:border-border"
                         }`}
                       >
@@ -1121,32 +1224,10 @@ export default function Checkout() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between">
                             <strong className="text-sm text-foreground">Razorpay</strong>
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">UPI · Cards</span>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">UPI · Cards (INR)</span>
                           </div>
                           <p className="text-[11px] text-muted-foreground mt-0.5">UPI (GPay / PhonePe), NetBanking, Debit &amp; Credit Cards</p>
                           <span className="text-xs font-bold text-emerald-400 block mt-1.5">{inrAmountString}</span>
-                        </div>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setPaymentGateway("stripe")}
-                        className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
-                          paymentGateway === "stripe"
-                            ? "border-indigo-500 bg-indigo-500/15 ring-1 ring-indigo-500"
-                            : "border-border/60 bg-background/40 hover:border-border"
-                        }`}
-                      >
-                        <div className="w-9 h-9 rounded-lg bg-[#635bff]/20 border border-[#635bff]/40 flex items-center justify-center text-[#635bff] shrink-0">
-                          <Globe className="w-5 h-5 text-indigo-400" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <strong className="text-sm text-foreground">Stripe</strong>
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">USD · Global</span>
-                          </div>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">Visa, Mastercard, Amex, Apple Pay, Google Pay &amp; SEPA</p>
-                          <span className="text-xs font-bold text-indigo-400 block mt-1.5">{formattedTotalString} USD</span>
                         </div>
                       </button>
                     </div>
@@ -1353,6 +1434,18 @@ export default function Checkout() {
           )}
         </div>
       </div>
+
+      {stripeVerifying && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-md flex flex-col items-center justify-center p-4">
+          <div className="p-8 rounded-2xl bg-card border border-border/80 shadow-2xl flex flex-col items-center max-w-sm text-center animate-fade-in">
+            <Loader2 className="w-12 h-12 text-indigo-400 animate-spin mb-4" />
+            <h3 className="text-lg font-bold text-foreground">Confirming Stripe Payment...</h3>
+            <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+              We are verifying your transaction with Stripe and provisioning your template license. Please do not close this window.
+            </p>
+          </div>
+        </div>
+      )}
 
       {modalPaymentData && (
         <InteractivePaymentModal
