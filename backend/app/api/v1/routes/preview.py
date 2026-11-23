@@ -5329,9 +5329,25 @@ async def serve_live_preview(
     height: 100vh !important;
     pointer-events: none !important;
     z-index: 999999 !important;
-    opacity: 0.65 !important;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='250' height='250' viewBox='0 0 250 250'><text x='20' y='150' fill='rgba(128, 128, 128, 0.16)' font-size='13' font-weight='800' font-family='sans-serif' transform='rotate(-30 20 150)'>SITE STUDIO PREVIEW</text></svg>") !important;
+    opacity: 0.82 !important;
+    background-size: 380px 220px !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='380' height='220' viewBox='0 0 380 220'%3E%3Cdefs%3E%3ClinearGradient id='wmGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%236366f1' stop-opacity='0.08' /%3E%3Cstop offset='100%25' stop-color='%238b5cf6' stop-opacity='0.04' /%3E%3C/linearGradient%3E%3C/defs%3E%3Cg transform='rotate(-26 190 110)'%3E%3Ctext x='190' y='98' text-anchor='middle' fill='url(%23wmGrad)' stroke='%23ffffff' stroke-width='0.4' stroke-opacity='0.11' font-family='system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif' font-weight='800' font-size='20' letter-spacing='3'%3EAI SITE STUDIO%3C/text%3E%3Ctext x='190' y='124' text-anchor='middle' fill='%2394a3b8' fill-opacity='0.07' stroke='%23ffffff' stroke-width='0.3' stroke-opacity='0.08' font-family='system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif' font-weight='700' font-size='10.5' letter-spacing='2'%3E%E2%80%A2 PREVIEW ONLY %E2%80%A2 STANDARD LICENSE %E2%80%A2%3C/text%3E%3C/g%3E%3C/svg%3E") !important;
     background-repeat: repeat !important;
+    animation: siteStudioWatermarkDrift 55s linear infinite !important;
+    will-change: background-position !important;
+  }
+
+  @keyframes siteStudioWatermarkDrift {
+    0% {
+      background-position: 0 0;
+    }
+    100% {
+      background-position: 380px 220px;
+    }
+  }
+
+  html {
+    scroll-behavior: smooth !important;
   }
 
   /* Bottom floating warning banner */
@@ -5340,34 +5356,69 @@ async def serve_live_preview(
     bottom: 1.5rem !important;
     left: 50% !important;
     transform: translateX(-50%) !important;
-    background: rgba(15, 23, 42, 0.96) !important;
-    backdrop-filter: blur(12px) !important;
+    background: rgba(13, 17, 23, 0.78) !important;
+    backdrop-filter: blur(16px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
     border: 1px solid rgba(255, 255, 255, 0.15) !important;
     color: #ffffff !important;
-    padding: 0.625rem 1.25rem !important;
+    padding: 0.5rem 0.6rem 0.5rem 1.25rem !important;
     font-size: 0.75rem !important;
     font-weight: 700 !important;
     border-radius: 9999px !important;
     display: flex !important;
     align-items: center !important;
-    gap: 1rem !important;
-    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4) !important;
+    gap: 0.85rem !important;
+    box-shadow: 0 12px 36px -6px rgba(0, 0, 0, 0.55), 0 0 20px rgba(99, 102, 241, 0.22) !important;
     z-index: 999998 !important;
     white-space: nowrap !important;
     font-family: system-ui, -apple-system, sans-serif !important;
+    animation: siteStudioBannerFloat 4s ease-in-out infinite alternate !important;
+  }
+
+  @keyframes siteStudioBannerFloat {
+    0% {
+      transform: translate(-50%, 0);
+    }
+    100% {
+      transform: translate(-50%, -3.5px);
+    }
   }
 
   .preview-purchase-footer-banner a {
-    color: #38bdf8 !important;
+    color: #ffffff !important;
+    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #d946ef 100%) !important;
+    background-size: 200% 200% !important;
     text-decoration: none !important;
     font-weight: 800 !important;
-    border-left: 1px solid rgba(255, 255, 255, 0.2) !important;
-    padding-left: 1rem !important;
-    transition: color 0.2s ease !important;
+    font-size: 0.72rem !important;
+    letter-spacing: 0.3px !important;
+    padding: 0.45rem 1rem !important;
+    border-radius: 9999px !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    box-shadow: 0 2px 12px rgba(99, 102, 241, 0.5) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 0.4rem !important;
+    transition: all 0.25s ease !important;
+    animation: siteStudioPillShift 5s ease infinite !important;
+  }
+
+  @keyframes siteStudioPillShift {
+    0% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+    100% {
+      background-position: 0% 50%;
+    }
   }
 
   .preview-purchase-footer-banner a:hover {
-    color: #0ea5e9 !important;
+    transform: scale(1.04) translateY(-1px) !important;
+    box-shadow: 0 6px 20px rgba(217, 70, 239, 0.75) !important;
+    color: #ffffff !important;
   }
 
   /* Robust navigation bar and button layout protection */
@@ -5417,6 +5468,88 @@ async def serve_live_preview(
         e.preventDefault();
         e.stopPropagation();
         return false;
+      }
+    }, true);
+
+    // 3. Smart Interactive Live Preview Navigation & Link Details Checker
+    document.addEventListener('click', function(e) {
+      var link = e.target.closest('a, button[data-href]');
+      if (!link) return;
+
+      var href = link.getAttribute('href') || link.getAttribute('data-href') || '';
+      var text = (link.textContent || '').trim().toLowerCase();
+
+      // If clicking Buy License button / link
+      if (link.closest('.preview-purchase-footer-banner') || href.indexOf('buy=1') !== -1) {
+        e.preventDefault();
+        var buyUrl = '__PURCHASE_URL__';
+        if (window.top && window.top !== window) {
+          window.top.location.href = buyUrl;
+        } else {
+          window.open(buyUrl, '_blank');
+        }
+        return;
+      }
+
+      // Handle in-page sections and dead links
+      if (!href || href === '#' || href === 'javascript:void(0)' || href === 'javascript:;') {
+        var sectionMap = {
+          'project': ['projects', 'portfolio', 'work', 'case-studies'],
+          'portfolio': ['portfolio', 'projects', 'work'],
+          'about': ['about', 'bio', 'biography', 'profile'],
+          'contact': ['contact', 'get-in-touch', 'reach-out'],
+          'touch': ['contact', 'get-in-touch'],
+          'service': ['services', 'features', 'offerings'],
+          'pricing': ['pricing', 'plans'],
+          'home': ['home', 'hero', 'top']
+        };
+        for (var key in sectionMap) {
+          if (text.indexOf(key) !== -1) {
+            var targets = sectionMap[key];
+            for (var i = 0; i < targets.length; i++) {
+              var el = document.getElementById(targets[i]) || document.querySelector('.' + targets[i]) || document.querySelector('[data-section="' + targets[i] + '"]');
+              if (el) {
+                e.preventDefault();
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                return;
+              }
+            }
+          }
+        }
+        return;
+      }
+
+      // Anchor links (#projects, #about, etc.)
+      if (href.indexOf('#') === 0) {
+        var rawId = href.substring(1);
+        var targetEl = document.getElementById(rawId) || document.querySelector(href);
+        if (!targetEl) {
+          var cleanId = rawId.toLowerCase().replace(/[-_]/g, '');
+          var allSecs = document.querySelectorAll('section[id], div[id]');
+          for (var s = 0; s < allSecs.length; s++) {
+            var curr = (allSecs[s].id || '').toLowerCase().replace(/[-_]/g, '');
+            if (curr && (curr.indexOf(cleanId) !== -1 || cleanId.indexOf(curr) !== -1)) {
+              targetEl = allSecs[s];
+              break;
+            }
+          }
+        }
+        if (targetEl) {
+          e.preventDefault();
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          return;
+        }
+      }
+
+      // Relative page navigation fallback (projects.html -> #projects if single page)
+      if (href.indexOf('.html') !== -1 && href.indexOf('http') !== 0) {
+        var baseName = href.split('?')[0].split('#')[0].replace('.html', '').toLowerCase();
+        var localSec = document.getElementById(baseName) || document.querySelector('section#' + baseName);
+        if (localSec) {
+          e.preventDefault();
+          localSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          return;
+        }
       }
     }, true);
   })();
@@ -8515,47 +8648,98 @@ async def serve_live_preview(
         height: 100vh !important;
         pointer-events: none !important;
         z-index: 999999 !important;
-        opacity: 0.65 !important;
-        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='250' height='250' viewBox='0 0 250 250'><text x='20' y='150' fill='rgba(128, 128, 128, 0.16)' font-size='13' font-weight='800' font-family='sans-serif' transform='rotate(-30 20 150)'>SITE STUDIO PREVIEW</text></svg>") !important;
+        opacity: 0.82 !important;
+        background-size: 380px 220px !important;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='380' height='220' viewBox='0 0 380 220'%3E%3Cdefs%3E%3ClinearGradient id='wmGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%236366f1' stop-opacity='0.08' /%3E%3Cstop offset='100%25' stop-color='%238b5cf6' stop-opacity='0.04' /%3E%3C/linearGradient%3E%3C/defs%3E%3Cg transform='rotate(-26 190 110)'%3E%3Ctext x='190' y='98' text-anchor='middle' fill='url(%23wmGrad)' stroke='%23ffffff' stroke-width='0.4' stroke-opacity='0.11' font-family='system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif' font-weight='800' font-size='20' letter-spacing='3'%3EAI SITE STUDIO%3C/text%3E%3Ctext x='190' y='124' text-anchor='middle' fill='%2394a3b8' fill-opacity='0.07' stroke='%23ffffff' stroke-width='0.3' stroke-opacity='0.08' font-family='system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif' font-weight='700' font-size='10.5' letter-spacing='2'%3E%E2%80%A2 PREVIEW ONLY %E2%80%A2 STANDARD LICENSE %E2%80%A2%3C/text%3E%3C/g%3E%3C/svg%3E") !important;
         background-repeat: repeat !important;
+        animation: siteStudioWatermarkDrift 55s linear infinite !important;
+        will-change: background-position !important;
       }
-    
+
+      @keyframes siteStudioWatermarkDrift {
+        0% {
+          background-position: 0 0;
+        }
+        100% {
+          background-position: 380px 220px;
+        }
+      }
+
+      html {
+        scroll-behavior: smooth !important;
+      }
+
       /* Bottom floating warning banner */
       .preview-purchase-footer-banner {
         position: fixed !important;
         bottom: 1.5rem !important;
         left: 50% !important;
         transform: translateX(-50%) !important;
-        background: rgba(15, 23, 42, 0.96) !important;
-        backdrop-filter: blur(12px) !important;
+        background: rgba(13, 17, 23, 0.78) !important;
+        backdrop-filter: blur(16px) saturate(180%) !important;
+        -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
         border: 1px solid rgba(255, 255, 255, 0.15) !important;
         color: #ffffff !important;
-        padding: 0.625rem 1.25rem !important;
+        padding: 0.5rem 0.6rem 0.5rem 1.25rem !important;
         font-size: 0.75rem !important;
         font-weight: 700 !important;
         border-radius: 9999px !important;
         display: flex !important;
         align-items: center !important;
-        gap: 1rem !important;
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4) !important;
+        gap: 0.85rem !important;
+        box-shadow: 0 12px 36px -6px rgba(0, 0, 0, 0.55), 0 0 20px rgba(99, 102, 241, 0.22) !important;
         z-index: 999998 !important;
         white-space: nowrap !important;
         font-family: system-ui, -apple-system, sans-serif !important;
+        animation: siteStudioBannerFloat 4s ease-in-out infinite alternate !important;
       }
-    
+
+      @keyframes siteStudioBannerFloat {
+        0% {
+          transform: translate(-50%, 0);
+        }
+        100% {
+          transform: translate(-50%, -3.5px);
+        }
+      }
+
       .preview-purchase-footer-banner a {
-        color: #38bdf8 !important;
+        color: #ffffff !important;
+        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #d946ef 100%) !important;
+        background-size: 200% 200% !important;
         text-decoration: none !important;
         font-weight: 800 !important;
-        border-left: 1px solid rgba(255, 255, 255, 0.2) !important;
-        padding-left: 1rem !important;
-        transition: color 0.2s ease !important;
+        font-size: 0.72rem !important;
+        letter-spacing: 0.3px !important;
+        padding: 0.45rem 1rem !important;
+        border-radius: 9999px !important;
+        border: 1px solid rgba(255, 255, 255, 0.25) !important;
+        box-shadow: 0 2px 12px rgba(99, 102, 241, 0.5) !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 0.4rem !important;
+        transition: all 0.25s ease !important;
+        animation: siteStudioPillShift 5s ease infinite !important;
       }
-    
+
+      @keyframes siteStudioPillShift {
+        0% {
+          background-position: 0% 50%;
+        }
+        50% {
+          background-position: 100% 50%;
+        }
+        100% {
+          background-position: 0% 50%;
+        }
+      }
+
       .preview-purchase-footer-banner a:hover {
-        color: #0ea5e9 !important;
+        transform: scale(1.04) translateY(-1px) !important;
+        box-shadow: 0 6px 20px rgba(217, 70, 239, 0.75) !important;
+        color: #ffffff !important;
       }
-    
+
       /* Block PDF printing */
       @media print {
         body {
@@ -8585,6 +8769,88 @@ async def serve_live_preview(
             e.preventDefault();
             e.stopPropagation();
             return false;
+          }
+        }, true);
+
+        // 3. Smart Interactive Live Preview Navigation & Link Details Checker
+        document.addEventListener('click', function(e) {
+          var link = e.target.closest('a, button[data-href]');
+          if (!link) return;
+
+          var href = link.getAttribute('href') || link.getAttribute('data-href') || '';
+          var text = (link.textContent || '').trim().toLowerCase();
+
+          // If clicking Buy License button / link
+          if (link.closest('.preview-purchase-footer-banner') || href.indexOf('buy=1') !== -1) {
+            e.preventDefault();
+            var buyUrl = '__PURCHASE_URL__';
+            if (window.top && window.top !== window) {
+              window.top.location.href = buyUrl;
+            } else {
+              window.open(buyUrl, '_blank');
+            }
+            return;
+          }
+
+          // Handle in-page sections and dead links
+          if (!href || href === '#' || href === 'javascript:void(0)' || href === 'javascript:;') {
+            var sectionMap = {
+              'project': ['projects', 'portfolio', 'work', 'case-studies'],
+              'portfolio': ['portfolio', 'projects', 'work'],
+              'about': ['about', 'bio', 'biography', 'profile'],
+              'contact': ['contact', 'get-in-touch', 'reach-out'],
+              'touch': ['contact', 'get-in-touch'],
+              'service': ['services', 'features', 'offerings'],
+              'pricing': ['pricing', 'plans'],
+              'home': ['home', 'hero', 'top']
+            };
+            for (var key in sectionMap) {
+              if (text.indexOf(key) !== -1) {
+                var targets = sectionMap[key];
+                for (var i = 0; i < targets.length; i++) {
+                  var el = document.getElementById(targets[i]) || document.querySelector('.' + targets[i]) || document.querySelector('[data-section="' + targets[i] + '"]');
+                  if (el) {
+                    e.preventDefault();
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    return;
+                  }
+                }
+              }
+            }
+            return;
+          }
+
+          // Anchor links (#projects, #about, etc.)
+          if (href.indexOf('#') === 0) {
+            var rawId = href.substring(1);
+            var targetEl = document.getElementById(rawId) || document.querySelector(href);
+            if (!targetEl) {
+              var cleanId = rawId.toLowerCase().replace(/[-_]/g, '');
+              var allSecs = document.querySelectorAll('section[id], div[id]');
+              for (var s = 0; s < allSecs.length; s++) {
+                var curr = (allSecs[s].id || '').toLowerCase().replace(/[-_]/g, '');
+                if (curr && (curr.indexOf(cleanId) !== -1 || cleanId.indexOf(curr) !== -1)) {
+                  targetEl = allSecs[s];
+                  break;
+                }
+              }
+            }
+            if (targetEl) {
+              e.preventDefault();
+              targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              return;
+            }
+          }
+
+          // Relative page navigation fallback (projects.html -> #projects if single page)
+          if (href.indexOf('.html') !== -1 && href.indexOf('http') !== 0) {
+            var baseName = href.split('?')[0].split('#')[0].replace('.html', '').toLowerCase();
+            var localSec = document.getElementById(baseName) || document.querySelector('section#' + baseName);
+            if (localSec) {
+              e.preventDefault();
+              localSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              return;
+            }
           }
         }, true);
       })();

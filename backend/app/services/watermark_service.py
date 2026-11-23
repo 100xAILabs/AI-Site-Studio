@@ -28,7 +28,7 @@ def generate_core_css() -> str:
  * (Automatically removed for Pro Subscribers & Extended License holders)
  */
 
-/* 1. All-Over Diagonal Semi-Transparent Watermark Background */
+/* 1. All-Over Diagonal Semi-Transparent Animated Watermark Background */
 .site-studio-watermark-overlay,
 body::before {
   content: "" !important;
@@ -44,9 +44,25 @@ body::before {
   user-select: none !important;
   -webkit-user-select: none !important;
   background-repeat: repeat !important;
-  background-size: 360px 200px !important;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='360' height='200' viewBox='0 0 360 200'%3E%3Cg transform='rotate(-28 180 100)'%3E%3Ctext x='180' y='92' text-anchor='middle' fill='%233730a3' fill-opacity='0.18' stroke='%23ffffff' stroke-width='0.6' stroke-opacity='0.35' font-family='system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif' font-weight='900' font-size='22' letter-spacing='3'%3EAI SITE STUDIO%3C/text%3E%3Ctext x='180' y='118' text-anchor='middle' fill='%231e293b' fill-opacity='0.16' stroke='%23ffffff' stroke-width='0.5' stroke-opacity='0.3' font-family='system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif' font-weight='700' font-size='11' letter-spacing='2'%3E%E2%80%A2 PREVIEW ONLY %E2%80%A2 STANDARD LICENSE %E2%80%A2%3C/text%3E%3C/g%3E%3C/svg%3E") !important;
-  opacity: 1 !important;
+  background-size: 380px 220px !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='380' height='220' viewBox='0 0 380 220'%3E%3Cdefs%3E%3ClinearGradient id='wmGrad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%236366f1' stop-opacity='0.08' /%3E%3Cstop offset='100%25' stop-color='%238b5cf6' stop-opacity='0.04' /%3E%3C/linearGradient%3E%3C/defs%3E%3Cg transform='rotate(-26 190 110)'%3E%3Ctext x='190' y='98' text-anchor='middle' fill='url(%23wmGrad)' stroke='%23ffffff' stroke-width='0.4' stroke-opacity='0.11' font-family='system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif' font-weight='800' font-size='20' letter-spacing='3'%3EAI SITE STUDIO%3C/text%3E%3Ctext x='190' y='124' text-anchor='middle' fill='%2394a3b8' fill-opacity='0.07' stroke='%23ffffff' stroke-width='0.3' stroke-opacity='0.08' font-family='system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif' font-weight='700' font-size='10.5' letter-spacing='2'%3E%E2%80%A2 PREVIEW ONLY %E2%80%A2 STANDARD LICENSE %E2%80%A2%3C/text%3E%3C/g%3E%3C/svg%3E") !important;
+  opacity: 0.82 !important;
+  animation: siteStudioWatermarkDrift 55s linear infinite !important;
+  will-change: background-position !important;
+}
+
+@keyframes siteStudioWatermarkDrift {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 380px 220px;
+  }
+}
+
+/* Smooth scrolling enabled globally for anchor navigation */
+html {
+  scroll-behavior: smooth !important;
 }
 
 /* 2. Sleek Floating Bottom-Right Watermark & Purchase Badge */
@@ -56,73 +72,122 @@ body::before {
   right: 18px !important;
   z-index: 999990 !important;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(99, 102, 241, 0.3) !important;
+  box-shadow: 0 12px 36px -6px rgba(0, 0, 0, 0.55), 0 0 20px rgba(99, 102, 241, 0.22) !important;
   border-radius: 9999px !important;
-  background: rgba(15, 23, 42, 0.95) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
-  border: 1px solid rgba(255, 255, 255, 0.18) !important;
-  padding: 6px 14px !important;
+  background: rgba(13, 17, 23, 0.78) !important;
+  backdrop-filter: blur(16px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  padding: 5px 6px 5px 14px !important;
   display: flex !important;
   align-items: center !important;
   pointer-events: auto !important;
-  transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  animation: siteStudioBadgeFloat 4s ease-in-out infinite alternate !important;
 }
+
+@keyframes siteStudioBadgeFloat {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(-3.5px);
+  }
+}
+
 .site-studio-embedded-watermark:hover {
-  transform: translateY(-2px) !important;
-  box-shadow: 0 14px 35px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(99, 102, 241, 0.6) !important;
+  transform: translateY(-5px) scale(1.02) !important;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.65), 0 0 28px rgba(124, 58, 237, 0.4) !important;
+  border-color: rgba(255, 255, 255, 0.28) !important;
 }
+
 .site-studio-watermark-inner {
   display: flex !important;
   align-items: center !important;
   gap: 12px !important;
 }
+
 .site-studio-watermark-link {
   display: flex !important;
   align-items: center !important;
   gap: 8px !important;
   color: #f8fafc !important;
-  font-size: 13px !important;
+  font-size: 12.5px !important;
   text-decoration: none !important;
   font-weight: 600 !important;
+  transition: color 0.2s ease !important;
 }
+
 .site-studio-watermark-link:hover {
   color: #38bdf8 !important;
 }
+
 .site-studio-watermark-icon {
   color: #818cf8 !important;
 }
+
 .site-studio-upgrade-pill {
   display: inline-flex !important;
   align-items: center !important;
-  gap: 5px !important;
-  background: linear-gradient(135deg, #4f46e5, #7c3aed) !important;
+  gap: 6px !important;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #d946ef 100%) !important;
+  background-size: 200% 200% !important;
   color: #ffffff !important;
-  font-size: 11px !important;
+  font-size: 11.5px !important;
   font-weight: 700 !important;
   letter-spacing: 0.3px !important;
-  padding: 5px 12px !important;
+  padding: 6px 14px !important;
   border-radius: 9999px !important;
   text-decoration: none !important;
-  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.5) !important;
-  transition: all 0.2s ease !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+  box-shadow: 0 2px 12px rgba(99, 102, 241, 0.5) !important;
+  transition: all 0.25s ease !important;
+  animation: siteStudioPillShift 5s ease infinite, siteStudioPillGlow 2.5s ease-in-out infinite alternate !important;
   white-space: nowrap !important;
 }
+
+@keyframes siteStudioPillShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes siteStudioPillGlow {
+  0% {
+    box-shadow: 0 2px 10px rgba(99, 102, 241, 0.4);
+  }
+  100% {
+    box-shadow: 0 4px 22px rgba(217, 70, 239, 0.65), 0 0 12px rgba(124, 58, 237, 0.5);
+  }
+}
+
 .site-studio-upgrade-pill:hover {
-  background: linear-gradient(135deg, #4338ca, #6d28d9) !important;
-  transform: scale(1.03) !important;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.7) !important;
+  transform: scale(1.04) translateY(-1px) !important;
+  box-shadow: 0 6px 20px rgba(217, 70, 239, 0.75), 0 0 16px rgba(99, 102, 241, 0.6) !important;
   color: #ffffff !important;
 }
+
+.site-studio-pill-bolt {
+  display: inline-block !important;
+  vertical-align: middle !important;
+  color: #fef08a !important;
+}
+
 @media (max-width: 640px) {
   .site-studio-embedded-watermark {
     bottom: 10px !important;
     right: 10px !important;
-    padding: 5px 10px !important;
+    padding: 4px 6px 4px 10px !important;
   }
   .site-studio-upgrade-pill {
-    padding: 3px 8px !important;
-    font-size: 10px !important;
+    padding: 4px 10px !important;
+    font-size: 10.5px !important;
   }
 }
 """
@@ -304,11 +369,134 @@ def generate_runtime_js(
   // Periodic heartbeat verification
   setInterval(checkIntegrity, 3500);
 
+  // ── Smart Interactive Navigation & Link Details Checker ──
+  function setupSmartLinkNavigation() {{
+    try {{
+      if (document.documentElement) {{
+        document.documentElement.style.scrollBehavior = "smooth";
+      }}
+    }} catch(e) {{}}
+
+    document.addEventListener("click", function(e) {{
+      var link = e.target.closest("a, button[data-href]");
+      if (!link) return;
+
+      var href = link.getAttribute("href") || link.getAttribute("data-href") || "";
+      var text = (link.textContent || "").trim().toLowerCase();
+
+      // 1. Watermark Upgrade Pill or License Link Interception
+      if (
+        href.indexOf("watermark-license.html") !== -1 ||
+        link.classList.contains("site-studio-upgrade-pill") ||
+        link.closest(".site-studio-upgrade-pill")
+      ) {{
+        e.preventDefault();
+        var pUrl = (window.parent && window.parent !== window && window.parent.location.href.indexOf("/demo/") !== -1)
+          ? "/checkout"
+          : (base + "/marketplace/" + encodeURIComponent(TEMPLATE_TITLE) + "?buy=1");
+        if (window.top && window.top !== window) {{
+          window.top.location.href = pUrl;
+        }} else {{
+          window.open(pUrl, "_blank");
+        }}
+        return;
+      }}
+
+      // 2. Dead Link / Hash Recovery by text content
+      if (!href || href === "#" || href === "javascript:void(0)" || href === "javascript:;") {{
+        var sectionMap = {{
+          "project": ["projects", "portfolio", "work", "case-studies"],
+          "portfolio": ["portfolio", "projects", "work"],
+          "about": ["about", "bio", "biography", "profile", "story"],
+          "contact": ["contact", "get-in-touch", "reach-out"],
+          "touch": ["contact", "get-in-touch", "contact-form"],
+          "service": ["services", "features", "offerings", "solutions"],
+          "pricing": ["pricing", "plans", "tier"],
+          "home": ["home", "hero", "header", "top"]
+        }};
+
+        for (var key in sectionMap) {{
+          if (text.indexOf(key) !== -1) {{
+            var candidateIds = sectionMap[key];
+            for (var c = 0; c < candidateIds.length; c++) {{
+              var cid = candidateIds[c];
+              var target = document.getElementById(cid) ||
+                           document.querySelector("section#" + cid) ||
+                           document.querySelector("." + cid) ||
+                           document.querySelector('[data-section="' + cid + '"]') ||
+                           document.querySelector('section[id*="' + cid + '"]');
+              if (target) {{
+                e.preventDefault();
+                target.scrollIntoView({{ behavior: "smooth", block: "start" }});
+                return;
+              }}
+            }}
+          }}
+        }}
+        return;
+      }}
+
+      // 3. Anchor Hash Navigation (#projects, #about, #contact, etc.)
+      if (href.indexOf("#") === 0) {{
+        var rawId = href.substring(1).trim();
+        if (!rawId) return;
+
+        var targetEl = document.getElementById(rawId) ||
+                       document.querySelector(href) ||
+                       document.querySelector('[name="' + rawId + '"]');
+
+        if (!targetEl) {{
+          // Fuzzy search for synonym sections in the DOM
+          var normalized = rawId.toLowerCase().replace(/[-_]/g, "");
+          var allSecs = document.querySelectorAll("section[id], div[id], [data-section]");
+          for (var s = 0; s < allSecs.length; s++) {{
+            var currId = (allSecs[s].id || allSecs[s].getAttribute("data-section") || "").toLowerCase().replace(/[-_]/g, "");
+            if (currId && (currId.indexOf(normalized) !== -1 || normalized.indexOf(currId) !== -1)) {{
+              targetEl = allSecs[s];
+              break;
+            }}
+          }}
+        }}
+
+        if (targetEl) {{
+          e.preventDefault();
+          targetEl.scrollIntoView({{ behavior: "smooth", block: "start" }});
+
+          // Update active class on nav links
+          try {{
+            var navLinks = document.querySelectorAll("nav a, header a");
+            navLinks.forEach(function(nl) {{ nl.classList.remove("active"); }});
+            link.classList.add("active");
+          }} catch(err) {{}}
+          return;
+        }}
+      }}
+
+      // 4. Relative HTML Page link checking (projects.html, about.html, etc.)
+      if (href.indexOf(".html") !== -1 && href.indexOf("http") !== 0) {{
+        var baseName = href.split("?")[0].split("#")[0].replace(".html", "").toLowerCase();
+        // If current single-page has a matching section, scroll to it instead of failing
+        var localSection = document.getElementById(baseName) ||
+                           document.querySelector("section#" + baseName) ||
+                           document.querySelector("." + baseName);
+        if (localSection) {{
+          e.preventDefault();
+          localSection.scrollIntoView({{ behavior: "smooth", block: "start" }});
+          return;
+        }}
+      }}
+    }}, true);
+  }}
+
   // Initial check on load
   if (document.readyState === "loading") {{
-    document.addEventListener("DOMContentLoaded", checkIntegrity);
+    document.addEventListener("DOMContentLoaded", function() {{
+      checkIntegrity();
+      setupSmartLinkNavigation();
+    }});
   }} else {{
     checkIntegrity();
+    setupSmartLinkNavigation();
   }}
 
   // Global runtime exposure
@@ -316,7 +504,8 @@ def generate_runtime_js(
     title: TEMPLATE_TITLE,
     edition: "standard-watermarked",
     version: "2.4.0",
-    verifyIntegrity: checkIntegrity
+    verifyIntegrity: checkIntegrity,
+    setupNavigation: setupSmartLinkNavigation
   }};
 }})();
 """
@@ -335,7 +524,10 @@ def generate_embedded_watermark_html(title: str = "Website Template", relative_p
       <span>Created with <strong>AI Site Studio</strong></span>
     </a>
     <a href="{lic_href}" class="site-studio-upgrade-pill" title="Buy Official License to Remove All Watermarks">
-      âš¡ Buy License &bull; Remove Watermark
+      <svg class="site-studio-pill-bolt" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+      </svg>
+      <span>Buy License &bull; Remove Watermark</span>
     </a>
   </div>
 </div>

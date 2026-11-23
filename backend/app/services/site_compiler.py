@@ -275,6 +275,39 @@ def normalize_multi_page_navigation(
                 return re.sub(r'<a\b[^>]*\bhref=[\'"]([^\'"]+)[\'"][^>]*>', _link_replacer, nav_block, flags=re.IGNORECASE)
 
             html = re.sub(r'<nav\b[^>]*>.*?</nav\s*>', _fix_active_highlight, html, flags=re.IGNORECASE | re.DOTALL)
+        else:
+            # Single-Page Navigation Normalization:
+            # If a link references a sibling .html file that does not exist, rewrite it to in-page section hash
+            page_to_section = {
+                "about.html": "#about",
+                "projects.html": "#projects",
+                "portfolio.html": "#portfolio",
+                "work.html": "#work",
+                "contact.html": "#contact",
+                "services.html": "#services",
+                "pricing.html": "#pricing",
+                "skills.html": "#skills",
+            }
+
+            def _fix_single_page_links(m: re.Match) -> str:
+                full_tag = m.group(0)
+                href = m.group(1).lower()
+                clean_target = href.split("/")[-1].split("?")[0]
+                if clean_target in page_to_section:
+                    return full_tag.replace(m.group(1), page_to_section[clean_target])
+                return full_tag
+
+            html = re.sub(
+                r'<a\b[^>]*\bhref=[\'"]([^\'"]+\.html)[\'"][^>]*>',
+                _fix_single_page_links,
+                html,
+                flags=re.IGNORECASE,
+            )
+
+        # Enforce smooth scroll behavior for clean in-page jump transitions
+        if "</head>" in html and "scroll-behavior: smooth" not in html:
+            smooth_css = '<style id="studio-smooth-scroll">html { scroll-behavior: smooth !important; }</style>\n</head>'
+            html = html.replace("</head>", smooth_css, 1)
 
         repaired_pages[fname] = html
 
