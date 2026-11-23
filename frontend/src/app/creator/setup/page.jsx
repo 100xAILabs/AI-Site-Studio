@@ -56,14 +56,6 @@ const PAYOUT_METHODS = [
     color: "#0c2340",
   },
   {
-    id: "paypal",
-    name: "PayPal",
-    badge: "Worldwide Instant",
-    desc: "Direct business payouts to your verified PayPal email address or PayPal.me.",
-    icon: DollarSign,
-    color: "#0070ba",
-  },
-  {
     id: "upi",
     name: "UPI (GPay / PhonePe / Paytm)",
     badge: "Zero-Fee Instant VPA",
@@ -197,9 +189,6 @@ export default function CreatorSetupPage() {
   const [razorpayVpa, setRazorpayVpa] = useState("");
   const [razorpayAccountId, setRazorpayAccountId] = useState("");
 
-  const [paypalEmail, setPaypalEmail] = useState("");
-  const [paypalMe, setPaypalMe] = useState("");
-
   const [upiId, setUpiId] = useState("");
 
   const [bankName, setBankName] = useState("");
@@ -280,9 +269,6 @@ export default function CreatorSetupPage() {
           if (data.payout_stripe_email) setStripeEmail(data.payout_stripe_email);
           if (data.payout_stripe_account_id) setStripeAccountId(data.payout_stripe_account_id);
           if (data.payout_stripe_payment_link) setStripePaymentLink(data.payout_stripe_payment_link);
-
-          if (data.payout_paypal_email) setPaypalEmail(data.payout_paypal_email);
-          if (data.payout_paypal_me) setPaypalMe(data.payout_paypal_me);
 
           if (data.payout_razorpay_vpa) setRazorpayVpa(data.payout_razorpay_vpa);
           if (data.payout_razorpay_account_id) setRazorpayAccountId(data.payout_razorpay_account_id);
@@ -407,8 +393,6 @@ export default function CreatorSetupPage() {
         payout_stripe_email: stripeEmail.trim() || null,
         payout_stripe_account_id: stripeAccountId.trim() || null,
         payout_stripe_payment_link: stripePaymentLink.trim() || null,
-        payout_paypal_email: paypalEmail.trim() || null,
-        payout_paypal_me: paypalMe.trim() || null,
         payout_razorpay_vpa: razorpayVpa.trim() || null,
         payout_razorpay_account_id: razorpayAccountId.trim() || null,
         payout_upi_id: upiId.trim() || null,
@@ -519,7 +503,7 @@ export default function CreatorSetupPage() {
                 <h3>Multi-Gateway Payouts</h3>
                 <p>
                   Get paid however you prefer. Receive earnings directly via Stripe, Razorpay
-                  (UPI/Netbanking), PayPal, or direct Bank Wire Transfer.
+                  (UPI/Netbanking), or direct Bank Wire Transfer.
                 </p>
               </div>
 
@@ -1002,40 +986,6 @@ export default function CreatorSetupPage() {
                   </div>
                 )}
 
-                {/* PayPal Details */}
-                {enabledMethods.includes("paypal") && (
-                  <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
-                    <div className="flex items-center gap-2 text-sky-400 font-bold text-sm">
-                      <DollarSign className="w-4 h-4" />
-                      <span>PayPal Business Account</span>
-                      {payoutMethod === "paypal" && (
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-normal">Primary Gateway</span>
-                      )}
-                    </div>
-                    <div className="creator-grid-2">
-                      <div className="creator-field">
-                        <label className="creator-label">PayPal Account Email</label>
-                        <input
-                          type="email"
-                          placeholder="your-paypal@email.com"
-                          value={paypalEmail}
-                          onChange={(e) => setPaypalEmail(e.target.value)}
-                          className="creator-input"
-                        />
-                      </div>
-                      <div className="creator-field">
-                        <label className="creator-label">PayPal.me Username / Link</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. paypal.me/yourusername"
-                          value={paypalMe}
-                          onChange={(e) => setPaypalMe(e.target.value)}
-                          className="creator-input"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
 
                 {/* UPI Details */}
                 {enabledMethods.includes("upi") && (

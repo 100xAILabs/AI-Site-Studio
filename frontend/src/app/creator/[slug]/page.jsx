@@ -77,7 +77,6 @@ const FRAMEWORKS = [
 const PAYMENT_METHOD_INFO = {
   stripe: { label: "Stripe", icon: CreditCard, color: "#635bff", desc: "Credit / Debit Cards, Apple Pay, Google Pay" },
   razorpay: { label: "Razorpay", icon: Zap, color: "#3b82f6", desc: "UPI, Cards, NetBanking" },
-  paypal: { label: "PayPal", icon: DollarSign, color: "#38bdf8", desc: "PayPal.me & Direct Account" },
   upi: { label: "Direct UPI", icon: QrCode, color: "#a855f7", desc: "Instant GPay, PhonePe, Paytm, BHIM" },
   bank_wire: { label: "Bank Wire", icon: Building2, color: "#60a5fa", desc: "Direct Account Deposit / SWIFT / IBAN" },
   bank: { label: "Bank Wire", icon: Building2, color: "#60a5fa", desc: "Direct Account Deposit / SWIFT / IBAN" },
@@ -1076,52 +1075,6 @@ export default function CreatorStorefrontPage() {
                   </div>
                 )}
 
-                {/* 3. PAYPAL */}
-                {acceptedMethods.includes("paypal") && (
-                  <div className="sf-method-card">
-                    <div className="sf-method-card-header">
-                      <div className="sf-method-icon-box" style={{ background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8" }}>
-                        <DollarSign className="w-5 h-5" />
-                      </div>
-                      <div className="sf-method-meta">
-                        <h4 className="sf-method-name">PayPal</h4>
-                        <span className="sf-method-sub">PayPal.me, Balance &amp; Credit</span>
-                      </div>
-                      {paymentOptions.primary === "paypal" && (
-                        <span className="sf-primary-badge">Primary</span>
-                      )}
-                    </div>
-                    <div className="sf-method-card-content">
-                      {paymentOptions.paypal?.paypal_me ? (
-                        <a
-                          href={paymentOptions.paypal.paypal_me.startsWith("http") ? paymentOptions.paypal.paypal_me : `https://${paymentOptions.paypal.paypal_me}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="sf-direct-pay-action-btn"
-                        >
-                          <span>Open PayPal.me Profile</span>
-                          <ExternalLink className="w-3.5 h-3.5 ml-1.5" />
-                        </a>
-                      ) : paymentOptions.paypal?.email ? (
-                        <div className="sf-method-copy-box">
-                          <span className="sf-method-field-label">Creator PayPal Email:</span>
-                          <div className="sf-copy-row">
-                            <code className="sf-copy-code">{paymentOptions.paypal.email}</code>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyPaymentInfo("PayPal Email", paymentOptions.paypal.email)}
-                              className="sf-copy-btn"
-                            >
-                              {copiedPaymentField === "PayPal Email" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="sf-method-info-text">Direct PayPal payments supported upon inquiry.</p>
-                      )}
-                    </div>
-                  </div>
-                )}
 
                 {/* 4. DIRECT UPI */}
                 {acceptedMethods.includes("upi") && (

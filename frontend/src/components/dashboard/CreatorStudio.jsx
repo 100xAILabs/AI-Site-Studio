@@ -104,7 +104,6 @@ export default function CreatorStudio({
   const [accountHolder, setAccountHolder] = useState(user?.payout_account_holder_name || "");
   const [upiId, setUpiId] = useState(user?.payout_razorpay_vpa || user?.creator_payout_details?.upi_id || "");
   const [stripeEmail, setStripeEmail] = useState(user?.payout_stripe_email || user?.creator_payout_details?.stripe_email || "");
-  const [paypalEmail, setPaypalEmail] = useState(user?.payout_paypal_email || user?.creator_payout_details?.paypal_email || "");
   const [isSavingBank, setIsSavingBank] = useState(false);
   const [bankSaveMessage, setBankSaveMessage] = useState("");
 
@@ -188,7 +187,6 @@ export default function CreatorStudio({
           payout_method: payoutMethod,
           upi_id: upiId || undefined,
           stripe_email: stripeEmail || undefined,
-          paypal_email: paypalEmail || undefined,
           bank_name: bankName || undefined,
           account_number: accountNumber || undefined,
           ifsc_code: ifscCode || undefined,
@@ -650,7 +648,7 @@ export default function CreatorStudio({
                       </span>
                     </div>
                   ) : (
-                    "Set up your studio name, logo, banner, and payout gateways (Stripe, Razorpay, PayPal, Bank) to activate your live storefront URL on our domain."
+                    "Set up your studio name, logo, banner, and payout gateways (Stripe, Razorpay, UPI, Bank) to activate your live storefront URL on our domain."
                   )}
                 </div>
               </div>
@@ -1458,7 +1456,6 @@ export default function CreatorStudio({
                     payout_razorpay_vpa: upiId,
                     payout_upi_id: upiId,
                     payout_stripe_email: stripeEmail,
-                    payout_paypal_email: paypalEmail,
                   },
                   authToken
                 );
@@ -1477,13 +1474,12 @@ export default function CreatorStudio({
             {/* 1. Choose Payout Method Selector */}
             <div>
               <label className="cs-label block mb-2">Select Your Preferred Payout Gateway</label>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 {[
                   { id: "bank", label: "Bank Transfer", icon: Building2, desc: "Direct NEFT / SWIFT", tag: "Wire" },
                   { id: "upi", label: "UPI (India)", icon: Smartphone, desc: "Instant GPay / PhonePe", tag: "Zero Fee" },
                   { id: "stripe", label: "Stripe Connect", icon: CreditCard, desc: "Cards in 135+ Currencies", tag: "Global" },
                   { id: "razorpay", label: "Razorpay Route", icon: Zap, desc: "Domestic Settlement", tag: "Fast" },
-                  { id: "paypal", label: "PayPal", icon: Wallet, desc: "Worldwide Payouts", tag: "USD" },
                 ].map((item) => {
                   const Icon = item.icon;
                   const isSelected = payoutMethod === item.id;
@@ -1611,28 +1607,6 @@ export default function CreatorStudio({
               </div>
             )}
 
-            {payoutMethod === "paypal" && (
-              <div className="p-4 rounded-xl bg-black/40 border border-blue-500/30 space-y-4">
-                <div className="flex items-center gap-2 text-xs text-blue-400 font-bold">
-                  <Wallet className="w-4 h-4" />
-                  <span>PayPal International Payout Configuration</span>
-                </div>
-                <div className="cs-form-group">
-                  <label className="cs-label">PayPal Email Address</label>
-                  <input
-                    type="email"
-                    value={paypalEmail}
-                    onChange={(e) => setPaypalEmail(e.target.value)}
-                    placeholder="paypal@yourdomain.com"
-                    className="cs-input"
-                    required
-                  />
-                  <span className="text-[11px] text-muted-foreground">
-                    Global USD, EUR, and GBP payouts will be sent directly to your verified PayPal balance.
-                  </span>
-                </div>
-              </div>
-            )}
 
             {/* Always allow configuring / backing up Bank Wire Details */}
             <div className={`p-4 rounded-xl bg-black/40 border space-y-4 ${payoutMethod === "bank" ? "border-[#dfb180]/40" : "border-white/10"}`}>
