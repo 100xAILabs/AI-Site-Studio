@@ -31,6 +31,7 @@ import {
   Wallet,
   Info,
   Layers,
+  LayoutGrid,
   ArrowRight,
   ExternalLink,
   Clock,
