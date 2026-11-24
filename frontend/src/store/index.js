@@ -104,10 +104,12 @@ export const useCartStore = create((set, get) => ({
     const currentItems = get().items;
     const item = lookupTemplateDetails(rawItem);
     
-    // If item already in cart, increment quantity
-    if (currentItems.some((i) => i.templateId === item.templateId)) {
+    // For digital website templates, quantity is always 1 per template license
+    if (currentItems.some((i) => i.templateId === item.templateId || i.id === item.templateId)) {
       const updated = currentItems.map((i) =>
-        i.templateId === item.templateId ? { ...i, quantity: (i.quantity || 1) + 1 } : i
+        (i.templateId === item.templateId || i.id === item.templateId)
+          ? { ...i, ...item, quantity: 1 }
+          : i
       );
       if (typeof window !== "undefined") {
         localStorage.setItem(`cart_items_${userId}`, JSON.stringify(updated));
@@ -116,7 +118,7 @@ export const useCartStore = create((set, get) => ({
       return;
     }
 
-    const newItems = [...currentItems, item];
+    const newItems = [...currentItems, { ...item, quantity: 1 }];
     if (typeof window !== "undefined") {
       localStorage.setItem(`cart_items_${userId}`, JSON.stringify(newItems));
     }
