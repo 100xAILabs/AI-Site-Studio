@@ -22,6 +22,7 @@ class OrderCreate(BaseModel):
     coupon_code: Optional[str] = None
     notes: Optional[str] = None
     country_code: Optional[str] = "US"
+    creator_slug: Optional[str] = None
 
 
 class OrderItemResponse(BaseModel):

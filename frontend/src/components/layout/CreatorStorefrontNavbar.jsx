@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import Link from "@/components/Link";
 import { useAppUser, useAppAuth } from "@/lib/auth";
 import {
@@ -13,6 +13,7 @@ import {
   LogOut,
   SlidersHorizontal,
   ChevronDown,
+  Layers,
 } from "lucide-react";
 import "./CreatorStorefrontNavbar.css";
 
@@ -26,11 +27,37 @@ export default function CreatorStorefrontNavbar({
   const { user, isSignedIn } = useAppUser();
   const { signOut } = useAppAuth();
   const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef(null);
 
   const storeSlug = storefront?.store_slug || creatorSlug;
   const brandName = storefront?.brand_name || "Creator Storefront";
   const domainHost = typeof window !== "undefined" ? window.location.host : "aisitestudio.com";
   const isOwner = Boolean(user?.id && storefront?.user_id && user.id === storefront.user_id);
+
+  // Close profile dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (profileRef.current && !profileRef.current.contains(event.target)) {
+        setProfileOpen(false);
+      }
+    }
+    if (profileOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [profileOpen]);
+
+  // Creator-scoped cart items count
+  const creatorCartCount = useMemo(() => {
+    if (!Array.isArray(cartItems)) return 0;
+    if (!storeSlug) return cartItems.length;
+    const scoped = cartItems.filter(
+      (i) => !i.creator_slug || i.creator_slug.toLowerCase() === storeSlug.toLowerCase()
+    );
+    return scoped.length > 0 ? scoped.length : cartItems.length;
+  }, [cartItems, storeSlug]);
 
   const handleNavClick = (tabKey) => {
     if (onSelectTab) {
@@ -143,7 +170,7 @@ export default function CreatorStorefrontNavbar({
             title="View Creator Cart & Checkout"
           >
             <ShoppingCart className="w-4 h-4 text-zinc-300" />
-            {cartItems.length > 0 && <span className="sf-nav-cart-badge">{cartItems.length}</span>}
+            {creatorCartCount > 0 && <span className="sf-nav-cart-badge">{creatorCartCount}</span>}
           </Link>
 
           {/* Owner Manage Button */}
@@ -156,11 +183,12 @@ export default function CreatorStorefrontNavbar({
 
           {/* Client Authentication & Account Pill */}
           {isSignedIn && user ? (
-            <div className="relative">
+            <div className="sf-nav-profile-wrapper" ref={profileRef}>
               <button
                 type="button"
                 onClick={() => setProfileOpen(!profileOpen)}
                 className="sf-nav-user-pill flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 text-xs text-white transition-all cursor-pointer"
+                aria-expanded={profileOpen}
               >
                 <div className="w-6 h-6 rounded-full bg-[#dfb180]/20 text-[#dfb180] flex items-center justify-center font-bold text-[10px]">
                   {(user.first_name || user.email || "U").charAt(0).toUpperCase()}
@@ -170,29 +198,40 @@ export default function CreatorStorefrontNavbar({
               </button>
 
               {profileOpen && (
-                <div className="absolute right-0 mt-2 w-48 rounded-xl bg-[#121620] border border-white/10 shadow-2xl py-2 z-50 text-xs">
-                  <div className="px-3 py-2 border-b border-white/10">
-                    <p className="font-semibold text-white truncate">{user.email}</p>
-                    <p className="text-[10px] text-zinc-400 mt-0.5">Client of {brandName}</p>
+                <div className="sf-nav-profile-menu">
+                  <div className="sf-nav-profile-header">
+                    <p className="sf-nav-profile-email">{user.email}</p>
+                    <p className="sf-nav-profile-brand">Client of {brandName}</p>
                   </div>
-                  <Link
-                    href={`/creator/${storeSlug}/checkout`}
-                    className="block px-3 py-2 text-zinc-300 hover:text-white hover:bg-white/5"
-                    onClick={() => setProfileOpen(false)}
-                  >
-                    My Cart & Checkout
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProfileOpen(false);
-                      if (signOut) signOut();
-                    }}
-                    className="w-full text-left px-3 py-2 text-rose-400 hover:bg-rose-500/10 flex items-center gap-2"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span>Sign Out</span>
-                  </button>
+                  <div className="sf-nav-profile-body">
+                    <Link
+                      href={`/creator/${storeSlug}/checkout`}
+                      className="sf-nav-profile-link"
+                      onClick={() => setProfileOpen(false)}
+                    >
+                      <ShoppingCart className="w-3.5 h-3.5 text-[#dfb180]" />
+                      <span>My Cart &amp; Checkout</span>
+                    </Link>
+                    <Link
+                      href={`/creator/${storeSlug}`}
+                      className="sf-nav-profile-link"
+                      onClick={() => setProfileOpen(false)}
+                    >
+                      <Store className="w-3.5 h-3.5 text-zinc-400" />
+                      <span>{brandName}&apos;s Storefront</span>
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileOpen(false);
+                        if (signOut) signOut();
+                      }}
+                      className="sf-nav-profile-signout"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Sign Out</span>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

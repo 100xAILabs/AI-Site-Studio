@@ -5,8 +5,11 @@ and dedicated branded storefront on our domain (/creator/{slug}).
 
 import re
 import uuid
+import logging
 from typing import Optional, List
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func, and_, or_, cast, String
@@ -305,6 +308,7 @@ async def update_creator_profile(
 @router.get("/storefront/{slug}", response_model=CreatorPublicStorefrontResponse)
 async def get_public_creator_storefront(
     slug: str,
+    current_user: Optional[User] = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -334,6 +338,21 @@ async def get_public_creator_storefront(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Creator storefront '{clean_slug}' not found on this domain.",
         )
+
+    # Auto-attribute browsing authenticated user as a client of this creator
+    if current_user and current_user.id != creator.id and not current_user.client_of_creator_id:
+        try:
+            current_user.client_of_creator_id = creator.id
+            current_user.client_of_creator_slug = creator.creator_store_slug or clean_slug
+            current_user.client_of_brand = creator.creator_brand_name or creator.full_name or creator.username
+            meta = dict(current_user.extra_metadata or {})
+            meta["client_of_creator_id"] = str(creator.id)
+            meta["client_of_creator_slug"] = creator.creator_store_slug or clean_slug
+            meta["client_of_brand"] = creator.creator_brand_name or creator.full_name or creator.username
+            current_user.extra_metadata = meta
+            await db.commit()
+        except Exception as e_attr:
+            logger.info("Auto attribution notice on storefront visit: %s", e_attr)
 
     # Fetch this creator's published templates
     stmt = (
@@ -556,3 +575,40 @@ async def get_creator_customers(
         "total_customers": len(customers_list),
         "customers": customers_list
     }
+
+
+@router.post("/{slug}/attribute")
+async def attribute_client_to_creator(
+    slug: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Explicitly associate an authenticated user as a client of this creator storefront.
+    """
+    clean_slug = slug.strip().lower()
+    creator = await db.scalar(
+        select(User).where(func.lower(User.creator_store_slug) == clean_slug)
+    )
+    if not creator:
+        raise HTTPException(status_code=404, detail="Creator not found")
+
+    if current_user.id != creator.id and not current_user.client_of_creator_id:
+        current_user.client_of_creator_id = creator.id
+        current_user.client_of_creator_slug = creator.creator_store_slug or clean_slug
+        current_user.client_of_brand = creator.creator_brand_name or creator.username
+        meta = dict(current_user.extra_metadata or {})
+        meta["client_of_creator_id"] = str(creator.id)
+        meta["client_of_creator_slug"] = creator.creator_store_slug or clean_slug
+        meta["client_of_brand"] = creator.creator_brand_name or creator.username
+        current_user.extra_metadata = meta
+        await db.commit()
+        await db.refresh(current_user)
+
+    return {
+        "status": "attributed",
+        "creator_slug": creator.creator_store_slug or clean_slug,
+        "brand_name": creator.creator_brand_name or creator.username,
+        "client_email": current_user.email
+    }
+

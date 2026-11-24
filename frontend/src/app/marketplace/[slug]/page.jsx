@@ -860,11 +860,14 @@ export default function TemplateDetailsPage({ slug: propSlug, creatorSlug: propC
           price_currency: template.price_currency || "USD",
           thumbnail: template.thumbnail_url || template.gallery_images?.[0] || "",
           licenseType: resolvedLic,
+          seller_id: template.seller_id,
+          creator_slug: creatorSlug || template.seller?.creator_store_slug,
+          creator_brand_name: creatorStorefront?.brand_name || template.seller?.creator_brand_name,
         });
-        navigate("/checkout");
+        navigate(creatorSlug ? `/creator/${creatorSlug}/checkout` : "/checkout");
       }
     }
-  }, [template, searchParams, effectivePrice, user, selectedLicenseType]);
+  }, [template, searchParams, effectivePrice, user, selectedLicenseType, creatorSlug, creatorStorefront]);
 
   const userTier = String(user?.subscription_tier || "free").toLowerCase();
   const isUserExtreme = userTier === "extreme" || userTier === "enterprise" || userTier === "agency";
@@ -886,7 +889,7 @@ export default function TemplateDetailsPage({ slug: propSlug, creatorSlug: propC
       return;
     }
     if (isInCart) {
-      navigate("/checkout");
+      navigate(creatorSlug ? `/creator/${creatorSlug}/checkout` : "/checkout");
       return;
     }
     addToCart({
@@ -922,7 +925,7 @@ export default function TemplateDetailsPage({ slug: propSlug, creatorSlug: propC
         creator_brand_name: creatorStorefront?.brand_name || template.seller?.creator_brand_name,
       });
     }
-    navigate("/checkout");
+    navigate(creatorSlug ? `/creator/${creatorSlug}/checkout` : "/checkout");
   };
 
   const handleShareClick = () => {

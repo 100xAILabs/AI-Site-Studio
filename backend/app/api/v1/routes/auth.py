@@ -34,6 +34,7 @@ _oauth_codes: dict[str, tuple[str, float]] = {}
 class VerifyOTPRequest(BaseModel):
     email: str
     otp: str
+    creator_slug: Optional[str] = None
 
 
 def is_company_email(email: str) -> bool:
@@ -953,6 +954,27 @@ async def verify_otp(
         raise HTTPException(status_code=404, detail="User not found.")
         
     user.is_email_verified = True
+
+    # Link user to creator if verifying OTP from a creator portal
+    creator_param = request_data.creator_slug
+    if creator_param and not user.client_of_creator_id:
+        try:
+            c_slug = str(creator_param).strip().lower()
+            c_stmt = select(User).where(func.lower(User.creator_store_slug) == c_slug)
+            c_res = await db.execute(c_stmt)
+            c_obj = c_res.scalar_one_or_none()
+            if c_obj and c_obj.id != user.id:
+                user.client_of_creator_id = c_obj.id
+                user.client_of_creator_slug = c_obj.creator_store_slug
+                user.client_of_brand = c_obj.creator_brand_name or c_obj.username
+                meta = dict(user.extra_metadata or {})
+                meta["client_of_creator_id"] = str(c_obj.id)
+                meta["client_of_creator_slug"] = c_obj.creator_store_slug
+                meta["client_of_brand"] = c_obj.creator_brand_name or c_obj.username
+                user.extra_metadata = meta
+        except Exception as e_c:
+            logger.info("Creator attribution notice on OTP verify: %s", e_c)
+
     await db.flush()
     await db.commit()
     await db.refresh(user)

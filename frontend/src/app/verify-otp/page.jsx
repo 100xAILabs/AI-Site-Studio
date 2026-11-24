@@ -29,6 +29,7 @@ export default function VerifyOTPPage() {
   const queryEmail = new URLSearchParams(location.search).get("email");
   const email = queryEmail || location.state?.email || "";
   const role = location.state?.role || "buyer";
+  const creatorSlug = new URLSearchParams(location.search).get("creator") || location.state?.creator_slug;
 
   // Delivery status passed from backend: false means SMTP bounced, missing credentials, or unconfirmed
   const initialSent = location.state?.sent;
@@ -136,8 +137,12 @@ export default function VerifyOTPPage() {
     setLoading(true);
 
     try {
-      await verifyOtp({ email, code });
-      navigate("/dashboard", { replace: true });
+      await verifyOtp({ email, code, creator_slug: creatorSlug });
+      if (creatorSlug) {
+        navigate(`/creator/${creatorSlug}`, { replace: true });
+      } else {
+        navigate("/dashboard", { replace: true });
+      }
     } catch (err) {
       setError(err?.message || "Invalid or expired verification code. Please try again.");
       setLoading(false);

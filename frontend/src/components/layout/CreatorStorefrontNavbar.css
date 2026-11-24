@@ -8,3 +8,106 @@
   text-decoration: none;
   font-family: inherit;
 }
+
+/* ── SOLID OPAQUE PROFILE DROPDOWN MENU ── */
+.sf-nav-profile-wrapper {
+  position: relative;
+  display: inline-block;
+  z-index: 1000;
+}
+
+.sf-nav-profile-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 230px;
+  background-color: #121620 !important;
+  background: #121620 !important;
+  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(28px) !important;
+  -webkit-backdrop-filter: blur(28px) !important;
+  padding: 6px 0 !important;
+  z-index: 99999 !important;
+  overflow: hidden;
+  opacity: 1 !important;
+}
+
+.sf-nav-profile-header {
+  padding: 10px 14px 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: #161a26 !important;
+  background: #161a26 !important;
+}
+
+.sf-nav-profile-email {
+  font-weight: 600;
+  color: #ffffff !important;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 0;
+}
+
+.sf-nav-profile-brand {
+  font-size: 11px;
+  color: #dfb180 !important;
+  margin-top: 3px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sf-nav-profile-body {
+  padding: 4px 0;
+}
+
+.sf-nav-profile-link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 14px;
+  font-size: 12px;
+  color: #e4e4e7 !important;
+  background: transparent;
+  border: none;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.sf-nav-profile-link:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+
+.sf-nav-profile-signout {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 14px;
+  font-size: 12px;
+  color: #f87171 !important;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  margin-top: 4px;
+  padding-top: 10px;
+}
+
+.sf-nav-profile-signout:hover {
+  background-color: rgba(239, 68, 68, 0.12) !important;
+  color: #fca5a5 !important;
+}
+

@@ -286,12 +286,12 @@ export const useAuthStore = create(
       },
 
       /** OTP Verification */
-      verifyOtp: async ({ email, code }) => {
+      verifyOtp: async ({ email, code, creator_slug }) => {
         try {
           const res = await fetch(`${API_BASE}/auth/verify-otp`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email, otp: code })
+            body: JSON.stringify({ email, otp: code, creator_slug: creator_slug || undefined })
           });
 
           if (res.status === 429) {

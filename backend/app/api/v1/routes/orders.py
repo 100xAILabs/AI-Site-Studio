@@ -5,13 +5,16 @@ Orders routes.
 import uuid
 import random
 import string
+import logging
 from typing import List, Optional, Tuple, Dict, Any
 from decimal import Decimal 
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func
 from sqlalchemy.orm import selectinload
+
+logger = logging.getLogger(__name__)
 
 from app.core.database import get_db
 from app.core.config import settings
@@ -112,6 +115,50 @@ async def create_order(
     country_code = (data.country_code or getattr(current_user, "country", None) or "US").upper()
     tax_amount, total_amount, tax_label, tax_rate_val = calculate_country_tax(subtotal, country_code)
 
+    # Resolve creator attribution for the order
+    creator_obj = None
+    if getattr(data, "creator_slug", None):
+        try:
+            c_slug = str(data.creator_slug).strip().lower()
+            c_stmt = select(User).where(func.lower(User.creator_store_slug) == c_slug)
+            c_res = await db.execute(c_stmt)
+            creator_obj = c_res.scalar_one_or_none()
+        except Exception as e_c:
+            logger.info("Creator slug lookup notice: %s", e_c)
+
+    # Fallback to seller of the first template if not found by slug
+    if not creator_obj and order_items:
+        first_tpl = order_items[0][0]
+        if first_tpl.seller_id and first_tpl.seller_id != current_user.id:
+            try:
+                s_stmt = select(User).where(User.id == first_tpl.seller_id)
+                s_res = await db.execute(s_stmt)
+                creator_obj = s_res.scalar_one_or_none()
+            except Exception as e_s:
+                logger.info("Seller lookup notice: %s", e_s)
+
+    # Auto-attribute client in user database if not already linked
+    if creator_obj and creator_obj.id != current_user.id and not current_user.client_of_creator_id:
+        current_user.client_of_creator_id = creator_obj.id
+        current_user.client_of_creator_slug = creator_obj.creator_store_slug
+        current_user.client_of_brand = creator_obj.creator_brand_name or creator_obj.username
+        meta = dict(current_user.extra_metadata or {})
+        meta["client_of_creator_id"] = str(creator_obj.id)
+        meta["client_of_creator_slug"] = creator_obj.creator_store_slug
+        meta["client_of_brand"] = creator_obj.creator_brand_name or creator_obj.username
+        current_user.extra_metadata = meta
+
+    order_meta = {
+        "currency": primary_currency,
+        "country_code": country_code,
+        "tax_label": tax_label,
+        "tax_rate": tax_rate_val,
+    }
+    if creator_obj:
+        order_meta["creator_id"] = str(creator_obj.id)
+        order_meta["creator_slug"] = creator_obj.creator_store_slug
+        order_meta["creator_brand_name"] = creator_obj.creator_brand_name or creator_obj.username
+
     order = Order(
         user_id=current_user.id,
         order_number=_generate_order_number(),
@@ -122,12 +169,7 @@ async def create_order(
         total=total_amount,
         coupon_code=data.coupon_code,
         notes=data.notes,
-        extra_metadata={
-            "currency": primary_currency,
-            "country_code": country_code,
-            "tax_label": tax_label,
-            "tax_rate": tax_rate_val,
-        },
+        extra_metadata=order_meta,
     )
     db.add(order)
     await db.flush()

@@ -7,7 +7,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useAppAuth, useAppUser } from "@/lib/auth";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
@@ -105,6 +105,14 @@ export default function Checkout() {
   const queryCreatorSlug = searchParams?.get("creator");
   const cartCreatorSlug = items?.find((i) => i.creator_slug)?.creator_slug;
   const activeCreatorSlug = routeCreatorSlug || queryCreatorSlug || cartCreatorSlug;
+
+  const displayItems = useMemo(() => {
+    if (!activeCreatorSlug) return items;
+    const scoped = items.filter(
+      (i) => i.creator_slug && i.creator_slug.toLowerCase() === activeCreatorSlug.toLowerCase()
+    );
+    return scoped.length > 0 ? scoped : items;
+  }, [items, activeCreatorSlug]);
 
   const { data: creatorStorefront } = useQuery({
     queryKey: ["creatorStorefront", activeCreatorSlug],
@@ -318,12 +326,13 @@ export default function Checkout() {
       api.post(
         "/orders",
         {
-          items: items.map((i) => ({
+          items: displayItems.map((i) => ({
             template_id: i.templateId || i.id,
             license_type: i.licenseType || "regular",
           })),
           coupon_code: couponCode || undefined,
           country_code: countryCode,
+          creator_slug: activeCreatorSlug || undefined,
         },
         authToken ?? undefined
       ),
@@ -639,13 +648,17 @@ export default function Checkout() {
     }
   }
 
-  const hasCartItems = Boolean(directCheckoutItem || items.length > 0);
+  const hasCartItems = Boolean(directCheckoutItem || displayItems.length > 0);
 
   // Pricing calculation - strictly template fee (zero extra tax)
-  const cartSubtotal = directCheckoutItem ? directCheckoutItem.price : subtotal();
+  const cartSubtotal = directCheckoutItem
+    ? directCheckoutItem.price
+    : activeCreatorSlug
+    ? displayItems.reduce((sum, i) => sum + (Number(i.price) || 0) * (i.quantity || 1), 0)
+    : subtotal();
   const cartTax = 0;
   const cartTotal = cartSubtotal;
-  const totalItemCount = directCheckoutItem ? 1 : items.reduce((sum, i) => sum + (i.quantity || 1), 0);
+  const totalItemCount = directCheckoutItem ? 1 : displayItems.reduce((sum, i) => sum + (i.quantity || 1), 0);
   const taxDetails = typeof getTaxDetails === "function" ? getTaxDetails() : null;
 
   // Active currency dynamically based on detected country (or UPI gateway)
@@ -767,7 +780,7 @@ export default function Checkout() {
         <CreatorStorefrontNavbar
           storefront={creatorStorefront}
           creatorSlug={activeCreatorSlug}
-          cartItems={items}
+          cartItems={displayItems}
         />
       ) : (
         <Navbar />
@@ -1158,7 +1171,7 @@ export default function Checkout() {
                     </div>
                   ) : (
                     <div className="cart-items-stack">
-                      {items.map((item) => {
+                      {displayItems.map((item) => {
                         const itemTotalUsd = (Number(item.price) || 0) * (item.quantity || 1);
                         const alreadyPurchased = isPurchased(item.templateId || item.id || item.slug);
                         return (
@@ -1493,7 +1506,7 @@ export default function Checkout() {
                     <div className="cart-summary-line">
                       <span>Subtotal ({totalItemCount} {totalItemCount === 1 ? "item" : "items"})</span>
                       <span className="cart-summary-line-val">
-                        {formatMoney(grossSubtotal())}
+                        {formatMoney(activeCreatorSlug ? cartSubtotal : grossSubtotal())}
                       </span>
                     </div>
 
