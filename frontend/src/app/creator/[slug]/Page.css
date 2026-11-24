@@ -1719,79 +1719,17 @@
   }
 }
 
-/* ── 8. MULTI-PAGE SUBNAV TABS STRIP ── */
-.sf-tabs-strip {
-  background: rgba(14, 15, 17, 0.95);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  position: sticky;
-  top: 63px;
-  z-index: 90;
-  backdrop-filter: blur(12px);
+/* ── 8. DEDICATED DISTINCT PAGES ── */
+.sf-page-view {
+  animation: sfPageFadeIn 0.25s ease-out;
+  min-height: 520px;
+  margin-top: 24px;
 }
 
-.sf-tabs-strip-inner {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 8px 24px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.sf-tabs-strip-inner::-webkit-scrollbar {
-  display: none;
-}
-
-.sf-tab-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: var(--text-secondary, #a1a1aa);
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.2s ease;
-}
-
-.sf-tab-pill:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
-}
-
-.sf-tab-pill.active {
-  background: rgba(223, 177, 128, 0.15);
-  border-color: rgba(223, 177, 128, 0.4);
-  color: #dfb180;
-  font-weight: 600;
-  box-shadow: 0 0 12px rgba(223, 177, 128, 0.15);
-}
-
-.sf-tab-badge {
-  padding: 1px 7px;
-  border-radius: 9999px;
-  font-size: 0.725rem;
-  font-weight: 700;
-  background: rgba(223, 177, 128, 0.25);
-  color: #dfb180;
-}
-
-/* ── 9. SUB-PAGES GENERAL ── */
-.sf-subpage {
-  animation: sfFadeIn 0.25s ease-out;
-  min-height: 480px;
-}
-
-@keyframes sfFadeIn {
+@keyframes sfPageFadeIn {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
@@ -1799,62 +1737,377 @@
   }
 }
 
-/* ── 10. SUB-PAGE: ABOUT CREATOR & EDITORIAL STORY ── */
-.sf-editorial-card {
-  background: rgba(24, 25, 27, 0.7);
+/* ── 9. TEMPLATES PAGE: SLEEK CATALOG HERO ── */
+.sf-catalog-hero {
+  background: rgba(24, 25, 27, 0.75);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 20px;
-  padding: 44px 40px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3);
-  margin-bottom: 40px;
+  border-radius: 18px;
+  padding: 28px 32px;
+  margin-bottom: 28px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
 }
 
-.sf-editorial-header {
-  margin-bottom: 32px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  padding-bottom: 24px;
-}
-
-.sf-editorial-badge {
-  display: inline-flex;
+.sf-catalog-hero-inner {
+  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  border-radius: 9999px;
-  background: rgba(223, 177, 128, 0.1);
-  border: 1px solid rgba(223, 177, 128, 0.25);
-  font-size: 0.775rem;
-  font-weight: 600;
-  color: #dfb180;
-  margin-bottom: 14px;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
 }
 
-.sf-editorial-header h2 {
-  font-size: 2.2rem;
+.sf-catalog-brand-left {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex: 1;
+  min-width: 280px;
+}
+
+.sf-catalog-logo-wrap {
+  position: relative;
+  width: 68px;
+  height: 68px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 2px solid rgba(223, 177, 128, 0.4);
+  background: #141517;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.sf-catalog-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sf-verified-mini-badge {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  background: rgba(12, 13, 14, 0.95);
+  border-radius: 50%;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sf-catalog-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.sf-catalog-brand-name {
+  font-size: 1.75rem;
   font-weight: 800;
   color: #ffffff;
   letter-spacing: -0.02em;
-  margin: 0 0 10px;
+  margin: 0;
+  line-height: 1.2;
 }
 
-.sf-editorial-intro {
-  font-size: 1.05rem;
+.sf-catalog-id-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-family: monospace;
+  color: #dfb180;
+  background: rgba(223, 177, 128, 0.12);
+  border: 1px solid rgba(223, 177, 128, 0.25);
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sf-catalog-id-chip:hover {
+  background: rgba(223, 177, 128, 0.2);
+}
+
+.sf-catalog-tagline {
+  font-size: 0.9rem;
+  color: var(--text-secondary, #a1a1aa);
+  margin: 0 0 10px;
+  line-height: 1.4;
+  max-width: 640px;
+}
+
+.sf-catalog-meta-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sf-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.775rem;
+  color: #d4d4d8;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 3px 10px;
+  border-radius: 9999px;
+}
+
+.sf-meta-pill strong {
+  color: #ffffff;
+}
+
+.sf-catalog-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ── 10. DEDICATED PAGE HEADER BANNER (ABOUT, CONTACT, PAYMENTS) ── */
+.sf-page-header-banner {
+  background: rgba(24, 25, 27, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  padding: 32px 36px;
+  margin-bottom: 32px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+}
+
+.sf-page-header-banner h2 {
+  font-size: 2.1rem;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.02em;
+  margin: 8px 0 8px;
+}
+
+.sf-page-header-banner p {
+  font-size: 1rem;
   color: #a1a1aa;
-  max-width: 760px;
-  line-height: 1.6;
+  max-width: 720px;
+  line-height: 1.5;
   margin: 0;
 }
 
-.sf-bio-prose {
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-left: 4px solid #dfb180;
-  border-radius: 12px;
-  padding: 24px 28px;
-  margin-bottom: 32px;
+.sf-page-header-banner code {
+  color: #dfb180;
+  background: rgba(223, 177, 128, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
-.sf-bio-paragraph {
+/* ── 11. ABOUT PAGE LAYOUT & SIDEBAR ── */
+.sf-about-layout {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 32px;
+  align-items: start;
+}
+
+.sf-author-card {
+  background: rgba(24, 25, 27, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  padding: 28px 24px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+  text-align: center;
+}
+
+.sf-author-avatar-wrap {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  margin: 0 auto 16px;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 2px solid rgba(223, 177, 128, 0.4);
+  background: #141517;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sf-author-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sf-author-badge-pill {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  background: rgba(12, 13, 14, 0.95);
+  border-radius: 50%;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sf-author-title {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 0 0 6px;
+}
+
+.sf-author-id-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.825rem;
+  color: #dfb180;
+  background: rgba(223, 177, 128, 0.1);
+  border: 1px solid rgba(223, 177, 128, 0.25);
+  padding: 3px 10px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.sf-author-id-copy {
+  background: none;
+  border: none;
+  color: #dfb180;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+}
+
+.sf-author-creator-name {
+  font-size: 0.85rem;
+  color: #a1a1aa;
+  margin-bottom: 18px;
+}
+
+.sf-author-stats-list {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sf-author-stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.825rem;
+}
+
+.sf-author-stat-row span {
+  color: #a1a1aa;
+}
+
+.sf-author-stat-row strong {
+  color: #ffffff;
+}
+
+.sf-author-email-block {
+  text-align: left;
+  margin-bottom: 16px;
+}
+
+.sf-author-block-label {
+  display: block;
+  font-size: 0.725rem;
+  text-transform: uppercase;
+  color: #71717a;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.sf-author-email-val {
+  display: block;
+  font-size: 0.825rem;
+  color: #dfb180;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sf-author-email-copy-btn {
+  font-size: 0.725rem;
+  color: #dfb180;
+  background: rgba(223, 177, 128, 0.1);
+  border: 1px solid rgba(223, 177, 128, 0.2);
+  border-radius: 4px;
+  padding: 3px 8px;
+  margin-top: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sf-author-email-copy-btn:hover {
+  background: rgba(223, 177, 128, 0.2);
+}
+
+.sf-author-website-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.8rem;
+  color: #d4d4d8;
+  text-decoration: none;
+  box-sizing: border-box;
+  margin-bottom: 14px;
+  transition: all 0.15s ease;
+}
+
+.sf-author-website-link:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.sf-author-socials-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+/* About Main Column */
+.sf-about-main-col {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.sf-about-prose-card,
+.sf-about-standards-section,
+.sf-about-tech-section {
+  background: rgba(24, 25, 27, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  padding: 32px 36px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+}
+
+.sf-card-title {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+  margin: 0 0 16px;
+}
+
+.sf-about-bio-text {
   font-size: 1.05rem;
   line-height: 1.75;
   color: #e4e4e7;
