@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, API_URL } from "@/lib/api";
 import { useCartStore } from "@/store";
 import CreatorStorefrontNavbar from "@/components/layout/CreatorStorefrontNavbar";
 import {
@@ -104,11 +104,16 @@ export default function CreatorTemplateDetailsPage() {
     navigate(`/creator/${creatorSlug}/checkout`);
   };
 
-  const previewUrl = template?.slug
-    ? `/demo/${encodeURIComponent(template.slug)}`
-    : template?.id
-    ? `/demo/${encodeURIComponent(template.id)}`
-    : "/demo/preview";
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const targetId = template?.id || template?.slug || templateSlug;
+
+  // Direct raw live preview HTML without platform shell
+  const rawPreviewUrl = targetId
+    ? `${API_URL}/preview/live/${encodeURIComponent(targetId)}/${token ? `?token=${encodeURIComponent(token)}` : ""}`
+    : "";
+
+  // Dedicated creator live demo page
+  const creatorDemoUrl = `/creator/${encodeURIComponent(creatorSlug)}/demo/${encodeURIComponent(template?.slug || templateSlug)}`;
 
   return (
     <div className="cr-tpl-page">
@@ -208,26 +213,24 @@ export default function CreatorTemplateDetailsPage() {
                 </button>
               </div>
 
-              {/* Fullscreen Demo Link */}
-              <a
-                href={previewUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+              {/* Fullscreen Dedicated Creator Demo Link */}
+              <Link
+                to={creatorDemoUrl}
                 className="cr-fullscreen-btn"
-                title="Open interactive demo in new tab"
+                title="Open dedicated creator interactive demo"
               >
                 <span>Live Demo</span>
                 <ExternalLink className="w-3 h-3" />
-              </a>
+              </Link>
             </div>
 
-            {/* Iframe Frame */}
+            {/* Iframe Frame - Clean Template Preview */}
             <div className="cr-preview-frame-wrapper">
               <iframe
-                src={previewUrl}
+                src={rawPreviewUrl || "about:blank"}
                 title={template?.title || "Template Preview"}
                 className={`cr-preview-frame ${deviceMode}`}
-                sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin"
                 loading="lazy"
               />
             </div>

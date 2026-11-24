@@ -1,0 +1,294 @@
+/* Dedicated Creator Interactive Live Demo Styling */
+
+.cr-demo-page {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: #0c0d0e;
+  color: #f4f4f5;
+  overflow: hidden;
+  z-index: 9999;
+  font-family: inherit;
+}
+
+/* ── 1. Top Navigation Bar (100% Creator Branded) ── */
+.cr-demo-topbar {
+  height: 60px;
+  background: rgba(18, 22, 32, 0.95);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  flex-shrink: 0;
+  z-index: 50;
+  gap: 16px;
+}
+
+/* Left Group */
+.cr-demo-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.cr-demo-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #a1a1aa;
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.cr-demo-back-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.cr-demo-divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.cr-demo-brand-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.cr-demo-brand-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(223, 177, 128, 0.15);
+  border: 1px solid rgba(223, 177, 128, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cr-demo-brand-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cr-demo-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cr-demo-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
+.cr-demo-badge-live {
+  padding: 2px 7px;
+  border-radius: 100px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #10b981;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.cr-demo-badge-framework {
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #a1a1aa;
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Center Group: Device Switcher */
+.cr-demo-topbar-center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cr-demo-device-tabs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 3px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cr-demo-device-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 7px;
+  background: transparent;
+  border: none;
+  color: #71717a;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cr-demo-device-btn:hover {
+  color: #d4d4d8;
+}
+
+.cr-demo-device-btn.active {
+  background: #1c2230;
+  color: #dfb180;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.cr-demo-refresh-btn {
+  padding: 7px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #a1a1aa;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.cr-demo-refresh-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Right Group: Price & Direct Creator Buy CTA */
+.cr-demo-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cr-demo-price {
+  font-size: 15px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.cr-demo-buy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border-radius: 8px;
+  background: #dfb180;
+  color: #121620;
+  font-size: 12px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.cr-demo-buy-btn:hover {
+  background: #ebd2b0;
+  box-shadow: 0 4px 14px rgba(223, 177, 128, 0.35);
+  transform: translateY(-1px);
+}
+
+/* ── 2. Viewport Canvas & Iframe ── */
+.cr-demo-viewport {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #090a0f;
+  position: relative;
+  overflow: hidden;
+}
+
+.cr-demo-frame-container {
+  height: 100%;
+  transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  position: relative;
+  background: #ffffff;
+}
+
+.cr-demo-frame-container.desktop {
+  width: 100%;
+}
+
+.cr-demo-frame-container.tablet {
+  width: 768px;
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  margin: 16px auto;
+  height: calc(100% - 32px);
+  overflow: hidden;
+}
+
+.cr-demo-frame-container.mobile {
+  width: 375px;
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  margin: 16px auto;
+  height: calc(100% - 32px);
+  overflow: hidden;
+}
+
+.cr-demo-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #ffffff;
+}
+
+/* Loading Overlay */
+.cr-demo-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(12, 13, 14, 0.9);
+  z-index: 20;
+}
+
+.cr-demo-loading-text {
+  font-size: 13px;
+  color: #94a3b8;
+  font-weight: 500;
+}

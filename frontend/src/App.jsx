@@ -47,6 +47,7 @@ const CreatorStorefrontPage = lazy(() => import('./app/creator/[slug]/page.jsx')
 const CreatorAuthPage = lazy(() => import('./app/creator/auth/page.jsx'));
 const CreatorCheckoutPage = lazy(() => import('./app/creator/checkout/page.jsx'));
 const CreatorTemplateDetailsPage = lazy(() => import('./app/creator/template/page.jsx'));
+const CreatorDemoPage = lazy(() => import('./app/creator/demo/page.jsx'));
 const AuthCompletePage = lazy(() => import('./app/auth/complete/page.jsx'));
 
 
@@ -145,6 +146,7 @@ function AppRouteContent() {
           <Route path="/creator" element={<Navigate to="/creator/setup" replace />} />
           <Route path="/creator/setup" element={<ProtectedRoute><CreatorSetupPage /></ProtectedRoute>} />
           <Route path="/creator/:creatorSlug/template/:slug" element={<CreatorTemplateDetailsPage />} />
+          <Route path="/creator/:creatorSlug/demo/:slug" element={<CreatorDemoPage />} />
           <Route path="/creator/:creatorSlug/checkout" element={<CreatorCheckoutPage />} />
           <Route path="/creator/:creatorSlug/login" element={<CreatorAuthPage />} />
           <Route path="/creator/:creatorSlug/register" element={<CreatorAuthPage isRegister={true} />} />
