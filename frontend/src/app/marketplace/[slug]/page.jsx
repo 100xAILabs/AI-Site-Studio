@@ -803,6 +803,10 @@ export default function TemplateDetailsPage({ slug: propSlug, creatorSlug: propC
     }
     return base;
   })();
+
+  const demoTargetUrl = template
+    ? `/demo/${template.slug || template.id}${creatorSlug ? `?creator=${encodeURIComponent(creatorSlug)}` : ""}`
+    : "";
   const favoriteMutation = useToggleFavorite(token ?? "");
   const wishlistMutation = useToggleWishlist(token ?? "");
   const addToCart = useCartStore((s) => s.addItem);
@@ -1547,7 +1551,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
             <>
               {/* Live Interactive Demo Button */}
               <Link
-                href={`/demo/${template.slug || template.id}`}
+                href={demoTargetUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="details-demo-link-btn w-full py-3.5 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all text-sm mb-2.5 cursor-pointer bg-primary/15 hover:bg-primary/25 text-primary border border-primary/30 shadow-sm"
@@ -1684,7 +1688,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                     </button>
                   )}
                   <Link
-                    href={`/demo/${template.slug || template.id}`}
+                    href={demoTargetUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="hero-tab-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-primary/15 hover:bg-primary/25 border border-primary/30 text-primary font-bold text-xs transition-all ml-1"
@@ -3628,7 +3632,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
         </div>
         <div className="details-mobile-bottom-actions">
           <Link
-            href={`/demo/${template.slug || template.id}`}
+            href={demoTargetUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="details-mobile-bottom-btn demo"

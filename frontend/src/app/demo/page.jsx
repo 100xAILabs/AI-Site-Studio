@@ -30,6 +30,14 @@ export default function LiveDemoPage() {
   const targetIdentifier = routeSlug || searchParams.get("template") || searchParams.get("slug") || "";
   const { data: template, isLoading: isTemplateLoading } = useTemplate(targetIdentifier);
 
+  const urlCreator = searchParams.get("creator") || "";
+  const resolvedCreatorSlug = urlCreator || template?.seller?.creator_store_slug || template?.seller?.store_slug || "";
+  const targetTemplateSlug = template?.slug || targetIdentifier;
+
+  const returnUrl = resolvedCreatorSlug
+    ? `/creator/${resolvedCreatorSlug}/template/${targetTemplateSlug}`
+    : (targetIdentifier ? `/marketplace/${targetIdentifier}` : "/marketplace");
+
   const [device, setDevice] = useState("desktop");
   const [iframeKey, setIframeKey] = useState(0);
   const [isIframeLoading, setIsIframeLoading] = useState(true);
@@ -100,15 +108,19 @@ export default function LiveDemoPage() {
       if (addItem) {
         addItem({
           id: template.id,
+          templateId: template.id,
           title: template.title,
           price: template.price,
           thumbnail_url: template.thumbnail_url,
           category: template.category,
+          seller_id: template.seller_id,
+          creator_slug: resolvedCreatorSlug || undefined,
+          creator_brand_name: template.seller?.creator_brand_name || template.developer_name,
         });
       }
       navigate("/checkout");
     } else {
-      navigate(`/marketplace/${targetIdentifier}`);
+      navigate(returnUrl);
     }
   };
 
@@ -143,10 +155,10 @@ export default function LiveDemoPage() {
                 {template ? `Buy Now • ${formatPrice(template.price, "USD")}` : "Buy Template"}
               </button>
               <Link
-                href={targetIdentifier ? `/marketplace/${targetIdentifier}` : "/marketplace"}
+                href={returnUrl}
                 className="demo-expired-back-link"
               >
-                ← Back to Template Details
+                ← {resolvedCreatorSlug ? `Back to ${template?.seller?.creator_brand_name || 'Creator Store'}` : "Back to Template Details"}
               </Link>
             </div>
           </div>
@@ -158,12 +170,14 @@ export default function LiveDemoPage() {
         {/* Left: Back & Title */}
         <div className="demo-topbar-left">
           <Link
-            href={targetIdentifier ? `/marketplace/${targetIdentifier}` : "/marketplace"}
+            href={returnUrl}
             className="demo-back-btn"
-            title="Return to Template Details"
+            title={resolvedCreatorSlug ? `Return to ${template?.seller?.creator_brand_name || resolvedCreatorSlug}` : "Return to Template Details"}
           >
             <ArrowLeft className="w-4 h-4" />
-            <span className="demo-back-label">Back</span>
+            <span className="demo-back-label">
+              {resolvedCreatorSlug ? "Back to Store" : "Back"}
+            </span>
           </Link>
 
           <div className="demo-brand-separator" />

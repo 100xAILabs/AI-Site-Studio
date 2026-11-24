@@ -138,7 +138,7 @@ export default function TemplateCard({
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  window.open(`/demo/${templateSlug || template.id}`, '_blank');
+                  window.open(`/demo/${templateSlug || template.id}${creatorSlug ? `?creator=${encodeURIComponent(creatorSlug)}` : ''}`, '_blank');
                 }}
                 className="overlay-btn-preview"
               >

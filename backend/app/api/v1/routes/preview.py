@@ -6329,7 +6329,7 @@ async def serve_live_preview(
 
                     esc_s_tmpl = sub_tmpl.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
                     esc_s_sc = sub_sc.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
-                    sub_dvars_ret = ", ".join(sub_dvars)
+                    sub_safe_assigns = " ".join([f"try {{ if (typeof {v} !== 'undefined') _ret['{v}'] = {v}; }} catch(_e) {{}}" for v in sub_dvars])
 
                     sub_js = f"""
     const compDef_{cap_k} = (function() {{
@@ -6346,10 +6346,17 @@ async def serve_live_preview(
       }} else if (scriptBody.trim()) {{
         def.setup = function() {{
           try {{
-            return (new Function('Vue', 'ref', 'reactive', 'computed', 'onMounted', 'onUnmounted', 'watch', 'watchEffect',
-              scriptBody + '\\nreturn {{ {sub_dvars_ret} }};'
+            const _ret = (new Function('Vue', 'ref', 'reactive', 'computed', 'onMounted', 'onUnmounted', 'watch', 'watchEffect',
+              scriptBody + '\\nconst _ret = {{}}; {sub_safe_assigns}; return _ret;'
             ))(Vue, ref, reactive, computed, onMounted, onUnmounted, watch, watchEffect);
-          }} catch(e) {{ return {{}}; }}
+            if (_ret && typeof _ret === 'object') {{
+              if (!_ret.form) _ret.form = Vue.reactive({{ name: '', email: '', message: '', major: '', grade: '' }});
+              return _ret;
+            }}
+            return {{ form: Vue.reactive({{ name: '', email: '', message: '', major: '', grade: '' }}) }};
+          }} catch(e) {{
+            return {{ form: Vue.reactive({{ name: '', email: '', message: '', major: '', grade: '' }}) }};
+          }}
         }};
       }}
       def.template = `{esc_s_tmpl}`;
@@ -6365,7 +6372,7 @@ async def serve_live_preview(
 
                 esc_primary_tmpl = primary_tmpl.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
                 esc_primary_sc = primary_sc.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
-                primary_dvars_ret = ", ".join(primary_dvars)
+                primary_safe_assigns = " ".join([f"try {{ if (typeof {v} !== 'undefined') _ret['{v}'] = {v}; }} catch(_e) {{}}" for v in primary_dvars])
 
                 vue_runner_html = (
                     "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
@@ -6435,10 +6442,15 @@ async def serve_live_preview(
                     "        primaryCompDef = {\n"
                     "          setup: function() {\n"
                     "            try {\n"
-                    f"              return new Function('Vue', 'ref', 'reactive', 'computed', 'onMounted', 'onUnmounted', 'watch', 'watchEffect', scriptBody + '\\nreturn {{ {primary_dvars_ret} }};')(Vue, ref, reactive, computed, onMounted, onUnmounted, watch, watchEffect);\n"
+                    f"              const _ret = (new Function('Vue', 'ref', 'reactive', 'computed', 'onMounted', 'onUnmounted', 'watch', 'watchEffect', scriptBody + '\\nconst _ret = {{}}; {primary_safe_assigns}; return _ret;'))(Vue, ref, reactive, computed, onMounted, onUnmounted, watch, watchEffect);\n"
+                    "              if (_ret && typeof _ret === 'object') {\n"
+                    "                if (!_ret.form) _ret.form = Vue.reactive({ name: '', email: '', message: '', major: '', grade: '' });\n"
+                    "                return _ret;\n"
+                    "              }\n"
+                    "              return { form: Vue.reactive({ name: '', email: '', message: '', major: '', grade: '' }) };\n"
                     "            } catch(e) {\n"
                     "              console.warn('Vue setup execute:', e);\n"
-                    "              return {};\n"
+                    "              return { form: Vue.reactive({ name: '', email: '', message: '', major: '', grade: '' }) };\n"
                     "            }\n"
                     "          }\n"
                     "        };\n"
@@ -6449,6 +6461,7 @@ async def serve_live_preview(
                     "    primaryCompDef.template = document.getElementById('vue-template-src').innerHTML;\n"
                     "    try {\n"
                     "      const app = createApp(primaryCompDef);\n"
+                    "      app.config.errorHandler = function(err) { console.warn('Vue handled error:', err); };\n"
                     "      Object.keys(vueMockIcons).forEach(function(k) { app.component(k, vueMockIcons[k]); });\n"
                     "      // Vue Router Mocks\n"
                     "      const RouterLinkMock = { props: ['to'], template: '<a :href=\"to || \\'#\\'\" class=\"vue-link\" style=\"text-decoration:none;color:inherit;\"><slot></slot></a>' };\n"
@@ -6457,8 +6470,14 @@ async def serve_live_preview(
                     "      app.component('router-link', RouterLinkMock);\n"
                     "      app.component('RouterView', RouterViewMock);\n"
                     "      app.component('router-view', RouterViewMock);\n"
-                    "      window.useRouter = function() { return { push: function(p) { if (p) window.location.hash = p; }, replace: function(p) { if (p) window.location.hash = p; } }; };\n"
-                    "      window.useRoute = function() { return { path: window.location.pathname, hash: window.location.hash, query: {}, params: {} }; };\n"
+                    "      const routeMock = { path: window.location.pathname, hash: window.location.hash, query: {}, params: {}, name: 'Home', fullPath: window.location.pathname };\n"
+                    "      const routerMock = { push: function(p) { if (p) window.location.hash = p; }, replace: function(p) { if (p) window.location.hash = p; } };\n"
+                    "      window.useRouter = function() { return routerMock; };\n"
+                    "      window.useRoute = function() { return routeMock; };\n"
+                    "      app.config.globalProperties.$route = routeMock;\n"
+                    "      app.config.globalProperties.$router = routerMock;\n"
+                    "      app.provide('route', routeMock);\n"
+                    "      app.provide('router', routerMock);\n"
                     f"      {all_vue_subcomponents_code}\n"
                     "      app.mount('#app');\n"
                     "    } catch (e) {\n"
