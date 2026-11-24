@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   Headphones,
   ArrowRight,
+  ArrowLeft,
   AlertCircle,
   Code2,
   BadgeCheck,
