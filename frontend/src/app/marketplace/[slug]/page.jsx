@@ -1000,7 +1000,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
 
   const isOwnerOrAdmin = Boolean(
     user && (
-      (template?.is_marketplace !== false && template?.template_origin === "marketplace" && template?.status === "published" && user.id === template?.seller_id) ||
+      (template?.is_marketplace !== false && (template?.template_origin === "marketplace" || template?.tags?.includes("retailed")) && template?.status === "published" && user.id === template?.seller_id) ||
       user.role === "admin" ||
       user.role === "super_admin"
     )
@@ -1291,7 +1291,7 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
 
   const renderPurchaseCard = (extraClass = "") => {
     // Only genuine published marketplace templates can be managed by the uploading seller. Private drafts and customized copies are not seller listings.
-    const isMarketplaceListing = template?.is_marketplace !== false && template?.template_origin === "marketplace" && template?.status === "published";
+    const isMarketplaceListing = template?.is_marketplace !== false && (template?.template_origin === "marketplace" || template?.tags?.includes("retailed")) && template?.status === "published";
     const isOwner = Boolean(isMarketplaceListing && user?.id && user?.id === template?.seller_id);
     const rawPrice = Number(template?.price) > 0 ? Number(template.price) : 0;
     const templatePrice = rawPrice > 0 ? rawPrice : 49;

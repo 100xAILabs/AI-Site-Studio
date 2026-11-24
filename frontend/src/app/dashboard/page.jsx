@@ -1476,7 +1476,7 @@ function Dashboard() {
 
   // Published seller listings are kept separate from private Studio Project drafts using explicit is_marketplace separation.
   const sellerTemplatesList = Array.isArray(templateResponse)
-    ? templateResponse.filter(t => t.is_marketplace === true && t.template_origin === "marketplace")
+    ? templateResponse.filter(t => t.is_marketplace === true && (t.template_origin === "marketplace" || t.tags?.includes("retailed")))
     : [];
 
   // 1. Downloaded & Purchased Templates (from completed orders)
@@ -8344,6 +8344,8 @@ function Dashboard() {
           onSuccess={() => {
             qc.invalidateQueries({ queryKey: ["seller-templates"] });
             qc.invalidateQueries({ queryKey: ["templates"] });
+            qc.invalidateQueries({ queryKey: ["my-templates"] });
+            qc.invalidateQueries({ queryKey: ["creator-storefront"] });
           }}
         />
       )}

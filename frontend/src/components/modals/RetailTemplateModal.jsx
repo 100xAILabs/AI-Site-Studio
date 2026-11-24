@@ -63,7 +63,9 @@ export default function RetailTemplateModal({
 
   useEffect(() => {
     if (template) {
-      setTitle(template.title || "Custom AI Generated Website");
+      const rawTitle = template.title || "Custom AI Generated Website";
+      const cleanedTitle = rawTitle.replace(/\s*\(Customized\)\s*/gi, "").replace(/^Customized\s+/gi, "").trim();
+      setTitle(cleanedTitle || rawTitle);
       setShortDesc(
         template.short_description ||
         template.description?.slice(0, 200) ||
@@ -71,7 +73,7 @@ export default function RetailTemplateModal({
       );
       setCategoryId(template.category_id || (categories[0]?.id || ""));
       const initialTags = Array.isArray(template.tags)
-        ? template.tags.filter((t) => t !== "studio-project" && t !== "custom-draft").join(", ")
+        ? template.tags.filter((t) => t !== "studio-project" && t !== "custom-draft" && t !== "customized-draft" && t !== "private-draft").join(", ")
         : "";
       setTags(initialTags || "modern, responsive, fast");
       setRetailPrice(template.price && Number(template.price) > 0 ? String(template.price) : "29");

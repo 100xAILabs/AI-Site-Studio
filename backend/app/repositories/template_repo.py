@@ -137,9 +137,15 @@ class TemplateRepository:
                 Template.is_marketplace == True,
                 Template.status == TemplateStatus.PUBLISHED,
                 Template.is_deleted.is_(False),
-                Template.slug.notlike("%-custom-%"),
-                Template.title.notlike("%(Customized)%"),
-                Template.title.notlike("Customized %"),
+                or_(
+                    cast(Template.tags, String).ilike("%retailed%"),
+                    Template.template_origin == "marketplace",
+                    and_(
+                        Template.slug.notlike("%-custom-%"),
+                        Template.title.notlike("%(Customized)%"),
+                        Template.title.notlike("Customized %"),
+                    ),
+                ),
             )
         )
 
@@ -469,9 +475,15 @@ class TemplateRepository:
                 Template.is_featured == True,
                 Template.status == TemplateStatus.PUBLISHED,
                 Template.is_deleted.is_(False),
-                Template.slug.notlike("%-custom-%"),
-                Template.title.notlike("%(Customized)%"),
-                Template.title.notlike("Customized %"),
+                or_(
+                    cast(Template.tags, String).ilike("%retailed%"),
+                    Template.template_origin == "marketplace",
+                    and_(
+                        Template.slug.notlike("%-custom-%"),
+                        Template.title.notlike("%(Customized)%"),
+                        Template.title.notlike("Customized %"),
+                    ),
+                ),
             )
             .order_by(Template.downloads_count.desc())
             .limit(limit)
@@ -487,9 +499,15 @@ class TemplateRepository:
                 Template.id.in_(ids),
                 Template.status == TemplateStatus.PUBLISHED,
                 Template.is_deleted.is_(False),
-                Template.slug.notlike("%-custom-%"),
-                Template.title.notlike("%(Customized)%"),
-                Template.title.notlike("Customized %"),
+                or_(
+                    cast(Template.tags, String).ilike("%retailed%"),
+                    Template.template_origin == "marketplace",
+                    and_(
+                        Template.slug.notlike("%-custom-%"),
+                        Template.title.notlike("%(Customized)%"),
+                        Template.title.notlike("Customized %"),
+                    ),
+                ),
             )
         )
         return list(result.scalars().all())
@@ -502,9 +520,15 @@ class TemplateRepository:
                 Template.is_marketplace == True,
                 Template.status == TemplateStatus.PUBLISHED,
                 Template.is_deleted.is_(False),
-                Template.slug.notlike("%-custom-%"),
-                Template.title.notlike("%(Customized)%"),
-                Template.title.notlike("Customized %"),
+                or_(
+                    cast(Template.tags, String).ilike("%retailed%"),
+                    Template.template_origin == "marketplace",
+                    and_(
+                        Template.slug.notlike("%-custom-%"),
+                        Template.title.notlike("%(Customized)%"),
+                        Template.title.notlike("Customized %"),
+                    ),
+                ),
             )
         )
         return result.scalar_one()

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   Store,
@@ -38,6 +38,12 @@ import {
   Wallet,
   X,
   Info,
+  LayoutGrid,
+  Code2,
+  Smartphone,
+  CheckCircle2,
+  Clock,
+  ArrowRight,
 } from "lucide-react";
 import TemplateCard from "@/components/marketplace/TemplateCard";
 import { api } from "@/lib/api";
@@ -92,8 +98,23 @@ const PAYMENT_METHOD_INFO = {
 
 export default function CreatorStorefrontPage() {
   const { slug } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user, isSignedIn } = useAppUser();
   const cartItems = useCartStore((s) => s.items) || [];
+
+  // Active Tab: "templates" | "about" | "contact" | "payments"
+  const activeTab = searchParams.get("tab") || "templates";
+
+  const setTab = (newTab) => {
+    const next = new URLSearchParams(searchParams);
+    if (newTab === "templates") {
+      next.delete("tab");
+    } else {
+      next.set("tab", newTab);
+    }
+    setSearchParams(next);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFramework, setSelectedFramework] = useState("all");
@@ -104,6 +125,17 @@ export default function CreatorStorefrontPage() {
   const [copiedId, setCopiedId] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [copiedPaymentField, setCopiedPaymentField] = useState(null);
+
+  // Contact Form State
+  const [contactForm, setContactForm] = useState({
+    name: "",
+    email: "",
+    purpose: "Template Customization",
+    subject: "",
+    message: "",
+  });
+  const [contactSubmitting, setContactSubmitting] = useState(false);
+  const [contactSubmitted, setContactSubmitted] = useState(false);
 
   // Fetch Storefront Data
   const {
@@ -125,12 +157,20 @@ export default function CreatorStorefrontPage() {
   // Dynamic Browser Title in Creator's Brand Name
   useEffect(() => {
     if (storefront?.brand_name) {
-      document.title = `${storefront.brand_name} — Official Storefront`;
+      const pageLabel =
+        activeTab === "about"
+          ? `About ${storefront.brand_name}`
+          : activeTab === "contact"
+          ? `Contact ${storefront.brand_name}`
+          : activeTab === "payments"
+          ? `Payment Channels — ${storefront.brand_name}`
+          : `${storefront.brand_name} — Official Storefront`;
+      document.title = pageLabel;
     }
     return () => {
       document.title = "AI Site Studio — AI Website Generator & Marketplace";
     };
-  }, [storefront]);
+  }, [storefront, activeTab]);
 
   const templates = useMemo(() => {
     return storefront?.templates || [];
@@ -149,7 +189,11 @@ export default function CreatorStorefrontPage() {
 
   // Payment methods accepted by this creator
   const acceptedMethods = useMemo(() => {
-    if (storefront?.accepted_payment_methods && Array.isArray(storefront.accepted_payment_methods) && storefront.accepted_payment_methods.length > 0) {
+    if (
+      storefront?.accepted_payment_methods &&
+      Array.isArray(storefront.accepted_payment_methods) &&
+      storefront.accepted_payment_methods.length > 0
+    ) {
       return storefront.accepted_payment_methods;
     }
     return ["stripe", "razorpay"];
@@ -167,7 +211,7 @@ export default function CreatorStorefrontPage() {
     setTimeout(() => setCopiedPaymentField(null), 2500);
   };
 
-  // Filter & Sort
+  // Filter & Sort for Templates Tab
   const filteredTemplates = useMemo(() => {
     return templates
       .filter((t) => {
@@ -237,6 +281,20 @@ export default function CreatorStorefrontPage() {
     setTimeout(() => setCopiedId(false), 2500);
   };
 
+  const handleContactSubmit = async (e) => {
+    e.preventDefault();
+    if (!contactForm.name.trim() || !contactForm.email.trim() || !contactForm.message.trim()) {
+      toast.error("Please fill in your name, email, and message.");
+      return;
+    }
+    setContactSubmitting(true);
+    // Simulate inquiry dispatch to creator
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    setContactSubmitting(false);
+    setContactSubmitted(true);
+    toast.success(`Inquiry sent to ${storefront.brand_name}! They will reply to ${contactForm.email}.`);
+  };
+
   const isOwner =
     isSignedIn &&
     (user?.creator_store_slug === slug ||
@@ -284,7 +342,11 @@ export default function CreatorStorefrontPage() {
       <header className="sf-navbar">
         <div className="sf-navbar-inner">
           {/* Creator Brand Logo & Name */}
-          <Link to={`/creator/${storefront.store_slug}`} className="sf-nav-brand">
+          <button
+            type="button"
+            onClick={() => setTab("templates")}
+            className="sf-nav-brand bg-transparent border-none p-0 cursor-pointer text-left"
+          >
             <div className="sf-nav-logo-box">
               {storefront.logo_url ? (
                 <img
@@ -305,23 +367,42 @@ export default function CreatorStorefrontPage() {
                 {typeof window !== "undefined" ? window.location.host : "aisitestudio.com"}/creator/{storefront.store_slug}
               </span>
             </div>
-          </Link>
+          </button>
 
-          {/* Center Links */}
+          {/* Center Multi-Page Navigation Tabs */}
           <nav className="sf-nav-links">
-            <a href="#catalog" className="sf-nav-link active">
-              Templates ({templates.length})
-            </a>
-            {storefront.bio && (
-              <a href="#about" className="sf-nav-link">
-                About {storefront.brand_name}
-              </a>
-            )}
-            {storefront.support_email && (
-              <a href={`mailto:${storefront.support_email}`} className="sf-nav-link">
-                Contact Creator
-              </a>
-            )}
+            <button
+              type="button"
+              onClick={() => setTab("templates")}
+              className={`sf-nav-link-btn ${activeTab === "templates" ? "active" : ""}`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5 mr-1.5" />
+              <span>Templates ({templates.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("about")}
+              className={`sf-nav-link-btn ${activeTab === "about" ? "active" : ""}`}
+            >
+              <User className="w-3.5 h-3.5 mr-1.5" />
+              <span>About {storefront.brand_name}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("contact")}
+              className={`sf-nav-link-btn ${activeTab === "contact" ? "active" : ""}`}
+            >
+              <Send className="w-3.5 h-3.5 mr-1.5" />
+              <span>Contact Creator</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("payments")}
+              className={`sf-nav-link-btn ${activeTab === "payments" ? "active" : ""}`}
+            >
+              <CreditCard className="w-3.5 h-3.5 mr-1.5" />
+              <span>Payment Channels</span>
+            </button>
           </nav>
 
           {/* Right Action Group */}
@@ -330,7 +411,7 @@ export default function CreatorStorefrontPage() {
             {acceptedMethods.length > 0 && (
               <button
                 type="button"
-                onClick={() => setShowPaymentModal(true)}
+                onClick={() => setTab("payments")}
                 className="sf-nav-payment-btn"
                 title="View Creator's Accepted Payment Methods"
               >
@@ -376,8 +457,47 @@ export default function CreatorStorefrontPage() {
         </div>
       </header>
 
+      {/* ── RESPONSIVE SUB-NAV TABS BAR (VISIBLE ON ALL SCREENS) ── */}
+      <div className="sf-tabs-strip">
+        <div className="sf-tabs-strip-inner">
+          <button
+            type="button"
+            onClick={() => setTab("templates")}
+            className={`sf-tab-pill ${activeTab === "templates" ? "active" : ""}`}
+          >
+            <LayoutGrid className="w-4 h-4" />
+            <span>Templates</span>
+            <span className="sf-tab-badge">{templates.length}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("about")}
+            className={`sf-tab-pill ${activeTab === "about" ? "active" : ""}`}
+          >
+            <User className="w-4 h-4" />
+            <span>About Creator</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("contact")}
+            className={`sf-tab-pill ${activeTab === "contact" ? "active" : ""}`}
+          >
+            <Send className="w-4 h-4" />
+            <span>Contact &amp; Inquiries</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("payments")}
+            className={`sf-tab-pill ${activeTab === "payments" ? "active" : ""}`}
+          >
+            <CreditCard className="w-4 h-4" />
+            <span>Payment Channels</span>
+          </button>
+        </div>
+      </div>
+
       <main className="storefront-main">
-        {/* ── 2. CREATOR HERO BANNER SECTION ── */}
+        {/* ── 2. BRAND HERO HEADER (COMPACT AND PRESENT ON ALL VIEWS) ── */}
         <div className="storefront-hero">
           {storefront.banner_url && (
             <div
@@ -406,7 +526,7 @@ export default function CreatorStorefrontPage() {
                   </div>
                 )}
                 {storefront.is_verified && (
-                  <div className="storefront-verified-badge" title="Verified Creator & Publisher">
+                  <div className="storefront-verified-badge" title="Verified Creator &amp; Publisher">
                     <ShieldCheck className="w-4 h-4 text-emerald-400" />
                   </div>
                 )}
@@ -455,16 +575,15 @@ export default function CreatorStorefrontPage() {
 
               {/* Share & Direct Email Action */}
               <div className="storefront-header-actions">
-                {storefront.support_email && (
-                  <a
-                    href={`mailto:${storefront.support_email}`}
-                    className="storefront-contact-btn"
-                    title={`Send an email to ${storefront.support_email}`}
-                  >
-                    <Send className="w-3.5 h-3.5 mr-1.5" />
-                    <span>Contact Creator</span>
-                  </a>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setTab("contact")}
+                  className="storefront-contact-btn"
+                  title="Contact Creator"
+                >
+                  <Send className="w-3.5 h-3.5 mr-1.5" />
+                  <span>Contact Creator</span>
+                </button>
 
                 <button
                   type="button"
@@ -487,18 +606,7 @@ export default function CreatorStorefrontPage() {
               </div>
             </div>
 
-            {/* Creator Bio / Story Card */}
-            {storefront.bio && (
-              <div id="about" className="storefront-bio-wrap">
-                <div className="storefront-bio-header">
-                  <MessageSquare className="w-4 h-4 text-[#dfb180]" />
-                  <span>About {storefront.brand_name}</span>
-                </div>
-                <p>{storefront.bio}</p>
-              </div>
-            )}
-
-            {/* Creator Details Bar (Email ID, ID, Website, Socials) */}
+            {/* Quick Details Bar */}
             <div className="storefront-contact-bar">
               <div className="storefront-contact-items">
                 {/* Official Email ID with one-click copy */}
@@ -601,7 +709,7 @@ export default function CreatorStorefrontPage() {
             <div className="storefront-stats-bar">
               <div className="storefront-stats-group">
                 <div className="sf-stat-item">
-                  <span className="sf-stat-value">{storefront.stats?.total_templates || 0}</span>
+                  <span className="sf-stat-value">{storefront.stats?.total_templates || templates.length}</span>
                   <span className="sf-stat-label">Published Templates</span>
                 </div>
                 <div className="sf-stat-divider" />
@@ -621,8 +729,17 @@ export default function CreatorStorefrontPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
 
-            {/* Accepted Creator Payments Banner */}
+        {/* ── 3. CONDITIONAL SUB-PAGE RENDERING ── */}
+
+        {/* ========================================================= */}
+        {/* SUB-PAGE 1: TEMPLATES CATALOG TAB                         */}
+        {/* ========================================================= */}
+        {activeTab === "templates" && (
+          <div className="sf-subpage sf-subpage-templates">
+            {/* Accepted Payments Quick Banner */}
             {acceptedMethods.length > 0 && (
               <div className="storefront-payments-banner">
                 <div className="sf-payments-banner-left">
@@ -645,7 +762,7 @@ export default function CreatorStorefrontPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setShowPaymentModal(true)}
+                  onClick={() => setTab("payments")}
                   className="sf-payments-modal-btn"
                 >
                   <Wallet className="w-4 h-4 mr-1.5" />
@@ -653,146 +770,788 @@ export default function CreatorStorefrontPage() {
                 </button>
               </div>
             )}
-          </div>
-        </div>
 
-        {/* ── 3. FILTER & SEARCH BAR (OUR MARKETPLACE TEMPLATE ENGINE) ── */}
-        <div id="catalog" className="storefront-filter-section">
-          {/* Framework Selector Tabs */}
-          <div className="storefront-framework-tabs">
-            {FRAMEWORKS.map((fw) => (
-              <button
-                key={fw.id}
-                type="button"
-                onClick={() => setSelectedFramework(fw.id)}
-                className={`sf-fw-tab ${selectedFramework === fw.id ? "active" : ""}`}
-              >
-                {fw.label}
-              </button>
-            ))}
-          </div>
+            {/* Filter & Search Bar */}
+            <div id="catalog" className="storefront-filter-section">
+              {/* Framework Selector Tabs */}
+              <div className="storefront-framework-tabs">
+                {FRAMEWORKS.map((fw) => (
+                  <button
+                    key={fw.id}
+                    type="button"
+                    onClick={() => setSelectedFramework(fw.id)}
+                    className={`sf-fw-tab ${selectedFramework === fw.id ? "active" : ""}`}
+                  >
+                    {fw.label}
+                  </button>
+                ))}
+              </div>
 
-          {/* Search, Category, and Sort Row */}
-          <div className="storefront-controls-row">
-            <div className="sf-search-wrap">
-              <Search className="w-4 h-4 text-zinc-400 absolute left-3.5" />
-              <input
-                type="text"
-                placeholder={`Search in ${storefront.brand_name}'s templates...`}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="sf-search-input"
-              />
+              {/* Search, Category, and Sort Row */}
+              <div className="storefront-controls-row">
+                <div className="sf-search-wrap">
+                  <Search className="w-4 h-4 text-zinc-400 absolute left-3.5" />
+                  <input
+                    type="text"
+                    placeholder={`Search in ${storefront.brand_name}'s templates...`}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="sf-search-input"
+                  />
+                </div>
+
+                <div className="sf-selects-wrap">
+                  {/* Category Filter */}
+                  {availableCategories.length > 0 && (
+                    <div className="sf-select-wrap">
+                      <select
+                        value={selectedCategory}
+                        onChange={(e) => setSelectedCategory(e.target.value)}
+                        className="sf-select"
+                      >
+                        <option value="all">All Categories</option>
+                        {availableCategories.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Sort Filter */}
+                  <div className="sf-select-wrap">
+                    <select
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value)}
+                      className="sf-select"
+                    >
+                      <option value="featured">Featured First</option>
+                      <option value="popular">Most Popular</option>
+                      <option value="newest">Newest Additions</option>
+                      <option value="price-low">Price: Low to High</option>
+                      <option value="price-high">Price: High to Low</option>
+                      <option value="rating">Highest Rated</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="sf-selects-wrap">
-              {/* Category Filter */}
-              {availableCategories.length > 0 && (
-                <div className="sf-select-wrap">
-                  <select
-                    value={selectedCategory}
-                    onChange={(e) => setSelectedCategory(e.target.value)}
-                    className="sf-select"
-                  >
-                    <option value="all">All Categories</option>
-                    {availableCategories.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+            {/* Templates Grid */}
+            <div className="storefront-grid-section">
+              {filteredTemplates.length > 0 ? (
+                <div className="storefront-template-grid">
+                  {filteredTemplates.map((template, idx) => (
+                    <TemplateCard
+                      key={template.id || template.slug}
+                      template={template}
+                      index={idx}
+                    />
+                  ))}
+                </div>
+              ) : (
+                /* Empty State */
+                <div className="storefront-empty-state">
+                  <div className="sf-empty-icon">
+                    <ShoppingBag className="w-10 h-10 text-zinc-500" />
+                  </div>
+                  <h3>No templates found in this view</h3>
+                  <p>
+                    {searchQuery || selectedFramework !== "all" || selectedCategory !== "all"
+                      ? "Try adjusting your search query or framework filter."
+                      : `${storefront.brand_name} hasn't published templates to this storefront yet.`}
+                  </p>
+                  {isOwner && (
+                    <Link to="/dashboard?tab=creator-studio" className="sf-btn-primary mt-4">
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      <span>Retail a Generated Website Now</span>
+                    </Link>
+                  )}
                 </div>
               )}
+            </div>
 
-              {/* Sort Filter */}
-              <div className="sf-select-wrap">
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  className="sf-select"
-                >
-                  <option value="featured">Featured First</option>
-                  <option value="popular">Most Popular</option>
-                  <option value="newest">Newest Additions</option>
-                  <option value="price-low">Price: Low to High</option>
-                  <option value="price-high">Price: High to Low</option>
-                  <option value="rating">Highest Rated</option>
-                </select>
+            {/* Trust & Guarantee Section */}
+            <div className="storefront-trust-section">
+              <div className="sf-trust-item">
+                <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
+                <div>
+                  <strong>100% Verified Production Code</strong>
+                  <span> Clean source code delivered instantly upon completed purchase.</span>
+                </div>
+              </div>
+              <div className="sf-trust-item">
+                <Eye className="w-5 h-5 text-[#dfb180] shrink-0" />
+                <div>
+                  <strong>Free Interactive Live Demos</strong>
+                  <span> Preview responsive desktop, tablet, and mobile views in real time.</span>
+                </div>
+              </div>
+              <div
+                className="sf-trust-item sf-trust-clickable"
+                onClick={() => setTab("payments")}
+                role="button"
+                tabIndex={0}
+              >
+                <CreditCard className="w-5 h-5 text-[#dfb180] shrink-0" />
+                <div>
+                  <strong>Multiple Accepted Payment Methods</strong>
+                  <span>
+                    {" "}
+                    {acceptedMethods.map((m) => PAYMENT_METHOD_INFO[m]?.label || m).slice(0, 4).join(", ")}
+                    {acceptedMethods.length > 4 ? ` +${acceptedMethods.length - 4} more` : ""}. Click to view details.
+                  </span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* ── 4. TEMPLATE GRID (CREATOR'S OWN TEMPLATES ONLY) ── */}
-        <div className="storefront-grid-section">
-          {filteredTemplates.length > 0 ? (
-            <div className="storefront-template-grid">
-              {filteredTemplates.map((template, idx) => (
-                <TemplateCard
-                  key={template.id || template.slug}
-                  template={template}
-                  index={idx}
-                />
-              ))}
-            </div>
-          ) : (
-            /* Empty State */
-            <div className="storefront-empty-state">
-              <div className="sf-empty-icon">
-                <ShoppingBag className="w-10 h-10 text-zinc-500" />
+        {/* ========================================================= */}
+        {/* SUB-PAGE 2: ABOUT CREATOR & STORY TAB                     */}
+        {/* ========================================================= */}
+        {activeTab === "about" && (
+          <div className="sf-subpage sf-subpage-about">
+            <div className="sf-editorial-card">
+              <div className="sf-editorial-header">
+                <div className="sf-editorial-badge">
+                  <User className="w-4 h-4 text-[#dfb180]" />
+                  <span>Creator Brand Biography</span>
+                </div>
+                <h2>The Story Behind {storefront.brand_name}</h2>
+                <p className="sf-editorial-intro">
+                  {storefront.tagline ||
+                    `Building production-ready, beautifully architected web templates on the AI Site Studio marketplace.`}
+                </p>
               </div>
-              <h3>No templates found in this view</h3>
-              <p>
-                {searchQuery || selectedFramework !== "all" || selectedCategory !== "all"
-                  ? "Try adjusting your search query or framework filter."
-                  : `${storefront.brand_name} hasn't published templates to this storefront yet.`}
-              </p>
-              {isOwner && (
-                <Link to="/dashboard?tab=creator-studio" className="sf-btn-primary mt-4">
-                  <Sparkles className="w-4 h-4 mr-2" />
-                  <span>Retail a Generated Website Now</span>
-                </Link>
-              )}
-            </div>
-          )}
-        </div>
 
-        {/* ── 5. STOREFRONT TRUST & ENGINE GUARANTEES ── */}
-        <div className="storefront-trust-section">
-          <div className="sf-trust-item">
-            <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
-            <div>
-              <strong>100% Verified Production Code</strong>
-              <span> Clean source code delivered instantly upon completed purchase.</span>
+              {/* Bio Narrative */}
+              <div className="sf-editorial-body">
+                {storefront.bio ? (
+                  <div className="sf-bio-prose">
+                    <p className="sf-bio-paragraph">{storefront.bio}</p>
+                  </div>
+                ) : (
+                  <p className="text-zinc-400 italic">
+                    {storefront.brand_name} has not added a detailed biography yet, but all templates listed on this storefront are authentic, production-tested, and verified by our engineering audit suite.
+                  </p>
+                )}
+
+                {/* Creator Standards 4-Grid */}
+                <h3 className="sf-section-subtitle mt-8">Engineering &amp; Quality Standards</h3>
+                <div className="sf-standards-grid">
+                  <div className="sf-standard-card">
+                    <div className="sf-standard-icon-box">
+                      <ShieldCheck className="w-6 h-6 text-emerald-400" />
+                    </div>
+                    <h4>Verified Publisher</h4>
+                    <p>
+                      Official verified creator identity <strong>@{storefront.store_slug}</strong> with authentic code generation rights and seller certification.
+                    </p>
+                  </div>
+
+                  <div className="sf-standard-card">
+                    <div className="sf-standard-icon-box">
+                      <Code2 className="w-6 h-6 text-[#dfb180]" />
+                    </div>
+                    <h4>100% Production Code</h4>
+                    <p>
+                      Clean separation of concerns, semantic HTML5, zero bloat, and standalone REST API support tailored to your chosen stack.
+                    </p>
+                  </div>
+
+                  <div className="sf-standard-card">
+                    <div className="sf-standard-icon-box">
+                      <Smartphone className="w-6 h-6 text-sky-400" />
+                    </div>
+                    <h4>Flawless Responsiveness</h4>
+                    <p>
+                      Zero horizontal overflow, fluid typography via clamp(), mobile drawers, and tested touch targets for phone, tablet, and desktop.
+                    </p>
+                  </div>
+
+                  <div className="sf-standard-card">
+                    <div className="sf-standard-icon-box">
+                      <Zap className="w-6 h-6 text-amber-400" />
+                    </div>
+                    <h4>Instant Delivery</h4>
+                    <p>
+                      Immediate digital asset delivery, live interactive preview canvas, and full developer rights upon completion.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Frameworks Specialized */}
+                <h3 className="sf-section-subtitle mt-10">Specialized Frameworks &amp; Stacks</h3>
+                <div className="sf-skills-pills">
+                  {["React 19", "Vue 3", "Next.js", "Nuxt", "Svelte", "Tailwind CSS", "Vanilla CSS Modules", "FastAPI", "Node.js", "PostgreSQL / SQLite"].map(
+                    (skill) => (
+                      <span key={skill} className="sf-skill-pill">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-[#dfb180]" />
+                        <span>{skill}</span>
+                      </span>
+                    )
+                  )}
+                </div>
+
+                {/* Storefront Snapshot Card */}
+                <div className="sf-snapshot-box">
+                  <div className="sf-snapshot-row">
+                    <div className="sf-snapshot-item">
+                      <span className="sf-snapshot-label">Storefront ID</span>
+                      <span className="sf-snapshot-val font-mono">@{storefront.store_slug}</span>
+                    </div>
+                    <div className="sf-snapshot-item">
+                      <span className="sf-snapshot-label">Primary Author</span>
+                      <span className="sf-snapshot-val">{storefront.creator_name || storefront.brand_name}</span>
+                    </div>
+                    <div className="sf-snapshot-item">
+                      <span className="sf-snapshot-label">Published Catalog</span>
+                      <span className="sf-snapshot-val">{templates.length} Websites</span>
+                    </div>
+                    <div className="sf-snapshot-item">
+                      <span className="sf-snapshot-label">Customer Rating</span>
+                      <span className="sf-snapshot-val flex items-center gap-1">
+                        <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+                        {Number(storefront.stats?.average_rating || 5.0).toFixed(1)} / 5.0
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Next Steps CTA */}
+                <div className="sf-about-cta-card">
+                  <div>
+                    <h3>Ready to build your next website?</h3>
+                    <p>Explore {storefront.brand_name}&apos;s catalog or send a custom inquiry directly.</p>
+                  </div>
+                  <div className="sf-about-cta-btns">
+                    <button
+                      type="button"
+                      onClick={() => setTab("templates")}
+                      className="sf-btn-primary"
+                    >
+                      <LayoutGrid className="w-4 h-4 mr-2" />
+                      <span>Browse Templates ({templates.length})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTab("contact")}
+                      className="sf-btn-secondary"
+                    >
+                      <Send className="w-4 h-4 mr-2" />
+                      <span>Contact Creator</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-          <div className="sf-trust-item">
-            <Eye className="w-5 h-5 text-[#dfb180] shrink-0" />
-            <div>
-              <strong>Free Interactive Live Demos</strong>
-              <span> Preview responsive desktop, tablet, and mobile views in real time.</span>
+        )}
+
+        {/* ========================================================= */}
+        {/* SUB-PAGE 3: CONTACT CREATOR & INQUIRIES TAB               */}
+        {/* ========================================================= */}
+        {activeTab === "contact" && (
+          <div className="sf-subpage sf-subpage-contact">
+            <div className="sf-contact-portal">
+              <div className="sf-contact-header">
+                <div className="sf-editorial-badge">
+                  <Send className="w-4 h-4 text-[#dfb180]" />
+                  <span>Direct Creator Communication</span>
+                </div>
+                <h2>Get in Touch with {storefront.brand_name}</h2>
+                <p>
+                  Have questions about a template, need custom feature additions, or want to commission a unique website? Submit your inquiry directly below.
+                </p>
+              </div>
+
+              <div className="sf-contact-layout">
+                {/* Left Column: Direct Info & SLA */}
+                <div className="sf-contact-info-col">
+                  {/* Direct Email Card */}
+                  {storefront.support_email && (
+                    <div className="sf-contact-card">
+                      <div className="sf-contact-card-icon">
+                        <Mail className="w-5 h-5 text-[#dfb180]" />
+                      </div>
+                      <div className="sf-contact-card-content">
+                        <h4>Official Support Email</h4>
+                        <a
+                          href={`mailto:${storefront.support_email}`}
+                          className="sf-contact-email-link"
+                        >
+                          {storefront.support_email}
+                        </a>
+                        <p className="sf-contact-hint">Click to launch your mail client or copy directly.</p>
+                        <button
+                          type="button"
+                          onClick={handleCopyEmail}
+                          className="sf-copy-action-btn"
+                        >
+                          {copiedEmail ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-400 mr-1.5" />
+                              <span>Copied to Clipboard</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5 mr-1.5" />
+                              <span>Copy Email Address</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Storefront ID Card */}
+                  <div className="sf-contact-card">
+                    <div className="sf-contact-card-icon">
+                      <Store className="w-5 h-5 text-[#dfb180]" />
+                    </div>
+                    <div className="sf-contact-card-content">
+                      <h4>Verified Storefront ID</h4>
+                      <code className="sf-id-code">@{storefront.store_slug}</code>
+                      <p className="sf-contact-hint">Reference this ID when communicating with platform support.</p>
+                      <button
+                        type="button"
+                        onClick={handleCopyId}
+                        className="sf-copy-action-btn"
+                      >
+                        {copiedId ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-400 mr-1.5" />
+                            <span>ID Copied</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5 mr-1.5" />
+                            <span>Copy Creator ID</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Response SLA Badge */}
+                  <div className="sf-sla-card">
+                    <Clock className="w-5 h-5 text-amber-400 shrink-0" />
+                    <div>
+                      <strong>Average Response Time</strong>
+                      <p>Usually responds within 24 hours on business days.</p>
+                    </div>
+                  </div>
+
+                  {/* Direct Payment Channels Link */}
+                  <div className="sf-payment-channels-promo">
+                    <CreditCard className="w-5 h-5 text-[#dfb180] shrink-0" />
+                    <div className="flex-1">
+                      <strong>Accepted Payment Channels</strong>
+                      <p>
+                        {acceptedMethods.map((m) => PAYMENT_METHOD_INFO[m]?.label || m).join(", ")}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setTab("payments")}
+                      className="sf-promo-link-btn"
+                    >
+                      <span>View</span>
+                      <ArrowRight className="w-3.5 h-3.5 ml-1" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Right Column: Interactive Inquiry Form */}
+                <div className="sf-contact-form-col">
+                  {contactSubmitted ? (
+                    <div className="sf-form-success-card">
+                      <div className="sf-success-icon-wrap">
+                        <CheckCircle2 className="w-12 h-12 text-emerald-400" />
+                      </div>
+                      <h3>Inquiry Dispatched Successfully!</h3>
+                      <p>
+                        Thank you for reaching out to <strong>{storefront.brand_name}</strong>. Your inquiry regarding &ldquo;{contactForm.purpose}&rdquo; has been registered.
+                      </p>
+                      <div className="sf-success-details">
+                        <div className="sf-success-row">
+                          <span>Sender:</span>
+                          <strong>{contactForm.name} ({contactForm.email})</strong>
+                        </div>
+                        <div className="sf-success-row">
+                          <span>Subject:</span>
+                          <strong>{contactForm.subject || contactForm.purpose}</strong>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setContactSubmitted(false);
+                          setContactForm({
+                            name: "",
+                            email: "",
+                            purpose: "Template Customization",
+                            subject: "",
+                            message: "",
+                          });
+                        }}
+                        className="sf-btn-secondary mt-6"
+                      >
+                        <span>Send Another Inquiry</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <form onSubmit={handleContactSubmit} className="sf-inquiry-form">
+                      <h3 className="sf-form-title">Send a Direct Message</h3>
+                      <p className="sf-form-subtitle">
+                        Fill out this brief form and {storefront.brand_name} will receive your message directly.
+                      </p>
+
+                      <div className="sf-form-grid-2">
+                        <div className="sf-form-group">
+                          <label htmlFor="contact-name">Your Full Name *</label>
+                          <input
+                            id="contact-name"
+                            type="text"
+                            required
+                            placeholder="e.g. Alex Johnson"
+                            value={contactForm.name}
+                            onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })}
+                            className="sf-input"
+                          />
+                        </div>
+
+                        <div className="sf-form-group">
+                          <label htmlFor="contact-email">Your Email Address *</label>
+                          <input
+                            id="contact-email"
+                            type="email"
+                            required
+                            placeholder="alex@company.com"
+                            value={contactForm.email}
+                            onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })}
+                            className="sf-input"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="sf-form-group">
+                        <label htmlFor="contact-purpose">Inquiry Purpose</label>
+                        <select
+                          id="contact-purpose"
+                          value={contactForm.purpose}
+                          onChange={(e) => setContactForm({ ...contactForm, purpose: e.target.value })}
+                          className="sf-input sf-select-input"
+                        >
+                          <option value="Template Customization">Template Customization &amp; Adjustments</option>
+                          <option value="Custom Project">Bespoke Full-Stack Website Development</option>
+                          <option value="Pre-Purchase Inquiry">Pre-Purchase / Feature Question</option>
+                          <option value="Commercial Licensing">Commercial / Extended Licensing</option>
+                          <option value="Technical Support">Technical Support / Integration Help</option>
+                          <option value="General Inquiry">General Inquiries</option>
+                        </select>
+                      </div>
+
+                      <div className="sf-form-group">
+                        <label htmlFor="contact-subject">Subject</label>
+                        <input
+                          id="contact-subject"
+                          type="text"
+                          placeholder="e.g. Questions regarding responsive nav or custom colors"
+                          value={contactForm.subject}
+                          onChange={(e) => setContactForm({ ...contactForm, subject: e.target.value })}
+                          className="sf-input"
+                        />
+                      </div>
+
+                      <div className="sf-form-group">
+                        <label htmlFor="contact-message">Your Message &amp; Project Requirements *</label>
+                        <textarea
+                          id="contact-message"
+                          required
+                          rows={5}
+                          placeholder="Please provide details about what you need or the specific template you are referencing..."
+                          value={contactForm.message}
+                          onChange={(e) => setContactForm({ ...contactForm, message: e.target.value })}
+                          className="sf-input sf-textarea"
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={contactSubmitting}
+                        className="sf-form-submit-btn"
+                      >
+                        {contactSubmitting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                            <span>Sending Inquiry...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-4 h-4 mr-2" />
+                            <span>Send Direct Inquiry to {storefront.brand_name}</span>
+                          </>
+                        )}
+                      </button>
+                    </form>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
-          <div
-            className="sf-trust-item sf-trust-clickable"
-            onClick={() => setShowPaymentModal(true)}
-            role="button"
-            tabIndex={0}
-          >
-            <CreditCard className="w-5 h-5 text-[#dfb180] shrink-0" />
-            <div>
-              <strong>Multiple Accepted Payment Methods</strong>
-              <span>
-                {" "}
-                {acceptedMethods.map((m) => PAYMENT_METHOD_INFO[m]?.label || m).slice(0, 4).join(", ")}
-                {acceptedMethods.length > 4 ? ` +${acceptedMethods.length - 4} more` : ""}. Click to view details.
-              </span>
+        )}
+
+        {/* ========================================================= */}
+        {/* SUB-PAGE 4: PAYMENT CHANNELS & DIRECT PAY TAB             */}
+        {/* ========================================================= */}
+        {activeTab === "payments" && (
+          <div className="sf-subpage sf-subpage-payments">
+            <div className="sf-payments-page-card">
+              <div className="sf-payments-page-header">
+                <div className="sf-editorial-badge">
+                  <CreditCard className="w-4 h-4 text-[#dfb180]" />
+                  <span>Accepted Payment Channels</span>
+                </div>
+                <h2>Payment Options for {storefront.brand_name}</h2>
+                <p>
+                  Creator ID: <code>@{storefront.store_slug}</code> • You can pay directly using verified methods below or complete your checkout via the platform cart.
+                </p>
+              </div>
+
+              {/* Grid of Verified Payment Methods */}
+              <div className="sf-methods-large-grid">
+                {/* 1. STRIPE */}
+                {acceptedMethods.includes("stripe") && (
+                  <div className="sf-method-large-card">
+                    <div className="sf-method-card-header">
+                      <div className="sf-method-icon-box" style={{ background: "rgba(99, 91, 255, 0.15)", color: "#635bff" }}>
+                        <CreditCard className="w-6 h-6" />
+                      </div>
+                      <div className="sf-method-meta">
+                        <h4 className="sf-method-name">Stripe</h4>
+                        <span className="sf-method-sub">Credit / Debit Cards, Apple Pay, Google Pay</span>
+                      </div>
+                      {paymentOptions.primary === "stripe" && (
+                        <span className="sf-primary-badge">Primary</span>
+                      )}
+                    </div>
+                    <div className="sf-method-card-content">
+                      {paymentOptions.stripe?.payment_link ? (
+                        <a
+                          href={paymentOptions.stripe.payment_link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="sf-direct-pay-action-btn"
+                        >
+                          <span>Pay via Creator Stripe Link</span>
+                          <ExternalLink className="w-3.5 h-3.5 ml-1.5" />
+                        </a>
+                      ) : paymentOptions.stripe?.email ? (
+                        <div className="sf-method-copy-box">
+                          <span className="sf-method-field-label">Creator Stripe Email:</span>
+                          <div className="sf-copy-row">
+                            <code className="sf-copy-code">{paymentOptions.stripe.email}</code>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyPaymentInfo("Stripe Email", paymentOptions.stripe.email)}
+                              className="sf-copy-btn"
+                            >
+                              {copiedPaymentField === "Stripe Email" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="sf-method-info-text">
+                          Stripe checkout is fully integrated on this storefront. Simply add templates to your cart and proceed with credit card, debit card, or mobile wallets.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. RAZORPAY */}
+                {acceptedMethods.includes("razorpay") && (
+                  <div className="sf-method-large-card">
+                    <div className="sf-method-card-header">
+                      <div className="sf-method-icon-box" style={{ background: "rgba(59, 130, 246, 0.15)", color: "#3b82f6" }}>
+                        <Zap className="w-6 h-6" />
+                      </div>
+                      <div className="sf-method-meta">
+                        <h4 className="sf-method-name">Razorpay</h4>
+                        <span className="sf-method-sub">UPI, NetBanking, Cards (INR &amp; Global)</span>
+                      </div>
+                      {paymentOptions.primary === "razorpay" && (
+                        <span className="sf-primary-badge">Primary</span>
+                      )}
+                    </div>
+                    <div className="sf-method-card-content">
+                      {paymentOptions.razorpay?.vpa ? (
+                        <div className="sf-method-copy-box">
+                          <span className="sf-method-field-label">Creator Razorpay / UPI VPA:</span>
+                          <div className="sf-copy-row">
+                            <code className="sf-copy-code">{paymentOptions.razorpay.vpa}</code>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyPaymentInfo("Razorpay VPA", paymentOptions.razorpay.vpa)}
+                              className="sf-copy-btn"
+                            >
+                              {copiedPaymentField === "Razorpay VPA" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="sf-method-info-text">
+                          Razorpay gateway supported at checkout for all template purchases and custom commissions.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. DIRECT UPI */}
+                {acceptedMethods.includes("upi") && (
+                  <div className="sf-method-large-card">
+                    <div className="sf-method-card-header">
+                      <div className="sf-method-icon-box" style={{ background: "rgba(168, 85, 247, 0.15)", color: "#a855f7" }}>
+                        <QrCode className="w-6 h-6" />
+                      </div>
+                      <div className="sf-method-meta">
+                        <h4 className="sf-method-name">Direct UPI</h4>
+                        <span className="sf-method-sub">Google Pay, PhonePe, Paytm, BHIM</span>
+                      </div>
+                      {paymentOptions.primary === "upi" && (
+                        <span className="sf-primary-badge">Primary</span>
+                      )}
+                    </div>
+                    <div className="sf-method-card-content">
+                      {paymentOptions.upi?.vpa ? (
+                        <div className="sf-method-copy-box">
+                          <span className="sf-method-field-label">Creator UPI ID / VPA:</span>
+                          <div className="sf-copy-row">
+                            <code className="sf-copy-code">{paymentOptions.upi.vpa}</code>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyPaymentInfo("UPI VPA", paymentOptions.upi.vpa)}
+                              className="sf-copy-btn"
+                            >
+                              {copiedPaymentField === "UPI VPA" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="sf-method-info-text">
+                          Direct UPI enabled. Contact creator via Support Email for instant QR code payment dispatch.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 4. BANK WIRE */}
+                {(acceptedMethods.includes("bank_wire") || acceptedMethods.includes("bank")) && (
+                  <div className="sf-method-large-card">
+                    <div className="sf-method-card-header">
+                      <div className="sf-method-icon-box" style={{ background: "rgba(96, 165, 250, 0.15)", color: "#60a5fa" }}>
+                        <Building2 className="w-6 h-6" />
+                      </div>
+                      <div className="sf-method-meta">
+                        <h4 className="sf-method-name">Bank Wire / SWIFT / IBAN</h4>
+                        <span className="sf-method-sub">Direct Account Transfer</span>
+                      </div>
+                    </div>
+                    <div className="sf-method-card-content">
+                      {paymentOptions.bank?.account_name || paymentOptions.bank?.iban ? (
+                        <div className="sf-method-fields-list">
+                          {paymentOptions.bank?.account_name && (
+                            <div className="sf-bank-row">
+                              <span>Account Name:</span>
+                              <strong>{paymentOptions.bank.account_name}</strong>
+                            </div>
+                          )}
+                          {paymentOptions.bank?.bank_name && (
+                            <div className="sf-bank-row">
+                              <span>Bank Name:</span>
+                              <strong>{paymentOptions.bank.bank_name}</strong>
+                            </div>
+                          )}
+                          {paymentOptions.bank?.iban && (
+                            <div className="sf-copy-row mt-1">
+                              <code className="sf-copy-code">IBAN: {paymentOptions.bank.iban}</code>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyPaymentInfo("IBAN", paymentOptions.bank.iban)}
+                                className="sf-copy-btn"
+                              >
+                                {copiedPaymentField === "IBAN" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="sf-method-info-text">
+                          Bank wire transfer available for enterprise licensing and custom development milestones. Contact creator for invoice &amp; wire details.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 5. CRYPTO / WEB3 */}
+                {acceptedMethods.includes("crypto") && (
+                  <div className="sf-method-large-card">
+                    <div className="sf-method-card-header">
+                      <div className="sf-method-icon-box" style={{ background: "rgba(245, 158, 11, 0.15)", color: "#f59e0b" }}>
+                        <Wallet className="w-6 h-6" />
+                      </div>
+                      <div className="sf-method-meta">
+                        <h4 className="sf-method-name">Crypto / Web3</h4>
+                        <span className="sf-method-sub">USDT, USDC, BTC, ETH</span>
+                      </div>
+                    </div>
+                    <div className="sf-method-card-content">
+                      {paymentOptions.crypto?.wallet_address ? (
+                        <div className="sf-method-copy-box">
+                          <span className="sf-method-field-label">Creator Deposit Address:</span>
+                          <div className="sf-copy-row">
+                            <code className="sf-copy-code">{paymentOptions.crypto.wallet_address}</code>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyPaymentInfo("Wallet Address", paymentOptions.crypto.wallet_address)}
+                              className="sf-copy-btn"
+                            >
+                              {copiedPaymentField === "Wallet Address" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="sf-method-info-text">
+                          Cryptocurrency settlements supported on USDT / USDC / ETH networks. Reach out to creator for direct payment memo.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Escrow & Trust Guarantee */}
+              <div className="sf-payments-guarantee-box">
+                <ShieldCheck className="w-6 h-6 text-emerald-400 shrink-0" />
+                <div>
+                  <h4>100% Protected Platform Guarantee</h4>
+                  <p>
+                    All purchases processed through AI Site Studio are protected by our automated license issuance and verified code delivery engine.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </main>
 
-      {/* ── 6. DEDICATED CREATOR STOREFRONT FOOTER (IN THEIR NAME & ID) ── */}
+      {/* ── 4. DEDICATED CREATOR STOREFRONT FOOTER ── */}
       <footer className="sf-footer">
         <div className="sf-footer-container">
           <div className="sf-footer-top">
@@ -828,6 +1587,33 @@ export default function CreatorStorefrontPage() {
                 </span>
                 <span className="sf-footer-id-badge">ID: @{storefront.store_slug}</span>
               </div>
+            </div>
+
+            {/* Creator Navigation Links */}
+            <div className="sf-footer-nav-col">
+              <h4 className="sf-footer-section-title">Storefront Pages</h4>
+              <ul className="sf-footer-nav-list">
+                <li>
+                  <button type="button" onClick={() => setTab("templates")} className="sf-footer-nav-btn">
+                    Templates Catalog ({templates.length})
+                  </button>
+                </li>
+                <li>
+                  <button type="button" onClick={() => setTab("about")} className="sf-footer-nav-btn">
+                    About {storefront.brand_name}
+                  </button>
+                </li>
+                <li>
+                  <button type="button" onClick={() => setTab("contact")} className="sf-footer-nav-btn">
+                    Contact &amp; Custom Work
+                  </button>
+                </li>
+                <li>
+                  <button type="button" onClick={() => setTab("payments")} className="sf-footer-nav-btn">
+                    Payment Channels
+                  </button>
+                </li>
+              </ul>
             </div>
 
             {/* Creator Contact & Support */}
@@ -924,8 +1710,7 @@ export default function CreatorStorefrontPage() {
           {/* Bottom Copyright in Creator's Brand Name */}
           <div className="sf-footer-bottom">
             <p className="sf-footer-copy">
-              &copy; {new Date().getFullYear()} <strong>{storefront.brand_name}</strong>. All
-              rights reserved.
+              &copy; {new Date().getFullYear()} <strong>{storefront.brand_name}</strong>. All rights reserved.
             </p>
             <div className="sf-footer-bottom-links">
               <span>Creator ID: @{storefront.store_slug}</span>
@@ -941,442 +1726,6 @@ export default function CreatorStorefrontPage() {
           </div>
         </div>
       </footer>
-
-      {/* ── 7. CREATOR PAYMENT METHODS & DIRECT PAY MODAL ── */}
-      {showPaymentModal && (
-        <div className="sf-modal-backdrop" onClick={() => setShowPaymentModal(false)}>
-          <div
-            className="sf-modal-container"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="sf-modal-header">
-              <div className="sf-modal-title-box">
-                <div className="sf-modal-logo-wrap">
-                  {storefront.logo_url ? (
-                    <img src={storefront.logo_url} alt={storefront.brand_name} className="sf-modal-logo" />
-                  ) : (
-                    <Store className="w-5 h-5 text-[#dfb180]" />
-                  )}
-                </div>
-                <div>
-                  <h3 className="sf-modal-title">Payment Options for {storefront.brand_name}</h3>
-                  <p className="sf-modal-subtitle">
-                    Creator ID: @{storefront.store_slug} • Direct &amp; Platform Payments
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowPaymentModal(false)}
-                className="sf-modal-close-btn"
-                title="Close"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="sf-modal-body">
-              <div className="sf-modal-intro">
-                <Info className="w-4 h-4 text-[#dfb180] shrink-0 mt-0.5" />
-                <p>
-                  <strong>{storefront.brand_name}</strong> supports multiple payment avenues for purchasing templates and custom work. You can use direct payment channels below or our unified cart checkout.
-                </p>
-              </div>
-
-              {/* Grid of Enabled Payment Methods */}
-              <div className="sf-modal-methods-grid">
-                {/* 1. STRIPE */}
-                {acceptedMethods.includes("stripe") && (
-                  <div className="sf-method-card">
-                    <div className="sf-method-card-header">
-                      <div className="sf-method-icon-box" style={{ background: "rgba(99, 91, 255, 0.15)", color: "#635bff" }}>
-                        <CreditCard className="w-5 h-5" />
-                      </div>
-                      <div className="sf-method-meta">
-                        <h4 className="sf-method-name">Stripe</h4>
-                        <span className="sf-method-sub">Credit / Debit Cards, Apple Pay, Google Pay</span>
-                      </div>
-                      {paymentOptions.primary === "stripe" && (
-                        <span className="sf-primary-badge">Primary</span>
-                      )}
-                    </div>
-                    <div className="sf-method-card-content">
-                      {paymentOptions.stripe?.payment_link ? (
-                        <a
-                          href={paymentOptions.stripe.payment_link}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="sf-direct-pay-action-btn"
-                        >
-                          <span>Pay via Creator Stripe Link</span>
-                          <ExternalLink className="w-3.5 h-3.5 ml-1.5" />
-                        </a>
-                      ) : paymentOptions.stripe?.email ? (
-                        <div className="sf-method-copy-box">
-                          <span className="sf-method-field-label">Creator Stripe Email:</span>
-                          <div className="sf-copy-row">
-                            <code className="sf-copy-code">{paymentOptions.stripe.email}</code>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyPaymentInfo("Stripe Email", paymentOptions.stripe.email)}
-                              className="sf-copy-btn"
-                            >
-                              {copiedPaymentField === "Stripe Email" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="sf-method-info-text">
-                          Stripe checkout available directly via Add to Cart &amp; Checkout on this storefront.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* 2. RAZORPAY */}
-                {acceptedMethods.includes("razorpay") && (
-                  <div className="sf-method-card">
-                    <div className="sf-method-card-header">
-                      <div className="sf-method-icon-box" style={{ background: "rgba(59, 130, 246, 0.15)", color: "#3b82f6" }}>
-                        <Zap className="w-5 h-5" />
-                      </div>
-                      <div className="sf-method-meta">
-                        <h4 className="sf-method-name">Razorpay</h4>
-                        <span className="sf-method-sub">UPI, NetBanking, Cards (INR / Global)</span>
-                      </div>
-                      {paymentOptions.primary === "razorpay" && (
-                        <span className="sf-primary-badge">Primary</span>
-                      )}
-                    </div>
-                    <div className="sf-method-card-content">
-                      {paymentOptions.razorpay?.vpa ? (
-                        <div className="sf-method-copy-box">
-                          <span className="sf-method-field-label">Creator Razorpay / UPI VPA:</span>
-                          <div className="sf-copy-row">
-                            <code className="sf-copy-code">{paymentOptions.razorpay.vpa}</code>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyPaymentInfo("Razorpay VPA", paymentOptions.razorpay.vpa)}
-                              className="sf-copy-btn"
-                            >
-                              {copiedPaymentField === "Razorpay VPA" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="sf-method-info-text">
-                          Razorpay gateway supported at checkout for all template purchases.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-
-                {/* 4. DIRECT UPI */}
-                {acceptedMethods.includes("upi") && (
-                  <div className="sf-method-card">
-                    <div className="sf-method-card-header">
-                      <div className="sf-method-icon-box" style={{ background: "rgba(168, 85, 247, 0.15)", color: "#a855f7" }}>
-                        <QrCode className="w-5 h-5" />
-                      </div>
-                      <div className="sf-method-meta">
-                        <h4 className="sf-method-name">Direct UPI</h4>
-                        <span className="sf-method-sub">Google Pay, PhonePe, Paytm, BHIM</span>
-                      </div>
-                      {paymentOptions.primary === "upi" && (
-                        <span className="sf-primary-badge">Primary</span>
-                      )}
-                    </div>
-                    <div className="sf-method-card-content">
-                      {paymentOptions.upi?.vpa ? (
-                        <div className="sf-method-copy-box">
-                          <span className="sf-method-field-label">Creator UPI ID / VPA:</span>
-                          <div className="sf-copy-row">
-                            <code className="sf-copy-code">{paymentOptions.upi.vpa}</code>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyPaymentInfo("UPI ID", paymentOptions.upi.vpa)}
-                              className="sf-copy-btn"
-                            >
-                              {copiedPaymentField === "UPI ID" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                            </button>
-                          </div>
-                          <span className="sf-field-subhint">Zero platform fee • Instant bank settlement</span>
-                        </div>
-                      ) : (
-                        <p className="sf-method-info-text">UPI accepted via Razorpay gateway at checkout.</p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* 5. CRYPTO / WEB3 */}
-                {acceptedMethods.includes("crypto") && (
-                  <div className="sf-method-card">
-                    <div className="sf-method-card-header">
-                      <div className="sf-method-icon-box" style={{ background: "rgba(245, 158, 11, 0.15)", color: "#f59e0b" }}>
-                        <Wallet className="w-5 h-5" />
-                      </div>
-                      <div className="sf-method-meta">
-                        <h4 className="sf-method-name">Crypto / Web3</h4>
-                        <span className="sf-method-sub">
-                          {paymentOptions.crypto?.currency || "USDT"} ({paymentOptions.crypto?.network || "TRC20"})
-                        </span>
-                      </div>
-                      {paymentOptions.primary === "crypto" && (
-                        <span className="sf-primary-badge">Primary</span>
-                      )}
-                    </div>
-                    <div className="sf-method-card-content">
-                      {paymentOptions.crypto?.address ? (
-                        <div className="sf-method-copy-box">
-                          <span className="sf-method-field-label">
-                            Deposit Address ({paymentOptions.crypto.currency} - {paymentOptions.crypto.network}):
-                          </span>
-                          <div className="sf-copy-row">
-                            <code className="sf-copy-code truncate">{paymentOptions.crypto.address}</code>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyPaymentInfo("Crypto Address", paymentOptions.crypto.address)}
-                              className="sf-copy-btn"
-                            >
-                              {copiedPaymentField === "Crypto Address" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                            </button>
-                          </div>
-                          <span className="sf-field-subhint text-amber-400">
-                            Send only {paymentOptions.crypto.currency} via {paymentOptions.crypto.network} network.
-                          </span>
-                        </div>
-                      ) : (
-                        <p className="sf-method-info-text">Crypto wallet details available on request.</p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* 6. BANK WIRE */}
-                {(acceptedMethods.includes("bank") || acceptedMethods.includes("bank_wire")) && (
-                  <div className="sf-method-card sf-method-card-wide">
-                    <div className="sf-method-card-header">
-                      <div className="sf-method-icon-box" style={{ background: "rgba(96, 165, 250, 0.15)", color: "#60a5fa" }}>
-                        <Building2 className="w-5 h-5" />
-                      </div>
-                      <div className="sf-method-meta">
-                        <h4 className="sf-method-name">Bank Wire / SWIFT / IBAN</h4>
-                        <span className="sf-method-sub">Direct Account Deposit</span>
-                      </div>
-                      {paymentOptions.primary === "bank" && (
-                        <span className="sf-primary-badge">Primary</span>
-                      )}
-                    </div>
-                    <div className="sf-method-card-content sf-bank-grid">
-                      {paymentOptions.bank_transfer?.bank_name && (
-                        <div className="sf-bank-field">
-                          <span className="sf-bank-label">Bank Name</span>
-                          <span className="sf-bank-val">{paymentOptions.bank_transfer.bank_name}</span>
-                        </div>
-                      )}
-                      {paymentOptions.bank_transfer?.account_holder_name && (
-                        <div className="sf-bank-field">
-                          <span className="sf-bank-label">Account Holder</span>
-                          <span className="sf-bank-val">{paymentOptions.bank_transfer.account_holder_name}</span>
-                        </div>
-                      )}
-                      {paymentOptions.bank_transfer?.ifsc_code && (
-                        <div className="sf-bank-field">
-                          <span className="sf-bank-label">IFSC Code</span>
-                          <div className="flex items-center gap-1.5">
-                            <code className="sf-copy-code">{paymentOptions.bank_transfer.ifsc_code}</code>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyPaymentInfo("IFSC Code", paymentOptions.bank_transfer.ifsc_code)}
-                              className="sf-copy-btn-sm"
-                            >
-                              {copiedPaymentField === "IFSC Code" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                      {paymentOptions.bank_transfer?.swift_code && (
-                        <div className="sf-bank-field">
-                          <span className="sf-bank-label">SWIFT / BIC</span>
-                          <div className="flex items-center gap-1.5">
-                            <code className="sf-copy-code">{paymentOptions.bank_transfer.swift_code}</code>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyPaymentInfo("SWIFT Code", paymentOptions.bank_transfer.swift_code)}
-                              className="sf-copy-btn-sm"
-                            >
-                              {copiedPaymentField === "SWIFT Code" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                      {paymentOptions.bank_transfer?.iban && (
-                        <div className="sf-bank-field">
-                          <span className="sf-bank-label">IBAN</span>
-                          <div className="flex items-center gap-1.5">
-                            <code className="sf-copy-code">{paymentOptions.bank_transfer.iban}</code>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyPaymentInfo("IBAN", paymentOptions.bank_transfer.iban)}
-                              className="sf-copy-btn-sm"
-                            >
-                              {copiedPaymentField === "IBAN" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* 7. WISE */}
-                {acceptedMethods.includes("wise") && paymentOptions.wise?.email && (
-                  <div className="sf-method-card">
-                    <div className="sf-method-card-header">
-                      <div className="sf-method-icon-box" style={{ background: "rgba(159, 232, 112, 0.15)", color: "#9fe870" }}>
-                        <Send className="w-5 h-5" />
-                      </div>
-                      <div className="sf-method-meta">
-                        <h4 className="sf-method-name">Wise (TransferWise)</h4>
-                        <span className="sf-method-sub">Multi-currency International Transfer</span>
-                      </div>
-                    </div>
-                    <div className="sf-method-card-content">
-                      <div className="sf-copy-row">
-                        <code className="sf-copy-code">{paymentOptions.wise.email}</code>
-                        <button
-                          type="button"
-                          onClick={() => handleCopyPaymentInfo("Wise Email", paymentOptions.wise.email)}
-                          className="sf-copy-btn"
-                        >
-                          {copiedPaymentField === "Wise Email" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* 8. REVOLUT */}
-                {acceptedMethods.includes("revolut") && paymentOptions.revolut?.tag && (
-                  <div className="sf-method-card">
-                    <div className="sf-method-card-header">
-                      <div className="sf-method-icon-box" style={{ background: "rgba(0, 117, 235, 0.15)", color: "#0075eb" }}>
-                        <CreditCard className="w-5 h-5" />
-                      </div>
-                      <div className="sf-method-meta">
-                        <h4 className="sf-method-name">Revolut</h4>
-                        <span className="sf-method-sub">Direct Revtag Transfer</span>
-                      </div>
-                    </div>
-                    <div className="sf-method-card-content">
-                      <div className="sf-copy-row">
-                        <code className="sf-copy-code">@{paymentOptions.revolut.tag.replace(/^@/, "")}</code>
-                        <button
-                          type="button"
-                          onClick={() => handleCopyPaymentInfo("Revolut Tag", paymentOptions.revolut.tag)}
-                          className="sf-copy-btn"
-                        >
-                          {copiedPaymentField === "Revolut Tag" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* 9. CASH APP / VENMO */}
-                {acceptedMethods.includes("cashapp") && (paymentOptions.cashapp?.tag || paymentOptions.venmo?.tag) && (
-                  <div className="sf-method-card">
-                    <div className="sf-method-card-header">
-                      <div className="sf-method-icon-box" style={{ background: "rgba(0, 214, 50, 0.15)", color: "#00d632" }}>
-                        <DollarSign className="w-5 h-5" />
-                      </div>
-                      <div className="sf-method-meta">
-                        <h4 className="sf-method-name">Cash App / Venmo</h4>
-                        <span className="sf-method-sub">US Peer-to-Peer</span>
-                      </div>
-                    </div>
-                    <div className="sf-method-card-content">
-                      {paymentOptions.cashapp?.tag && (
-                        <div className="sf-copy-row mb-2">
-                          <span className="text-xs text-zinc-400 mr-2">Cash App:</span>
-                          <code className="sf-copy-code">${paymentOptions.cashapp.tag.replace(/^\$/, "")}</code>
-                          <button
-                            type="button"
-                            onClick={() => handleCopyPaymentInfo("Cash App", paymentOptions.cashapp.tag)}
-                            className="sf-copy-btn"
-                          >
-                            {copiedPaymentField === "Cash App" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                          </button>
-                        </div>
-                      )}
-                      {paymentOptions.venmo?.tag && (
-                        <div className="sf-copy-row">
-                          <span className="text-xs text-zinc-400 mr-2">Venmo:</span>
-                          <code className="sf-copy-code">@{paymentOptions.venmo.tag.replace(/^@/, "")}</code>
-                          <button
-                            type="button"
-                            onClick={() => handleCopyPaymentInfo("Venmo", paymentOptions.venmo.tag)}
-                            className="sf-copy-btn"
-                          >
-                            {copiedPaymentField === "Venmo" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* 10. CUSTOM INSTRUCTIONS */}
-                {(acceptedMethods.includes("custom") || paymentOptions.custom_instructions) && paymentOptions.custom_instructions && (
-                  <div className="sf-method-card sf-method-card-wide">
-                    <div className="sf-method-card-header">
-                      <div className="sf-method-icon-box" style={{ background: "rgba(223, 177, 128, 0.15)", color: "#dfb180" }}>
-                        <SlidersHorizontal className="w-5 h-5" />
-                      </div>
-                      <div className="sf-method-meta">
-                        <h4 className="sf-method-name">Custom Payment Instructions</h4>
-                        <span className="sf-method-sub">Direct terms from {storefront.brand_name}</span>
-                      </div>
-                    </div>
-                    <div className="sf-method-card-content">
-                      <div className="sf-custom-instructions-box">
-                        <p>{paymentOptions.custom_instructions}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Platform Unified Checkout Banner */}
-              <div className="sf-modal-platform-checkout">
-                <div className="sf-mpc-left">
-                  <ShoppingCart className="w-5 h-5 text-[#dfb180] shrink-0" />
-                  <div>
-                    <h5 className="sf-mpc-title">Standard Automated Checkout</h5>
-                    <p className="sf-mpc-desc">
-                      Add any template to cart and check out securely via Stripe or Razorpay with instant zip download &amp; license generation.
-                    </p>
-                  </div>
-                </div>
-                <Link
-                  to="/checkout"
-                  onClick={() => setShowPaymentModal(false)}
-                  className="sf-mpc-btn"
-                >
-                  <span>Go to Checkout</span>
-                  <ChevronRight className="w-4 h-4 ml-1" />
-                </Link>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

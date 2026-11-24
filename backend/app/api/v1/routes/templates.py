@@ -668,6 +668,21 @@ async def retail_generated_template(
     role_str = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
     is_admin = role_str.lower() in ("admin", "super_admin")
 
+    if not current_user.can_retail_templates and not current_user.is_extreme_subscriber and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Retailing websites on the marketplace is an exclusive privilege of the Extreme Plan ($50/mo). "
+                "Please upgrade your subscription to the Extreme Plan to list and sell your AI-generated websites."
+            ),
+        )
+
+    from app.repositories.template_repo import TemplateRepository
+    repo = TemplateRepository(db)
+    template = await repo.get_by_id(data.template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Generated website template not found.")
+
     # Verify ownership
     if template.seller_id != current_user.id and not is_admin:
         raise HTTPException(
@@ -677,8 +692,8 @@ async def retail_generated_template(
 
     # Verify that it is an AI-generated template ("not a uploadable it was a generated template can be selling")
     is_generated = (
-        template.template_origin in ("studio", "custom_draft")
-        or (template.tags and any(t in ("studio-project", "ai-generated") for t in template.tags))
+        template.template_origin in ("studio", "custom_draft", "marketplace")
+        or (template.tags and any(t in ("studio-project", "ai-generated", "retailed") for t in template.tags))
     )
     if not is_generated and not is_admin:
         raise HTTPException(
@@ -690,8 +705,14 @@ async def retail_generated_template(
     import re
     if data.title and data.title.strip():
         template.title = data.title.strip()
-        clean_slug = re.sub(r"[^a-z0-9]+", "-", template.title.lower()).strip("-")
-        template.slug = f"{clean_slug[:50]}-{str(template.id)[:8]}"
+    clean_title = re.sub(r"\s*\(Customized\)\s*", "", template.title, flags=re.IGNORECASE).strip()
+    clean_title = re.sub(r"^Customized\s+", "", clean_title, flags=re.IGNORECASE).strip()
+    if clean_title:
+        template.title = clean_title
+
+    clean_slug = re.sub(r"[^a-z0-9]+", "-", template.title.lower()).strip("-")
+    clean_slug = clean_slug.replace("-custom-", "-")
+    template.slug = f"{clean_slug[:50]}-{str(template.id)[:8]}"
 
     if data.category_id:
         template.category_id = data.category_id
@@ -704,9 +725,9 @@ async def retail_generated_template(
     if data.description and data.description.strip():
         template.description = data.description.strip()
 
-    if data.tags:
-        clean_tags = list(set(data.tags + ["retailed", "extreme-creator"]))
-        template.tags = clean_tags
+    clean_tags = list(set((data.tags or template.tags or []) + ["retailed", "extreme-creator"]))
+    clean_tags = [t for t in clean_tags if t not in ("custom-draft", "private-draft", "customized-draft")]
+    template.tags = clean_tags
 
     if data.industry and data.industry.strip():
         template.industry = data.industry.strip()
@@ -721,14 +742,13 @@ async def retail_generated_template(
     template.price = round(Decimal(str(data.retail_price)), 2)
     template.price_currency = "USD"
     template.is_free = False
+    template.template_origin = "marketplace"
     
-    # Platform Workflow: Admins publish immediately; Creators submit for review
-    if is_admin:
-        target_status = TemplateStatus.PUBLISHED
-    else:
-        target_status = TemplateStatus.SUBMITTED
-        template.submitted_at = datetime.now(timezone.utc)
-        template.rejection_reason = None
+    # Platform Workflow: Platform-generated websites retailed by Extreme subscribers and Admins publish live immediately
+    target_status = TemplateStatus.PUBLISHED
+    template.published_at = datetime.now(timezone.utc)
+    template.submitted_at = datetime.now(timezone.utc)
+    template.rejection_reason = None
 
     dist = (current_user.storefront_distribution or "both").lower()
     template.is_marketplace = (dist != "storefront")
@@ -783,8 +803,11 @@ async def submit_template_for_review(
     if template.seller_id != current_user.id and not is_admin:
         raise HTTPException(status_code=403, detail="You can only submit your own templates for review.")
 
-    target_status = TemplateStatus.SUBMITTED
+    target_status = TemplateStatus.PUBLISHED
+    template.published_at = datetime.now(timezone.utc)
     template.submitted_at = datetime.now(timezone.utc)
+    template.template_origin = "marketplace"
+    template.is_marketplace = True
     template.rejection_reason = None
     template.updated_at = datetime.now(timezone.utc)
 

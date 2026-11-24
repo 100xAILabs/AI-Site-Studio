@@ -9,7 +9,7 @@ from typing import Optional, List
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_, or_, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -17,6 +17,7 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_current_user_optional
 from app.models.user import User, UserRole
 from app.models.template import Template, TemplateStatus
+from app.models.category import Category
 from app.schemas.creator import (
     CreatorSetupRequest,
     CreatorProfileResponse,
@@ -311,13 +312,21 @@ async def get_public_creator_storefront(
     """
     clean_slug = slug.strip().lower()
 
-    # Find creator by store slug or username
-    creator = await db.scalar(
-        select(User).where(
-            (User.creator_store_slug == clean_slug) |
-            ((User.creator_store_slug.is_(None)) & (func.lower(User.username) == clean_slug))
-        )
+    # Find creator by store slug, username, or user ID
+    query = select(User).where(
+        (func.lower(User.creator_store_slug) == clean_slug) |
+        ((User.creator_store_slug.is_(None)) & (func.lower(User.username) == clean_slug)) |
+        (func.lower(User.username) == clean_slug)
     )
+    creator = await db.scalar(query)
+
+    if not creator:
+        # Fallback check if clean_slug is uuid
+        try:
+            u_id = uuid.UUID(clean_slug)
+            creator = await db.scalar(select(User).where(User.id == u_id))
+        except (ValueError, TypeError):
+            pass
 
     if not creator:
         raise HTTPException(
@@ -326,16 +335,22 @@ async def get_public_creator_storefront(
         )
 
     # Fetch this creator's published templates
-    # Exclude user customized preview copies or private drafts
     stmt = (
         select(Template)
-        .options(selectinload(Template.category))
+        .options(selectinload(Template.category).selectinload(Category.children))
         .where(
             Template.seller_id == creator.id,
             Template.status.in_([TemplateStatus.PUBLISHED, TemplateStatus.APPROVED]),
-            Template.slug.notlike("%-custom-%"),
-            Template.title.notlike("%(Customized)%"),
-            Template.title.notlike("Customized %"),
+            Template.is_deleted.is_(False),
+            or_(
+                cast(Template.tags, String).ilike("%retailed%"),
+                Template.template_origin == "marketplace",
+                and_(
+                    Template.slug.notlike("%-custom-%"),
+                    Template.title.notlike("%(Customized)%"),
+                    Template.title.notlike("Customized %"),
+                ),
+            ),
         )
         .order_by(Template.is_featured.desc(), Template.downloads_count.desc(), Template.created_at.desc())
     )

@@ -325,15 +325,10 @@ function NavbarComponent() {
                     : "/creator/setup"
                 }
                 className="navbar-sell-btn"
-                title={isExtreme ? "Sell Templates & Manage Storefront" : "Sell Templates (Extreme Plan)"}
+                title={isExtreme ? "Sell Templates & Manage Storefront" : "Become a Creator & Sell (Extreme Plan)"}
               >
                 <ShoppingBag className="w-3.5 h-3.5 text-[#dfb180]" />
-                <span className="hidden md:inline">Sell Templates</span>
-                {!isExtreme && (
-                  <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 font-semibold uppercase">
-                    Extreme
-                  </span>
-                )}
+                <span className="hidden sm:inline">Sell Templates</span>
               </Link>
 
               <Link

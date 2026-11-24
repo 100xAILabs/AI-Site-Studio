@@ -12,7 +12,7 @@ from typing import List, Dict, Any, Optional, Tuple, Set
 from datetime import datetime, timezone, timedelta
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import select, and_, or_, cast, String
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -80,9 +80,15 @@ class FastCatalogManager:
                     .where(
                         Template.is_marketplace == True,
                         Template.status == TemplateStatus.PUBLISHED,
-                        Template.slug.notlike("%-custom-%"),
-                        Template.title.notlike("%(Customized)%"),
-                        Template.title.notlike("Customized %"),
+                        or_(
+                            cast(Template.tags, String).ilike("%retailed%"),
+                            Template.template_origin == "marketplace",
+                            and_(
+                                Template.slug.notlike("%-custom-%"),
+                                Template.title.notlike("%(Customized)%"),
+                                Template.title.notlike("Customized %"),
+                            ),
+                        ),
                     )
                 )
 
