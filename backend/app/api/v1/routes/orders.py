@@ -137,6 +137,13 @@ async def create_order(
             except Exception as e_s:
                 logger.info("Seller lookup notice: %s", e_s)
 
+    # Gating: If purchasing through a creator whose payout/bank is not set up, block checkout
+    if creator_obj and creator_obj.id != current_user.id and not getattr(creator_obj, "is_payout_setup_completed", False):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Purchasing from {creator_obj.creator_brand_name or 'this creator'} is temporarily paused: the creator has not connected their bank account or verified payout gateway yet."
+        )
+
     # Auto-attribute client in user database if not already linked
     if creator_obj and creator_obj.id != current_user.id and not current_user.client_of_creator_id:
         current_user.client_of_creator_id = creator_obj.id

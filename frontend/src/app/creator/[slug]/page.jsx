@@ -426,6 +426,17 @@ export default function CreatorStorefrontPage() {
                         <ShieldCheck className="w-3 h-3 text-emerald-400" />
                         Verified Clean Code
                       </span>
+                      {storefront.is_bank_connected === false ? (
+                        <span className="sf-meta-pill" style={{ color: "#fbbf24", borderColor: "rgba(245, 158, 11, 0.3)", background: "rgba(245, 158, 11, 0.1)" }}>
+                          <AlertCircle className="w-3 h-3 text-amber-400" />
+                          Purchasing Paused (Bank Not Linked)
+                        </span>
+                      ) : (
+                        <span className="sf-meta-pill" style={{ color: "#34d399", borderColor: "rgba(16, 185, 129, 0.3)", background: "rgba(16, 185, 129, 0.1)" }}>
+                          <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                          Direct Payouts Active
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -159,6 +159,7 @@ export default function CreatorSetupPage() {
     user?.role === "super_admin";
 
   const [isLoadingProfile, setIsLoadingProfile] = useState(true);
+  const [profileData, setProfileData] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [successData, setSuccessData] = useState(null);
@@ -247,6 +248,7 @@ export default function CreatorSetupPage() {
       try {
         const data = await api.get("/creator/profile");
         if (data) {
+          setProfileData(data);
           if (data.creator_brand_name) setBrandName(data.creator_brand_name);
           if (data.full_name) setCreatorName(data.full_name);
           if (data.creator_store_slug) {
@@ -417,6 +419,7 @@ export default function CreatorSetupPage() {
 
       const res = await api.put("/creator/profile", payload);
       toast.success("Creator Storefront & Payout Settings Saved!");
+      setProfileData(res);
       setSuccessData(res);
     } catch (err) {
       toast.error(err.message || "Failed to update creator profile.");
@@ -625,6 +628,28 @@ export default function CreatorSetupPage() {
                 preferred payout gateway to start selling your AI-generated websites.
               </p>
             </div>
+
+            {/* Bank Connection Status Banner */}
+            {profileData && !profileData.is_payout_setup_completed && (
+              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 flex items-start gap-3 mb-6">
+                <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                <div className="flex-1 text-sm">
+                  <h4 className="font-bold text-amber-200">Action Required: Bank Account Not Connected</h4>
+                  <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                    Your storefront checkout is currently paused. Please configure your bank account, UPI ID, or Stripe Connect in Step 3 below so customers can purchase your templates directly to your account.
+                  </p>
+                </div>
+              </div>
+            )}
+            {profileData && profileData.is_payout_setup_completed && (
+              <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-200 flex items-center gap-3 mb-6">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                <div className="flex-1 text-xs">
+                  <span className="font-semibold text-emerald-300">Bank &amp; Payout Gateway Connected:</span>
+                  <span className="text-slate-300 ml-1.5">Direct purchases are active on your storefront. Customer template payments route directly to your account.</span>
+                </div>
+              </div>
+            )}
 
             {/* ── SECTION 1: BRANDING & CREATOR IDENTITY ── */}
             <div className="creator-card">

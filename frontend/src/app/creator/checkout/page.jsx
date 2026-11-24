@@ -71,6 +71,10 @@ export default function CreatorCheckoutPage() {
 
   const handlePlaceOrder = async () => {
     if (creatorItems.length === 0) return;
+    if (storefront?.is_bank_connected === false) {
+      setErrorMessage(`${brandName} has not connected their bank account or verified payout gateway yet. Purchasing is temporarily paused.`);
+      return;
+    }
     setIsProcessing(true);
     setErrorMessage("");
 
@@ -396,6 +400,18 @@ export default function CreatorCheckoutPage() {
                       <span className="text-[#dfb180] font-bold">${orderTotal.toFixed(2)}</span>
                     </div>
 
+                    {storefront?.is_bank_connected === false && (
+                      <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex flex-col gap-1.5 my-3">
+                        <div className="flex items-center gap-2 font-semibold text-amber-200">
+                          <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
+                          <span>Purchasing Temporarily Paused</span>
+                        </div>
+                        <p className="text-slate-300 leading-relaxed">
+                          {brandName} has not completed their bank account or payout verification yet. Checkout is temporarily paused until their bank details are connected.
+                        </p>
+                      </div>
+                    )}
+
                     {errorMessage && (
                       <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">
                         <AlertCircle className="w-4 h-4 shrink-0" />
@@ -406,7 +422,7 @@ export default function CreatorCheckoutPage() {
                     <button
                       type="button"
                       onClick={handlePlaceOrder}
-                      disabled={isProcessing}
+                      disabled={isProcessing || storefront?.is_bank_connected === false}
                       className="cr-pay-cta-btn"
                     >
                       {isProcessing ? (

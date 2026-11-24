@@ -102,6 +102,7 @@ def _build_creator_profile_response(user: User) -> CreatorProfileResponse:
         creator_payout_details=payout_details,
         storefront_distribution=user.storefront_distribution or "both",
         is_creator_onboarding_completed=user.is_creator_onboarding_completed,
+        is_payout_setup_completed=bool(user.is_payout_setup_completed),
         storefront_url=storefront_url,
     )
 
@@ -287,9 +288,24 @@ async def update_creator_profile(
         "custom_instructions": data.payout_custom_instructions.strip() if data.payout_custom_instructions else None,
     }
 
+    _details = current_user.creator_payout_details or {}
+    has_valid_payout_method = bool(
+        (_details.get("bank_name") and (_details.get("ifsc_code") or _details.get("iban") or _details.get("swift_code") or data.payout_account_number)) or
+        _details.get("upi_id") or
+        _details.get("stripe_payment_link") or
+        _details.get("stripe_email") or
+        _details.get("razorpay_account_id") or
+        _details.get("crypto_address") or
+        _details.get("wise_email") or
+        _details.get("revolut_tag") or
+        _details.get("cashapp_tag") or
+        _details.get("venmo_tag") or
+        _details.get("custom_instructions")
+    )
+
     current_user.storefront_distribution = dist
     current_user.is_creator_onboarding_completed = True
-    current_user.is_payout_setup_completed = True
+    current_user.is_payout_setup_completed = has_valid_payout_method
     current_user.updated_at = datetime.now(timezone.utc)
 
     # If user was role USER/BUYER, elevate to SELLER
@@ -462,6 +478,30 @@ async def get_public_creator_storefront(
             resp.developer_avatar = creator.creator_logo_url
         template_responses.append(resp)
 
+    # Check if creator has enabled and connected a valid payout / bank destination
+    has_valid_payout_method = bool(
+        (payout_details.get("bank_name") and (payout_details.get("ifsc_code") or payout_details.get("iban") or payout_details.get("swift_code") or getattr(creator, "_payout_account_number", None))) or
+        payout_details.get("upi_id") or
+        getattr(creator, "payout_razorpay_vpa", None) or
+        payout_details.get("razorpay_vpa") or
+        payout_details.get("stripe_payment_link") or
+        getattr(creator, "stripe_connect_account_id", None) or
+        payout_details.get("stripe_email") or
+        payout_details.get("paypal_email") or
+        payout_details.get("crypto_address") or
+        payout_details.get("wise_email") or
+        payout_details.get("revolut_tag") or
+        payout_details.get("cashapp_tag") or
+        payout_details.get("venmo_tag") or
+        payout_details.get("custom_instructions")
+    )
+    is_bank_connected = bool(creator.is_payout_setup_completed and has_valid_payout_method)
+    payout_status_message = (
+        "Active & Verified for Direct Payouts"
+        if is_bank_connected
+        else "Creator bank account or payout gateway is not configured. Direct purchases are temporarily paused."
+    )
+
     return CreatorPublicStorefrontResponse(
         creator_id=str(creator.id),
         brand_name=brand_name,
@@ -475,6 +515,8 @@ async def get_public_creator_storefront(
         banner_url=creator.creator_banner_url,
         social_links=creator.creator_social_links or {},
         is_verified=True,
+        is_bank_connected=is_bank_connected,
+        payout_status_message=payout_status_message,
         accepted_payment_methods=accepted_methods,
         payment_options=public_payment_options,
         stats=CreatorStats(

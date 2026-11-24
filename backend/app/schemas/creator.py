@@ -119,6 +119,7 @@ class CreatorProfileResponse(BaseModel):
     creator_payout_details: Optional[Dict[str, Any]] = None
     storefront_distribution: Optional[str] = "both"
     is_creator_onboarding_completed: bool = False
+    is_payout_setup_completed: bool = False
     storefront_url: Optional[str] = None
 
     model_config = {"from_attributes": True}
@@ -145,6 +146,8 @@ class CreatorPublicStorefrontResponse(BaseModel):
     banner_url: Optional[str] = None
     social_links: Optional[Dict[str, Any]] = None
     is_verified: bool = True
+    is_bank_connected: bool = True
+    payout_status_message: Optional[str] = None
     accepted_payment_methods: List[str] = []
     payment_options: Optional[Dict[str, Any]] = None
     stats: CreatorStats

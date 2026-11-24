@@ -257,18 +257,26 @@ export default function CreatorTemplateDetailsPage() {
             </div>
 
             <div className="flex flex-col gap-2.5">
+              {storefront?.is_bank_connected === false && (
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-300 text-xs flex items-center gap-2 mb-1">
+                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Purchases paused: Creator has not completed bank verification yet.</span>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={handleBuyNow}
+                disabled={storefront?.is_bank_connected === false}
                 className="cr-buy-btn-primary"
               >
-                <span>Buy Template Now</span>
+                <span>{storefront?.is_bank_connected === false ? "Purchases Paused (Bank Not Linked)" : "Buy Template Now"}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
 
               <button
                 type="button"
                 onClick={handleAddToCart}
+                disabled={storefront?.is_bank_connected === false}
                 className={`cr-cart-btn-secondary ${isItemInCart ? "in-cart" : ""}`}
               >
                 {isItemInCart ? (
