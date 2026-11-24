@@ -6329,7 +6329,7 @@ async def serve_live_preview(
 
                     esc_s_tmpl = sub_tmpl.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
                     esc_s_sc = sub_sc.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
-                    sub_safe_assigns = " ".join([f"try {{ if (typeof {v} !== 'undefined') _ret['{v}'] = {v}; }} catch(_e) {{}}" for v in sub_dvars])
+                    sub_safe_assigns = " ".join([f"try {{ _ret.{v} = {v}; }} catch(_e) {{}}" for v in sub_dvars if re.match(r'^[a-zA-Z_$][a-zA-Z0-9_$]*$', v)])
 
                     sub_js = f"""
     const compDef_{cap_k} = (function() {{
@@ -6372,7 +6372,7 @@ async def serve_live_preview(
 
                 esc_primary_tmpl = primary_tmpl.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
                 esc_primary_sc = primary_sc.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
-                primary_safe_assigns = " ".join([f"try {{ if (typeof {v} !== 'undefined') _ret['{v}'] = {v}; }} catch(_e) {{}}" for v in primary_dvars])
+                primary_safe_assigns = " ".join([f"try {{ _ret.{v} = {v}; }} catch(_e) {{}}" for v in primary_dvars if re.match(r'^[a-zA-Z_$][a-zA-Z0-9_$]*$', v)])
 
                 vue_runner_html = (
                     "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
@@ -6383,6 +6383,7 @@ async def serve_live_preview(
                     "  <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap\" rel=\"stylesheet\">\n"
                     "  <script src=\"https://cdn.tailwindcss.com\"></script>\n"
                     "  <script src=\"https://unpkg.com/vue@3/dist/vue.global.js\"></script>\n"
+                    "  <script>if (typeof Vue === 'undefined') { document.write('<script src=\"https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js\"><\\\\/script>'); }</script>\n"
                     "  <style>\n"
                     "    *, *::before, *::after { box-sizing: border-box; }\n"
                     "    body { margin: 0; font-family: 'Inter', system-ui, sans-serif; background: #090d16; color: #fff; }\n"
@@ -6402,6 +6403,12 @@ async def serve_live_preview(
                     f"    {esc_primary_tmpl}\n"
                     "  </script>\n"
                     "  <script>\n"
+                    "    if (typeof Vue === 'undefined') {\n"
+                    "      console.error('Vue runtime could not be loaded');\n"
+                    "      const el = document.getElementById('app');\n"
+                    "      if (el) el.innerHTML = '<div style=\"padding:2rem;color:#f87171;text-align:center;font-family:sans-serif;\"><h3>Vue Runtime Unavailable</h3><p>Could not connect to Vue CDN. Please reload.</p></div>';\n"
+                    "      throw new Error('Vue undefined');\n"
+                    "    }\n"
                     "    const { createApp, ref, reactive, computed, onMounted, onUnmounted, watch, watchEffect } = Vue;\n"
                     "    const commonIconNames = [\n"
                     "      'Sparkles','ArrowLeft','ArrowRight','ArrowUp','ArrowDown','CheckCircle','CheckCircle2',\n"
