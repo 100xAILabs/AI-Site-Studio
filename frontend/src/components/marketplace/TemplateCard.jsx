@@ -48,6 +48,7 @@ export default function TemplateCard({
   onFavorite,
   onWishlist,
   index = 0,
+  creatorSlug,
 }) {
   const [isHovered, setIsHovered] = useState(false);
   const [imgError, setImgError] = useState(false);
@@ -64,12 +65,16 @@ export default function TemplateCard({
   );
 
   const effectivePrice = Number(template.price) > 0 ? Number(template.price) : 49;
+  const templateSlug = template.slug || template.id;
+  const targetLink = creatorSlug
+    ? `/creator/${creatorSlug}/template/${templateSlug}`
+    : `/marketplace/${templateSlug}`;
 
   const handleAddToCart = (e) => {
     e.preventDefault();
     e.stopPropagation();
     if (isPurchased) {
-      window.location.href = `/marketplace/${templateSlug}`;
+      window.location.href = targetLink;
       return;
     }
     addToCart({
@@ -80,14 +85,15 @@ export default function TemplateCard({
       thumbnail: template.thumbnail_url || template.thumbnail,
       framework: template.framework || "React 19 + Tailwind",
       licenseType: "regular",
+      seller_id: template.seller_id,
+      creator_slug: creatorSlug || template.seller?.creator_store_slug,
+      creator_brand_name: template.seller?.creator_brand_name || template.developer_name,
     });
   };
 
   const discount = template.original_price
     ? discountPercent(template.original_price, template.price)
     : 0;
-
-  const templateSlug = template.slug || template.id;
 
   return (
     <motion.div
@@ -102,7 +108,7 @@ export default function TemplateCard({
       }}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <Link href={`/marketplace/${templateSlug}`} className="card-main-link">
+      <Link href={targetLink} className="card-main-link">
         <div className="template-card card-hover">
           {/* Thumbnail / Video Preview */}
           <div className="card-thumbnail-container">
@@ -144,7 +150,7 @@ export default function TemplateCard({
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    window.location.href = `/marketplace/${templateSlug}`;
+                    window.location.href = targetLink;
                   }}
                   className="overlay-btn-cart purchased"
                   title="You own this template — View details & download"
@@ -316,7 +322,7 @@ export default function TemplateCard({
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    window.location.href = `/marketplace/${templateSlug}`;
+                    window.location.href = targetLink;
                   }}
                   className="card-mobile-cart-btn purchased"
                   aria-label="View purchased template in library"

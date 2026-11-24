@@ -141,6 +141,7 @@ function AppRouteContent() {
           <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPanel /></ProtectedRoute>} />
           <Route path="/creator" element={<Navigate to="/creator/setup" replace />} />
           <Route path="/creator/setup" element={<ProtectedRoute><CreatorSetupPage /></ProtectedRoute>} />
+          <Route path="/creator/:creatorSlug/template/:slug" element={<TemplateDetailsPage />} />
           <Route path="/creator/:slug" element={<CreatorStorefrontPage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/terms" element={<TermsPage />} />

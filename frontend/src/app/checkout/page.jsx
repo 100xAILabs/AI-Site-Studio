@@ -50,6 +50,7 @@ import {
   Minus,
   ClipboardList,
   Building2,
+  Store,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { useCartStore } from "@/store";
@@ -259,6 +260,9 @@ export default function Checkout() {
         framework: item.framework || match?.framework || "HTML",
         price: item.price || match?.price || 0,
         slug: item.slug || match?.slug || "",
+        seller_id: item.seller_id || match?.seller_id,
+        creator_slug: item.creator_slug || match?.creator_slug,
+        creator_brand_name: item.creator_brand_name || match?.creator_brand_name,
       };
     });
     setPurchasedTemplates(resolvedItems);
@@ -1139,6 +1143,11 @@ export default function Checkout() {
                                       </span>
                                     ) : (
                                       <>
+                                        {item.creator_brand_name && (
+                                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#dfb180]/15 text-[#dfb180] border border-[#dfb180]/30 flex items-center gap-1">
+                                            <Store size={11} className="text-[#dfb180]" /> Creator: {item.creator_brand_name}
+                                          </span>
+                                        )}
                                         <span className="cart-badge-lifetime">
                                           <Crown size={12} className="text-amber-400" />
                                           <span>Lifetime Access</span>

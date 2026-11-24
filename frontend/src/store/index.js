@@ -66,6 +66,9 @@ const lookupTemplateDetails = (item) => {
     thumbnail_url: item?.thumbnail_url || item?.thumbnail || match?.thumbnail_url || "/landing/template_saas.png",
     framework: item?.framework || match?.framework || "HTML5 / CSS / JS",
     licenseType: item?.licenseType || "Lifetime Access",
+    seller_id: item?.seller_id || match?.seller_id,
+    creator_slug: item?.creator_slug || match?.creator_slug,
+    creator_brand_name: item?.creator_brand_name || match?.creator_brand_name,
   };
 };
 

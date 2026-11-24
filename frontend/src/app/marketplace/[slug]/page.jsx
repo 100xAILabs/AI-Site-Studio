@@ -20,8 +20,9 @@ import {
   Play, Flame, Award, Activity, Sparkles, Clock, Plus,
   ExternalLink, Calendar, ShieldCheck, Info, Edit3, Upload, Lock,
   DollarSign, Tag, Layers, Loader2, CheckCircle2, Trash2, Image as ImageIcon,
-  ThumbsUp, ThumbsDown, Gift,
+  ThumbsUp, ThumbsDown, Gift, Store, Mail,
 } from "lucide-react";
+import "@/app/creator/[slug]/Page.css";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Navbar from "@/components/layout/Navbar";
 import TemplateCard from "@/components/marketplace/TemplateCard";
@@ -230,10 +231,79 @@ function DeviceSandbox({ mode, previewSrc, title, slug }) {
   return null;
 }
 
-export default function TemplateDetailsPage({ slug: propSlug }) {
-  const { slug: routeSlug } = useParams();
+function CreatorStorefrontNavbar({ storefront, creatorSlug, cartItems = [] }) {
+  const storeSlug = storefront?.store_slug || creatorSlug;
+  const brandName = storefront?.brand_name || "Creator Storefront";
+  const domainHost = typeof window !== "undefined" ? window.location.host : "aisitestudio.com";
+
+  return (
+    <header className="sf-navbar">
+      <div className="sf-navbar-inner">
+        <Link href={`/creator/${storeSlug}`} className="sf-nav-brand">
+          <div className="sf-nav-logo-box">
+            {storefront?.logo_url ? (
+              <img src={storefront.logo_url} alt="" className="sf-nav-logo-img" />
+            ) : (
+              <Store className="w-5 h-5 text-[#dfb180]" />
+            )}
+          </div>
+          <div className="sf-nav-brand-text">
+            <span className="sf-nav-brand-title">{brandName}</span>
+            <span className="sf-nav-domain-label">
+              {domainHost}/creator/{storeSlug}
+            </span>
+          </div>
+        </Link>
+
+        {/* Center Back to Storefront Link */}
+        <nav className="sf-nav-links">
+          <Link href={`/creator/${storeSlug}`} className="sf-nav-link-btn active">
+            <ArrowLeft className="w-3.5 h-3.5 mr-1.5" />
+            <span>Back to {brandName}</span>
+          </Link>
+          <Link href={`/creator/${storeSlug}?tab=about`} className="sf-nav-link-btn">
+            <UserCheck className="w-3.5 h-3.5 mr-1.5" />
+            <span>About</span>
+          </Link>
+          <Link href={`/creator/${storeSlug}?tab=contact`} className="sf-nav-link-btn">
+            <Mail className="w-3.5 h-3.5 mr-1.5" />
+            <span>Contact</span>
+          </Link>
+        </nav>
+
+        {/* Right actions */}
+        <div className="sf-nav-actions">
+          {storefront?.support_email && (
+            <a href={`mailto:${storefront.support_email}`} className="sf-nav-email-pill">
+              <Mail className="w-3.5 h-3.5 text-[#dfb180]" />
+              <span className="sf-nav-email-text">{storefront.support_email}</span>
+            </a>
+          )}
+          <Link href="/checkout" className="sf-nav-cart-btn" title="View Cart">
+            <ShoppingCart className="w-4 h-4 text-zinc-300" />
+            {cartItems.length > 0 && <span className="sf-nav-cart-badge">{cartItems.length}</span>}
+          </Link>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+export default function TemplateDetailsPage({ slug: propSlug, creatorSlug: propCreatorSlug }) {
+  const { slug: routeSlug, creatorSlug: routeCreatorSlug } = useParams();
   const [searchParams] = useSearchParams();
   const slug = propSlug || routeSlug;
+  const creatorSlug = propCreatorSlug || routeCreatorSlug || searchParams.get("creator");
+
+  const { data: creatorStorefront } = useQuery({
+    queryKey: ["creator-storefront", creatorSlug],
+    queryFn: async () => {
+      const res = await api.get(`/creator/storefront/${encodeURIComponent(creatorSlug)}`);
+      return res;
+    },
+    enabled: Boolean(creatorSlug),
+    staleTime: 60 * 1000,
+  });
 
   const { getToken, isSignedIn } = useAppAuth();
   const { user } = useAppUser();
@@ -737,6 +807,7 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
   const wishlistMutation = useToggleWishlist(token ?? "");
   const addToCart = useCartStore((s) => s.addItem);
   const isInCart = useCartStore((s) => s.isInCart(template?.id ?? ""));
+  const cartItems = useCartStore((s) => s.items || []);
   const { data: reviewsData, isLoading: isReviewsLoading } = useTemplateReviews(template?.id);
   const reviewsList = reviewsData?.items || [];
   const createReviewMutation = useCreateReview(token);
@@ -877,6 +948,9 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
       price_currency: template.price_currency || "USD",
       thumbnail: template.thumbnail_url || template.gallery_images?.[0] || "",
       licenseType: activeLicense,
+      seller_id: template.seller_id,
+      creator_slug: creatorSlug || template.seller?.creator_store_slug,
+      creator_brand_name: creatorStorefront?.brand_name || template.seller?.creator_brand_name,
     });
   };
 
@@ -895,6 +969,9 @@ export default function TemplateDetailsPage({ slug: propSlug }) {
         price_currency: template.price_currency || "USD",
         thumbnail: template.thumbnail_url || template.gallery_images?.[0] || "",
         licenseType: activeLicense,
+        seller_id: template.seller_id,
+        creator_slug: creatorSlug || template.seller?.creator_store_slug,
+        creator_brand_name: creatorStorefront?.brand_name || template.seller?.creator_brand_name,
       });
     }
     navigate("/checkout");
@@ -1253,7 +1330,11 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
   if (isLoading && !template) {
     return (
       <>
-        <Navbar />
+        {creatorSlug ? (
+          <CreatorStorefrontNavbar storefront={creatorStorefront} creatorSlug={creatorSlug} cartItems={cartItems} />
+        ) : (
+          <Navbar />
+        )}
         <div className="min-h-screen pt-20">
           <div className="container-xl py-12">
             <div className="grid lg:grid-cols-3 gap-10">
@@ -1274,15 +1355,25 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
   if (error || !template) {
     return (
       <>
-        <Navbar />
+        {creatorSlug ? (
+          <CreatorStorefrontNavbar storefront={creatorStorefront} creatorSlug={creatorSlug} cartItems={cartItems} />
+        ) : (
+          <Navbar />
+        )}
         <div className="min-h-screen pt-20 flex items-center justify-center">
           <div className="text-center">
             <div className="text-6xl mb-4">😕</div>
             <h1 className="text-2xl font-bold mb-2">Template Not Found</h1>
             <p className="text-muted-foreground mb-6">This template doesn&apos;t exist or has been removed.</p>
-            <Link href="/marketplace" className="px-6 py-3 bg-primary text-primary-foreground rounded-xl font-semibold">
-              Browse Marketplace
-            </Link>
+            {creatorSlug ? (
+              <Link href={`/creator/${creatorSlug}`} className="px-6 py-3 bg-[#dfb180] text-black rounded-xl font-semibold hover:brightness-110 transition-all">
+                Return to {creatorStorefront?.brand_name || "Storefront"}
+              </Link>
+            ) : (
+              <Link href="/marketplace" className="px-6 py-3 bg-primary text-primary-foreground rounded-xl font-semibold">
+                Browse Marketplace
+              </Link>
+            )}
           </div>
         </div>
       </>
@@ -1532,7 +1623,11 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
 
   return (
     <div className="details-page-wrapper details-page-redesign">
-      <Navbar />
+      {creatorSlug ? (
+        <CreatorStorefrontNavbar storefront={creatorStorefront} creatorSlug={creatorSlug} cartItems={cartItems} />
+      ) : (
+        <Navbar />
+      )}
 
 
       <div className="details-main-container">
@@ -2736,14 +2831,21 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
               <div className="details-developer-card">
                 <div className="seller-top">
                   <div className="seller-avatar">
-                    <Image src={template.developer_avatar || "https://picsum.photos/seed/avatar/100/100"} alt={template.developer_name || "Site Studio"} width={40} height={40} />
+                    <Image 
+                      src={creatorStorefront?.logo_url || template.developer_avatar || "https://picsum.photos/seed/avatar/100/100"} 
+                      alt={creatorStorefront?.brand_name || template.developer_name || "Site Studio"} 
+                      width={40} 
+                      height={40} 
+                    />
                   </div>
                   <div>
                     <div className="seller-info-name">
-                      {template.developer_name || "Site Studio"}
-                      <Award className="w-4 h-4 text-primary" />
+                      {creatorStorefront?.brand_name || template.developer_name || "Site Studio"}
+                      <Award className="w-4 h-4 text-[#dfb180]" />
                     </div>
-                    <span className="seller-verified-label">Verified Author</span>
+                    <span className="seller-verified-label">
+                      {creatorSlug ? `Verified Creator (@${creatorSlug})` : "Verified Author"}
+                    </span>
                   </div>
                 </div>
 
@@ -2751,7 +2853,9 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                 <div className="seller-stats">
                   <div className="seller-stat">
                     <span className="seller-stat-label">Published</span>
-                    <span className="seller-stat-val">{template.seller_templates_count || 1} Templates</span>
+                    <span className="seller-stat-val">
+                      {creatorStorefront?.templates?.length || template.seller_templates_count || 1} Templates
+                    </span>
                   </div>
                 </div>
 
@@ -2765,7 +2869,12 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                       {toggleFollowMutation.isPending ? "Loading..." : (isFollowing ? "Following" : "Follow")}
                     </button>
                   )}
-                  <Link href={`/marketplace?developer=${template.developer_name}`} className="seller-more-link">More Items</Link>
+                  <Link 
+                    href={creatorSlug ? `/creator/${creatorSlug}` : `/marketplace?developer=${encodeURIComponent(template.developer_name || "")}`} 
+                    className="seller-more-link"
+                  >
+                    {creatorSlug ? "View Storefront" : "More Items"}
+                  </Link>
                 </div>
               </div>
 
@@ -3564,6 +3673,74 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
           </button>
         </div>
       </div>
+
+      {/* Whitelabeled Creator Storefront Footer */}
+      {creatorSlug && (
+        <footer className="sf-footer mt-20 border-t border-white/5 pt-12 pb-16">
+          <div className="sf-footer-inner max-w-7xl mx-auto px-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
+              <div>
+                <div className="flex items-center gap-3 mb-3">
+                  {creatorStorefront?.logo_url ? (
+                    <img src={creatorStorefront.logo_url} alt="" className="w-8 h-8 rounded-full object-cover" />
+                  ) : (
+                    <Store className="w-6 h-6 text-[#dfb180]" />
+                  )}
+                  <span className="font-bold text-white text-base">{creatorStorefront?.brand_name || "Creator Storefront"}</span>
+                </div>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  {creatorStorefront?.bio || "Official creator storefront on AI Site Studio."}
+                </p>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-3">Storefront Pages</h4>
+                <ul className="space-y-2 text-xs">
+                  <li>
+                    <Link href={`/creator/${creatorSlug}`} className="text-zinc-400 hover:text-white transition-colors">
+                      ← Back to All Templates
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href={`/creator/${creatorSlug}?tab=about`} className="text-zinc-400 hover:text-white transition-colors">
+                      About {creatorStorefront?.brand_name || "Creator"}
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href={`/creator/${creatorSlug}?tab=contact`} className="text-zinc-400 hover:text-white transition-colors">
+                      Contact &amp; Custom Work
+                    </Link>
+                  </li>
+                </ul>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-3">Creator Support</h4>
+                <p className="text-xs text-zinc-400 mb-3">
+                  Have questions about this template or need custom design modifications?
+                </p>
+                {creatorStorefront?.support_email && (
+                  <a href={`mailto:${creatorStorefront.support_email}`} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-300 hover:text-white">
+                    <Mail className="w-3.5 h-3.5 text-[#dfb180]" />
+                    <span>{creatorStorefront.support_email}</span>
+                  </a>
+                )}
+              </div>
+            </div>
+
+            <div className="border-t border-white/5 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-zinc-500">
+              <p>&copy; {new Date().getFullYear()} {creatorStorefront?.brand_name || "Creator"}. All rights reserved.</p>
+              <div className="flex items-center gap-4">
+                <span>Creator ID: @{creatorSlug}</span>
+                <span>•</span>
+                <Link href={`/creator/${creatorSlug}`} className="hover:text-zinc-300">
+                  Storefront Home
+                </Link>
+              </div>
+            </div>
+          </div>
+        </footer>
+      )}
 
       {/* Mandatory License & Code Usage Warning Modal */}
       <DownloadWarningModal
