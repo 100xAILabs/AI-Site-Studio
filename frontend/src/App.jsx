@@ -44,6 +44,9 @@ const PrivacyPolicyPage = lazy(() => import('./app/privacy/page.jsx'));
 const TermsPage = lazy(() => import('./app/terms/page.jsx'));
 const CreatorSetupPage = lazy(() => import('./app/creator/setup/page.jsx'));
 const CreatorStorefrontPage = lazy(() => import('./app/creator/[slug]/page.jsx'));
+const CreatorAuthPage = lazy(() => import('./app/creator/auth/page.jsx'));
+const CreatorCheckoutPage = lazy(() => import('./app/creator/checkout/page.jsx'));
+const CreatorTemplateDetailsPage = lazy(() => import('./app/creator/template/page.jsx'));
 const AuthCompletePage = lazy(() => import('./app/auth/complete/page.jsx'));
 
 
@@ -141,10 +144,10 @@ function AppRouteContent() {
           <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminPanel /></ProtectedRoute>} />
           <Route path="/creator" element={<Navigate to="/creator/setup" replace />} />
           <Route path="/creator/setup" element={<ProtectedRoute><CreatorSetupPage /></ProtectedRoute>} />
-          <Route path="/creator/:creatorSlug/template/:slug" element={<TemplateDetailsPage />} />
-          <Route path="/creator/:creatorSlug/checkout" element={<Checkout />} />
-          <Route path="/creator/:creatorSlug/login" element={<SignIn />} />
-          <Route path="/creator/:creatorSlug/register" element={<SignIn isRegister={true} />} />
+          <Route path="/creator/:creatorSlug/template/:slug" element={<CreatorTemplateDetailsPage />} />
+          <Route path="/creator/:creatorSlug/checkout" element={<CreatorCheckoutPage />} />
+          <Route path="/creator/:creatorSlug/login" element={<CreatorAuthPage />} />
+          <Route path="/creator/:creatorSlug/register" element={<CreatorAuthPage isRegister={true} />} />
           <Route path="/creator/:slug" element={<CreatorStorefrontPage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/terms" element={<TermsPage />} />

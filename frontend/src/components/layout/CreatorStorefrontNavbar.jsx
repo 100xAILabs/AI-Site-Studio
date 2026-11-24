@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import Link from "@/components/Link";
-import { useAppUser, useAppAuth } from "@/lib/auth";
+import { useAppUser } from "@/lib/auth";
+import { useAuthStore } from "@/store/authStore";
 import {
   Store,
   ArrowLeft,
@@ -14,6 +15,7 @@ import {
   SlidersHorizontal,
   ChevronDown,
   Layers,
+  Users,
 } from "lucide-react";
 import "./CreatorStorefrontNavbar.css";
 
@@ -25,14 +27,40 @@ export default function CreatorStorefrontNavbar({
   onSelectTab = null,
 }) {
   const { user, isSignedIn } = useAppUser();
-  const { signOut } = useAppAuth();
+  const signOut = useAuthStore((s) => s.signOut);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef(null);
 
   const storeSlug = storefront?.store_slug || creatorSlug;
   const brandName = storefront?.brand_name || "Creator Storefront";
   const domainHost = typeof window !== "undefined" ? window.location.host : "aisitestudio.com";
-  const isOwner = Boolean(user?.id && storefront?.user_id && user.id === storefront.user_id);
+
+  // Authoritative store owner detection
+  const isOwner = Boolean(
+    (user?.id && storefront?.user_id && user.id === storefront.user_id) ||
+    (user?.email && storefront?.support_email && user.email.toLowerCase() === storefront.support_email.toLowerCase()) ||
+    (user?.creator_store_slug && storeSlug && user.creator_store_slug.toLowerCase() === storeSlug.toLowerCase())
+  );
+
+  const handleSignOut = async () => {
+    setProfileOpen(false);
+    try {
+      if (signOut) {
+        await signOut();
+      }
+    } catch (e) {
+      console.error("Sign out error", e);
+    }
+    // Clean reload to reset auth state
+    window.location.reload();
+  };
+
+  const handleStorefrontClick = () => {
+    setProfileOpen(false);
+    if (onSelectTab) {
+      onSelectTab("templates");
+    }
+  };
 
   // Close profile dropdown when clicking outside
   useEffect(() => {
@@ -201,31 +229,66 @@ export default function CreatorStorefrontNavbar({
                 <div className="sf-nav-profile-menu">
                   <div className="sf-nav-profile-header">
                     <p className="sf-nav-profile-email">{user.email}</p>
-                    <p className="sf-nav-profile-brand">Client of {brandName}</p>
+                    <p className="sf-nav-profile-brand">
+                      {isOwner ? "Store Owner & Creator ✦" : `Client of ${brandName}`}
+                    </p>
                   </div>
                   <div className="sf-nav-profile-body">
-                    <Link
-                      href={`/creator/${storeSlug}/checkout`}
-                      className="sf-nav-profile-link"
-                      onClick={() => setProfileOpen(false)}
-                    >
-                      <ShoppingCart className="w-3.5 h-3.5 text-[#dfb180]" />
-                      <span>My Cart &amp; Checkout</span>
-                    </Link>
-                    <Link
-                      href={`/creator/${storeSlug}`}
-                      className="sf-nav-profile-link"
-                      onClick={() => setProfileOpen(false)}
-                    >
-                      <Store className="w-3.5 h-3.5 text-zinc-400" />
-                      <span>{brandName}&apos;s Storefront</span>
-                    </Link>
+                    {isOwner ? (
+                      <>
+                        <Link
+                          to="/creator/setup"
+                          className="sf-nav-profile-link"
+                          onClick={() => setProfileOpen(false)}
+                        >
+                          <SlidersHorizontal className="w-3.5 h-3.5 text-[#dfb180]" />
+                          <span>Manage Storefront</span>
+                        </Link>
+                        {onSelectTab && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setProfileOpen(false);
+                              onSelectTab("customers");
+                            }}
+                            className="sf-nav-profile-link"
+                          >
+                            <Users className="w-3.5 h-3.5 text-[#dfb180]" />
+                            <span>Clients &amp; Audience CRM</span>
+                          </button>
+                        )}
+                        <Link
+                          href={`/creator/${storeSlug}`}
+                          className="sf-nav-profile-link"
+                          onClick={handleStorefrontClick}
+                        >
+                          <Store className="w-3.5 h-3.5 text-zinc-400" />
+                          <span>View Storefront</span>
+                        </Link>
+                      </>
+                    ) : (
+                      <>
+                        <Link
+                          href={`/creator/${storeSlug}/checkout`}
+                          className="sf-nav-profile-link"
+                          onClick={() => setProfileOpen(false)}
+                        >
+                          <ShoppingCart className="w-3.5 h-3.5 text-[#dfb180]" />
+                          <span>My Cart &amp; Checkout</span>
+                        </Link>
+                        <Link
+                          href={`/creator/${storeSlug}`}
+                          className="sf-nav-profile-link"
+                          onClick={handleStorefrontClick}
+                        >
+                          <Store className="w-3.5 h-3.5 text-zinc-400" />
+                          <span>{brandName}&apos;s Storefront</span>
+                        </Link>
+                      </>
+                    )}
                     <button
                       type="button"
-                      onClick={() => {
-                        setProfileOpen(false);
-                        if (signOut) signOut();
-                      }}
+                      onClick={handleSignOut}
                       className="sf-nav-profile-signout"
                     >
                       <LogOut className="w-3.5 h-3.5" />
