@@ -183,17 +183,11 @@ class User(UUIDMixin, TimestampMixin, Base):
     storefront_distribution: Mapped[Optional[str]] = mapped_column(String(50), default="both", nullable=True) # marketplace, storefront, both
     is_creator_onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
 
-    @property
-    def client_of_creator_slug(self) -> Optional[str]:
-        if self.extra_metadata and isinstance(self.extra_metadata, dict):
-            return self.extra_metadata.get("client_of_creator_slug")
-        return None
-
-    @property
-    def client_of_creator_brand(self) -> Optional[str]:
-        if self.extra_metadata and isinstance(self.extra_metadata, dict):
-            return self.extra_metadata.get("client_of_brand")
-        return None
+    # ── Creator Client Attribution ──────────────────────────────────────────
+    client_of_creator_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid(as_uuid=True), nullable=True, index=True)
+    client_of_creator_slug: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+    client_of_brand: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    extra_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict, server_default="{}", nullable=True)
 
 
     # Relationships

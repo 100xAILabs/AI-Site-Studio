@@ -301,14 +301,22 @@ export default function CreatorStorefrontPage() {
     (user?.creator_store_slug === slug ||
       (user?.username && user.username.toLowerCase() === slug.toLowerCase()));
 
-  const { data: creatorCustomers = [] } = useQuery({
+  const { data: creatorCustomersData } = useQuery({
     queryKey: ["creatorCustomers", storefront?.id],
     queryFn: async () => {
       const res = await api.get("/creator/customers");
-      return res || [];
+      return res || {};
     },
     enabled: Boolean(isOwner),
   });
+
+  const creatorCustomers = useMemo(() => {
+    if (Array.isArray(creatorCustomersData)) return creatorCustomersData;
+    if (creatorCustomersData?.customers && Array.isArray(creatorCustomersData.customers)) {
+      return creatorCustomersData.customers;
+    }
+    return [];
+  }, [creatorCustomersData]);
 
   if (isLoading) {
     return (

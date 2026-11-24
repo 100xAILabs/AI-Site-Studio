@@ -479,16 +479,12 @@ async def get_creator_customers(
     creator_id_str = str(current_user.id)
     creator_slug = current_user.creator_store_slug or ""
 
-    # 1. Users whose extra_metadata marks them as a client of this creator
-    client_query = select(User).where(
-        or_(
-            User.extra_metadata["client_of_creator_id"].astext == creator_id_str,
-            and_(
-                creator_slug != "",
-                User.extra_metadata["client_of_creator_slug"].astext == creator_slug
-            )
-        )
-    )
+    # 1. Users whose attribution marks them as a client of this creator
+    conditions = [User.client_of_creator_id == current_user.id]
+    if creator_slug:
+        conditions.append(func.lower(User.client_of_creator_slug) == creator_slug.lower())
+    
+    client_query = select(User).where(or_(*conditions))
     client_res = await db.execute(client_query)
     registered_clients = client_res.scalars().all()
 

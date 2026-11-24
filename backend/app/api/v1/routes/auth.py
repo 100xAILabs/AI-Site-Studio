@@ -779,6 +779,9 @@ async def register(
         hashed_password=hash_password(password),
         role=UserRole.SELLER if effective_role == "seller" else UserRole.BUYER,
         is_email_verified=False,
+        client_of_creator_id=c_obj.id if c_obj else None,
+        client_of_creator_slug=c_obj.creator_store_slug if c_obj else None,
+        client_of_brand=(c_obj.creator_brand_name or c_obj.username) if c_obj else None,
         extra_metadata=extra_meta if extra_meta else None
     )
     db.add(user)
@@ -867,13 +870,16 @@ async def login_email(
 
         # Attribute user to creator if logging in via creator's portal
         creator_param = data.get("creator_slug") or data.get("creator")
-        if creator_param and not (user.extra_metadata and user.extra_metadata.get("client_of_creator_id")):
+        if creator_param and not user.client_of_creator_id:
             try:
                 c_slug = str(creator_param).strip().lower()
                 c_stmt = select(User).where(func.lower(User.creator_store_slug) == c_slug)
                 c_res = await db.execute(c_stmt)
                 c_obj = c_res.scalar_one_or_none()
                 if c_obj and c_obj.id != user.id:
+                    user.client_of_creator_id = c_obj.id
+                    user.client_of_creator_slug = c_obj.creator_store_slug
+                    user.client_of_brand = c_obj.creator_brand_name or c_obj.username
                     meta = dict(user.extra_metadata or {})
                     meta["client_of_creator_id"] = str(c_obj.id)
                     meta["client_of_creator_slug"] = c_obj.creator_store_slug

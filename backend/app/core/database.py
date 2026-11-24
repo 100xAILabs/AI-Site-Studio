@@ -199,6 +199,10 @@ async def init_db() -> None:
             ("detected_ip", "VARCHAR(45)"),
             ("subscription_tier", "VARCHAR(50) DEFAULT 'free'"),
             ("token_version", "INTEGER DEFAULT 0 NOT NULL"),
+            ("client_of_creator_id", "UUID"),
+            ("client_of_creator_slug", "VARCHAR(100)"),
+            ("client_of_brand", "VARCHAR(255)"),
+            ("extra_metadata", "JSON DEFAULT '{}'::json"),
         ]
         for col_name, col_type in user_columns_to_add:
             try:
