@@ -142,6 +142,9 @@ function AppRouteContent() {
           <Route path="/creator" element={<Navigate to="/creator/setup" replace />} />
           <Route path="/creator/setup" element={<ProtectedRoute><CreatorSetupPage /></ProtectedRoute>} />
           <Route path="/creator/:creatorSlug/template/:slug" element={<TemplateDetailsPage />} />
+          <Route path="/creator/:creatorSlug/checkout" element={<Checkout />} />
+          <Route path="/creator/:creatorSlug/login" element={<SignIn />} />
+          <Route path="/creator/:creatorSlug/register" element={<SignIn isRegister={true} />} />
           <Route path="/creator/:slug" element={<CreatorStorefrontPage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/terms" element={<TermsPage />} />

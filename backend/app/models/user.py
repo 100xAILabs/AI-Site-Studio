@@ -183,6 +183,18 @@ class User(UUIDMixin, TimestampMixin, Base):
     storefront_distribution: Mapped[Optional[str]] = mapped_column(String(50), default="both", nullable=True) # marketplace, storefront, both
     is_creator_onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
 
+    @property
+    def client_of_creator_slug(self) -> Optional[str]:
+        if self.extra_metadata and isinstance(self.extra_metadata, dict):
+            return self.extra_metadata.get("client_of_creator_slug")
+        return None
+
+    @property
+    def client_of_creator_brand(self) -> Optional[str]:
+        if self.extra_metadata and isinstance(self.extra_metadata, dict):
+            return self.extra_metadata.get("client_of_brand")
+        return None
+
 
     # Relationships
     orders: Mapped[List["Order"]] = relationship(back_populates="user", lazy="select", cascade="all, delete-orphan")

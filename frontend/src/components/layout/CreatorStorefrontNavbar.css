@@ -1,0 +1,10 @@
+@import "@/app/creator/[slug]/Page.css";
+
+.sf-nav-user-pill {
+  transition: all 0.2s ease;
+}
+
+.sf-nav-login-btn {
+  text-decoration: none;
+  font-family: inherit;
+}

@@ -246,12 +246,12 @@ export const useAuthStore = create(
       },
 
       /** Email Login */
-      signInWithEmail: async ({ email, password, role }) => {
+      signInWithEmail: async ({ email, password, role, creator_slug }) => {
         try {
           const res = await fetch(`${API_BASE}/auth/login`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email, password, role })
+            body: JSON.stringify({ email, password, role, creator_slug })
           });
 
           if (res.status === 429) {
@@ -338,12 +338,12 @@ export const useAuthStore = create(
       },
 
       /** Email Register */
-      registerWithEmail: async ({ email, password, role }) => {
+      registerWithEmail: async ({ email, password, role, creator_slug }) => {
         try {
           const res = await fetch(`${API_BASE}/auth/register`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email, password, role })
+            body: JSON.stringify({ email, password, role, creator_slug })
           });
 
           if (!res.ok) {

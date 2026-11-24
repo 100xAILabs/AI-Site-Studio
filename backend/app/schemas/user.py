@@ -103,6 +103,8 @@ class UserResponse(UserBase):
     payout_razorpay_vpa: Optional[str] = None
     storefront_distribution: Optional[str] = "both"
     is_creator_onboarding_completed: bool = False
+    client_of_creator_slug: Optional[str] = None
+    client_of_creator_brand: Optional[str] = None
     country: Optional[str] = None
     country_code: Optional[str] = None
     city: Optional[str] = None

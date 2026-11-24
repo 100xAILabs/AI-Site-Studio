@@ -25,6 +25,7 @@ import {
 import "@/app/creator/[slug]/Page.css";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Navbar from "@/components/layout/Navbar";
+import CreatorStorefrontNavbar from "@/components/layout/CreatorStorefrontNavbar";
 import TemplateCard from "@/components/marketplace/TemplateCard";
 import { useTemplate, useTemplates, useToggleFavorite, useToggleWishlist, useTemplateReviews, useCreateReview, useFollowStatus, useToggleFollow } from "@/hooks/useTemplates";
 import { cn, formatPrice, formatConvertedPrice, formatNumber, convertToUSD } from "@/lib/utils";
@@ -231,63 +232,6 @@ function DeviceSandbox({ mode, previewSrc, title, slug }) {
   return null;
 }
 
-function CreatorStorefrontNavbar({ storefront, creatorSlug, cartItems = [] }) {
-  const storeSlug = storefront?.store_slug || creatorSlug;
-  const brandName = storefront?.brand_name || "Creator Storefront";
-  const domainHost = typeof window !== "undefined" ? window.location.host : "aisitestudio.com";
-
-  return (
-    <header className="sf-navbar">
-      <div className="sf-navbar-inner">
-        <Link href={`/creator/${storeSlug}`} className="sf-nav-brand">
-          <div className="sf-nav-logo-box">
-            {storefront?.logo_url ? (
-              <img src={storefront.logo_url} alt="" className="sf-nav-logo-img" />
-            ) : (
-              <Store className="w-5 h-5 text-[#dfb180]" />
-            )}
-          </div>
-          <div className="sf-nav-brand-text">
-            <span className="sf-nav-brand-title">{brandName}</span>
-            <span className="sf-nav-domain-label">
-              {domainHost}/creator/{storeSlug}
-            </span>
-          </div>
-        </Link>
-
-        {/* Center Back to Storefront Link */}
-        <nav className="sf-nav-links">
-          <Link href={`/creator/${storeSlug}`} className="sf-nav-link-btn active">
-            <ArrowLeft className="w-3.5 h-3.5 mr-1.5" />
-            <span>Back to {brandName}</span>
-          </Link>
-          <Link href={`/creator/${storeSlug}?tab=about`} className="sf-nav-link-btn">
-            <UserCheck className="w-3.5 h-3.5 mr-1.5" />
-            <span>About</span>
-          </Link>
-          <Link href={`/creator/${storeSlug}?tab=contact`} className="sf-nav-link-btn">
-            <Mail className="w-3.5 h-3.5 mr-1.5" />
-            <span>Contact</span>
-          </Link>
-        </nav>
-
-        {/* Right actions */}
-        <div className="sf-nav-actions">
-          {storefront?.support_email && (
-            <a href={`mailto:${storefront.support_email}`} className="sf-nav-email-pill">
-              <Mail className="w-3.5 h-3.5 text-[#dfb180]" />
-              <span className="sf-nav-email-text">{storefront.support_email}</span>
-            </a>
-          )}
-          <Link href="/checkout" className="sf-nav-cart-btn" title="View Cart">
-            <ShoppingCart className="w-4 h-4 text-zinc-300" />
-            {cartItems.length > 0 && <span className="sf-nav-cart-badge">{cartItems.length}</span>}
-          </Link>
-        </div>
-      </div>
-    </header>
-  );
-}
 
 export default function TemplateDetailsPage({ slug: propSlug, creatorSlug: propCreatorSlug }) {
   const { slug: routeSlug, creatorSlug: routeCreatorSlug } = useParams();

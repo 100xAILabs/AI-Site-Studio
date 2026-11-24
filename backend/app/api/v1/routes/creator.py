@@ -17,6 +17,7 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user, get_current_user_optional
 from app.models.user import User, UserRole
 from app.models.template import Template, TemplateStatus
+from app.models.order import Order, OrderItem
 from app.models.category import Category
 from app.schemas.creator import (
     CreatorSetupRequest,
@@ -465,3 +466,97 @@ async def get_public_creator_storefront(
         ),
         templates=template_responses,
     )
+
+
+@router.get("/customers")
+async def get_creator_customers(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    List all clients and customers registered under or purchased from this creator.
+    """
+    creator_id_str = str(current_user.id)
+    creator_slug = current_user.creator_store_slug or ""
+
+    # 1. Users whose extra_metadata marks them as a client of this creator
+    client_query = select(User).where(
+        or_(
+            User.extra_metadata["client_of_creator_id"].astext == creator_id_str,
+            and_(
+                creator_slug != "",
+                User.extra_metadata["client_of_creator_slug"].astext == creator_slug
+            )
+        )
+    )
+    client_res = await db.execute(client_query)
+    registered_clients = client_res.scalars().all()
+
+    # 2. Users who bought templates authored/retailed by this creator
+    order_items_query = (
+        select(OrderItem, Order, Template, User)
+        .join(Order, OrderItem.order_id == Order.id)
+        .join(Template, OrderItem.template_id == Template.id)
+        .join(User, Order.user_id == User.id)
+        .where(
+            Template.seller_id == current_user.id
+        )
+    )
+    order_res = await db.execute(order_items_query)
+    order_rows = order_res.all()
+
+    customers_map = {}
+
+    # Add registered clients
+    for u in registered_clients:
+        if u.id == current_user.id:
+            continue
+        u_id = str(u.id)
+        customers_map[u_id] = {
+            "id": u_id,
+            "email": u.email,
+            "name": u.full_name or u.username or u.email.split("@")[0],
+            "avatar_url": u.avatar_url,
+            "created_at": u.created_at.isoformat() if u.created_at else None,
+            "is_buyer": False,
+            "orders_count": 0,
+            "total_spent": 0.0,
+            "templates_owned": [],
+            "source": "Registered Client"
+        }
+
+    # Add template purchasers
+    for item, order, tmpl, u in order_rows:
+        if u.id == current_user.id:
+            continue
+        u_id = str(u.id)
+        if u_id not in customers_map:
+            customers_map[u_id] = {
+                "id": u_id,
+                "email": u.email,
+                "name": u.full_name or u.username or u.email.split("@")[0],
+                "avatar_url": u.avatar_url,
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+                "is_buyer": True,
+                "orders_count": 0,
+                "total_spent": 0.0,
+                "templates_owned": [],
+                "source": "Template Buyer"
+            }
+        c = customers_map[u_id]
+        c["is_buyer"] = True
+        c["orders_count"] += 1
+        c["total_spent"] += float(item.price or 0)
+        tmpl_title = tmpl.title if tmpl else "Template"
+        if tmpl_title not in c["templates_owned"]:
+            c["templates_owned"].append(tmpl_title)
+
+    customers_list = list(customers_map.values())
+    customers_list.sort(key=lambda x: (x["total_spent"], x["orders_count"]), reverse=True)
+
+    return {
+        "creator_brand_name": current_user.creator_brand_name or current_user.username,
+        "creator_slug": current_user.creator_store_slug,
+        "total_customers": len(customers_list),
+        "customers": customers_list
+    }

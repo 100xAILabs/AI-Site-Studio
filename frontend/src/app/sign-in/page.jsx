@@ -2,7 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { Link, useNavigate, useLocation, useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { useCartStore } from "@/store";
 import {
   Home,
   Mail,
@@ -19,6 +22,7 @@ import {
   ArrowRight,
   AlertCircle,
   Code2,
+  BadgeCheck,
 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { useAppUser } from "@/lib/auth";
@@ -28,10 +32,26 @@ import "./Page.css";
 export default function SignInPage({ isRegister = false }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const params = useParams();
+  const routeCreatorSlug = params?.creatorSlug;
+  const searchCreatorSlug = new URLSearchParams(location.search).get("creator");
+  const creatorSlug = routeCreatorSlug || searchCreatorSlug;
+
   const from = new URLSearchParams(location.search).get("from") || "/dashboard";
   const urlError = new URLSearchParams(location.search).get("error") || "";
 
   const { isSignedIn, isLoaded } = useAppUser();
+  const cartItems = useCartStore((s) => s.items);
+
+  const { data: creatorStorefront } = useQuery({
+    queryKey: ["creatorStorefront", creatorSlug],
+    queryFn: async () => {
+      const res = await api.get(`/creator/storefront/${encodeURIComponent(creatorSlug)}`);
+      return res;
+    },
+    enabled: Boolean(creatorSlug),
+    staleTime: 60 * 1000,
+  });
 
   const [role, setRole] = useState("buyer");
   const [agreed, setAgreed] = useState(true);
@@ -51,9 +71,17 @@ export default function SignInPage({ isRegister = false }) {
 
   useEffect(() => {
     if (isLoaded && isSignedIn) {
-      navigate(from, { replace: true });
+      if (creatorSlug) {
+        if (cartItems.length > 0) {
+          navigate(`/creator/${creatorSlug}/checkout`, { replace: true });
+        } else {
+          navigate(from !== "/dashboard" ? from : `/creator/${creatorSlug}`, { replace: true });
+        }
+      } else {
+        navigate(from, { replace: true });
+      }
     }
-  }, [isLoaded, isSignedIn, navigate, from]);
+  }, [isLoaded, isSignedIn, navigate, from, creatorSlug, cartItems.length]);
 
   // Handle lock countdown timer
   useEffect(() => {
@@ -99,20 +127,31 @@ export default function SignInPage({ isRegister = false }) {
           return;
         }
         setDuplicateAccountInfo(null);
-        const result = await registerWithEmail({ email, password, role });
+        const result = await registerWithEmail({
+          email,
+          password,
+          role,
+          creator_slug: creatorSlug || undefined,
+        });
         if (result?.requires_otp) {
           navigate(`/verify-otp?email=${encodeURIComponent(result.email || email)}`, {
             state: {
               email: result.email || email,
               role,
               sent: result.sent,
-              message: result.message
+              message: result.message,
+              creator_slug: creatorSlug || undefined,
             }
           });
           return;
         }
       } else {
-        const result = await signInWithEmail({ email, password, role });
+        const result = await signInWithEmail({
+          email,
+          password,
+          role,
+          creator_slug: creatorSlug || undefined,
+        });
         if (result?.requires_otp) {
           navigate(`/verify-otp?email=${encodeURIComponent(result.email || email)}`, {
             state: {
@@ -181,14 +220,28 @@ export default function SignInPage({ isRegister = false }) {
 
       {/* Top Header Navigation */}
       <header className="auth-studio-header">
-        <Link to="/" className="auth-header-brand" title="Site Studio Home">
-          <SiteStudioLogoIcon className="w-8 h-8" />
-          <span className="auth-header-title">Site Studio</span>
+        <Link
+          to={creatorSlug ? `/creator/${creatorSlug}` : "/"}
+          className="auth-header-brand"
+          title={creatorSlug ? creatorStorefront?.brand_name || "Creator Storefront" : "Site Studio Home"}
+        >
+          {creatorSlug && creatorStorefront?.logo_url ? (
+            <img src={creatorStorefront.logo_url} alt="" className="w-8 h-8 rounded-lg object-cover" />
+          ) : (
+            <SiteStudioLogoIcon className="w-8 h-8" />
+          )}
+          <span className="auth-header-title">
+            {creatorSlug ? creatorStorefront?.brand_name || "Client Portal" : "Site Studio"}
+          </span>
         </Link>
 
-        <Link to="/" className="auth-back-home-link" title="Return to home page">
-          <Home className="w-4 h-4 mr-1.5" />
-          <span>Back to Home</span>
+        <Link
+          to={creatorSlug ? `/creator/${creatorSlug}` : "/"}
+          className="auth-back-home-link"
+          title={creatorSlug ? `Back to ${creatorStorefront?.brand_name || "Storefront"}` : "Return to home page"}
+        >
+          {creatorSlug ? <ArrowLeft className="w-4 h-4 mr-1.5" /> : <Home className="w-4 h-4 mr-1.5" />}
+          <span>{creatorSlug ? `Back to ${creatorStorefront?.brand_name || "Storefront"}` : "Back to Home"}</span>
         </Link>
       </header>
 
@@ -339,12 +392,34 @@ export default function SignInPage({ isRegister = false }) {
             {/* Card Header with Logo */}
             <div className="auth-glass-header">
               <div className="auth-glass-logo-wrap">
-                <SiteStudioLogoIcon className="w-11 h-11" />
+                {creatorSlug && creatorStorefront?.logo_url ? (
+                  <img
+                    src={creatorStorefront.logo_url}
+                    alt=""
+                    className="w-11 h-11 rounded-xl object-cover"
+                  />
+                ) : (
+                  <SiteStudioLogoIcon className="w-11 h-11" />
+                )}
               </div>
-              <h2 className="auth-glass-title">Site Studio</h2>
+              <h2 className="auth-glass-title">
+                {creatorSlug ? creatorStorefront?.brand_name || "Client Portal" : "Site Studio"}
+              </h2>
               <p className="auth-glass-subtitle">
-                Sign in to your account
+                {creatorSlug
+                  ? isRegister
+                    ? "Register as an official client"
+                    : "Sign in to your client account"
+                  : isRegister
+                  ? "Create your account"
+                  : "Sign in to your account"}
               </p>
+              {creatorSlug && (
+                <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#dfb180]/15 text-[#dfb180] border border-[#dfb180]/30 text-[11px] font-semibold">
+                  <BadgeCheck className="w-3.5 h-3.5" />
+                  <span>Official Client Portal • @{creatorSlug}</span>
+                </div>
+              )}
             </div>
 
             {/* Email & Password Authentication Form */}
@@ -585,7 +660,15 @@ export default function SignInPage({ isRegister = false }) {
                 {isRegister ? "Already have an account?" : "Don't have an account?"}
               </span>{" "}
               <Link
-                to={isRegister ? "/sign-in" : "/register"}
+                to={
+                  isRegister
+                    ? creatorSlug
+                      ? `/creator/${creatorSlug}/login`
+                      : "/sign-in"
+                    : creatorSlug
+                    ? `/creator/${creatorSlug}/register`
+                    : "/register"
+                }
                 className="footer-action-link"
               >
                 {isRegister ? "Sign In" : "Create Account"}

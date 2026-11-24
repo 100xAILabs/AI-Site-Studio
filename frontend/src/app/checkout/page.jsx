@@ -8,8 +8,10 @@
 export const dynamic = "force-dynamic";
 
 import { useState, useEffect } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
 import { useAppAuth, useAppUser } from "@/lib/auth";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
+import "@/app/creator/[slug]/Page.css";
 import { navigate } from "@/components/Link";
 const useRouter = () => ({
   push: (to) => navigate(to),
@@ -53,6 +55,7 @@ import {
   Store,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
+import CreatorStorefrontNavbar from "@/components/layout/CreatorStorefrontNavbar";
 import { useCartStore } from "@/store";
 import { api } from "@/lib/api";
 import { cn, formatPrice, formatConvertedPrice } from "@/lib/utils";
@@ -74,6 +77,9 @@ export default function Checkout() {
   const router = useRouter();
   const { isPurchased } = usePurchasedTemplateIds();
 
+  const params = useParams();
+  const [searchParams] = useSearchParams();
+
   const {
     items,
     addItem,
@@ -94,6 +100,21 @@ export default function Checkout() {
     applyCoupon,
     removeCoupon,
   } = useCartStore();
+
+  const routeCreatorSlug = params?.creatorSlug;
+  const queryCreatorSlug = searchParams?.get("creator");
+  const cartCreatorSlug = items?.find((i) => i.creator_slug)?.creator_slug;
+  const activeCreatorSlug = routeCreatorSlug || queryCreatorSlug || cartCreatorSlug;
+
+  const { data: creatorStorefront } = useQuery({
+    queryKey: ["creatorStorefront", activeCreatorSlug],
+    queryFn: async () => {
+      const res = await api.get(`/creator/storefront/${encodeURIComponent(activeCreatorSlug)}`);
+      return res;
+    },
+    enabled: Boolean(activeCreatorSlug),
+    staleTime: 60 * 1000,
+  });
 
   const [paymentGateway, setPaymentGateway] = useState("razorpay"); // "razorpay" | "stripe"
   const [paymentMethod, setPaymentMethod] = useState("upi"); // "upi" | "card" | "netbanking" | "stripe"
@@ -369,7 +390,7 @@ export default function Checkout() {
       key: targetPay.key_id,
       amount: targetPay.amount,
       currency: targetPay.currency || "INR",
-      name: "Site Studio",
+      name: creatorStorefront?.brand_name || "Site Studio",
       description: `Order #${targetOrder.order_number || targetOrder.id?.slice(0, 8)}`,
       order_id: targetPay.gateway_order_id,
       prefill: {
@@ -537,7 +558,6 @@ export default function Checkout() {
   };
 
   // Direct plan or token pack checkout extraction
-  const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
   const planParam = searchParams.get("plan");
   const billingParam = searchParams.get("billing") || "annual";
   const packParam = searchParams.get("pack");
@@ -743,7 +763,15 @@ export default function Checkout() {
 
   return (
     <>
-      <Navbar />
+      {activeCreatorSlug ? (
+        <CreatorStorefrontNavbar
+          storefront={creatorStorefront}
+          creatorSlug={activeCreatorSlug}
+          cartItems={items}
+        />
+      ) : (
+        <Navbar />
+      )}
       <div className="checkout-page">
         {/* Ambient Radial Background Glows */}
         <div className="cart-ambient-glow top-left" />
@@ -754,12 +782,23 @@ export default function Checkout() {
           {/* Top Bar Navigation */}
           <div className="cart-top-bar">
             <div className="cart-top-left-group">
-              <Link href="/marketplace" className="cart-continue-btn">
+              <Link
+                href={activeCreatorSlug ? `/creator/${activeCreatorSlug}` : "/marketplace"}
+                className="cart-continue-btn"
+              >
                 <ArrowLeft size={13} />
-                <span>Continue Shopping</span>
+                <span>
+                  {activeCreatorSlug
+                    ? `Back to ${creatorStorefront?.brand_name || "Storefront"}`
+                    : "Continue Shopping"}
+                </span>
               </Link>
               <div className="cart-title-inline-group">
-                <h1 className="cart-heading-title">Your Shopping Cart</h1>
+                <h1 className="cart-heading-title">
+                  {activeCreatorSlug
+                    ? `${creatorStorefront?.brand_name || "Creator"}'s Cart`
+                    : "Your Shopping Cart"}
+                </h1>
                 <span className="cart-heading-separator">•</span>
                 <p className="cart-heading-subtitle">
                   <span>Review your items before proceeding to checkout</span>
@@ -1017,10 +1056,10 @@ export default function Checkout() {
                 </Link>
 
                 <Link
-                  href="/marketplace"
+                  href={activeCreatorSlug ? `/creator/${activeCreatorSlug}` : "/marketplace"}
                   className="success-footer-link"
                 >
-                  <span>Browse More Templates</span>
+                  <span>{activeCreatorSlug ? `Return to ${creatorStorefront?.brand_name || "Storefront"}` : "Browse More Templates"}</span>
                   <ArrowRight className="w-4 h-4" />
                 </Link>
               </div>
@@ -1060,8 +1099,13 @@ export default function Checkout() {
                         Discover top-selling templates and bring your dream website to life.
                       </p>
                       <div className="flex gap-3 flex-wrap justify-center">
-                        <Link href="/marketplace" className="cart-browse-btn">
-                          Browse Marketplace →
+                        <Link
+                          href={activeCreatorSlug ? `/creator/${activeCreatorSlug}` : "/marketplace"}
+                          className="cart-browse-btn"
+                        >
+                          {activeCreatorSlug
+                            ? `Browse ${creatorStorefront?.brand_name || "Creator"}'s Templates →`
+                            : "Browse Marketplace →"}
                         </Link>
                         <button
                           type="button"

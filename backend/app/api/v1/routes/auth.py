@@ -759,12 +759,27 @@ async def register(
     if effective_role != "seller" and is_company_email(email):
         effective_role = "seller"
 
+    creator_slug = data.get("creator_slug") or data.get("creator")
+    extra_meta = {}
+    if creator_slug:
+        c_slug = str(creator_slug).strip().lower()
+        c_stmt = select(User).where(func.lower(User.creator_store_slug) == c_slug)
+        c_res = await db.execute(c_stmt)
+        c_obj = c_res.scalar_one_or_none()
+        if c_obj:
+            extra_meta = {
+                "client_of_creator_id": str(c_obj.id),
+                "client_of_creator_slug": c_obj.creator_store_slug,
+                "client_of_brand": c_obj.creator_brand_name or c_obj.username,
+            }
+
     user = User(
         email=email,
         username=unique_username,
         hashed_password=hash_password(password),
         role=UserRole.SELLER if effective_role == "seller" else UserRole.BUYER,
-        is_email_verified=False
+        is_email_verified=False,
+        extra_metadata=extra_meta if extra_meta else None
     )
     db.add(user)
     await db.flush()
@@ -849,6 +864,24 @@ async def login_email(
             await update_user_location(user, db, request=request)
         except Exception as err:
             print(f"Location update notice on login: {err}")
+
+        # Attribute user to creator if logging in via creator's portal
+        creator_param = data.get("creator_slug") or data.get("creator")
+        if creator_param and not (user.extra_metadata and user.extra_metadata.get("client_of_creator_id")):
+            try:
+                c_slug = str(creator_param).strip().lower()
+                c_stmt = select(User).where(func.lower(User.creator_store_slug) == c_slug)
+                c_res = await db.execute(c_stmt)
+                c_obj = c_res.scalar_one_or_none()
+                if c_obj and c_obj.id != user.id:
+                    meta = dict(user.extra_metadata or {})
+                    meta["client_of_creator_id"] = str(c_obj.id)
+                    meta["client_of_creator_slug"] = c_obj.creator_store_slug
+                    meta["client_of_brand"] = c_obj.creator_brand_name or c_obj.username
+                    user.extra_metadata = meta
+                    await db.commit()
+            except Exception as e_meta:
+                print(f"Creator client linking notice on login: {e_meta}")
 
         user_role_for_token = user.role.value if hasattr(user.role, "value") else str(user.role)
         tv = getattr(user, "token_version", 0)

@@ -45,8 +45,10 @@ import {
   Clock,
   ArrowRight,
   BadgeCheck,
+  Users,
 } from "lucide-react";
 import TemplateCard from "@/components/marketplace/TemplateCard";
+import CreatorStorefrontNavbar from "@/components/layout/CreatorStorefrontNavbar";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { useAppUser } from "@/lib/auth";
@@ -299,6 +301,15 @@ export default function CreatorStorefrontPage() {
     (user?.creator_store_slug === slug ||
       (user?.username && user.username.toLowerCase() === slug.toLowerCase()));
 
+  const { data: creatorCustomers = [] } = useQuery({
+    queryKey: ["creatorCustomers", storefront?.id],
+    queryFn: async () => {
+      const res = await api.get("/creator/customers");
+      return res || [];
+    },
+    enabled: Boolean(isOwner),
+  });
+
   if (isLoading) {
     return (
       <div className="storefront-page">
@@ -338,110 +349,13 @@ export default function CreatorStorefrontPage() {
   return (
     <div className="storefront-page">
       {/* ── 1. AUTHORITATIVE CREATOR STOREFRONT HEADER NAVBAR ── */}
-      <header className="sf-navbar">
-        <div className="sf-navbar-inner">
-          {/* Creator Brand Logo & Name */}
-          <button
-            type="button"
-            onClick={() => setTab("templates")}
-            className="sf-nav-brand bg-transparent border-none p-0 cursor-pointer text-left"
-          >
-            <div className="sf-nav-logo-box">
-              {storefront.logo_url ? (
-                <img
-                  src={storefront.logo_url}
-                  alt={storefront.brand_name}
-                  className="sf-nav-logo-img"
-                  onError={(e) => {
-                    e.currentTarget.style.display = "none";
-                  }}
-                />
-              ) : (
-                <Store className="w-5 h-5 text-[#dfb180]" />
-              )}
-            </div>
-            <div className="sf-nav-brand-text">
-              <span className="sf-nav-brand-title">{storefront.brand_name}</span>
-              <span className="sf-nav-domain-label">
-                {typeof window !== "undefined" ? window.location.host : "aisitestudio.com"}/creator/{storefront.store_slug}
-              </span>
-            </div>
-          </button>
-
-          {/* Dedicated Page Links (Single primary navigation bar) */}
-          <nav className="sf-nav-links">
-            <button
-              type="button"
-              onClick={() => setTab("templates")}
-              className={`sf-nav-link-btn ${activeTab === "templates" ? "active" : ""}`}
-            >
-              <LayoutGrid className="w-3.5 h-3.5 mr-1.5" />
-              <span>Templates ({templates.length})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("about")}
-              className={`sf-nav-link-btn ${activeTab === "about" ? "active" : ""}`}
-            >
-              <User className="w-3.5 h-3.5 mr-1.5" />
-              <span>About</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("contact")}
-              className={`sf-nav-link-btn ${activeTab === "contact" ? "active" : ""}`}
-            >
-              <Send className="w-3.5 h-3.5 mr-1.5" />
-              <span>Contact</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("payments")}
-              className={`sf-nav-link-btn ${activeTab === "payments" ? "active" : ""}`}
-            >
-              <CreditCard className="w-3.5 h-3.5 mr-1.5" />
-              <span>Payment Channels</span>
-            </button>
-          </nav>
-
-          {/* Right Action Group */}
-          <div className="sf-nav-actions">
-            {/* Direct Support Email Pill */}
-            {storefront.support_email && (
-              <a
-                href={`mailto:${storefront.support_email}`}
-                className="sf-nav-email-pill"
-                title={`Email ${storefront.brand_name} directly`}
-              >
-                <Mail className="w-3.5 h-3.5 text-[#dfb180]" />
-                <span className="sf-nav-email-text">{storefront.support_email}</span>
-              </a>
-            )}
-
-            {/* Cart Button */}
-            <Link to="/checkout" className="sf-nav-cart-btn" title="View Cart">
-              <ShoppingCart className="w-4 h-4 text-zinc-300" />
-              {cartItems.length > 0 && (
-                <span className="sf-nav-cart-badge">{cartItems.length}</span>
-              )}
-            </Link>
-
-            {/* Owner Management Button */}
-            {isOwner && (
-              <Link to="/creator/setup" className="sf-nav-manage-btn" title="Edit Setup">
-                <SlidersHorizontal className="w-3.5 h-3.5 text-[#dfb180]" />
-                <span>Manage</span>
-              </Link>
-            )}
-
-            {/* Jump to Marketplace Directory */}
-            <Link to="/marketplace" className="sf-nav-mp-link" title="Explore Marketplace Directory">
-              <span>Marketplace</span>
-              <ExternalLink className="w-3 h-3 ml-1" />
-            </Link>
-          </div>
-        </div>
-      </header>
+      <CreatorStorefrontNavbar
+        storefront={storefront}
+        creatorSlug={slug}
+        cartItems={cartItems}
+        activeNav={activeTab}
+        onSelectTab={(t) => setTab(t)}
+      />
 
       {/* ── 2. DEDICATED DISTINCT PAGES ── */}
       <main className="storefront-main">
@@ -1396,6 +1310,149 @@ export default function CreatorStorefrontPage() {
                   All purchases processed through AI Site Studio are protected by our automated license issuance and verified code delivery engine.
                 </p>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* PAGE 5: CREATOR CLIENTS & AUDIENCE CRM (OWNER ONLY)                       */}
+        {/* ========================================================================= */}
+        {activeTab === "customers" && isOwner && (
+          <div className="sf-page-view sf-page-customers">
+            {/* Header Banner */}
+            <div className="sf-page-header-banner">
+              <div className="sf-editorial-badge">
+                <Users className="w-3.5 h-3.5 text-[#dfb180]" />
+                <span>Creator Client CRM &amp; Audience</span>
+              </div>
+              <h2>Clients &amp; Customers for {storefront.brand_name}</h2>
+              <p>
+                All users who registered through your official creator portal (<code>/creator/{storefront.store_slug}/register</code>) or purchased templates created by you.
+              </p>
+            </div>
+
+            {/* Quick Metrics */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+              <div className="p-5 rounded-2xl bg-white/[0.03] border border-white/10">
+                <div className="flex items-center justify-between text-zinc-400 text-xs mb-2">
+                  <span>Total Registered Clients</span>
+                  <Users className="w-4 h-4 text-[#dfb180]" />
+                </div>
+                <div className="text-2xl font-bold text-white">
+                  {creatorCustomers.length}
+                </div>
+                <p className="text-[11px] text-zinc-500 mt-1">Clients attributed to your store</p>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-white/[0.03] border border-white/10">
+                <div className="flex items-center justify-between text-zinc-400 text-xs mb-2">
+                  <span>Template Purchases</span>
+                  <ShoppingBag className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div className="text-2xl font-bold text-white">
+                  {creatorCustomers.reduce((sum, c) => sum + (c.orders_count || 0), 0)}
+                </div>
+                <p className="text-[11px] text-zinc-500 mt-1">Orders for your templates</p>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-white/[0.03] border border-white/10">
+                <div className="flex items-center justify-between text-zinc-400 text-xs mb-2">
+                  <span>Total Direct Revenue</span>
+                  <DollarSign className="w-4 h-4 text-amber-400" />
+                </div>
+                <div className="text-2xl font-bold text-white">
+                  ${creatorCustomers.reduce((sum, c) => sum + (Number(c.total_spent) || 0), 0).toFixed(2)}
+                </div>
+                <p className="text-[11px] text-zinc-500 mt-1">Revenue from template sales</p>
+              </div>
+            </div>
+
+            {/* Client Audience Table */}
+            <div className="rounded-2xl bg-[#0c1017] border border-white/10 overflow-hidden">
+              <div className="p-4 border-b border-white/10 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                  <Users className="w-4 h-4 text-[#dfb180]" />
+                  <span>Customer Directory ({creatorCustomers.length})</span>
+                </h3>
+                <span className="text-xs text-zinc-400">
+                  Storefront ID: <code>@{storefront.store_slug}</code>
+                </span>
+              </div>
+
+              {creatorCustomers.length === 0 ? (
+                <div className="p-12 text-center">
+                  <div className="w-12 h-12 rounded-full bg-white/[0.04] text-zinc-500 flex items-center justify-center mx-auto mb-3">
+                    <Users className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-base font-semibold text-white mb-1">No Clients Registered Yet</h4>
+                  <p className="text-xs text-zinc-400 max-w-md mx-auto mb-4">
+                    Share your official creator portal link with clients. Any user who signs up or buys templates from your storefront will be tracked under your account:
+                  </p>
+                  <code className="px-3 py-1.5 rounded-lg bg-black/40 border border-white/10 text-xs text-[#dfb180] inline-block">
+                    {typeof window !== "undefined" ? window.location.origin : ""}/creator/{storefront.store_slug}/register
+                  </code>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-white/[0.02] text-zinc-400 border-b border-white/5">
+                      <tr>
+                        <th className="p-3.5 font-medium">Customer / Client</th>
+                        <th className="p-3.5 font-medium">Attribution</th>
+                        <th className="p-3.5 font-medium">Templates Owned</th>
+                        <th className="p-3.5 font-medium">Orders</th>
+                        <th className="p-3.5 font-medium">Total Spend</th>
+                        <th className="p-3.5 font-medium">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {creatorCustomers.map((cust) => (
+                        <tr key={cust.id} className="hover:bg-white/[0.02] transition-colors">
+                          <td className="p-3.5">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-7 h-7 rounded-full bg-[#dfb180]/20 text-[#dfb180] flex items-center justify-center font-bold text-xs shrink-0">
+                                {(cust.name || cust.email || "C").charAt(0).toUpperCase()}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="font-semibold text-white truncate">{cust.name || "Customer"}</div>
+                                <div className="text-[11px] text-zinc-400 truncate">{cust.email}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="p-3.5">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#dfb180]/10 text-[#dfb180] border border-[#dfb180]/30">
+                              <BadgeCheck className="w-3 h-3" />
+                              <span>{cust.is_registered_client ? "Official Store Client" : "Template Buyer"}</span>
+                            </span>
+                          </td>
+                          <td className="p-3.5 text-zinc-300">
+                            {cust.templates_owned && cust.templates_owned.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {cust.templates_owned.map((t, idx) => (
+                                  <span key={idx} className="px-1.5 py-0.5 rounded bg-white/[0.06] text-[10px] text-zinc-200">
+                                    {typeof t === "string" ? t : t.title || "Template"}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-zinc-500">—</span>
+                            )}
+                          </td>
+                          <td className="p-3.5 text-zinc-300 font-medium">
+                            {cust.orders_count || 0}
+                          </td>
+                          <td className="p-3.5 text-emerald-400 font-semibold">
+                            ${(Number(cust.total_spent) || 0).toFixed(2)}
+                          </td>
+                          <td className="p-3.5 text-zinc-500">
+                            {cust.created_at ? new Date(cust.created_at).toLocaleDateString() : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         )}
