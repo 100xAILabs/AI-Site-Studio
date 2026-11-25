@@ -401,12 +401,16 @@ async def serve_tenant_workload(
                 b_slug = branding_meta.get("creator_slug") or ""
                 b_logo = branding_meta.get("logo_url") or ""
                 b_storefront = f"/creator/{b_slug}" if b_slug else "/"
+                if b_logo:
+                    logo_icon_html = f'<img src="{b_logo}" alt="{b_name}" class="creator-badge-logo" onerror="this.style.display=\'none\'" />'
+                else:
+                    logo_icon_html = '✦'
                 creator_badge = f"""
 <!-- Creator Deployment Branding Engine -->
 <aside id="__creator_deployment_badge__" class="creator-deployment-badge" aria-label="Creator Branding Badge">
   <a href="{b_storefront}" target="_blank" rel="noopener noreferrer" class="creator-badge-link" title="Crafted &amp; Deployed by {b_name}">
     <span class="creator-badge-icon">
-      {f'<img src="{b_logo}" alt="{b_name}" class="creator-badge-logo" onerror="this.style.display=\\'none\\'" />' if b_logo else '✦'}
+      {logo_icon_html}
     </span>
     <span class="creator-badge-text">Deployed by <strong>{b_name}</strong></span>
     <span class="creator-badge-arrow">↗</span>
