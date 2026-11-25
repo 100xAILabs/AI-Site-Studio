@@ -22,6 +22,9 @@ class ScaffoldCheckoutRequest(BaseModel):
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
     provider: Optional[str] = "stripe"
+    seller_id: Optional[str] = None
+    destination_account: Optional[str] = None
+    platform_fee_percent: Optional[float] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     success_url: Optional[str] = None
     cancel_url: Optional[str] = None

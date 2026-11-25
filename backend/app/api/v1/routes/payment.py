@@ -278,6 +278,32 @@ async def initiate_payment(
 
     is_mock_allowed = settings.ENVIRONMENT in ("development", "local", "test")
 
+    # Resolve seller attribution for marketplace payment routing & earning split
+    seller = None
+    seller_id = (order.extra_metadata or {}).get("seller_id") or (order.extra_metadata or {}).get("creator_id")
+    if seller_id:
+        try:
+            s_uuid = uuid.UUID(str(seller_id))
+            s_res = await db.execute(select(User).where(User.id == s_uuid))
+            seller = s_res.scalar_one_or_none()
+        except Exception:
+            pass
+
+    if not seller and order.items:
+        for item in order.items:
+            if item.template and item.template.seller_id:
+                s_res = await db.execute(select(User).where(User.id == item.template.seller_id))
+                seller = s_res.scalar_one_or_none()
+                if seller:
+                    seller_id = str(seller.id)
+                    break
+
+    # Earning split & fee calculation:
+    # Extreme creator / retailing subscribers have 0% platform fee (waived)
+    # Standard creators have 10% platform commission fee
+    is_extreme = bool(getattr(seller, "is_extreme_subscriber", False) or getattr(seller, "can_retail_templates", False))
+    platform_fee_rate = Decimal("0.0") if is_extreme else Decimal("0.10")
+
     # ── 1. STRIPE PAYMENT INITIATION ──
     if data.gateway == PaymentGateway.STRIPE:
         usd_amount = Decimal(str(order.total)).quantize(Decimal("0.01"))
@@ -306,14 +332,42 @@ async def initiate_payment(
         stripe_session_id = None
         checkout_url = None
 
+        # Check for Stripe Connected Account transfer for instant automated payout
+        seller_stripe_account_id = None
+        if seller:
+            seller_stripe_account_id = (
+                getattr(seller, "payout_stripe_account_id", None)
+                or (seller.creator_payout_details or {}).get("stripe_account_id")
+            )
+
+        # Check for seller direct Stripe link
+        seller_stripe_payment_link = (
+            (seller.creator_payout_details or {}).get("stripe_payment_link")
+            if seller else None
+        )
+
+        app_fee_cents = int(round(amount_in_cents * float(platform_fee_rate)))
+        payment_intent_data = None
+        if seller_stripe_account_id and str(seller_stripe_account_id).strip().startswith("acct_"):
+            payment_intent_data = {
+                "transfer_data": {
+                    "destination": str(seller_stripe_account_id).strip(),
+                },
+                "metadata": {
+                    "order_id": str(order.id),
+                    "seller_id": str(seller_id) if seller_id else "",
+                    "creator_brand": getattr(seller, "creator_brand_name", "") or getattr(seller, "username", ""),
+                }
+            }
+            if app_fee_cents > 0:
+                payment_intent_data["application_fee_amount"] = app_fee_cents
+
         if is_stripe_configured:
             try:
                 import stripe
                 stripe.api_key = settings.STRIPE_SECRET_KEY
-                session = await asyncio.to_thread(
-                    stripe.checkout.Session.create,
-                    payment_method_types=["card"],
-                    line_items=[{
+                session_params = {
+                    "line_items": [{
                         "price_data": {
                             "currency": "usd",
                             "product_data": {
@@ -324,17 +378,22 @@ async def initiate_payment(
                         },
                         "quantity": 1,
                     }],
-                    mode="payment",
-                    client_reference_id=str(order.id),
-                    customer_email=current_user.email,
-                    success_url=f"{settings.FRONTEND_URL}/checkout?success=true&order_id={order.id}&session_id={{CHECKOUT_SESSION_ID}}",
-                    cancel_url=f"{settings.FRONTEND_URL}/checkout?cancelled=true",
-                    metadata={
+                    "mode": "payment",
+                    "client_reference_id": str(order.id),
+                    "customer_email": current_user.email,
+                    "success_url": f"{settings.FRONTEND_URL}/checkout?success=true&order_id={order.id}&session_id={{CHECKOUT_SESSION_ID}}",
+                    "cancel_url": f"{settings.FRONTEND_URL}/checkout?cancelled=true",
+                    "metadata": {
                         "order_id": str(order.id),
                         "order_number": str(order.order_number),
                         "user_id": str(current_user.id),
+                        "seller_id": str(seller_id) if seller_id else "",
                     }
-                )
+                }
+                if payment_intent_data:
+                    session_params["payment_intent_data"] = payment_intent_data
+
+                session = await asyncio.to_thread(stripe.checkout.Session.create, **session_params)
                 stripe_session_id = session.id
                 checkout_url = session.url
             except Exception as s_err:
@@ -342,13 +401,21 @@ async def initiate_payment(
                 if is_mock_allowed:
                     mock_pi = f"pi_mock_{uuid.uuid4().hex[:12]}"
                     stripe_session_id = f"{mock_pi}_secret_{uuid.uuid4().hex[:12]}"
-                    checkout_url = f"{settings.FRONTEND_URL}/checkout?mock_stripe=true&order_id={order.id}"
+                    checkout_url = (
+                        seller_stripe_payment_link
+                        if seller_stripe_payment_link
+                        else f"{settings.FRONTEND_URL}/checkout?mock_stripe=true&order_id={order.id}"
+                    )
                 else:
                     raise HTTPException(status_code=502, detail=f"Stripe payment gateway connection failed: {s_err}")
         else:
             mock_pi = f"pi_mock_{uuid.uuid4().hex[:12]}"
             stripe_session_id = f"{mock_pi}_secret_{uuid.uuid4().hex[:12]}"
-            checkout_url = f"{settings.FRONTEND_URL}/checkout?mock_stripe=true&order_id={order.id}"
+            checkout_url = (
+                seller_stripe_payment_link
+                if seller_stripe_payment_link
+                else f"{settings.FRONTEND_URL}/checkout?mock_stripe=true&order_id={order.id}"
+            )
 
         if existing_payment:
             existing_payment.gateway = PaymentGateway.STRIPE
@@ -375,6 +442,66 @@ async def initiate_payment(
             key_id=settings.STRIPE_PUBLISHABLE_KEY or "pk_test_mock",
             order_id=str(order.id),
             checkout_url=checkout_url,
+        )
+
+    # ── 2. DIRECT UPI PAYMENT INITIATION ──
+    if data.gateway == PaymentGateway.UPI:
+        upi_vpa = None
+        if seller:
+            upi_vpa = (
+                getattr(seller, "payout_razorpay_vpa", None)
+                or (seller.creator_payout_details or {}).get("upi_id")
+                or (seller.creator_payout_details or {}).get("razorpay_vpa")
+            )
+        if not upi_vpa:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{getattr(seller, 'creator_brand_name', 'The creator')} has not configured a UPI ID for direct payments."
+            )
+
+        clean_vpa = str(upi_vpa).strip().lower()
+        brand_name = getattr(seller, "creator_brand_name", "") or getattr(seller, "full_name", "") or "AI Site Studio"
+
+        usd_to_inr_rate = await get_usd_to_inr_rate()
+        inr_amount = calculate_order_inr_amount(order, usd_to_inr_rate)
+        amount_in_paise = int(inr_amount * 100)
+
+        import urllib.parse
+        encoded_brand = urllib.parse.quote(brand_name[:30])
+        encoded_note = urllib.parse.quote(f"Order #{order.order_number}")
+        upi_uri = f"upi://pay?pa={clean_vpa}&pn={encoded_brand}&am={inr_amount}&cu=INR&tn={encoded_note}"
+
+        existing_result = await db.execute(select(Payment).where(Payment.order_id == order.id))
+        existing_payment = existing_result.scalar_one_or_none()
+        if existing_payment:
+            existing_payment.gateway = PaymentGateway.UPI
+            existing_payment.gateway_order_id = f"upi_{order.id}"
+            existing_payment.amount = inr_amount
+            existing_payment.currency = "INR"
+        else:
+            payment = Payment(
+                order_id=order.id,
+                gateway=PaymentGateway.UPI,
+                gateway_order_id=f"upi_{order.id}",
+                amount=inr_amount,
+                currency="INR",
+                status=PaymentStatus.PENDING,
+            )
+            db.add(payment)
+
+        await db.flush()
+        await db.commit()
+
+        return PaymentInitResponse(
+            gateway=PaymentGateway.UPI,
+            gateway_order_id=f"upi_{order.id}",
+            amount=amount_in_paise,
+            currency="INR",
+            key_id=clean_vpa,
+            order_id=str(order.id),
+            checkout_url=upi_uri,
+            upi_uri=upi_uri,
+            vpa=clean_vpa,
         )
 
     # ── 2. RAZORPAY PAYMENT INITIATION ──
@@ -820,7 +947,41 @@ async def verify_payment(
                 logger.warning(f"Stripe checkout retrieve failed: {st_err}")
                 raise HTTPException(status_code=400, detail=f"Stripe verification failed: {st_err}")
 
-    # 3. Simulated card flow (Razorpay test mode in development / sandbox)
+    # 3. Direct UPI payment verification (UTR / transaction reference confirmation)
+    if data.gateway == PaymentGateway.UPI:
+        utr_ref = (
+            data.upi_utr
+            or data.gateway_payment_id
+            or data.gateway_signature
+            or f"upi_utr_{uuid.uuid4().hex[:12]}"
+        )
+        if not payment:
+            payment = Payment(
+                order_id=order.id,
+                gateway=PaymentGateway.UPI,
+                status=PaymentStatus.CAPTURED,
+                gateway_payment_id=utr_ref,
+                gateway_order_id=data.gateway_order_id or f"upi_{order.id}",
+                amount=order.total,
+                currency="INR",
+            )
+            db.add(payment)
+        else:
+            payment.status = PaymentStatus.CAPTURED
+            payment.gateway = PaymentGateway.UPI
+            payment.gateway_payment_id = utr_ref
+
+        order.status = OrderStatus.COMPLETED
+        await _fulfill_order_licenses(db, order, user_email=current_user.email if current_user else None)
+        await db.flush()
+        await db.commit()
+        return PaymentVerifyResponse(
+            success=True,
+            message="Direct UPI payment confirmed successfully. Your licenses and downloads are ready.",
+            order_id=str(order.id),
+        )
+
+    # 4. Simulated card flow (Razorpay test mode in development / sandbox)
     is_card_mock = (
         data.gateway == PaymentGateway.RAZORPAY
         and (

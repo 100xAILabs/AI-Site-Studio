@@ -131,10 +131,11 @@ export const useCartStore = create((set, get) => ({
     const newItems = currentItems
       .map((i) => {
         if (i.templateId === templateId || i.id === templateId) {
+          // Digital template licenses are fixed to quantity 1. If decremented, remove it.
           const newQty = (i.quantity || 1) + delta;
-          return newQty > 0 ? { ...i, quantity: newQty } : null;
+          return newQty > 0 ? { ...i, quantity: 1 } : null;
         }
-        return i;
+        return { ...i, quantity: 1 };
       })
       .filter(Boolean);
 
@@ -202,10 +203,10 @@ export const useCartStore = create((set, get) => ({
     set({ couponCode: "", couponDiscount: 0, couponSuccess: "", couponError: "" });
   },
 
-  // Raw items subtotal before coupon
+  // Raw items subtotal before coupon (enforces single-license per template)
   grossSubtotal: () =>
     get().items.reduce(
-      (sum, item) => sum + (Number(item.price) || 0) * (item.quantity || 1),
+      (sum, item) => sum + (Number(item.price) || 0) * 1,
       0
     ),
 

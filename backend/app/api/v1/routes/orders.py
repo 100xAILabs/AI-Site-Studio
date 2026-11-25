@@ -183,8 +183,11 @@ async def create_order(
     }
     if creator_obj:
         order_meta["creator_id"] = str(creator_obj.id)
+        order_meta["seller_id"] = str(creator_obj.id)
         order_meta["creator_slug"] = creator_obj.creator_store_slug
         order_meta["creator_brand_name"] = creator_obj.creator_brand_name or creator_obj.username
+    elif order_items and order_items[0][0].seller_id:
+        order_meta["seller_id"] = str(order_items[0][0].seller_id)
 
     order = Order(
         user_id=current_user.id,

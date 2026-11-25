@@ -109,7 +109,7 @@ export default function CreatorTemplateDetailsPage() {
 
   // Direct raw live preview HTML without platform shell
   const rawPreviewUrl = targetId
-    ? `${API_URL}/preview/live/${encodeURIComponent(targetId)}/${token ? `?token=${encodeURIComponent(token)}` : ""}`
+    ? `${API_URL}/preview/live/${encodeURIComponent(targetId)}${token ? `?token=${encodeURIComponent(token)}` : ""}`
     : "";
 
   // Dedicated creator live demo page

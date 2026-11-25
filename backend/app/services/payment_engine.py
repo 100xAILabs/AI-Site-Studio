@@ -68,6 +68,9 @@ class PaymentOrderPayload(BaseModel):
     customer_email: Optional[str] = None
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
+    seller_id: Optional[str] = None
+    destination_account: Optional[str] = None
+    platform_fee_percent: Optional[float] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     success_url: Optional[str] = None
     cancel_url: Optional[str] = None
@@ -358,6 +361,8 @@ class StripePaymentAdapter(BasePaymentAdapter):
 
             metadata = dict(payload.metadata)
             metadata["order_id"] = payload.order_id
+            if payload.seller_id or metadata.get("seller_id"):
+                metadata["seller_id"] = str(payload.seller_id or metadata.get("seller_id"))
 
             session_params: Dict[str, Any] = {
                 "mode": "payment",
@@ -368,6 +373,26 @@ class StripePaymentAdapter(BasePaymentAdapter):
             }
             if payload.customer_email:
                 session_params["customer_email"] = payload.customer_email
+
+            # Connected Account transfer for instant automated payout
+            dest_account = payload.destination_account or metadata.get("destination_account")
+            if dest_account and str(dest_account).startswith("acct_"):
+                fee_pct = payload.platform_fee_percent if payload.platform_fee_percent is not None else metadata.get("platform_fee_percent", 0.0)
+                total_cents = int(round(payload.amount * 100))
+                app_fee = int(round(total_cents * (float(fee_pct) / 100.0))) if fee_pct and fee_pct > 0 else 0
+
+                payment_intent_data: Dict[str, Any] = {
+                    "transfer_data": {
+                        "destination": str(dest_account).strip(),
+                    },
+                    "metadata": {
+                        "order_id": payload.order_id,
+                        "seller_id": str(payload.seller_id or metadata.get("seller_id", "")),
+                    }
+                }
+                if app_fee > 0:
+                    payment_intent_data["application_fee_amount"] = app_fee
+                session_params["payment_intent_data"] = payment_intent_data
 
             session = stripe.checkout.Session.create(**session_params)
 
