@@ -114,9 +114,11 @@ async def serve_tenant_workload(
     cached = _SITE_RESOLUTION_CACHE.get(clean_identifier) or _SITE_RESOLUTION_CACHE.get(clean_site_id)
     site_dir = None
     target_id = None
+    branding_meta = None
 
     if cached and (now - cached[2] < _CACHE_TTL_SECONDS):
         trial_exp_ts = cached[3] if len(cached) > 3 else None
+        branding_meta = cached[4] if len(cached) > 4 else None
         if trial_exp_ts and now > trial_exp_ts:
             return HTMLResponse(
                 "<!doctype html><html><head><meta charset='utf-8'><title>Trial Expired — AI Site Studio</title>"
@@ -243,8 +245,32 @@ async def serve_tenant_workload(
         if not site_dir or not site_dir.exists():
             raise HTTPException(status_code=404, detail=f"Tenant website deployment '{site_identifier}' not found or inactive.")
 
-        _SITE_RESOLUTION_CACHE[clean_identifier] = (target_id, str(site_dir), now, trial_exp_timestamp)
-        _SITE_RESOLUTION_CACHE[clean_site_id] = (target_id, str(site_dir), now, trial_exp_timestamp)
+        branding_meta = (deployment.extra_metadata or {}).get("creator_branding") or (deployment.env_vars or {}).get("__creator_branding__")
+        if not branding_meta and deployment.template_id:
+            try:
+                from app.models.template import Template
+                from app.models.user import User
+                async with AsyncSessionLocal() as s2:
+                    t_res = await s2.execute(select(Template).where(Template.id == deployment.template_id))
+                    t_obj = t_res.scalar_one_or_none()
+                    if t_obj and t_obj.seller_id:
+                        s_res = await s2.execute(select(User).where(User.id == t_obj.seller_id))
+                        seller_u = s_res.scalar_one_or_none()
+                        if seller_u:
+                            branding_meta = {
+                                "creator_id": str(seller_u.id),
+                                "brand_name": seller_u.creator_brand_name or seller_u.full_name or seller_u.username or "Studio Creator",
+                                "creator_slug": seller_u.creator_store_slug or "",
+                                "logo_url": seller_u.creator_logo_url or seller_u.avatar_url or "",
+                                "support_email": seller_u.creator_support_email or seller_u.email or "",
+                                "storefront_url": f"/creator/{seller_u.creator_store_slug}" if seller_u.creator_store_slug else None,
+                                "badge_text": f"Deployed by {seller_u.creator_brand_name or seller_u.full_name or 'Creator'}",
+                            }
+            except Exception:
+                pass
+
+        _SITE_RESOLUTION_CACHE[clean_identifier] = (target_id, str(site_dir), now, trial_exp_timestamp, branding_meta)
+        _SITE_RESOLUTION_CACHE[clean_site_id] = (target_id, str(site_dir), now, trial_exp_timestamp, branding_meta)
 
     client_ip = request.client.host if request and request.client else ""
 
@@ -368,6 +394,94 @@ async def serve_tenant_workload(
                 modified_html = raw_html.replace("</body>", f"{telemetry_script}\n</body>", 1)
             else:
                 modified_html = raw_html + telemetry_script
+
+            if branding_meta:
+                import html as html_lib
+                b_name = html_lib.escape(str(branding_meta.get("brand_name") or "Creator"))
+                b_slug = branding_meta.get("creator_slug") or ""
+                b_logo = branding_meta.get("logo_url") or ""
+                b_storefront = f"/creator/{b_slug}" if b_slug else "/"
+                creator_badge = f"""
+<!-- Creator Deployment Branding Engine -->
+<aside id="__creator_deployment_badge__" class="creator-deployment-badge" aria-label="Creator Branding Badge">
+  <a href="{b_storefront}" target="_blank" rel="noopener noreferrer" class="creator-badge-link" title="Crafted &amp; Deployed by {b_name}">
+    <span class="creator-badge-icon">
+      {f'<img src="{b_logo}" alt="{b_name}" class="creator-badge-logo" onerror="this.style.display=\\'none\\'" />' if b_logo else '✦'}
+    </span>
+    <span class="creator-badge-text">Deployed by <strong>{b_name}</strong></span>
+    <span class="creator-badge-arrow">↗</span>
+  </a>
+</aside>
+<style id="__creator_deployment_badge_style__">
+  .creator-deployment-badge {{
+    position: fixed !important;
+    bottom: 18px !important;
+    right: 18px !important;
+    z-index: 2147483647 !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    pointer-events: auto !important;
+  }}
+  .creator-badge-link {{
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 7px !important;
+    padding: 7px 14px 7px 10px !important;
+    border-radius: 9999px !important;
+    background: rgba(18, 22, 32, 0.94) !important;
+    color: #f4f4f5 !important;
+    border: 1px solid rgba(223, 177, 128, 0.45) !important;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6), 0 0 12px rgba(223, 177, 128, 0.15) !important;
+    text-decoration: none !important;
+    font-size: 12px !important;
+    backdrop-filter: blur(14px) !important;
+    -webkit-backdrop-filter: blur(14px) !important;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  }}
+  .creator-badge-link:hover {{
+    transform: translateY(-2px) !important;
+    border-color: #dfb180 !important;
+    background: rgba(26, 32, 48, 0.98) !important;
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.75), 0 0 18px rgba(223, 177, 128, 0.3) !important;
+    color: #ffffff !important;
+  }}
+  .creator-badge-icon {{
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 20px !important;
+    height: 20px !important;
+    border-radius: 50% !important;
+    background: rgba(223, 177, 128, 0.2) !important;
+    color: #dfb180 !important;
+    font-size: 11px !important;
+    overflow: hidden !important;
+    flex-shrink: 0 !important;
+  }}
+  .creator-badge-logo {{
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+  }}
+  .creator-badge-text {{
+    color: #e4e4e7 !important;
+    font-size: 12px !important;
+    letter-spacing: -0.01em !important;
+  }}
+  .creator-badge-text strong {{
+    color: #dfb180 !important;
+    font-weight: 700 !important;
+  }}
+  .creator-badge-arrow {{
+    color: #a1a1aa !important;
+    font-size: 11px !important;
+    margin-left: 2px !important;
+  }}
+</style>
+"""
+                if "</body>" in modified_html:
+                    modified_html = modified_html.replace("</body>", f"{creator_badge}\n</body>", 1)
+                else:
+                    modified_html += f"\n{creator_badge}"
 
             return Response(content=modified_html, media_type="text/html; charset=utf-8", headers=secure_headers)
         except Exception:

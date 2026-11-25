@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useCartStore } from "@/store";
@@ -28,11 +28,13 @@ import {
   Smartphone,
   Building2,
   Lock,
+  Rocket,
 } from "lucide-react";
 import "./checkout.css";
 
 export default function CreatorCheckoutPage() {
   const params = useParams();
+  const navigate = useNavigate();
   const creatorSlug = params?.creatorSlug || "";
 
   const { user, isSignedIn } = useAppUser();
@@ -337,6 +339,38 @@ export default function CreatorCheckoutPage() {
             </p>
 
             <div className="cr-success-actions">
+              {/* Primary 1-Click Site Studio Deployment Hero Card */}
+              {purchasedTemplates.length > 0 && (
+                <div className="p-5 rounded-2xl bg-gradient-to-r from-[#dfb180]/15 via-purple-500/10 to-[#dfb180]/10 border border-[#dfb180]/35 text-left flex flex-col md:flex-row items-center justify-between gap-4 mb-2 shadow-xl">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-[#dfb180] text-[#121620]">
+                        Ready to Launch
+                      </span>
+                      <span className="text-xs text-[#dfb180] font-medium">Site Studio Cloud Deployment</span>
+                    </div>
+                    <h3 className="text-base font-bold text-white mt-1">
+                      Deploy Your Website Live with 1-Click
+                    </h3>
+                    <p className="text-xs text-slate-300 mt-1 max-w-md leading-relaxed">
+                      Publish directly inside Site Studio. Your live website will automatically carry {brandName}&apos;s verified creator signature: <strong className="text-[#dfb180]">&quot;Deployed by {brandName}&quot;</strong>.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const firstT = purchasedTemplates[0];
+                      const tId = firstT?.slug || firstT?.template_id || firstT?.id || firstT?.templateId;
+                      navigate(`/studio/deploy?template=${encodeURIComponent(tId)}&creatorSlug=${encodeURIComponent(creatorSlug)}`);
+                    }}
+                    className="w-full md:w-auto shrink-0 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#dfb180] text-[#121620] font-bold text-sm hover:bg-[#ebd2b0] hover:scale-[1.02] active:scale-[0.98] transition-all shadow-lg cursor-pointer"
+                  >
+                    <Rocket className="w-4 h-4" />
+                    <span>Launch in Site Studio ↗</span>
+                  </button>
+                </div>
+              )}
+
               {purchasedTemplates.map((t, idx) => (
                 <div
                   key={idx}
@@ -346,17 +380,30 @@ export default function CreatorCheckoutPage() {
                     <h4 className="font-semibold text-white text-sm">{t.title || "Website Template"}</h4>
                     <p className="text-xs text-[#dfb180] mt-0.5">Commercial License Included ✓</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const tId = t.template_id || t.id || t.templateId;
-                      window.open(`/api/v1/templates/${tId}/download?format=zip`, "_blank");
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#dfb180] text-[#121620] font-bold text-xs hover:bg-[#ebd2b0]"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Download ZIP</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const tId = t.slug || t.template_id || t.id || t.templateId;
+                        navigate(`/studio/deploy?template=${encodeURIComponent(tId)}&creatorSlug=${encodeURIComponent(creatorSlug)}`);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#dfb180] text-[#121620] font-bold text-xs hover:bg-[#ebd2b0] transition-all shadow-md cursor-pointer"
+                    >
+                      <Rocket className="w-3.5 h-3.5" />
+                      <span>Deploy in Site Studio ↗</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const tId = t.template_id || t.id || t.templateId;
+                        window.open(`/api/v1/templates/${tId}/download?format=zip`, "_blank");
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 text-white font-medium text-xs hover:bg-white/20 transition-all border border-white/15 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>ZIP</span>
+                    </button>
+                  </div>
                 </div>
               ))}
 

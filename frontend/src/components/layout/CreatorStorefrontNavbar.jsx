@@ -37,9 +37,10 @@ export default function CreatorStorefrontNavbar({
 
   // Authoritative store owner detection
   const isOwner = Boolean(
-    (user?.id && storefront?.user_id && user.id === storefront.user_id) ||
-    (user?.email && storefront?.support_email && user.email.toLowerCase() === storefront.support_email.toLowerCase()) ||
-    (user?.creator_store_slug && storeSlug && user.creator_store_slug.toLowerCase() === storeSlug.toLowerCase())
+    (user?.id && (storefront?.creator_id || storefront?.user_id) && (String(user.id) === String(storefront.creator_id) || String(user.id) === String(storefront.user_id))) ||
+    (user?.email && (storefront?.support_email || storefront?.email) && user.email.toLowerCase() === (storefront.support_email || storefront.email).toLowerCase()) ||
+    (user?.creator_store_slug && storeSlug && user.creator_store_slug.toLowerCase() === storeSlug.toLowerCase()) ||
+    (user?.username && storeSlug && user.username.toLowerCase() === storeSlug.toLowerCase())
   );
 
   const handleSignOut = async () => {

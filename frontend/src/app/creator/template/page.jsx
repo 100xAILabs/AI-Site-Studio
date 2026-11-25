@@ -25,6 +25,7 @@ import {
   Star,
   CheckCircle2,
   Mail,
+  Rocket,
 } from "lucide-react";
 import "./template.css";
 
@@ -290,6 +291,18 @@ export default function CreatorTemplateDetailsPage() {
                     <span>Add to Cart</span>
                   </>
                 )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  navigate(`/studio/deploy?template=${encodeURIComponent(template?.slug || template?.id || templateSlug)}&creatorSlug=${encodeURIComponent(creatorSlug)}`);
+                }}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-[#dfb180]/40 text-[#dfb180] font-semibold text-xs transition-all cursor-pointer shadow-sm hover:shadow"
+                title={`Deploy inside Site Studio with ${brandName}'s Branding`}
+              >
+                <Rocket className="w-3.5 h-3.5" />
+                <span>Deploy in Site Studio ↗</span>
               </button>
             </div>
 

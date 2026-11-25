@@ -8971,6 +8971,105 @@ async def serve_live_preview(
                     else:
                         html_content = html_content + "\n" + watermark_payload
 
+                # Creator Deployment Branding Badge for template live demo
+                if template and template.seller_id:
+                    try:
+                        from app.models.user import User
+                        seller_res = await db.execute(select(User).where(User.id == template.seller_id))
+                        seller_u = seller_res.scalar_one_or_none()
+                        if seller_u and (seller_u.creator_store_slug or seller_u.is_creator or seller_u.creator_brand_name):
+                            import html as html_lib
+                            b_name = html_lib.escape(seller_u.creator_brand_name or seller_u.full_name or seller_u.username or "Creator")
+                            b_slug = seller_u.creator_store_slug or ""
+                            b_logo = seller_u.creator_logo_url or seller_u.avatar_url or ""
+                            b_storefront = f"/creator/{b_slug}" if b_slug else "/"
+                            creator_badge_html = f"""
+<!-- Creator Deployment Branding Engine -->
+<aside id="__creator_deployment_badge__" class="creator-deployment-badge" aria-label="Creator Branding Badge">
+  <a href="{b_storefront}" target="_blank" rel="noopener noreferrer" class="creator-badge-link" title="Crafted &amp; Deployed by {b_name}">
+    <span class="creator-badge-icon">
+      {f'<img src="{b_logo}" alt="{b_name}" class="creator-badge-logo" onerror="this.style.display=\\'none\\'" />' if b_logo else '✦'}
+    </span>
+    <span class="creator-badge-text">Deployed by <strong>{b_name}</strong></span>
+    <span class="creator-badge-arrow">↗</span>
+  </a>
+</aside>
+<style id="__creator_deployment_badge_style__">
+  .creator-deployment-badge {{
+    position: fixed !important;
+    bottom: 18px !important;
+    right: 18px !important;
+    z-index: 2147483647 !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    pointer-events: auto !important;
+  }}
+  .creator-badge-link {{
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 7px !important;
+    padding: 7px 14px 7px 10px !important;
+    border-radius: 9999px !important;
+    background: rgba(18, 22, 32, 0.94) !important;
+    color: #f4f4f5 !important;
+    border: 1px solid rgba(223, 177, 128, 0.45) !important;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6), 0 0 12px rgba(223, 177, 128, 0.15) !important;
+    text-decoration: none !important;
+    font-size: 12px !important;
+    backdrop-filter: blur(14px) !important;
+    -webkit-backdrop-filter: blur(14px) !important;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  }}
+  .creator-badge-link:hover {{
+    transform: translateY(-2px) scale(1.02) !important;
+    border-color: #dfb180 !important;
+    background: #181d2a !important;
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.8), 0 0 18px rgba(223, 177, 128, 0.3) !important;
+    color: #ffffff !important;
+  }}
+  .creator-badge-icon {{
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 20px !important;
+    height: 20px !important;
+    border-radius: 50% !important;
+    background: rgba(223, 177, 128, 0.2) !important;
+    color: #dfb180 !important;
+    font-size: 11px !important;
+    overflow: hidden !important;
+  }}
+  .creator-badge-logo {{
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+  }}
+  .creator-badge-text {{
+    letter-spacing: -0.01em !important;
+  }}
+  .creator-badge-text strong {{
+    color: #dfb180 !important;
+    font-weight: 600 !important;
+    margin-left: 2px !important;
+  }}
+  .creator-badge-arrow {{
+    font-size: 11px !important;
+    opacity: 0.7 !important;
+    color: #dfb180 !important;
+    transition: transform 0.15s ease !important;
+  }}
+  .creator-badge-link:hover .creator-badge-arrow {{
+    transform: translate(1px, -1px) !important;
+    opacity: 1 !important;
+  }}
+</style>
+"""
+                            if "</body>" in html_content:
+                                html_content = html_content.replace("</body>", f"{creator_badge_html}\n</body>", 1)
+                            else:
+                                html_content = html_content + "\n" + creator_badge_html
+                    except Exception as badge_err:
+                        logger.warning(f"Could not inject creator badge into preview: {badge_err}")
+
                 # Ensure all /marketplace links point to the React frontend application
                 html_content = html_content.replace('href="/marketplace"', f'href="{purchase_url}"')
                 html_content = html_content.replace("href='/marketplace'", f"href='{purchase_url}'")

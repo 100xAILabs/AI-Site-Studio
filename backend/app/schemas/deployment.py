@@ -19,6 +19,8 @@ class DeploymentBase(BaseModel):
     env_vars: Optional[Dict[str, str]] = None
     accepted_hosting_terms: bool = False
     custom_domain: Optional[str] = None
+    creator_slug: Optional[str] = None
+    creator_branding: Optional[Dict[str, Any]] = None
 
     @field_validator("project_name")
     @classmethod

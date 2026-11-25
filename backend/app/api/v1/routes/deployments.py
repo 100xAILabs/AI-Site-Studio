@@ -1521,6 +1521,27 @@ async def create_deployment(
             if payload.provider:
                 existing_deployment.provider = payload.provider
 
+            # Attach / preserve creator branding metadata
+            branding = payload.creator_branding or (existing_deployment.extra_metadata or {}).get("creator_branding")
+            if not branding and (getattr(current_user, "creator_store_slug", None) or getattr(current_user, "is_creator", False)):
+                branding = {
+                    "creator_id": str(current_user.id),
+                    "brand_name": current_user.creator_brand_name or current_user.full_name or current_user.username or "Studio Creator",
+                    "creator_slug": current_user.creator_store_slug or "",
+                    "logo_url": current_user.creator_logo_url or current_user.avatar_url or "",
+                    "support_email": current_user.creator_support_email or current_user.email or "",
+                    "storefront_url": f"/creator/{current_user.creator_store_slug}" if current_user.creator_store_slug else None,
+                    "deployed_at": datetime.now(timezone.utc).isoformat(),
+                    "badge_text": f"Deployed by {current_user.creator_brand_name or current_user.full_name or 'Creator'}",
+                }
+            if branding:
+                if not existing_deployment.extra_metadata:
+                    existing_deployment.extra_metadata = {}
+                existing_deployment.extra_metadata = {**existing_deployment.extra_metadata, "creator_branding": branding}
+                if not existing_deployment.env_vars:
+                    existing_deployment.env_vars = {}
+                existing_deployment.env_vars = {**existing_deployment.env_vars, "__creator_branding__": branding}
+
             # Compute next version number (v1.0 -> v1.1, v1.2, etc.)
             cur_ver = existing_deployment.current_version or "v1.0"
             try:
@@ -1617,6 +1638,8 @@ async def create_deployment(
             output_dir=payload.output_dir or "dist",
             env_vars=payload.env_vars,
             site_id=custom_site_id,
+            creator_branding=payload.creator_branding,
+            creator_slug=payload.creator_slug,
         )
         # Apply 7-day trial window for Free tier deployments and record permanent trial history
         if not is_pro and not is_extreme and not is_admin:

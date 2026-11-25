@@ -35,6 +35,7 @@ export default function StudioDeployPage() {
 
   const queryName = searchParams.get("name") || "";
   const initialTemplateId = searchParams.get("template") || localStorage.getItem("last_studio_template_id") || "";
+  const creatorSlugParam = searchParams.get("creatorSlug") || searchParams.get("creator") || "";
 
   // Template selector lists & categories
   const [userTemplates, setUserTemplates] = useState([]);
@@ -430,6 +431,7 @@ export default function StudioDeployPage() {
         output_dir: defaultOutputDir,
         accepted_hosting_terms: true,
         custom_domain: domainMode === "configured" && selectedConfiguredDomain ? selectedConfiguredDomain : null,
+        creator_slug: creatorSlugParam || null,
       };
 
       const result = await api.post("/deployments", payload, token);
@@ -632,6 +634,39 @@ export default function StudioDeployPage() {
             </div>
           </div>
         </div>
+
+        {/* Creator Deployment Engine Active Banner */}
+        {creatorSlugParam && (
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-[#dfb180]/15 via-purple-500/10 to-[#dfb180]/10 border border-[#dfb180]/35 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#dfb180]/20 border border-[#dfb180]/30 flex items-center justify-center text-[#dfb180] font-bold text-base shrink-0">
+                ✦
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-[#dfb180] text-[#121620]">
+                    Creator Branding Engine
+                  </span>
+                  <span className="text-xs text-[#dfb180] font-semibold">Storefront @{creatorSlugParam}</span>
+                </div>
+                <h3 className="text-sm font-bold text-white mt-0.5">
+                  Publishing with Verified Creator Signature Badge
+                </h3>
+                <p className="text-xs text-zinc-300 leading-relaxed">
+                  Your deployed live website will automatically showcase the gold signature badge: <strong className="text-[#dfb180]">&quot;Deployed by {creatorSlugParam}&quot;</strong> linking back to the creator&apos;s storefront.
+                </p>
+              </div>
+            </div>
+            <Link
+              to={`/creator/${creatorSlugParam}`}
+              target="_blank"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-white border border-white/15 text-xs font-medium shrink-0 transition-all"
+            >
+              <span>Visit Storefront</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+        )}
 
         {/* Main Deployment Form */}
         <form onSubmit={handleStartDeploy} className="space-y-6">

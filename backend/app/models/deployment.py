@@ -60,6 +60,7 @@ class Deployment(UUIDMixin, TimestampMixin, Base):
     custom_domain: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     deployment_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     env_vars: Mapped[Optional[dict]] = mapped_column(JSON, default=dict, nullable=True)
+    extra_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict, nullable=True)
     is_suspended: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     hosting_checkout_session_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
     trial_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

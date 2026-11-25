@@ -81,10 +81,14 @@ class DeploymentService:
         output_dir: str = "dist",
         env_vars: Optional[Dict[str, str]] = None,
         site_id: Optional[str] = None,
+        creator_branding: Optional[Dict[str, Any]] = None,
+        creator_slug: Optional[str] = None,
+        extra_metadata: Optional[Dict[str, Any]] = None,
     ) -> Deployment:
         """
         Creates a new tenant deployment record in `QUEUED` state.
         Generates or uses unique stable `site_id` (e.g. `SITE-PUR-A8F2E`).
+        Attaches creator deployment brand metadata if initiated by or authored by a creator.
         """
         provider_type = (provider_type or "local").strip().lower()
         self.provider = get_deployment_provider(provider_type)
@@ -98,6 +102,53 @@ class DeploymentService:
         rand_suffix = uuid.uuid4().hex[:4].lower()
         subdomain = f"{subdomain_slug}-{rand_suffix}.aisitestudio.com"
         final_site_id = site_id or f"SITE-{uuid.uuid4().hex[:6].upper()}"
+
+        # Resolve creator branding metadata for deployment branding engine
+        branding_meta = dict(creator_branding or {})
+        creator_obj = None
+        if not branding_meta:
+            # 1. Initiated directly by a creator
+            if getattr(user, "creator_store_slug", None) or getattr(user, "is_creator", False):
+                creator_obj = user
+            # 2. Or specified via creator_slug parameter
+            elif creator_slug:
+                try:
+                    s_res = await self.db.execute(select(User).where(User.creator_store_slug == creator_slug.strip().lower()))
+                    creator_obj = s_res.scalar_one_or_none()
+                except Exception:
+                    pass
+            # 3. Or deployed from a creator's template
+            if not creator_obj and template_id:
+                try:
+                    from app.models.template import Template
+                    t_res = await self.db.execute(select(Template).where(Template.id == template_id))
+                    t_obj = t_res.scalar_one_or_none()
+                    if t_obj and t_obj.seller_id:
+                        s_res = await self.db.execute(select(User).where(User.id == t_obj.seller_id))
+                        creator_obj = s_res.scalar_one_or_none()
+                except Exception:
+                    pass
+
+            if creator_obj:
+                branding_meta = {
+                    "creator_id": str(creator_obj.id),
+                    "brand_name": creator_obj.creator_brand_name or creator_obj.full_name or creator_obj.username or "Studio Creator",
+                    "creator_slug": creator_obj.creator_store_slug or "",
+                    "logo_url": creator_obj.creator_logo_url or creator_obj.avatar_url or "",
+                    "support_email": creator_obj.creator_support_email or creator_obj.email or "",
+                    "storefront_url": f"/creator/{creator_obj.creator_store_slug}" if creator_obj.creator_store_slug else None,
+                    "deployed_at": datetime.now(timezone.utc).isoformat(),
+                    "badge_text": f"Deployed by {creator_obj.creator_brand_name or creator_obj.full_name or 'Creator'}",
+                }
+
+        env_dict = dict(env_vars or {})
+        meta_dict = dict(extra_metadata or {})
+        if branding_meta:
+            meta_dict["creator_branding"] = branding_meta
+            env_dict["__creator_branding__"] = branding_meta
+            env_dict["CREATOR_BRAND_NAME"] = branding_meta.get("brand_name", "")
+            if branding_meta.get("creator_slug"):
+                env_dict["CREATOR_STORE_SLUG"] = branding_meta.get("creator_slug")
 
         deployment = Deployment(
             user_id=user.id,
@@ -114,7 +165,8 @@ class DeploymentService:
             commit_message="Initial deployment",
             build_command=build_command,
             output_dir=output_dir,
-            env_vars=env_vars or {},
+            env_vars=env_dict,
+            extra_metadata=meta_dict,
             logs=f"[{datetime.now().strftime('%H:%M:%S')}] [QUEUED] Deployment initialized in queue for {project_name} ({site_id}). Preparing sandbox...\n",
         )
 
