@@ -1,18 +1,17 @@
 "use client";
 
-import Navbar from "@/components/layout/Navbar";
 import { HomepageDesignScope } from "@/components/homepage/HomepageDesignSystem";
-import HeroSection from "@/components/landing/HeroSection";
+import HomepageNavbar from "@/components/homepage/HomepageNavbar";
+import HomepageHero from "@/components/homepage/HomepageHero";
 import PopularTemplatesSection from "@/components/landing/PopularTemplatesSection";
 import "./Page.css";
 
 export default function HomePage() {
   return (
     <HomepageDesignScope className="home-studio-page">
-      <Navbar />
+      <HomepageNavbar />
       <main className="home-studio-main">
-        {/* Main Hero with Big 3D Studio Mockup & 5-Column Feature Bar */}
-        <HeroSection />
+        <HomepageHero />
 
         {/* Popular Templates Section with Big Curated Cards */}
         <PopularTemplatesSection />
