@@ -60,7 +60,7 @@ export default function CreatorDemoPage() {
   const effectivePrice = Number(template?.price) || 39;
 
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-  const targetId = template?.id || templateSlug;
+  const targetId = template?.slug || template?.id || templateSlug;
 
   // Direct raw live preview HTML without platform shell
   const livePreviewUrl = targetId
@@ -168,14 +168,25 @@ export default function CreatorDemoPage() {
         {/* Right: Price & Creator Buy CTA */}
         <div className="cr-demo-topbar-right">
           <span className="cr-demo-price">${effectivePrice}</span>
-          <button
-            type="button"
-            onClick={handleBuyNow}
-            className="cr-demo-buy-btn"
-          >
-            <Zap className="w-3.5 h-3.5 fill-current" />
-            <span>Buy Template</span>
-          </button>
+          {storefront?.is_bank_connected === false ? (
+            <button
+              type="button"
+              disabled
+              className="cr-demo-buy-btn opacity-60 cursor-not-allowed bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs px-3"
+              title="Purchases temporarily paused: Creator bank account not yet linked"
+            >
+              <span>Purchases Paused</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleBuyNow}
+              className="cr-demo-buy-btn"
+            >
+              <Zap className="w-3.5 h-3.5 fill-current" />
+              <span>Buy Template</span>
+            </button>
+          )}
         </div>
       </header>
 

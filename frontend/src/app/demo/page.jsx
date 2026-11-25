@@ -34,9 +34,15 @@ export default function LiveDemoPage() {
   const resolvedCreatorSlug = urlCreator || template?.seller?.creator_store_slug || template?.seller?.store_slug || "";
   const targetTemplateSlug = template?.slug || targetIdentifier;
 
+  useEffect(() => {
+    if (resolvedCreatorSlug && targetTemplateSlug) {
+      navigate(`/creator/${encodeURIComponent(resolvedCreatorSlug)}/demo/${encodeURIComponent(targetTemplateSlug)}`, { replace: true });
+    }
+  }, [resolvedCreatorSlug, targetTemplateSlug, navigate]);
+
   const returnUrl = resolvedCreatorSlug
-    ? `/creator/${resolvedCreatorSlug}/template/${targetTemplateSlug}`
-    : (targetIdentifier ? `/marketplace/${targetIdentifier}` : "/marketplace");
+    ? `/creator/${encodeURIComponent(resolvedCreatorSlug)}/template/${encodeURIComponent(targetTemplateSlug)}`
+    : (targetIdentifier ? `/marketplace/${encodeURIComponent(targetIdentifier)}` : "/marketplace");
 
   const [device, setDevice] = useState("desktop");
   const [iframeKey, setIframeKey] = useState(0);
@@ -94,7 +100,7 @@ export default function LiveDemoPage() {
 
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const previewUrl = targetIdentifier
-    ? `${API_URL}/preview/live/${targetIdentifier}/${token ? `?token=${encodeURIComponent(token)}` : ""}`
+    ? `${API_URL}/preview/live/${encodeURIComponent(template?.slug || targetIdentifier)}/${token ? `?token=${encodeURIComponent(token)}` : ""}`
     : "";
 
   const handleRefresh = () => {

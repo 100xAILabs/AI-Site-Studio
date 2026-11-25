@@ -66,8 +66,9 @@ export default function TemplateCard({
 
   const effectivePrice = Number(template.price) > 0 ? Number(template.price) : 49;
   const templateSlug = template.slug || template.id;
-  const targetLink = creatorSlug
-    ? `/creator/${creatorSlug}/template/${templateSlug}`
+  const effectiveCreatorSlug = creatorSlug || template.seller?.creator_store_slug || template.seller?.store_slug;
+  const targetLink = effectiveCreatorSlug
+    ? `/creator/${effectiveCreatorSlug}/template/${templateSlug}`
     : `/marketplace/${templateSlug}`;
 
   const handleAddToCart = (e) => {
@@ -138,9 +139,9 @@ export default function TemplateCard({
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  const demoUrl = creatorSlug
-                    ? `/creator/${encodeURIComponent(creatorSlug)}/demo/${encodeURIComponent(templateSlug || template.id)}`
-                    : `/demo/${templateSlug || template.id}`;
+                  const demoUrl = effectiveCreatorSlug
+                    ? `/creator/${encodeURIComponent(effectiveCreatorSlug)}/demo/${encodeURIComponent(templateSlug || template.id)}`
+                    : `/demo/${encodeURIComponent(templateSlug || template.id)}`;
                   window.open(demoUrl, '_blank');
                 }}
                 className="overlay-btn-preview"

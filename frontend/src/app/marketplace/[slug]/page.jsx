@@ -748,8 +748,11 @@ export default function TemplateDetailsPage({ slug: propSlug, creatorSlug: propC
     return base;
   })();
 
+  const effectiveCreatorSlug = creatorSlug || template?.seller?.creator_store_slug || template?.seller?.store_slug;
   const demoTargetUrl = template
-    ? `/demo/${template.slug || template.id}${creatorSlug ? `?creator=${encodeURIComponent(creatorSlug)}` : ""}`
+    ? (effectiveCreatorSlug
+        ? `/creator/${encodeURIComponent(effectiveCreatorSlug)}/demo/${encodeURIComponent(template.slug || template.id)}`
+        : `/demo/${encodeURIComponent(template.slug || template.id)}`)
     : "";
   const favoriteMutation = useToggleFavorite(token ?? "");
   const wishlistMutation = useToggleWishlist(token ?? "");

@@ -5215,6 +5215,8 @@ async def serve_live_preview(
 
     raw_id, _, cap = template_id.partition("~")
     template = await TemplateRepository(db).get_by_id_or_slug(raw_id)
+    if not template and (" " in raw_id or "%20" in raw_id):
+        template = await TemplateRepository(db).get_by_id_or_slug(raw_id.replace("%20", "-").replace(" ", "-"))
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
@@ -6469,7 +6471,15 @@ async def serve_live_preview(
                     "              if (!safeObj.handleSubmit) safeObj.handleSubmit = function() {};\n"
                     "              if (!safeObj.editStudent) safeObj.editStudent = function() {};\n"
                     "              if (!safeObj.removeStudent) safeObj.removeStudent = function() {};\n"
-                    "              return safeObj;\n"
+                    "              return new Proxy(safeObj, {\n"
+                    "                get: function(target, prop) {\n"
+                    "                  if (prop in target) return target[prop];\n"
+                    "                  if (prop === '__v_isRef' || prop === '__v_raw' || prop === '__v_isReadonly') return false;\n"
+                    "                  if (typeof prop === 'string' && (prop.startsWith('__v_') || prop.startsWith('$') || prop === 'constructor')) return undefined;\n"
+                    "                  target[prop] = Vue.reactive({ name: '', email: '', message: '', major: '', grade: '', id: 1, title: '', text: '' });\n"
+                    "                  return target[prop];\n"
+                    "                }\n"
+                    "              });\n"
                     "            } catch(e) {\n"
                     "              console.warn('Vue setup execute:', e);\n"
                     "              return {\n"
@@ -6491,8 +6501,9 @@ async def serve_live_preview(
                     "      console.warn('Vue component compile notice:', e);\n"
                     "    }\n"
                     "    primaryCompDef.template = document.getElementById('vue-template-src').innerHTML;\n"
+                    "    let app = null;\n"
                     "    try {\n"
-                    "      const app = createApp(primaryCompDef);\n"
+                    "      app = createApp(primaryCompDef);\n"
                     "      app.config.errorHandler = function(err) { console.warn('Vue handled error:', err); };\n"
                     "      Object.keys(vueMockIcons).forEach(function(k) { app.component(k, vueMockIcons[k]); });\n"
                     "      // Vue Router Mocks\n"
@@ -6515,6 +6526,11 @@ async def serve_live_preview(
                     "    } catch (e) {\n"
                     "      console.error('Vue mount error:', e);\n"
                     "      try {\n"
+                    "        if (app && typeof app.unmount === 'function') {\n"
+                    "          try { app.unmount(); } catch (_) {}\n"
+                    "        }\n"
+                    "        const appEl = document.getElementById('app');\n"
+                    "        if (appEl) appEl.innerHTML = '';\n"
                     "        const safeFallbackDef = {\n"
                     "          template: document.getElementById('vue-template-src').innerHTML,\n"
                     "          data: function() { return { form: { name: '', email: '', message: '', major: '', grade: '' }, student: { name: '', email: '', major: '', grade: '' }, students: [], editingId: null, uniqueMajors: 0 }; },\n"
@@ -6541,8 +6557,7 @@ async def serve_live_preview(
                     "        appFallback.component('router-view', RouterViewMock);\n"
                     "        appFallback.mount('#app');\n"
                     "      } catch (fallbackErr) {\n"
-                    "        const appEl = document.getElementById('app');\n"
-                    "        if (appEl) appEl.innerHTML = '<div style=\"padding:2rem;font-family:sans-serif;color:#e11d48;\"><h3>Vue Preview Notice</h3><p>' + (e && e.message || 'Rendered') + '</p></div>';\n"
+                    "        console.warn('Vue fallback error:', fallbackErr);\n"
                     "      }\n"
                     "    }\n"
                     f"    {get_studio_live_sync_js()}\n"
