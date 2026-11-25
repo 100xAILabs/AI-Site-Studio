@@ -82,6 +82,7 @@ def _build_creator_profile_response(user: User) -> CreatorProfileResponse:
         payout_razorpay_vpa=user.payout_razorpay_vpa or payout_details.get("razorpay_vpa"),
         payout_razorpay_account_id=payout_details.get("razorpay_account_id"),
         payout_bank_name=user.payout_bank_name or payout_details.get("bank_name"),
+        payout_account_number=user.payout_account_number or payout_details.get("account_number"),
         payout_account_number_masked=_mask_account(user.payout_account_number or payout_details.get("account_number")),
         payout_ifsc_code=user.payout_ifsc_code or payout_details.get("ifsc_code"),
         payout_swift_code=payout_details.get("swift_code"),
@@ -99,6 +100,7 @@ def _build_creator_profile_response(user: User) -> CreatorProfileResponse:
         payout_paystack_code=payout_details.get("paystack_code"),
         payout_mercadopago_email=payout_details.get("mercadopago_email"),
         payout_custom_instructions=payout_details.get("custom_instructions"),
+        payout_alerts=(user.extra_metadata or {}).get("payout_alerts", []),
         creator_payout_details=payout_details,
         storefront_distribution=user.storefront_distribution or "both",
         is_creator_onboarding_completed=user.is_creator_onboarding_completed,
@@ -270,6 +272,7 @@ async def update_creator_profile(
         "razorpay_vpa": data.payout_razorpay_vpa.strip() if data.payout_razorpay_vpa else None,
         "razorpay_account_id": data.payout_razorpay_account_id.strip() if data.payout_razorpay_account_id else None,
         "bank_name": data.payout_bank_name.strip() if data.payout_bank_name else None,
+        "account_number": data.payout_account_number.strip() if data.payout_account_number else (current_user.payout_account_number or None),
         "account_holder_name": data.payout_account_holder_name.strip() if data.payout_account_holder_name else None,
         "ifsc_code": data.payout_ifsc_code.strip() if data.payout_ifsc_code else None,
         "swift_code": data.payout_swift_code.strip() if data.payout_swift_code else None,
@@ -289,17 +292,26 @@ async def update_creator_profile(
     }
 
     _details = current_user.creator_payout_details or {}
+    has_valid_bank = bool(
+        _details.get("bank_name") and
+        (current_user.payout_account_number or _details.get("account_number")) and
+        (_details.get("ifsc_code") or _details.get("iban") or _details.get("swift_code"))
+    )
     has_valid_payout_method = bool(
-        (_details.get("bank_name") and (_details.get("ifsc_code") or _details.get("iban") or _details.get("swift_code") or data.payout_account_number)) or
+        has_valid_bank or
         _details.get("upi_id") or
         _details.get("stripe_payment_link") or
         _details.get("stripe_email") or
+        _details.get("stripe_account_id") or
         _details.get("razorpay_account_id") or
+        _details.get("razorpay_vpa") or
         _details.get("crypto_address") or
         _details.get("wise_email") or
         _details.get("revolut_tag") or
         _details.get("cashapp_tag") or
         _details.get("venmo_tag") or
+        _details.get("paystack_code") or
+        _details.get("flutterwave_id") or
         _details.get("custom_instructions")
     )
 

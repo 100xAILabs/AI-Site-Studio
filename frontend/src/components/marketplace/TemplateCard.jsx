@@ -87,7 +87,7 @@ export default function TemplateCard({
       framework: template.framework || "React 19 + Tailwind",
       licenseType: "regular",
       seller_id: template.seller_id,
-      creator_slug: creatorSlug || template.seller?.creator_store_slug,
+      creator_slug: creatorSlug || effectiveCreatorSlug || template.seller?.creator_store_slug,
       creator_brand_name: template.seller?.creator_brand_name || template.developer_name,
     });
   };

@@ -151,6 +151,19 @@ export default function CreatorStudio({
     staleTime: 1000 * 30,
   });
 
+  // Fetch Creator Profile (for live bank connection & payout alerts)
+  const { data: creatorProfile } = useQuery({
+    queryKey: ["creator-profile", user?.id],
+    queryFn: async () => {
+      return await api.get("/creator/profile", authToken);
+    },
+    enabled: !!authToken && isExtreme,
+    staleTime: 1000 * 30,
+  });
+
+  const isBankConnected = creatorProfile ? creatorProfile.is_payout_setup_completed : Boolean(user?.is_payout_setup_completed);
+  const payoutAlerts = creatorProfile?.payout_alerts || user?.extra_metadata?.payout_alerts || [];
+
   // Resubmit rejected template for review
   const resubmitMutation = useMutation({
     mutationFn: async (templateId) => {
@@ -378,24 +391,51 @@ export default function CreatorStudio({
       </div>
 
       {/* ── High-Priority Bank Alert Banner ── */}
-      {user?.is_payout_setup_completed === false && (
-        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 flex items-center justify-between gap-4 mb-6">
-          <div className="flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 text-amber-400 shrink-0" />
-            <div>
-              <h4 className="font-bold text-amber-200 text-sm">Action Required: Bank Account Not Connected</h4>
-              <p className="text-xs text-slate-300 mt-0.5">
-                Your creator storefront checkout is temporarily paused. Connect your bank account, UPI, or payout method to enable customer purchases.
-              </p>
+      {!isBankConnected && (
+        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 mb-6">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-400 shrink-0" />
+              <div>
+                <h4 className="font-bold text-amber-200 text-sm">Action Required: Bank Account Not Connected</h4>
+                <p className="text-xs text-slate-300 mt-0.5">
+                  Your creator storefront checkout is temporarily paused. Connect your bank account, UPI, or payout method to enable customer purchases.
+                </p>
+              </div>
             </div>
+            <Link
+              href="/creator/setup"
+              className="px-3.5 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 shrink-0 hover:bg-amber-400 transition"
+            >
+              <span>Connect Bank Now</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
           </div>
-          <Link
-            href="/creator/setup"
-            className="px-3.5 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 shrink-0 hover:bg-amber-400 transition"
-          >
-            <span>Connect Bank Now</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </Link>
+
+          {payoutAlerts.length > 0 && (
+            <div className="mt-3.5 pt-3 border-t border-amber-500/20 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Recent Checkout Attempts Paused ({payoutAlerts.length})</span>
+                </span>
+                <span className="text-[10px] text-amber-300/80">Connect bank to capture future sales</span>
+              </div>
+              <div className="space-y-1.5">
+                {payoutAlerts.slice(0, 3).map((alert, idx) => (
+                  <div key={idx} className="p-2.5 rounded-lg bg-black/40 border border-amber-500/20 text-xs flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-slate-200 leading-snug">{alert.message || alert.title}</p>
+                      <span className="text-[10px] text-zinc-400 mt-1 block">
+                        {alert.created_at ? new Date(alert.created_at).toLocaleString() : "Recently"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

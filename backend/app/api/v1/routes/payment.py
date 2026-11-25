@@ -246,6 +246,21 @@ async def initiate_payment(
         raise HTTPException(status_code=404, detail="Order not found")
     if order.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
+
+    creator_id_meta = (order.extra_metadata or {}).get("creator_id")
+    if creator_id_meta:
+        try:
+            c_res = await db.execute(select(User).where(User.id == uuid.UUID(creator_id_meta)))
+            c_user = c_res.scalar_one_or_none()
+            if c_user and not getattr(c_user, "is_payout_setup_completed", False):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Purchasing from {c_user.creator_brand_name or 'this creator'} is temporarily paused: creator has not connected their bank account yet."
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass
     if order.status == OrderStatus.COMPLETED or order.total == Decimal("0"):
         if order.status != OrderStatus.COMPLETED:
             order.status = OrderStatus.COMPLETED

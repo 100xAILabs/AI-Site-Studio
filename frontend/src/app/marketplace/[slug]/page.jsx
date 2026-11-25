@@ -739,7 +739,7 @@ export default function TemplateDetailsPage({ slug: propSlug, creatorSlug: propC
       if (!effectiveTok && typeof window !== "undefined") {
         try {
           effectiveTok = localStorage.getItem("aisitestudio_token") || sessionStorage.getItem("aisitestudio_token");
-        } catch (_) {}
+        } catch (_) { }
       }
       if (effectiveTok) {
         base += `${glue}token=${encodeURIComponent(effectiveTok)}`;
@@ -750,10 +750,10 @@ export default function TemplateDetailsPage({ slug: propSlug, creatorSlug: propC
 
   const effectiveCreatorSlug = creatorSlug || template?.seller?.creator_store_slug || template?.seller?.store_slug;
   const demoTargetUrl = template
-    ? (effectiveCreatorSlug
+      ? (effectiveCreatorSlug
         ? `/creator/${encodeURIComponent(effectiveCreatorSlug)}/demo/${encodeURIComponent(template.slug || template.id)}`
         : `/demo/${encodeURIComponent(template.slug || template.id)}`)
-    : "";
+      : "";
   const favoriteMutation = useToggleFavorite(token ?? "");
   const wishlistMutation = useToggleWishlist(token ?? "");
   const addToCart = useCartStore((s) => s.addItem);
@@ -2785,11 +2785,11 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
               <div className="details-developer-card">
                 <div className="seller-top">
                   <div className="seller-avatar">
-                    <Image 
-                      src={creatorStorefront?.logo_url || template.developer_avatar || "https://picsum.photos/seed/avatar/100/100"} 
-                      alt={creatorStorefront?.brand_name || template.developer_name || "Site Studio"} 
-                      width={40} 
-                      height={40} 
+                    <Image
+                      src={creatorStorefront?.logo_url || template.developer_avatar || "https://picsum.photos/seed/avatar/100/100"}
+                      alt={creatorStorefront?.brand_name || template.developer_name || "Site Studio"}
+                      width={40}
+                      height={40}
                     />
                   </div>
                   <div>
@@ -2823,8 +2823,8 @@ ${otherPages ? `├── app/${otherPages}/ # Additional page route handlers\n`
                       {toggleFollowMutation.isPending ? "Loading..." : (isFollowing ? "Following" : "Follow")}
                     </button>
                   )}
-                  <Link 
-                    href={creatorSlug ? `/creator/${creatorSlug}` : `/marketplace?developer=${encodeURIComponent(template.developer_name || "")}`} 
+                  <Link
+                    href={creatorSlug ? `/creator/${creatorSlug}` : `/marketplace?developer=${encodeURIComponent(template.developer_name || "")}`}
                     className="seller-more-link"
                   >
                     {creatorSlug ? "View Storefront" : "More Items"}

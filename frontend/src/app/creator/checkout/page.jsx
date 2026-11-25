@@ -64,7 +64,7 @@ export default function CreatorCheckoutPage() {
   }, [items, creatorSlug]);
 
   const subtotal = useMemo(() => {
-    return creatorItems.reduce((sum, item) => sum + (Number(item.price) || 0) * (item.quantity || 1), 0);
+    return creatorItems.reduce((sum, item) => sum + (Number(item.price) || 0) * 1, 0);
   }, [creatorItems]);
 
   const orderTotal = subtotal;
@@ -151,8 +151,12 @@ export default function CreatorCheckoutPage() {
       completeOrderSuccess(targetOrder);
     } catch (err) {
       console.error("Order initiation error:", err);
-      // Graceful fallback for mock/direct testing
-      completeOrderSuccess({ id: "demo-order", items: creatorItems });
+      const detailMsg =
+        err?.response?.data?.detail ||
+        err?.message ||
+        "Purchasing is currently paused or failed. Please check creator payout settings.";
+      setErrorMessage(detailMsg);
+      setIsProcessing(false);
     }
   };
 

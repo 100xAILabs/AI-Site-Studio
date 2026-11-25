@@ -74,7 +74,7 @@ const lookupTemplateDetails = (item) => {
 
 const sanitizeCartItems = (list) => {
   if (!Array.isArray(list)) return [];
-  return list.map(lookupTemplateDetails);
+  return list.map(lookupTemplateDetails).map((item) => ({ ...item, quantity: 1 }));
 };
 
 // ── Cart Store ────────────────────────────────────────────────────────────

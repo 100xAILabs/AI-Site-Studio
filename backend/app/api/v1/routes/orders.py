@@ -3,6 +3,7 @@ Orders routes.
 """
 
 import uuid
+from datetime import datetime, timezone
 import random
 import string
 import logging
@@ -139,6 +140,25 @@ async def create_order(
 
     # Gating: If purchasing through a creator whose payout/bank is not set up, block checkout
     if creator_obj and creator_obj.id != current_user.id and not getattr(creator_obj, "is_payout_setup_completed", False):
+        try:
+            meta = dict(creator_obj.extra_metadata or {})
+            existing_alerts = list(meta.get("payout_alerts") or [])
+            tmpl_names = [t.title for t, _ in order_items] if order_items else ["Website Template"]
+            new_alert = {
+                "id": str(uuid.uuid4())[:8],
+                "type": "checkout_blocked_unlinked_bank",
+                "title": "Customer Checkout Attempt Paused",
+                "message": f"A customer ({current_user.email}) attempted to purchase {', '.join(tmpl_names[:2])} for ${float(total_amount):.2f}, but checkout was blocked because your bank account / payout method is not connected.",
+                "buyer_email": current_user.email,
+                "amount": float(total_amount),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            meta["payout_alerts"] = [new_alert] + existing_alerts[:19]
+            creator_obj.extra_metadata = meta
+            await db.commit()
+        except Exception as e_alert:
+            logger.warning("Failed to record payout alert on creator: %s", e_alert)
+
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Purchasing from {creator_obj.creator_brand_name or 'this creator'} is temporarily paused: the creator has not connected their bank account or verified payout gateway yet."

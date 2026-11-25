@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Sparkles,
@@ -194,6 +194,8 @@ export default function CreatorSetupPage() {
 
   const [bankName, setBankName] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
+  const [confirmAccountNumber, setConfirmAccountNumber] = useState("");
+  const [showAccountNumber, setShowAccountNumber] = useState(false);
   const [accountHolder, setAccountHolder] = useState("");
   const [ifscCode, setIfscCode] = useState("");
   const [swiftCode, setSwiftCode] = useState("");
@@ -278,6 +280,13 @@ export default function CreatorSetupPage() {
           if (data.payout_upi_id) setUpiId(data.payout_upi_id);
 
           if (data.payout_bank_name) setBankName(data.payout_bank_name);
+          if (data.payout_account_number) {
+            setAccountNumber(data.payout_account_number);
+            setConfirmAccountNumber(data.payout_account_number);
+          } else if (data.payout_account_number_masked) {
+            setAccountNumber(data.payout_account_number_masked);
+            setConfirmAccountNumber(data.payout_account_number_masked);
+          }
           if (data.payout_ifsc_code) setIfscCode(data.payout_ifsc_code);
           if (data.payout_swift_code) setSwiftCode(data.payout_swift_code);
           if (data.payout_iban) setIban(data.payout_iban);
@@ -355,6 +364,61 @@ export default function CreatorSetupPage() {
     }
   };
 
+  // Live payout validation calculation
+  const isPayoutGatewayReady = useMemo(() => {
+    for (const method of enabledMethods) {
+      if (method === "bank") {
+        const hasBank =
+          bankName.trim().length >= 2 &&
+          accountNumber.trim().length >= 4 &&
+          accountHolder.trim().length >= 2 &&
+          (ifscCode.trim().length >= 4 || iban.trim().length >= 8 || swiftCode.trim().length >= 4);
+        if (hasBank) return true;
+      } else if (method === "upi") {
+        if (upiId.trim().includes("@") && upiId.trim().length >= 4) return true;
+      } else if (method === "stripe") {
+        if (stripeEmail.trim().includes("@") || stripePaymentLink.trim().length > 10 || stripeAccountId.trim().startsWith("acct_")) return true;
+      } else if (method === "razorpay") {
+        if (razorpayVpa.trim().includes("@") || razorpayAccountId.trim().length >= 4) return true;
+      } else if (method === "crypto") {
+        if (cryptoAddress.trim().length >= 10) return true;
+      } else if (method === "wise") {
+        if (wiseEmail.trim().length >= 3) return true;
+      } else if (method === "revolut") {
+        if (revolutTag.trim().length >= 2) return true;
+      } else if (method === "cashapp") {
+        if (cashappTag.trim().length >= 2 || venmoTag.trim().length >= 2) return true;
+      } else if (method === "paystack") {
+        if (paystackCode.trim().length >= 3 || flutterwaveId.trim().length >= 3) return true;
+      } else if (method === "custom") {
+        if (customInstructions.trim().length >= 10) return true;
+      }
+    }
+    return false;
+  }, [
+    enabledMethods,
+    bankName,
+    accountNumber,
+    accountHolder,
+    ifscCode,
+    iban,
+    swiftCode,
+    upiId,
+    stripeEmail,
+    stripePaymentLink,
+    stripeAccountId,
+    razorpayVpa,
+    razorpayAccountId,
+    cryptoAddress,
+    wiseEmail,
+    revolutTag,
+    cashappTag,
+    venmoTag,
+    paystackCode,
+    flutterwaveId,
+    customInstructions,
+  ]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -371,6 +435,13 @@ export default function CreatorSetupPage() {
     if (slugAvailable === false) {
       toast.error(slugReason || "This storefront slug is not available. Please choose another.");
       return;
+    }
+
+    if (enabledMethods.includes("bank") && accountNumber.trim()) {
+      if (confirmAccountNumber.trim() && accountNumber.trim() !== confirmAccountNumber.trim()) {
+        toast.error("Bank Account Number and Confirm Account Number do not match. Please verify.");
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -418,9 +489,13 @@ export default function CreatorSetupPage() {
       };
 
       const res = await api.put("/creator/profile", payload);
-      toast.success("Creator Storefront & Payout Settings Saved!");
       setProfileData(res);
       setSuccessData(res);
+      if (res.is_payout_setup_completed) {
+        toast.success("Bank & Payout settings successfully verified! Customer purchases are now ACTIVE on your storefront.");
+      } else {
+        toast.warning("Profile saved, but bank account or payout details are incomplete. Customer purchases remain paused until connected.");
+      }
     } catch (err) {
       toast.error(err.message || "Failed to update creator profile.");
     } finally {
@@ -636,7 +711,7 @@ export default function CreatorSetupPage() {
                 <div className="flex-1 text-sm">
                   <h4 className="font-bold text-amber-200">Action Required: Bank Account Not Connected</h4>
                   <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                    Your storefront checkout is currently paused. Please configure your bank account, UPI ID, or Stripe Connect in Step 3 below so customers can purchase your templates directly to your account.
+                    Your storefront checkout is currently paused. Please configure your bank account, UPI ID, or Stripe Connect in Step 2 below so customers can purchase your templates directly to your account.
                   </p>
                 </div>
               </div>
@@ -862,6 +937,46 @@ export default function CreatorSetupPage() {
                 </div>
               </div>
 
+              {/* Live Payout Status Card */}
+              <div
+                className={`p-4 rounded-xl border flex items-center justify-between gap-4 mb-6 transition-all ${
+                  isPayoutGatewayReady
+                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-200"
+                    : "bg-amber-500/10 border-amber-500/30 text-amber-200"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  {isPayoutGatewayReady ? (
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-5 h-5 text-amber-400 shrink-0" />
+                  )}
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-bold text-sm">
+                        {isPayoutGatewayReady
+                          ? "Payout Gateway Configured & Ready"
+                          : "Action Required: Complete Bank / Payout Details"}
+                      </h4>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          isPayoutGatewayReady
+                            ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                            : "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                        }`}
+                      >
+                        {isPayoutGatewayReady ? "CHECKOUT ACTIVE" : "CHECKOUT PAUSED"}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300 mt-0.5">
+                      {isPayoutGatewayReady
+                        ? "Direct purchases are active. Customer payments route directly to your verified payout gateway."
+                        : "Your storefront checkout is paused. Fill in your Bank Account, UPI ID, or Stripe details below to enable buyer purchases."}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               {/* Payment Method Cards */}
               <div className="creator-payment-grid">
                 {PAYOUT_METHODS.map((method) => {
@@ -1015,22 +1130,43 @@ export default function CreatorSetupPage() {
                 {/* UPI Details */}
                 {enabledMethods.includes("upi") && (
                   <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
-                    <div className="flex items-center gap-2 text-green-400 font-bold text-sm">
-                      <Smartphone className="w-4 h-4" />
-                      <span>Direct UPI (GPay, PhonePe, Paytm, BHIM)</span>
-                      {payoutMethod === "upi" && (
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-normal">Primary Gateway</span>
-                      )}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-green-400 font-bold text-sm">
+                        <Smartphone className="w-4 h-4" />
+                        <span>Direct UPI (GPay, PhonePe, Paytm, BHIM)</span>
+                        {payoutMethod === "upi" && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-normal border border-emerald-500/30">
+                            Primary Gateway
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-zinc-400">Zero-fee instant settlements</span>
                     </div>
                     <div className="creator-field">
-                      <label className="creator-label">UPI Virtual Payment Address (VPA)</label>
+                      <div className="flex items-center justify-between">
+                        <label className="creator-label">
+                          UPI Virtual Payment Address (VPA) <span className="text-rose-400">*</span>
+                        </label>
+                        {upiId && (
+                          <span
+                            className={`text-[10px] font-semibold ${
+                              upiId.includes("@") ? "text-emerald-400" : "text-amber-400"
+                            }`}
+                          >
+                            {upiId.includes("@") ? "✓ Valid UPI Format" : "⚠ Must include @handle"}
+                          </span>
+                        )}
+                      </div>
                       <input
                         type="text"
                         placeholder="e.g. alexstudio@oksbi or 9876543210@paytm"
                         value={upiId}
-                        onChange={(e) => setUpiId(e.target.value)}
-                        className="creator-input"
+                        onChange={(e) => setUpiId(e.target.value.trim().toLowerCase())}
+                        className="creator-input font-mono"
                       />
+                      <span className="creator-field-hint">
+                        Instant peer-to-merchant payouts will be credited directly to this UPI ID.
+                      </span>
                     </div>
                   </div>
                 )}
@@ -1038,26 +1174,36 @@ export default function CreatorSetupPage() {
                 {/* Bank Wire Details */}
                 {enabledMethods.includes("bank") && (
                   <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
-                    <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
-                      <Building2 className="w-4 h-4" />
-                      <span>Direct Bank Wire / NEFT / IMPS / SWIFT</span>
-                      {payoutMethod === "bank" && (
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-normal">Primary Gateway</span>
-                      )}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+                        <Building2 className="w-4 h-4" />
+                        <span>Direct Bank Wire / NEFT / IMPS / SWIFT</span>
+                        {payoutMethod === "bank" && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-normal border border-emerald-500/30">
+                            Primary Gateway
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-zinc-400">Direct wire to your checking/business account</span>
                     </div>
+
                     <div className="creator-grid-2">
                       <div className="creator-field">
-                        <label className="creator-label">Bank Name</label>
+                        <label className="creator-label">
+                          Bank Name <span className="text-rose-400">*</span>
+                        </label>
                         <input
                           type="text"
-                          placeholder="e.g. JPMorgan Chase, HDFC Bank, HSBC"
+                          placeholder="e.g. JPMorgan Chase, HDFC Bank, HSBC, Barclays"
                           value={bankName}
                           onChange={(e) => setBankName(e.target.value)}
                           className="creator-input"
                         />
                       </div>
                       <div className="creator-field">
-                        <label className="creator-label">Account Holder Full Name</label>
+                        <label className="creator-label">
+                          Account Holder Full Name <span className="text-rose-400">*</span>
+                        </label>
                         <input
                           type="text"
                           placeholder="Name as on official Bank Records"
@@ -1067,26 +1213,72 @@ export default function CreatorSetupPage() {
                         />
                       </div>
                     </div>
-                    <div className="creator-grid-3">
+
+                    <div className="creator-grid-2">
                       <div className="creator-field">
-                        <label className="creator-label">Account Number / IBAN</label>
+                        <label className="creator-label">
+                          Account Number / IBAN <span className="text-rose-400">*</span>
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={showAccountNumber ? "text" : "password"}
+                            placeholder="Enter bank account number"
+                            value={accountNumber}
+                            onChange={(e) => setAccountNumber(e.target.value)}
+                            className="creator-input pr-14"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowAccountNumber(!showAccountNumber)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400 hover:text-white transition"
+                          >
+                            {showAccountNumber ? "Hide" : "Show"}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="creator-field">
+                        <div className="flex items-center justify-between">
+                          <label className="creator-label">
+                            Confirm Account Number <span className="text-rose-400">*</span>
+                          </label>
+                          {confirmAccountNumber && (
+                            <span
+                              className={`text-[10px] font-semibold ${
+                                accountNumber === confirmAccountNumber
+                                  ? "text-emerald-400"
+                                  : "text-rose-400"
+                              }`}
+                            >
+                              {accountNumber === confirmAccountNumber
+                                ? "✓ Matches"
+                                : "⚠ Mismatch"}
+                            </span>
+                          )}
+                        </div>
                         <input
                           type="text"
-                          placeholder="Account Number or IBAN"
-                          value={accountNumber}
-                          onChange={(e) => setAccountNumber(e.target.value)}
+                          placeholder="Re-enter account number to confirm"
+                          value={confirmAccountNumber}
+                          onChange={(e) => setConfirmAccountNumber(e.target.value)}
                           className="creator-input"
                         />
                       </div>
+                    </div>
+
+                    <div className="creator-grid-3">
                       <div className="creator-field">
-                        <label className="creator-label">IFSC / Routing Code</label>
+                        <label className="creator-label">
+                          IFSC / Routing Code <span className="text-rose-400">*</span>
+                        </label>
                         <input
                           type="text"
                           placeholder="e.g. HDFC0001234 or ABA Routing #"
                           value={ifscCode}
-                          onChange={(e) => setIfscCode(e.target.value)}
-                          className="creator-input"
+                          onChange={(e) => setIfscCode(e.target.value.toUpperCase())}
+                          className="creator-input uppercase"
                         />
+                        <span className="creator-field-hint">Required for domestic ACH / NEFT / IMPS</span>
                       </div>
                       <div className="creator-field">
                         <label className="creator-label">SWIFT / BIC Code (Optional)</label>
@@ -1094,9 +1286,21 @@ export default function CreatorSetupPage() {
                           type="text"
                           placeholder="e.g. CHASUS33"
                           value={swiftCode}
-                          onChange={(e) => setSwiftCode(e.target.value)}
-                          className="creator-input"
+                          onChange={(e) => setSwiftCode(e.target.value.toUpperCase())}
+                          className="creator-input uppercase"
                         />
+                        <span className="creator-field-hint">For international wire transfers</span>
+                      </div>
+                      <div className="creator-field">
+                        <label className="creator-label">IBAN (Optional)</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. GB29NWBK60161331926819"
+                          value={iban}
+                          onChange={(e) => setIban(e.target.value.toUpperCase())}
+                          className="creator-input uppercase"
+                        />
+                        <span className="creator-field-hint">For European &amp; SEPA accounts</span>
                       </div>
                     </div>
                   </div>

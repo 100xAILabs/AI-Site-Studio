@@ -99,6 +99,7 @@ class CreatorProfileResponse(BaseModel):
     payout_razorpay_vpa: Optional[str] = None
     payout_razorpay_account_id: Optional[str] = None
     payout_bank_name: Optional[str] = None
+    payout_account_number: Optional[str] = None
     payout_account_number_masked: Optional[str] = None
     payout_ifsc_code: Optional[str] = None
     payout_swift_code: Optional[str] = None
@@ -116,6 +117,7 @@ class CreatorProfileResponse(BaseModel):
     payout_paystack_code: Optional[str] = None
     payout_mercadopago_email: Optional[str] = None
     payout_custom_instructions: Optional[str] = None
+    payout_alerts: Optional[List[Dict[str, Any]]] = None
     creator_payout_details: Optional[Dict[str, Any]] = None
     storefront_distribution: Optional[str] = "both"
     is_creator_onboarding_completed: bool = False
