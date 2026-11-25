@@ -46,6 +46,11 @@ import {
   ArrowRight,
   BadgeCheck,
   Users,
+  FolderGit2,
+  Key,
+  Plus,
+  Terminal,
+  Rocket,
 } from "lucide-react";
 import TemplateCard from "@/components/marketplace/TemplateCard";
 import CreatorStorefrontNavbar from "@/components/layout/CreatorStorefrontNavbar";
@@ -166,6 +171,8 @@ export default function CreatorStorefrontPage() {
           ? `Contact ${storefront.brand_name}`
           : activeTab === "payments"
           ? `Payment Channels — ${storefront.brand_name}`
+          : activeTab === "projects"
+          ? `My Projects — ${storefront.brand_name}`
           : `${storefront.brand_name} — Templates Catalog`;
       document.title = `${pageLabel} | Official Storefront`;
     }
@@ -173,6 +180,20 @@ export default function CreatorStorefrontPage() {
       document.title = "AI Site Studio — AI Website Generator & Marketplace";
     };
   }, [storefront, activeTab]);
+
+  // ── My Proj State & Purchases Query ──
+  const {
+    data: myPurchases = [],
+    isLoading: purchasesLoading,
+  } = useQuery({
+    queryKey: ["my-purchases-projects"],
+    queryFn: async () => {
+      const res = await api.get("/licenses/my-purchases");
+      return Array.isArray(res) ? res : [];
+    },
+    enabled: Boolean(isSignedIn),
+    staleTime: 5000,
+  });
 
   const templates = useMemo(() => {
     return storefront?.templates || [];
@@ -1247,37 +1268,12 @@ export default function CreatorStorefrontPage() {
                     </div>
                   </div>
                   <div className="sf-method-card-content">
-                    {paymentOptions.bank?.account_name || paymentOptions.bank?.iban ? (
-                      <div className="sf-method-fields-list">
-                        {paymentOptions.bank?.account_name && (
-                          <div className="sf-bank-row">
-                            <span>Account Name:</span>
-                            <strong>{paymentOptions.bank.account_name}</strong>
-                          </div>
-                        )}
-                        {paymentOptions.bank?.bank_name && (
-                          <div className="sf-bank-row">
-                            <span>Bank Name:</span>
-                            <strong>{paymentOptions.bank.bank_name}</strong>
-                          </div>
-                        )}
-                        {paymentOptions.bank?.iban && (
-                          <div className="sf-copy-row mt-1">
-                            <code className="sf-copy-code">IBAN: {paymentOptions.bank.iban}</code>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyPaymentInfo("IBAN", paymentOptions.bank.iban)}
-                              className="sf-copy-btn"
-                            >
-                              {copiedPaymentField === "IBAN" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
+                    {paymentOptions.bank_transfer?.enabled ? (
                       <p className="sf-method-info-text">
-                        Bank wire transfer available for enterprise licensing and custom development milestones. Contact creator for invoice &amp; wire details.
+                        Bank transfer is available. Secure account and order instructions appear at checkout after you start your purchase.
                       </p>
+                    ) : (
+                      <p className="sf-method-info-text">Bank transfer is not available for this storefront.</p>
                     )}
                   </div>
                 </div>
@@ -1334,7 +1330,122 @@ export default function CreatorStorefrontPage() {
         )}
 
         {/* ========================================================================= */}
-        {/* PAGE 5: CREATOR CLIENTS & AUDIENCE CRM (OWNER ONLY)                       */}
+        {/* PAGE 5: MY PROJ - BUYER'S PURCHASED TEMPLATES                             */}
+        {/* ========================================================================= */}
+        {activeTab === "projects" && (
+          <div className="sf-page-view sf-page-projects">
+            {/* Header Banner */}
+            <div className="sf-page-header-banner">
+              <div className="sf-editorial-badge">
+                <FolderGit2 className="w-3.5 h-3.5 text-[#dfb180]" />
+                <span>My Purchased Websites</span>
+              </div>
+              <h2>My Proj • {storefront.brand_name}</h2>
+              <p>
+                View the templates you have purchased. Click <strong>Deploy →</strong> on any website to open Site Studio, sign in with your account, edit your site, and deploy live using Studio tokens.
+              </p>
+            </div>
+
+            {!isSignedIn ? (
+              <div className="sf-proj-empty-box">
+                <FolderGit2 className="sf-proj-empty-icon" />
+                <h3>Sign In to View Your Purchased Projects</h3>
+                <p>
+                  Log in with your account email and password to view your purchased templates and launch them in Site Studio.
+                </p>
+                <Link
+                  to={`/sign-in?from=${encodeURIComponent(`/creator/${storefront.store_slug || slug}?tab=projects`)}`}
+                  className="sf-proj-btn-primary"
+                >
+                  <User className="w-4 h-4" />
+                  <span>Sign In with Site Studio</span>
+                </Link>
+              </div>
+            ) : purchasesLoading ? (
+              <div className="sf-proj-loading">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto text-[#dfb180]" />
+                <p>Loading your purchased templates...</p>
+              </div>
+            ) : myPurchases.length === 0 ? (
+              <div className="sf-proj-empty-box">
+                <ShoppingBag className="sf-proj-empty-icon" />
+                <h3>No Purchased Templates Yet</h3>
+                <p>
+                  You haven&apos;t purchased any website templates yet. Explore {storefront.brand_name}&apos;s catalog to buy production-ready templates with lifetime commercial licenses.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setTab("templates")}
+                  className="sf-proj-btn-primary"
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                  <span>Browse Templates Catalog</span>
+                </button>
+              </div>
+            ) : (
+              <div className="sf-proj-list">
+                {myPurchases.map((item) => {
+                  const targetTplId = item.custom_draft_id || item.template_id;
+                  const deployHref = `/studio/deploy?template=${encodeURIComponent(targetTplId)}&license=${encodeURIComponent(item.license_id)}&name=${encodeURIComponent(item.template_title || "")}&creatorSlug=${encodeURIComponent(storefront.store_slug || slug)}`;
+
+                  return (
+                    <div
+                      key={item.license_id}
+                      className="sf-proj-card"
+                    >
+                      <div className="sf-proj-card-top">
+                        <div className="sf-proj-meta-left">
+                          <div className="sf-proj-thumb-wrap">
+                            {item.thumbnail_url ? (
+                              <img
+                                src={item.thumbnail_url}
+                                alt={item.template_title}
+                                className="sf-proj-thumb-img"
+                              />
+                            ) : (
+                              <Layers className="w-6 h-6 text-zinc-600" />
+                            )}
+                          </div>
+                          <div className="sf-proj-info-col">
+                            <div className="sf-proj-title-row">
+                              <h3 className="sf-proj-title">{item.template_title}</h3>
+                              <span className="sf-proj-tag-framework">
+                                {item.framework}
+                              </span>
+                              <span className="sf-proj-tag-license">
+                                Commercial License
+                              </span>
+                            </div>
+                            <div className="sf-proj-meta-sub">
+                              {item.order_number && <span>Order #{item.order_number}</span>}
+                              {item.purchased_at && (
+                                <span>Purchased on {new Date(item.purchased_at).toLocaleDateString()}</span>
+                              )}
+                              <span>Seller: {item.seller_name}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="sf-proj-card-actions">
+                          <Link
+                            to={deployHref}
+                            className="sf-proj-btn-deploy"
+                          >
+                            <Rocket className="w-3.5 h-3.5" />
+                            <span>Deploy →</span>
+                          </Link>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* PAGE 6: CREATOR CLIENTS & AUDIENCE CRM (OWNER ONLY)                       */}
         {/* ========================================================================= */}
         {activeTab === "customers" && isOwner && (
           <div className="sf-page-view sf-page-customers">
@@ -1351,45 +1462,45 @@ export default function CreatorStorefrontPage() {
             </div>
 
             {/* Quick Metrics */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-              <div className="p-5 rounded-2xl bg-white/[0.03] border border-white/10">
-                <div className="flex items-center justify-between text-zinc-400 text-xs mb-2">
+            <div className="sf-crm-metrics-grid">
+              <div className="sf-crm-metric-card">
+                <div className="sf-crm-metric-header">
                   <span>Total Registered Clients</span>
                   <Users className="w-4 h-4 text-[#dfb180]" />
                 </div>
-                <div className="text-2xl font-bold text-white">
+                <div className="sf-crm-metric-value">
                   {creatorCustomers.length}
                 </div>
-                <p className="text-[11px] text-zinc-500 mt-1">Clients attributed to your store</p>
+                <p className="sf-crm-metric-subtitle">Clients attributed to your store</p>
               </div>
 
-              <div className="p-5 rounded-2xl bg-white/[0.03] border border-white/10">
-                <div className="flex items-center justify-between text-zinc-400 text-xs mb-2">
+              <div className="sf-crm-metric-card">
+                <div className="sf-crm-metric-header">
                   <span>Template Purchases</span>
                   <ShoppingBag className="w-4 h-4 text-emerald-400" />
                 </div>
-                <div className="text-2xl font-bold text-white">
+                <div className="sf-crm-metric-value">
                   {creatorCustomers.reduce((sum, c) => sum + (c.orders_count || 0), 0)}
                 </div>
-                <p className="text-[11px] text-zinc-500 mt-1">Orders for your templates</p>
+                <p className="sf-crm-metric-subtitle">Orders for your templates</p>
               </div>
 
-              <div className="p-5 rounded-2xl bg-white/[0.03] border border-white/10">
-                <div className="flex items-center justify-between text-zinc-400 text-xs mb-2">
+              <div className="sf-crm-metric-card">
+                <div className="sf-crm-metric-header">
                   <span>Total Direct Revenue</span>
                   <DollarSign className="w-4 h-4 text-amber-400" />
                 </div>
-                <div className="text-2xl font-bold text-white">
+                <div className="sf-crm-metric-value">
                   ${creatorCustomers.reduce((sum, c) => sum + (Number(c.total_spent) || 0), 0).toFixed(2)}
                 </div>
-                <p className="text-[11px] text-zinc-500 mt-1">Revenue from template sales</p>
+                <p className="sf-crm-metric-subtitle">Revenue from template sales</p>
               </div>
             </div>
 
             {/* Client Audience Table */}
-            <div className="rounded-2xl bg-[#0c1017] border border-white/10 overflow-hidden">
-              <div className="p-4 border-b border-white/10 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+            <div className="sf-crm-table-container">
+              <div className="sf-crm-table-header">
+                <h3>
                   <Users className="w-4 h-4 text-[#dfb180]" />
                   <span>Customer Directory ({creatorCustomers.length})</span>
                 </h3>
@@ -1399,8 +1510,8 @@ export default function CreatorStorefrontPage() {
               </div>
 
               {creatorCustomers.length === 0 ? (
-                <div className="p-12 text-center">
-                  <div className="w-12 h-12 rounded-full bg-white/[0.04] text-zinc-500 flex items-center justify-center mx-auto mb-3">
+                <div className="sf-crm-empty-state">
+                  <div className="sf-crm-empty-icon">
                     <Users className="w-6 h-6" />
                   </div>
                   <h4 className="text-base font-semibold text-white mb-1">No Clients Registered Yet</h4>
@@ -1413,23 +1524,23 @@ export default function CreatorStorefrontPage() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-white/[0.02] text-zinc-400 border-b border-white/5">
+                  <table className="sf-crm-table">
+                    <thead>
                       <tr>
-                        <th className="p-3.5 font-medium">Customer / Client</th>
-                        <th className="p-3.5 font-medium">Attribution</th>
-                        <th className="p-3.5 font-medium">Templates Owned</th>
-                        <th className="p-3.5 font-medium">Orders</th>
-                        <th className="p-3.5 font-medium">Total Spend</th>
-                        <th className="p-3.5 font-medium">Date</th>
+                        <th>Customer / Client</th>
+                        <th>Attribution</th>
+                        <th>Templates Owned</th>
+                        <th>Orders</th>
+                        <th>Total Spend</th>
+                        <th>Date</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/5">
+                    <tbody>
                       {creatorCustomers.map((cust) => (
-                        <tr key={cust.id} className="hover:bg-white/[0.02] transition-colors">
-                          <td className="p-3.5">
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-7 h-7 rounded-full bg-[#dfb180]/20 text-[#dfb180] flex items-center justify-center font-bold text-xs shrink-0">
+                        <tr key={cust.id}>
+                          <td>
+                            <div className="sf-crm-user-info">
+                              <div className="sf-crm-user-avatar">
                                 {(cust.name || cust.email || "C").charAt(0).toUpperCase()}
                               </div>
                               <div className="min-w-0">
@@ -1438,13 +1549,13 @@ export default function CreatorStorefrontPage() {
                               </div>
                             </div>
                           </td>
-                          <td className="p-3.5">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#dfb180]/10 text-[#dfb180] border border-[#dfb180]/30">
+                          <td>
+                            <span className="sf-crm-badge-source">
                               <BadgeCheck className="w-3 h-3" />
                               <span>{cust.is_registered_client ? "Official Store Client" : "Template Buyer"}</span>
                             </span>
                           </td>
-                          <td className="p-3.5 text-zinc-300">
+                          <td>
                             {cust.templates_owned && cust.templates_owned.length > 0 ? (
                               <div className="flex flex-wrap gap-1">
                                 {cust.templates_owned.map((t, idx) => (
@@ -1457,13 +1568,13 @@ export default function CreatorStorefrontPage() {
                               <span className="text-zinc-500">—</span>
                             )}
                           </td>
-                          <td className="p-3.5 text-zinc-300 font-medium">
+                          <td className="text-zinc-300 font-medium">
                             {cust.orders_count || 0}
                           </td>
-                          <td className="p-3.5 text-emerald-400 font-semibold">
+                          <td className="text-emerald-400 font-semibold">
                             ${(Number(cust.total_spent) || 0).toFixed(2)}
                           </td>
-                          <td className="p-3.5 text-zinc-500">
+                          <td className="text-zinc-500">
                             {cust.created_at ? new Date(cust.created_at).toLocaleDateString() : "—"}
                           </td>
                         </tr>
@@ -1522,6 +1633,11 @@ export default function CreatorStorefrontPage() {
                 <li>
                   <button type="button" onClick={() => setTab("templates")} className="sf-footer-nav-btn">
                     Templates Catalog ({templates.length})
+                  </button>
+                </li>
+                <li>
+                  <button type="button" onClick={() => setTab("projects")} className="sf-footer-nav-btn">
+                    My Proj (Token IDs)
                   </button>
                 </li>
                 <li>

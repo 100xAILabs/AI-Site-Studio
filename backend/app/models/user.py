@@ -132,9 +132,14 @@ class User(UUIDMixin, TimestampMixin, Base):
             return True
         return self.is_extreme_subscriber
 
+    @property
+    def is_creator(self) -> bool:
+        """Returns True if user has configured creator storefront or brand details."""
+        return bool(self.creator_store_slug or self.is_creator_onboarding_completed or self.creator_brand_name)
+
     # Payout details for Sellers
     payout_bank_name: Mapped[Optional[str]] = mapped_column(String(255))
-    _payout_account_number: Mapped[Optional[str]] = mapped_column("payout_account_number", String(255), nullable=True)
+    _payout_account_number: Mapped[Optional[str]] = mapped_column("payout_account_number", Text, nullable=True)
 
     @property
     def payout_account_number(self) -> Optional[str]:
@@ -149,7 +154,7 @@ class User(UUIDMixin, TimestampMixin, Base):
         self._payout_account_number = encrypt_oauth_token(value) if value else None
 
     payout_ifsc_code: Mapped[Optional[str]] = mapped_column(String(50))
-    _payout_account_holder_name: Mapped[Optional[str]] = mapped_column("payout_account_holder_name", String(255), nullable=True)
+    _payout_account_holder_name: Mapped[Optional[str]] = mapped_column("payout_account_holder_name", Text, nullable=True)
 
     @property
     def payout_account_holder_name(self) -> Optional[str]:

@@ -2,7 +2,7 @@
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  padding: clamp(2.25rem, 5vw, 5.25rem) 0 clamp(2.5rem, 5vw, 4.75rem);
+  padding: clamp(2rem, 3.5vw, 3rem) 0 clamp(2.5rem, 3.7vw, 3.5rem);
   color: var(--home-text);
   background:
     radial-gradient(ellipse 42% 58% at 76% 47%, rgb(139 92 246 / 0.09), transparent 76%),
@@ -33,11 +33,11 @@
 .heroTitleAccent {
   padding-bottom: 0.08em;
   color: var(--home-accent);
-  background: linear-gradient(105deg, #a78bfa 0%, #8b5cf6 42%, #5b21b6 100%);
+  background: var(--home-accent);
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
-:global(.dark) .heroTitleAccent { background-image: linear-gradient(105deg, #c4b5fd 0%, #a78bfa 45%, #7c3aed 100%); }
+:global(.dark) .heroTitleAccent { background: var(--home-accent); }
 .heroDescription {
   max-width: 33rem;
   margin: 1.5rem 0 0;
@@ -76,9 +76,9 @@
   right: 4%;
   width: 9.5rem;
   aspect-ratio: 1;
-  border: 1px solid rgb(196 181 253 / 0.6);
+  border: 1px solid color-mix(in srgb, var(--home-accent) 45%, transparent);
   border-radius: 38% 62% 49% 51% / 47% 39% 61% 53%;
-  background: radial-gradient(circle at 30% 28%, #ede9fe 0%, #a78bfa 28%, #6d28d9 63%, #4c1d95 100%);
+  background: radial-gradient(circle at 30% 28%, var(--home-accent-soft), var(--home-accent));
   box-shadow: inset -16px -18px 32px rgb(46 16 101 / 0.4), inset 10px 10px 20px rgb(255 255 255 / 0.55), 0 25px 55px rgb(91 33 182 / 0.26);
   opacity: 0.9;
   transform: rotate(28deg) rotateY(-25deg);
@@ -115,7 +115,7 @@
   border: 1px solid rgb(255 255 255 / 0.75);
   border-radius: 1rem;
   color: #fff;
-  background: linear-gradient(145deg, #c4b5fd, #7c3aed 62%, #4c1d95);
+  background: var(--home-accent);
   box-shadow: 0 15px 35px rgb(91 33 182 / 0.3), inset 3px 3px 8px rgb(255 255 255 / 0.4);
   transform: rotate(-17deg) rotateX(18deg) rotateY(-15deg);
 }
@@ -127,7 +127,7 @@
   left: 1%;
   width: 94%;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--home-border) 80%, #a78bfa);
+  border: 1px solid color-mix(in srgb, var(--home-border) 80%, var(--home-accent));
   border-radius: 1.2rem;
   background: var(--home-background);
   box-shadow: 0 35px 90px rgb(31 17 74 / 0.23), 0 6px 20px rgb(31 17 74 / 0.1);
@@ -148,9 +148,7 @@
   background: var(--home-background);
 }
 .windowControls { display: flex; flex: 0 0 auto; gap: 0.3rem; }
-.windowControls i { width: 0.52rem; aspect-ratio: 1; border-radius: 50%; background: #ff605c; }
-.windowControls i:nth-child(2) { background: #ffbd44; }
-.windowControls i:nth-child(3) { background: #00ca4e; }
+.windowControls i { width: 0.52rem; aspect-ratio: 1; border-radius: 50%; background: var(--home-border); }
 .addressBar {
   display: flex;
   width: min(52%, 19rem);
@@ -167,22 +165,22 @@
   font-size: 0.58rem;
   white-space: nowrap;
 }
-.addressBar span { width: 0.35rem; height: 0.35rem; border-radius: 50%; background: #34d399; }
+.addressBar span { width: 0.35rem; height: 0.35rem; border-radius: 50%; background: var(--home-accent); }
 .windowTopActions { display: flex; flex: 0 0 auto; align-items: center; gap: 0.5rem; font-size: 0.58rem; }
 .topbarDivider { height: 1rem; border-left: 1px solid var(--home-border); }
 .previewLabel { color: var(--home-muted); }
 .publishMini { border: 0; border-radius: 999px; padding: 0.38rem 0.66rem; color: #fff; background: #7c3aed; font-size: 0.58rem; font-weight: 650; }
 .editorTopbar { display: flex; height: 2.55rem; align-items: center; justify-content: space-between; gap: 0.6rem; border-bottom: 1px solid var(--home-border); padding-inline: 0.85rem; color: var(--home-muted); background: var(--home-background); }
 .projectName { display: inline-flex; min-width: 0; align-items: center; gap: 0.42rem; overflow: hidden; color: var(--home-text); font-size: 0.65rem; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-.projectMark { display: grid; width: 1.25rem; height: 1.25rem; flex: 0 0 auto; place-items: center; border-radius: 0.35rem; color: #fff; background: linear-gradient(145deg, #a78bfa, #6d28d9); font-size: 0.68rem; font-weight: 800; }
+.projectMark { display: grid; width: 1.25rem; height: 1.25rem; flex: 0 0 auto; place-items: center; border-radius: 0.35rem; color: #fff; background: var(--home-accent); font-size: 0.68rem; font-weight: 800; }
 .deviceSwitch { display: inline-flex; align-items: center; gap: 0.2rem; border: 1px solid var(--home-border); border-radius: 0.45rem; padding: 0.15rem; }
 .deviceSwitch span { display: grid; width: 1.35rem; height: 1.3rem; place-items: center; border-radius: 0.32rem; }
-.deviceSwitch .deviceActive { color: #6d28d9; background: rgb(139 92 246 / 0.12); }
-.saveStatus { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 0.25rem; color: #059669; font-size: 0.57rem; }
+.deviceSwitch .deviceActive { color: var(--home-accent); background: var(--home-accent-soft); }
+.saveStatus { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 0.25rem; color: var(--home-accent); font-size: 0.57rem; }
 .editorBody { display: grid; grid-template-columns: 2.75rem minmax(0, 1fr); min-height: 18rem; background: var(--home-surface); }
 .toolbar { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; border-right: 1px solid var(--home-border); padding: 0.62rem 0.4rem; background: var(--home-background); }
 .toolbar > span { display: grid; width: 1.8rem; height: 1.8rem; place-items: center; border-radius: 0.45rem; color: var(--home-muted); }
-.toolbar .toolActive { color: #6d28d9; background: rgb(139 92 246 / 0.12); }
+.toolbar .toolActive { color: var(--home-accent); background: var(--home-accent-soft); }
 .toolbarSpacer { flex: 1 1 auto; }
 .canvas { position: relative; min-width: 0; overflow: hidden; padding: 1rem; }
 .canvasImageFrame { position: relative; width: 100%; overflow: hidden; border: 1px solid var(--home-border); border-radius: 0.4rem; background: #080a17; box-shadow: 0 8px 24px rgb(12 10 29 / 0.16); }
@@ -200,7 +198,7 @@
   top: 36%;
   right: -3%;
   width: 10rem;
-  border: 1px solid color-mix(in srgb, var(--home-border) 75%, #a78bfa);
+  border: 1px solid color-mix(in srgb, var(--home-border) 75%, var(--home-accent));
   border-radius: 0.9rem;
   padding: 0.85rem;
   color: var(--home-text);
@@ -214,12 +212,12 @@
 .panelGroup { display: grid; gap: 0.4rem; margin-bottom: 0.8rem; }
 .panelLabel { color: var(--home-muted); font-size: 0.6rem; font-weight: 550; }
 .swatches { display: flex; align-items: center; gap: 0.35rem; }
-.swatches i { width: 0.86rem; height: 0.86rem; border: 1px solid rgb(0 0 0 / 0.1); border-radius: 50%; background: #222639; }
-.swatches i:nth-child(1) { background: #8b5cf6; }
-.swatches i:nth-child(2) { background: #25283a; }
-.swatches i:nth-child(3) { background: #68738d; }
-.swatches i:nth-child(4) { background: #c7cbd5; }
-.swatches i:nth-child(5) { background: #c4b5fd; }
+.swatches i { width: 0.86rem; height: 0.86rem; border: 1px solid var(--home-border); border-radius: 50%; background: var(--home-surface); }
+.swatches i:nth-child(1) { background: var(--home-accent); }
+.swatches i:nth-child(2) { background: var(--home-background); }
+.swatches i:nth-child(3) { background: var(--home-surface); }
+.swatches i:nth-child(4) { background: var(--home-border); }
+.swatches i:nth-child(5) { background: var(--home-accent-soft); }
 .swatches .swatchSelected { outline: 2px solid var(--home-background); box-shadow: 0 0 0 3px var(--home-accent); }
 .selectButton, .typeControl { display: flex; height: 1.8rem; align-items: center; justify-content: space-between; border: 1px solid var(--home-border); border-radius: 0.4rem; padding-inline: 0.55rem; color: var(--home-text); background: var(--home-background); font-size: 0.62rem; }
 .typeControl { color: var(--home-muted); }
@@ -227,7 +225,7 @@
 .panelDivider { height: 1px; margin: 0.1rem 0 0.65rem; background: var(--home-border); }
 .panelHint { display: flex; align-items: center; gap: 0.35rem; color: var(--home-muted); font-size: 0.55rem; }
 .panelHint svg:first-child { color: var(--home-accent); }
-.panelHint svg:last-child { margin-left: auto; color: #059669; }
+.panelHint svg:last-child { margin-left: auto; color: var(--home-accent); }
 
 .floatingStatus, .floatingImageCard {
   position: absolute;
@@ -244,7 +242,7 @@
   backdrop-filter: blur(14px);
 }
 .floatingStatus { right: -0.25rem; bottom: 13%; }
-.statusIcon { display: grid; width: 1.7rem; height: 1.7rem; place-items: center; border-radius: 50%; color: #fff; background: #10b981; }
+.statusIcon { display: grid; width: 1.7rem; height: 1.7rem; place-items: center; border-radius: 50%; color: #fff; background: var(--home-accent); }
 .floatingStatus > span:last-child, .floatingImageCard > span { display: grid; gap: 0.13rem; }
 .floatingStatus strong, .floatingImageCard strong { font-size: 0.62rem; font-weight: 680; }
 .floatingStatus small, .floatingImageCard small { color: var(--home-muted); font-size: 0.53rem; }

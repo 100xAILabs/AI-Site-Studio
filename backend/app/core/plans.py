@@ -180,6 +180,7 @@ AI_OPERATION_CREDIT_COSTS: Dict[str, int] = {
     "ai_edit": 2,
     "prompt_edit": 2,
     "deployment_analysis": 5,
+    "site_deployment": 10,
     "auto_heal": 5,
     "seo_generation": 1,
     "ai_debugging": 2,

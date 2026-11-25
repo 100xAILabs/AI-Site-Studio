@@ -21,6 +21,7 @@ class PaymentGateway(str, enum.Enum):
     RAZORPAY = "razorpay"
     STRIPE = "stripe"
     UPI = "upi"
+    BANK_TRANSFER = "bank_transfer"
 
 
 class PaymentStatus(str, enum.Enum):

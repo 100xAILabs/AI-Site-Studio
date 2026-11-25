@@ -57,6 +57,7 @@ import {
 import Navbar from "@/components/layout/Navbar";
 import CreatorStorefrontNavbar from "@/components/layout/CreatorStorefrontNavbar";
 import { useCartStore } from "@/store";
+import { useAuthStore } from "@/store/authStore";
 import { api } from "@/lib/api";
 import { cn, formatPrice, formatConvertedPrice } from "@/lib/utils";
 import { useCurrencyStore } from "@/store/currencyStore";
@@ -137,6 +138,7 @@ export default function Checkout() {
   const [modalPaymentData, setModalPaymentData] = useState(null);
   const [promoInput, setPromoInput] = useState("");
   const [purchasedTemplates, setPurchasedTemplates] = useState([]);
+  const [purchasedTokenPack, setPurchasedTokenPack] = useState(null);
   const [copiedKeyId, setCopiedKeyId] = useState(null);
   const [copiedCmdId, setCopiedCmdId] = useState(null);
 
@@ -212,7 +214,6 @@ export default function Checkout() {
           // 2. Fetch completed order details from database
           const orderRes = await api.get(`/orders/${orderId}`, tok);
           if (orderRes) {
-            clearCart();
             await handleCompleteSuccessFlow(orderRes);
             setPaymentStep("success");
             window.history.replaceState({}, "", "/checkout");
@@ -223,7 +224,6 @@ export default function Checkout() {
             const tok = authToken || (await getToken());
             const orderRes = await api.get(`/orders/${orderId}`, tok);
             if (orderRes?.status === "completed") {
-              clearCart();
               await handleCompleteSuccessFlow(orderRes);
               setPaymentStep("success");
               window.history.replaceState({}, "", "/checkout");
@@ -276,6 +276,42 @@ export default function Checkout() {
 
     setInitiatedOrder(ord);
 
+    const isCreditPackOrder =
+      Boolean(ord?.isPack) ||
+      ord?.extra_metadata?.type === "ai_credits" ||
+      String(ord?.notes || "").startsWith("AI Compute Top-Up") ||
+      directCheckoutItem?.type === "pack";
+
+    if (isCreditPackOrder) {
+      const creditsAdded = Number(
+        ord?.extra_metadata?.credits_to_add || ord?.credits || directCheckoutItem?.credits || 0
+      );
+      setPurchasedTemplates([]);
+      setPurchasedTokenPack({
+        credits: creditsAdded,
+        title: ord?.packTitle || directCheckoutItem?.title || ord?.notes || "Studio Compute Tokens",
+        badge: directCheckoutItem?.badge || "Pay-As-You-Go · No Subscription",
+      });
+
+      try {
+        await useAuthStore.getState().fetchProfile();
+      } catch (e) {
+        console.warn("Could not refresh user credits after token top-up:", e);
+      }
+
+      qc.invalidateQueries({ queryKey: ["orders"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      qc.invalidateQueries({ queryKey: ["user-subscription"] });
+      qc.invalidateQueries({ queryKey: ["billing-report"] });
+      qc.invalidateQueries({ queryKey: ["studio-quota"] });
+      qc.invalidateQueries({ queryKey: ["deployments"] });
+
+      setPaymentStep("success");
+      return;
+    }
+
+    setPurchasedTokenPack(null);
+
     // Capture items before clearCart so success screen can render complete details at once
     const rawItems = (ord.items && ord.items.length > 0) ? ord.items : items;
     const resolvedItems = rawItems.map((item) => {
@@ -315,6 +351,7 @@ export default function Checkout() {
 
     qc.invalidateQueries({ queryKey: ["orders"] });
     qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
+    qc.invalidateQueries({ queryKey: ["purchased-templates"] });
 
     setPaymentStep("success");
     clearCart();
@@ -383,15 +420,7 @@ export default function Checkout() {
 
     if (isMock || !window.Razorpay) {
       setIsProcessing(false);
-      setModalPaymentData({
-        order: targetOrder,
-        payInfo: targetPay,
-        gateway: targetOrder.gateway || "razorpay",
-        orderNumber: targetOrder.order_number || (targetOrder.id ? targetOrder.id.slice(0, 8) : "ORD"),
-        amountFormatted: formattedTotalString || `$${(targetOrder.final_amount || targetOrder.total_amount || 0).toFixed(2)} USD`,
-        amountSubtext: `${items?.length || 1} template item(s)`,
-        title: `Complete Payment for Order #${targetOrder.order_number || (targetOrder.id ? targetOrder.id.slice(0, 8) : "")}`,
-      });
+      alert("There is some issue connecting to Razorpay right now. Please try again later.");
       return;
     }
 
@@ -488,7 +517,20 @@ export default function Checkout() {
           gateway: paymentGateway,
         }, authToken);
 
-        const orderObj = { id: payInfo.order_id, order_number: payInfo.order_number, total: payInfo.price, gateway: paymentGateway };
+        const orderObj = {
+          id: payInfo.order_id,
+          order_number: payInfo.order_number,
+          total: payInfo.price,
+          gateway: paymentGateway,
+          isPack: true,
+          credits: payInfo.credits_to_add || directCheckoutItem.credits,
+          packTitle: directCheckoutItem.title,
+          extra_metadata: {
+            type: "ai_credits",
+            pack_id: directCheckoutItem.id,
+            credits_to_add: payInfo.credits_to_add || directCheckoutItem.credits,
+          },
+        };
         setInitiatedOrder(orderObj);
         setInitiatedPayment(payInfo);
 
@@ -497,15 +539,7 @@ export default function Checkout() {
             window.location.href = payInfo.checkout_url;
             return;
           }
-          setModalPaymentData({
-            order: orderObj,
-            payInfo,
-            gateway: "stripe",
-            orderNumber: orderObj.order_number,
-            amountFormatted: `$${Number(payInfo.amount_usd || directCheckoutItem.price).toFixed(2)} USD`,
-            amountSubtext: `${payInfo.credits || 100} Compute Tokens`,
-            title: `Stripe Checkout for ${payInfo.title || "AI Tokens"}`,
-          });
+          alert("There is some issue connecting to Stripe right now. Please try again later.");
           setIsProcessing(false);
           return;
         }
@@ -545,15 +579,7 @@ export default function Checkout() {
           window.location.href = payInfo.checkout_url;
           return;
         }
-        setModalPaymentData({
-          order,
-          payInfo,
-          gateway: "stripe",
-          orderNumber: order.order_number || order.id?.slice(0, 8),
-          amountFormatted: formattedTotalString,
-          amountSubtext: `${items?.length || 1} template item(s)`,
-          title: `Stripe Checkout for Order #${order.order_number || order.id?.slice(0, 8)}`,
-        });
+        alert("There is some issue connecting to Stripe right now. Please try again later.");
         setIsProcessing(false);
         return;
       }
@@ -838,7 +864,52 @@ export default function Checkout() {
             </div>
           )}
 
-          {paymentStep === "success" ? (
+          {paymentStep === "success" && purchasedTokenPack ? (
+            <div className="success-screen-wrapper">
+              <div className="success-hero">
+                <div className="success-badge-glow">
+                  <Zap className="w-10 h-10 text-emerald-400" />
+                </div>
+                <div className="success-pill-status">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Studio Tokens Credited · {purchasedTokenPack.badge}</span>
+                </div>
+                <h1 className="success-hero-title">
+                  +{purchasedTokenPack.credits} Tokens Added!
+                </h1>
+                <p className="success-hero-desc">
+                  Order <strong>#{initiatedOrder?.order_number || "ASS-TOKENS"}</strong> is confirmed.{" "}
+                  <strong>{purchasedTokenPack.title}</strong> has been added to your account — ready to edit and deploy websites with zero subscription required.
+                </p>
+              </div>
+
+              <div className="success-footer-nav">
+                <Link
+                  href="/studio/deploy"
+                  className="success-footer-btn-primary"
+                >
+                  <Zap className="w-4 h-4 text-[#dfb180]" />
+                  <span>Open Deployment Studio</span>
+                </Link>
+
+                <Link
+                  href="/dashboard?tab=deployments"
+                  className="success-footer-link"
+                >
+                  <span>Go to Dashboard Deployments</span>
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+
+                <Link
+                  href="/pricing"
+                  className="success-footer-link"
+                >
+                  <span>Back to Pricing</span>
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              </div>
+            </div>
+          ) : paymentStep === "success" ? (
             <div className="success-screen-wrapper">
               {/* 1. Header Banner */}
               <div className="success-hero">

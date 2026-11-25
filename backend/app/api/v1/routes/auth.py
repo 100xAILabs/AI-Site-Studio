@@ -24,6 +24,11 @@ from app.core.security import create_access_token, create_refresh_token, authent
 from app.models.user import User
 from app.repositories.user_repo import UserRepository
 from app.schemas.user import UserResponse, PayoutSetupRequest
+from app.services.gateway_provisioning import (
+    is_placeholder_value,
+    validate_bank_details,
+    validate_real_upi_vpa,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -1264,6 +1269,26 @@ async def update_me(
         current_user.currency = data["currency"]
 
     # ── Payout Settings Updates ──────────────────────────────────────────────
+    strict_mode = settings.ENVIRONMENT != "test"
+    payout_keys_updated = any(k.startswith("payout_") for k in data)
+    if payout_keys_updated and strict_mode:
+        for field_name in (
+            "payout_bank_name",
+            "payout_account_number",
+            "payout_ifsc_code",
+            "payout_account_holder_name",
+            "payout_razorpay_vpa",
+            "payout_upi_id",
+            "payout_stripe_email",
+            "payout_paypal_email",
+        ):
+            val = data.get(field_name)
+            if val and is_placeholder_value(str(val)):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Placeholder or demo values are not permitted for {field_name}. Please enter real details."
+                )
+
     if "payout_method" in data and data["payout_method"]:
         current_user.payout_method = str(data["payout_method"]).lower().strip()
     if "payout_bank_name" in data:
@@ -1277,15 +1302,76 @@ async def update_me(
     if "payout_razorpay_vpa" in data:
         current_user.payout_razorpay_vpa = str(data["payout_razorpay_vpa"]).strip() if data["payout_razorpay_vpa"] else None
     if "payout_upi_id" in data:
-        current_user.payout_razorpay_vpa = str(data["payout_upi_id"]).strip() if data["payout_upi_id"] else None
+        # payout_upi_id is an alias — save to the same razorpay_vpa column
+        new_vpa = str(data["payout_upi_id"]).strip() if data["payout_upi_id"] else None
+        if new_vpa:
+            current_user.payout_razorpay_vpa = new_vpa
     if "payout_stripe_email" in data:
         current_user.payout_stripe_email = str(data["payout_stripe_email"]).strip() if data["payout_stripe_email"] else None
     if "payout_paypal_email" in data:
         current_user.payout_paypal_email = str(data["payout_paypal_email"]).strip() if data["payout_paypal_email"] else None
 
-    # Track if payout setup has been configured
-    if any(k.startswith("payout_") for k in data):
-        current_user.is_payout_setup_completed = True
+    # Sync UPI VPA into creator_payout_details so the storefront picks it up correctly
+    if payout_keys_updated and current_user.payout_razorpay_vpa:
+        _existing_pd = dict(getattr(current_user, "creator_payout_details", None) or {})
+        _existing_pd["upi_id"] = current_user.payout_razorpay_vpa
+        _existing_pd["razorpay_vpa"] = current_user.payout_razorpay_vpa
+        _enabled = list(_existing_pd.get("enabled_methods") or [])
+        if "upi" not in _enabled:
+            _enabled.append("upi")
+            _existing_pd["enabled_methods"] = _enabled
+        current_user.creator_payout_details = _existing_pd
+
+    # Track if payout setup has been configured with genuine verified details
+    if payout_keys_updated:
+        if not strict_mode:
+            current_user.is_payout_setup_completed = True
+        else:
+            if (
+                current_user.payout_bank_name
+                or current_user.payout_account_number
+                or current_user.payout_ifsc_code
+                or current_user.payout_account_holder_name
+            ):
+                ok_bank, bank_err = validate_bank_details(
+                    bank_name=current_user.payout_bank_name,
+                    account_holder_name=current_user.payout_account_holder_name,
+                    account_number=current_user.payout_account_number,
+                    ifsc_or_routing=current_user.payout_ifsc_code,
+                    country=current_user.country or "IN",
+                )
+                if not ok_bank:
+                    raise HTTPException(status_code=400, detail=bank_err)
+
+            if current_user.payout_razorpay_vpa:
+                ok_upi, upi_err = validate_real_upi_vpa(current_user.payout_razorpay_vpa)
+                if not ok_upi:
+                    raise HTTPException(status_code=400, detail=upi_err)
+
+            payout_details = getattr(current_user, "creator_payout_details", None) or {}
+            has_stripe = bool(
+                current_user.stripe_connect_id
+                and not is_placeholder_value(current_user.stripe_connect_id)
+                and payout_details.get("stripe_charges_enabled")
+            )
+            has_razorpay = bool(
+                (payout_details.get("razorpay_account_id") and not is_placeholder_value(payout_details.get("razorpay_account_id")))
+                or (payout_details.get("razorpay_fund_account_id") and not is_placeholder_value(payout_details.get("razorpay_fund_account_id")))
+            )
+            has_bank = bool(
+                current_user.payout_bank_name
+                and current_user.payout_account_holder_name
+                and current_user.payout_account_number
+                and current_user.payout_ifsc_code
+            )
+            has_upi = bool(current_user.payout_razorpay_vpa)
+            primary_method = (current_user.payout_method or "").lower()
+            if primary_method == "stripe":
+                current_user.is_payout_setup_completed = has_stripe
+            elif primary_method == "razorpay":
+                current_user.is_payout_setup_completed = has_razorpay
+            else:
+                current_user.is_payout_setup_completed = bool(has_stripe or has_razorpay or has_bank or has_upi)
         
     if "full_name" in data or "avatar_url" in data:
         from app.models.template import Template
@@ -1315,6 +1401,17 @@ async def update_payout_account(
     db: AsyncSession = Depends(get_db)
 ) -> UserResponse:
     """Setup or update the seller's payout bank account details."""
+    if settings.ENVIRONMENT != "test":
+        ok_bank, bank_err = validate_bank_details(
+            bank_name=data.payout_bank_name,
+            account_holder_name=data.payout_account_holder_name,
+            account_number=data.payout_account_number,
+            ifsc_or_routing=data.payout_ifsc_code,
+            country=current_user.country or "IN",
+        )
+        if not ok_bank:
+            raise HTTPException(status_code=400, detail=bank_err)
+
     current_user.payout_bank_name = data.payout_bank_name
     current_user.payout_account_number = data.payout_account_number
     current_user.payout_ifsc_code = data.payout_ifsc_code

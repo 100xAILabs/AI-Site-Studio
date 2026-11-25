@@ -667,17 +667,18 @@ function AdminPanel() {
             {activeTab === "moderation" && (
               <div className="space-y-6">
                 <div className="glass border border-border/40 rounded-2xl p-6">
-                  <h3 className="font-bold text-base mb-2">UPI References Awaiting Review</h3>
-                  <p className="text-sm text-muted-foreground mb-4">Match each reference and amount against the merchant bank account before approving.</p>
+                  <h3 className="font-bold text-base mb-2">Manual Transfer References Awaiting Review</h3>
+                  <p className="text-sm text-muted-foreground mb-4">Match each bank or UPI reference and amount against the creator’s bank account before approving. Approval releases the order.</p>
                   {pendingUpiPayments.length === 0 ? (
-                    <div className="text-center py-6 text-sm text-muted-foreground">No UPI references awaiting review.</div>
+                    <div className="text-center py-6 text-sm text-muted-foreground">No manual transfer references awaiting review.</div>
                   ) : (
                     <div className="overflow-x-auto"><table className="admin-table">
-                      <thead><tr className="admin-tr"><th className="admin-th">Order</th><th className="admin-th">Buyer</th><th className="admin-th">UTR</th><th className="admin-th">Amount</th><th className="admin-th text-right">Actions</th></tr></thead>
+                      <thead><tr className="admin-tr"><th className="admin-th">Order</th><th className="admin-th">Buyer</th><th className="admin-th">Method</th><th className="admin-th">Transfer Reference</th><th className="admin-th">Amount</th><th className="admin-th text-right">Actions</th></tr></thead>
                       <tbody className="divide-y divide-border/50 text-sm">{pendingUpiPayments.map((payment) => (
                         <tr key={payment.id} className="admin-tr">
                           <td className="admin-td">{payment.order_number || payment.order_id}</td>
                           <td className="admin-td">{payment.buyer_email || "—"}</td>
+                          <td className="admin-td">{payment.method === "bank_transfer" ? "Bank transfer" : "UPI"}</td>
                           <td className="admin-td font-mono">{payment.utr}</td>
                           <td className="admin-td">{payment.currency} {payment.amount}</td>
                           <td className="admin-td text-right space-x-2">

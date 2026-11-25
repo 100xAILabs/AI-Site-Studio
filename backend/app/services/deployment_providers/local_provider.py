@@ -239,10 +239,34 @@ class LocalDeploymentProvider(DeploymentProvider):
             logs.append(f"❌ Dependency install error: {e!r}")
             return False, "\n".join(logs), ""
 
-        # 4. Run build script (enforce safe npm build arguments)
+        # 4. Run build script (enforce safe npm build arguments & inspect package.json scripts)
+        import json as json_lib
+        import re as re_lib
+        try:
+            with open(package_json_path, "r", encoding="utf-8", errors="replace") as pf:
+                pkg_data = json_lib.load(pf)
+            pkg_scripts = pkg_data.get("scripts") if isinstance(pkg_data, dict) else {}
+            if isinstance(pkg_scripts, dict):
+                from app.services.security_scanner import security_scanner
+                for s_name in ("prebuild", "build", "postbuild", "preinstall", "install", "postinstall"):
+                    s_cmd = pkg_scripts.get(s_name)
+                    if isinstance(s_cmd, str) and s_cmd.strip():
+                        script_findings = security_scanner.scan_code_content(s_cmd, filename=f"package.json#scripts.{s_name}")
+                        if any(f.get("severity") in ("CRITICAL", "HIGH") for f in script_findings):
+                            logs.append("❌ Security violation detected inside package.json build scripts.")
+                            return False, "\n".join(logs), ""
+        except Exception:
+            pass
+
         safe_build = build_command.strip() if build_command else "npm run build"
         cmd_parts = safe_build.split()
-        if not cmd_parts or cmd_parts[0] != "npm" or (len(cmd_parts) > 1 and cmd_parts[1] not in ("run", "build", "run-script")):
+        if (
+            not cmd_parts
+            or cmd_parts[0] != "npm"
+            or len(cmd_parts) not in (2, 3)
+            or (len(cmd_parts) == 2 and cmd_parts[1] != "build")
+            or (len(cmd_parts) == 3 and (cmd_parts[1] not in ("run", "run-script") or not re_lib.match(r"^[a-zA-Z0-9:_-]{1,50}$", cmd_parts[2]) or cmd_parts[2].startswith("-")))
+        ):
             safe_build = "npm run build"
             cmd_parts = ["npm", "run", "build"]
 

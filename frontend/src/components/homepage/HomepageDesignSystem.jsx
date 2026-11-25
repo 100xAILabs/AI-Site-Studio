@@ -51,6 +51,7 @@ export function HomepageBadge({ tone = "accent", className = "", children, ...pr
 
 export function HomepageSectionHeading({
   as: Heading = "h2",
+  id,
   eyebrow,
   title,
   description,
@@ -60,7 +61,7 @@ export function HomepageSectionHeading({
   return (
     <header className={joinClasses(styles.sectionHeading, styles[`align${align[0].toUpperCase()}${align.slice(1)}`], className)}>
       {eyebrow && <p className={styles.eyebrow}>{eyebrow}</p>}
-      <Heading className={styles.headingTitle}>{title}</Heading>
+      <Heading id={id} className={styles.headingTitle}>{title}</Heading>
       {description && <p className={styles.headingDescription}>{description}</p>}
     </header>
   );

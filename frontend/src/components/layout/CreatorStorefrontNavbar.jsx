@@ -16,6 +16,7 @@ import {
   ChevronDown,
   Layers,
   Users,
+  FolderGit2,
 } from "lucide-react";
 import "./CreatorStorefrontNavbar.css";
 
@@ -153,6 +154,15 @@ export default function CreatorStorefrontNavbar({
               >
                 <span>Payment Channels</span>
               </button>
+              <button
+                type="button"
+                onClick={() => handleNavClick("projects")}
+                className={`sf-nav-link-btn ${activeNav === "projects" ? "active" : ""}`}
+                title="View your purchased templates, token IDs, and deployment projects"
+              >
+                <FolderGit2 className="w-3.5 h-3.5 mr-1 text-[#dfb180]" />
+                <span>My Proj</span>
+              </button>
               {isOwner && (
                 <button
                   type="button"
@@ -168,6 +178,13 @@ export default function CreatorStorefrontNavbar({
               <Link href={`/creator/${storeSlug}`} className="sf-nav-link-btn active">
                 <ArrowLeft className="w-3.5 h-3.5 mr-1.5" />
                 <span>Back to {brandName}</span>
+              </Link>
+              <Link href={`/creator/${storeSlug}?tab=templates`} className="sf-nav-link-btn">
+                <span>Templates</span>
+              </Link>
+              <Link href={`/creator/${storeSlug}?tab=projects`} className="sf-nav-link-btn">
+                <FolderGit2 className="w-3.5 h-3.5 mr-1 text-[#dfb180]" />
+                <span>My Proj</span>
               </Link>
               <Link href={`/creator/${storeSlug}?tab=about`} className="sf-nav-link-btn">
                 <span>About</span>

@@ -2,7 +2,7 @@
 Payment Pydantic schemas.
 """
 
-from typing import Optional
+from typing import Any, Dict, Optional
 from pydantic import BaseModel
 
 from app.models.payment import PaymentGateway
@@ -25,6 +25,7 @@ class PaymentInitResponse(BaseModel):
     upi_uri: Optional[str] = None
     vpa: Optional[str] = None
     merchant_name: Optional[str] = None
+    bank_transfer_details: Optional[Dict[str, Any]] = None
 
 
 class PaymentVerifyRequest(BaseModel):

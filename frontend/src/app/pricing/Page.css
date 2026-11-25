@@ -137,6 +137,29 @@
   margin-bottom: 5rem;
 }
 
+.pricing-tokens-section {
+  margin-bottom: 5rem;
+}
+
+.pricing-tokens-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.pricing-tokens-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.75rem;
+  align-items: stretch;
+}
+
+@media (max-width: 960px) {
+  .pricing-cards-grid,
+  .pricing-tokens-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .pricing-tier-card {
   position: relative;
   display: flex;

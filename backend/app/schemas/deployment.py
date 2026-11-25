@@ -21,6 +21,8 @@ class DeploymentBase(BaseModel):
     custom_domain: Optional[str] = None
     creator_slug: Optional[str] = None
     creator_branding: Optional[Dict[str, Any]] = None
+    use_tokens: bool = False
+    site_token: Optional[str] = Field(default=None, max_length=120)
 
     @field_validator("project_name")
     @classmethod
@@ -125,6 +127,27 @@ class DeploymentResponse(DeploymentBase):
     is_auto_heal_active: bool = False
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("env_vars", mode="before")
+    @classmethod
+    def mask_sensitive_env_vars(cls, value: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not isinstance(value, dict):
+            return value
+        sensitive_key_tokens = ("SECRET", "KEY", "TOKEN", "PASSWORD", "PASS", "PRIVATE", "DATABASE_URL", "DSN", "STRIPE", "RAZORPAY")
+        masked: Dict[str, Any] = {}
+        for k, v in value.items():
+            key_str = str(k)
+            if key_str == "__creator_branding__":
+                masked[key_str] = v
+                continue
+            upper_k = key_str.upper()
+            if any(tok in upper_k for tok in sensitive_key_tokens):
+                masked[key_str] = "********" if v else ""
+            elif isinstance(v, str) and (v.startswith("sk_") or v.startswith("AIzaSy") or "postgresql+asyncpg://" in v or "postgresql://" in v):
+                masked[key_str] = "********"
+            else:
+                masked[key_str] = v
+        return masked
 
     model_config = {"from_attributes": True}
 

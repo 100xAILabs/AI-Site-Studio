@@ -41,9 +41,11 @@ async def list_pending_upi_payments(
         select(Payment)
         .options(selectinload(Payment.order).selectinload(Order.user))
         .where(
-            Payment.gateway == PaymentGateway.UPI,
             Payment.status == PaymentStatus.PENDING,
-            Payment.gateway_payment_id.like("UTR:%"),
+            or_(
+                and_(Payment.gateway == PaymentGateway.UPI, Payment.gateway_payment_id.like("UTR:%")),
+                and_(Payment.gateway == PaymentGateway.BANK_TRANSFER, Payment.gateway_payment_id.like("BANKREF:%")),
+            ),
         )
         .order_by(Payment.created_at.asc())
     )
@@ -53,7 +55,8 @@ async def list_pending_upi_payments(
             "order_id": str(payment.order_id),
             "order_number": payment.order.order_number if payment.order else None,
             "buyer_email": payment.order.user.email if payment.order and payment.order.user else None,
-            "utr": payment.gateway_payment_id.removeprefix("UTR:") if payment.gateway_payment_id else None,
+            "method": payment.gateway.value,
+            "utr": (payment.gateway_payment_id or "").split(":", 1)[-1] or None,
             "amount": float(payment.amount),
             "currency": payment.currency,
             "submitted_at": payment.updated_at.isoformat() if payment.updated_at else None,
@@ -83,8 +86,9 @@ async def review_upi_payment(
     payment = result.scalar_one_or_none()
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found")
-    if payment.gateway != PaymentGateway.UPI or not (payment.gateway_payment_id or "").startswith("UTR:"):
-        raise HTTPException(status_code=400, detail="Payment has no submitted UPI reference")
+    expected_prefix = "BANKREF:" if payment.gateway == PaymentGateway.BANK_TRANSFER else "UTR:"
+    if payment.gateway not in (PaymentGateway.UPI, PaymentGateway.BANK_TRANSFER) or not (payment.gateway_payment_id or "").startswith(expected_prefix):
+        raise HTTPException(status_code=400, detail="Payment has no submitted transfer reference")
     if payment.status != PaymentStatus.PENDING:
         raise HTTPException(status_code=409, detail="Payment has already been reviewed")
     if not payment.order:

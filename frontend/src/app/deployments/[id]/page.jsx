@@ -525,7 +525,7 @@ export default function DeployedWebsiteDetailsPage() {
   // Token Top-Up Modal State
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
   const [tokenPurchasing, setTokenPurchasing] = useState(false);
-  const [selectedTokenPack, setSelectedTokenPack] = useState(25);
+  const [selectedTokenPack, setSelectedTokenPack] = useState("tokens_200");
 
   // Tracking Tag Modal State
   const [isTrackingModalOpen, setIsTrackingModalOpen] = useState(false);
@@ -770,24 +770,11 @@ export default function DeployedWebsiteDetailsPage() {
     }
   };
 
-  // Purchase / Top-up AI Tokens
-  const handleBuyTokensConfirm = async () => {
+  // Purchase / Top-up AI Tokens via one-time checkout (no subscription required)
+  const handleBuyTokensConfirm = () => {
     setTokenPurchasing(true);
-    try {
-      // Simulate/trigger token top-up
-      await new Promise((r) => setTimeout(r, 800));
-      if (siteData?.token_diagnostic) {
-        siteData.token_diagnostic.current_ai_credits += selectedTokenPack;
-        siteData.token_diagnostic.is_low = false;
-        siteData.token_diagnostic.is_depleted = false;
-      }
-      toast.success(`🎉 Added +${selectedTokenPack} Studio Credits to your account!`);
-      setIsTokenModalOpen(false);
-    } catch (e) {
-      toast.error("Failed to add studio credits.");
-    } finally {
-      setTokenPurchasing(false);
-    }
+    setIsTokenModalOpen(false);
+    navigate(`/checkout?pack=${encodeURIComponent(selectedTokenPack)}`);
   };
 
   // Filtered Logs Computation
@@ -1954,18 +1941,18 @@ export default function DeployedWebsiteDetailsPage() {
 
             <div className="grid grid-cols-3 gap-3">
               {[
-                { amount: 10, price: "$5", label: "Starter" },
-                { amount: 25, price: "$10", label: "Popular", best: true },
-                { amount: 100, price: "$35", label: "Pro Power" },
+                { id: "tokens_50", amount: 50, price: "$10", label: "Starter" },
+                { id: "tokens_200", amount: 200, price: "$30", label: "Popular", best: true },
+                { id: "tokens_500", amount: 500, price: "$60", label: "Studio" },
               ].map((pack) => (
                 <div
-                  key={pack.amount}
-                  onClick={() => setSelectedTokenPack(pack.amount)}
-                  className={`p-3 rounded-xl border text-center cursor-pointer transition-all ${selectedTokenPack === pack.amount ? "border-[#c89666] bg-[#c89666]/20" : "border-white/10 bg-white/5 hover:border-white/20"}`}
+                  key={pack.id}
+                  onClick={() => setSelectedTokenPack(pack.id)}
+                  className={`p-3 rounded-xl border text-center cursor-pointer transition-all ${selectedTokenPack === pack.id ? "border-[#c89666] bg-[#c89666]/20" : "border-white/10 bg-white/5 hover:border-white/20"}`}
                 >
                   <span className="text-xs text-slate-400 uppercase font-bold">{pack.label}</span>
                   <div className="text-xl font-black text-white my-1">+{pack.amount}</div>
-                  <span className="text-xs text-[#dfb180] font-bold">{pack.price}</span>
+                  <span className="text-xs text-[#dfb180] font-bold">{pack.price} · One-time</span>
                 </div>
               ))}
             </div>
@@ -1977,7 +1964,7 @@ export default function DeployedWebsiteDetailsPage() {
               className="deploy-btn-primary w-full justify-center"
             >
               <Coins className="w-4 h-4" />
-              <span>{tokenPurchasing ? "Processing..." : `Add +${selectedTokenPack} Tokens Now`}</span>
+              <span>{tokenPurchasing ? "Opening Checkout..." : "Buy Token Pack (No Subscription)"}</span>
             </button>
           </div>
         </div>

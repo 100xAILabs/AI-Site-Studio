@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Sparkles,
   ShoppingBag,
@@ -34,6 +34,7 @@ import {
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import { useAppUser } from "@/lib/auth";
+import { useAuthStore } from "@/store/authStore";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import "./Page.css";
@@ -111,14 +112,6 @@ const PAYOUT_METHODS = [
     icon: Layers,
     color: "#00c3f7",
   },
-  {
-    id: "custom",
-    name: "Custom Payout Instructions",
-    badge: "Flexible Terms",
-    desc: "Custom instructions, offline terms, or direct directions displayed to buyers.",
-    icon: FileText,
-    color: "#8b5cf6",
-  },
 ];
 
 const DISTRIBUTION_OPTIONS = [
@@ -147,7 +140,12 @@ const DISTRIBUTION_OPTIONS = [
 
 export default function CreatorSetupPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user, isSignedIn, isLoaded } = useAppUser();
+
+  const sellRedirectReason = searchParams.get("reason") || "";
+  const redirectTarget = searchParams.get("redirect") || "";
+  const retailTemplateId = searchParams.get("retailTemplate") || "";
 
   const isExtreme =
     Boolean(user?.can_retail_templates) ||
@@ -161,6 +159,10 @@ export default function CreatorSetupPage() {
   const [isLoadingProfile, setIsLoadingProfile] = useState(true);
   const [profileData, setProfileData] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isProvisioningRazorpay, setIsProvisioningRazorpay] = useState(false);
+  const [isProvisioningStripe, setIsProvisioningStripe] = useState(false);
+  const [gatewayError, setGatewayError] = useState("");
+  const [stripeOnboardingUrl, setStripeOnboardingUrl] = useState("");
   const [copiedLink, setCopiedLink] = useState(false);
   const [successData, setSuccessData] = useState(null);
 
@@ -168,6 +170,10 @@ export default function CreatorSetupPage() {
   const [brandName, setBrandName] = useState("");
   const [creatorName, setCreatorName] = useState("");
   const [storeSlug, setStoreSlug] = useState("");
+  const [phone, setPhone] = useState("");
+  const [country, setCountry] = useState("IN");
+  const [businessType, setBusinessType] = useState("individual");
+  const [pan, setPan] = useState("");
   const [tagline, setTagline] = useState("");
   const [bio, setBio] = useState("");
   const [supportEmail, setSupportEmail] = useState("");
@@ -179,8 +185,8 @@ export default function CreatorSetupPage() {
   const [linkedinUrl, setLinkedinUrl] = useState("");
 
   // Payout State - Multi-Gateway & Primary Choice
-  const [enabledMethods, setEnabledMethods] = useState(["stripe", "razorpay"]);
-  const [payoutMethod, setPayoutMethod] = useState("stripe");
+  const [enabledMethods, setEnabledMethods] = useState(["razorpay"]);
+  const [payoutMethod, setPayoutMethod] = useState("razorpay");
   
   // Gateway Detail Fields
   const [stripeEmail, setStripeEmail] = useState("");
@@ -240,7 +246,7 @@ export default function CreatorSetupPage() {
   const [slugAvailable, setSlugAvailable] = useState(null);
   const [slugReason, setSlugReason] = useState("");
 
-  // Load existing creator profile
+  // Load existing creator profile (and sync live gateway return status if redirected back from Stripe)
   useEffect(() => {
     async function loadProfile() {
       if (!isSignedIn) {
@@ -248,7 +254,10 @@ export default function CreatorSetupPage() {
         return;
       }
       try {
-        const data = await api.get("/creator/profile");
+        const isStripeReturn = searchParams.get("stripe_connected") === "1" || searchParams.get("stripe_refresh") === "1";
+        const data = isStripeReturn
+          ? await api.get("/creator/connect/status")
+          : await api.get("/creator/profile");
         if (data) {
           setProfileData(data);
           if (data.creator_brand_name) setBrandName(data.creator_brand_name);
@@ -257,6 +266,10 @@ export default function CreatorSetupPage() {
             setStoreSlug(data.creator_store_slug);
             setSlugAvailable(true);
           }
+          if (data.phone) setPhone(data.phone);
+          if (data.country) setCountry(data.country);
+          if (data.business_type) setBusinessType(data.business_type);
+          if (data.creator_payout_details?.pan) setPan(data.creator_payout_details.pan);
           if (data.creator_tagline) setTagline(data.creator_tagline);
           if (data.creator_bio) setBio(data.creator_bio);
           if (data.creator_support_email) setSupportEmail(data.creator_support_email);
@@ -364,24 +377,31 @@ export default function CreatorSetupPage() {
     }
   };
 
-  // Live payout validation calculation
+  // Live strict payout validation calculation
   const isPayoutGatewayReady = useMemo(() => {
+    const serverConns = profileData?.gateway_connections || {};
     for (const method of enabledMethods) {
       if (method === "bank") {
         const hasBank =
           bankName.trim().length >= 2 &&
-          accountNumber.trim().length >= 4 &&
+          accountNumber.trim().length >= 6 &&
           accountHolder.trim().length >= 2 &&
-          (ifscCode.trim().length >= 4 || iban.trim().length >= 8 || swiftCode.trim().length >= 4);
+          (ifscCode.trim().length >= 4 || iban.trim().length >= 8 || swiftCode.trim().length >= 8);
         if (hasBank) return true;
       } else if (method === "upi") {
-        if (upiId.trim().includes("@") && upiId.trim().length >= 4) return true;
+        if (/^[a-z0-9._-]{2,}@[a-z0-9]{2,}$/i.test(upiId.trim())) return true;
       } else if (method === "stripe") {
-        if (stripeEmail.trim().includes("@") || stripePaymentLink.trim().length > 10 || stripeAccountId.trim().startsWith("acct_")) return true;
+        const validLink = /^https:\/\/(buy|checkout)\.stripe\.com\/[A-Za-z0-9_-]+/i.test(stripePaymentLink.trim());
+        const verifiedAcct = Boolean(serverConns.stripe && stripeAccountId.trim().startsWith("acct_"));
+        if (validLink || verifiedAcct) return true;
       } else if (method === "razorpay") {
-        if (razorpayVpa.trim().includes("@") || razorpayAccountId.trim().length >= 4) return true;
+        const validRzp = Boolean(
+          (razorpayAccountId.trim().startsWith("acc_") || razorpayAccountId.trim().startsWith("fa_")) &&
+          profileData?.creator_payout_details?.razorpay_status !== "error"
+        );
+        if (validRzp) return true;
       } else if (method === "crypto") {
-        if (cryptoAddress.trim().length >= 10) return true;
+        if (cryptoAddress.trim().length >= 16) return true;
       } else if (method === "wise") {
         if (wiseEmail.trim().length >= 3) return true;
       } else if (method === "revolut") {
@@ -390,12 +410,11 @@ export default function CreatorSetupPage() {
         if (cashappTag.trim().length >= 2 || venmoTag.trim().length >= 2) return true;
       } else if (method === "paystack") {
         if (paystackCode.trim().length >= 3 || flutterwaveId.trim().length >= 3) return true;
-      } else if (method === "custom") {
-        if (customInstructions.trim().length >= 10) return true;
       }
     }
     return false;
   }, [
+    profileData,
     enabledMethods,
     bankName,
     accountNumber,
@@ -404,10 +423,8 @@ export default function CreatorSetupPage() {
     iban,
     swiftCode,
     upiId,
-    stripeEmail,
     stripePaymentLink,
     stripeAccountId,
-    razorpayVpa,
     razorpayAccountId,
     cryptoAddress,
     wiseEmail,
@@ -416,14 +433,112 @@ export default function CreatorSetupPage() {
     venmoTag,
     paystackCode,
     flutterwaveId,
-    customInstructions,
   ]);
+
+  const handleAutoConnectRazorpay = async () => {
+    setGatewayError("");
+    if (!phone.trim() || phone.replace(/\D/g, "").length < 10) {
+      const msg = "Please enter a valid 10-digit phone number in Step 1 before connecting Razorpay.";
+      setGatewayError(msg);
+      toast.error(msg);
+      return;
+    }
+    const hasBank = bankName.trim().length >= 2 && accountNumber.trim().length >= 6 && ifscCode.trim().length >= 4;
+    const hasVpa = /^[a-z0-9._-]{2,}@[a-z0-9]{2,}$/i.test((razorpayVpa || upiId || "").trim());
+    if (!hasBank && !hasVpa) {
+      const msg = "Please enter your Bank Account Number + IFSC Code (or a valid UPI VPA) so we can automatically create your Razorpay payout account.";
+      setGatewayError(msg);
+      toast.error(msg);
+      return;
+    }
+
+    setIsProvisioningRazorpay(true);
+    try {
+      const res = await api.post("/creator/connect/razorpay", {
+        brand_name: brandName.trim() || "Site Studio Creator",
+        creator_name: creatorName.trim() || accountHolder.trim() || user?.full_name || "Creator",
+        email: (supportEmail || user?.email || "").trim(),
+        phone: phone.trim(),
+        business_type: businessType,
+        pan: pan.trim().toUpperCase() || null,
+        bank_name: bankName.trim() || null,
+        account_number: accountNumber.trim() || null,
+        ifsc_code: ifscCode.trim().toUpperCase() || null,
+        account_holder_name: (accountHolder || creatorName || brandName).trim(),
+        upi_vpa: (razorpayVpa || upiId || "").trim().toLowerCase() || null,
+        existing_account_id: razorpayAccountId.trim() || null,
+      });
+
+      if (res?.account_id) {
+        setRazorpayAccountId(res.account_id);
+        toast.success(res.message || `Razorpay account connected successfully (${res.account_id})!`);
+        const refreshed = await api.get("/creator/profile");
+        if (refreshed) setProfileData(refreshed);
+      }
+    } catch (err) {
+      const msg =
+        err?.response?.data?.detail ||
+        err?.message ||
+        "There is some issue connecting or creating your Razorpay account right now. Please try again later.";
+      setGatewayError(msg);
+      toast.error(msg);
+    } finally {
+      setIsProvisioningRazorpay(false);
+    }
+  };
+
+  const handleAutoConnectStripe = async () => {
+    setGatewayError("");
+    setIsProvisioningStripe(true);
+    try {
+      const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:5173";
+      const res = await api.post("/creator/connect/stripe", {
+        brand_name: brandName.trim() || "Site Studio Creator",
+        email: (stripeEmail || supportEmail || user?.email || "").trim(),
+        country: country || "US",
+        existing_account_id: stripeAccountId.trim() || null,
+        return_url: `${origin}/creator/setup?stripe_connected=1`,
+        refresh_url: `${origin}/creator/setup?stripe_refresh=1`,
+      });
+
+      if (res?.account_id) {
+        setStripeAccountId(res.account_id);
+      }
+      if (res?.onboarding_url) {
+        setStripeOnboardingUrl(res.onboarding_url);
+        toast.success("Stripe Connect account created! Redirecting to Stripe onboarding...");
+        window.location.href = res.onboarding_url;
+        return;
+      }
+      if (res?.connected) {
+        toast.success(res.message || "Stripe Express account verified and connected!");
+        const refreshed = await api.get("/creator/profile");
+        if (refreshed) setProfileData(refreshed);
+      }
+    } catch (err) {
+      const msg =
+        err?.response?.data?.detail ||
+        err?.message ||
+        "There is some issue connecting your Stripe account right now. Please try again later.";
+      setGatewayError(msg);
+      toast.error(msg);
+    } finally {
+      setIsProvisioningStripe(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setGatewayError("");
+    setStripeOnboardingUrl("");
 
     if (!brandName.trim()) {
       toast.error("Please enter your Studio or Brand Name");
+      return;
+    }
+
+    if (!creatorName.trim()) {
+      toast.error("Please enter your Creator / Legal Display Name");
       return;
     }
 
@@ -437,7 +552,14 @@ export default function CreatorSetupPage() {
       return;
     }
 
-    if (enabledMethods.includes("bank") && accountNumber.trim()) {
+    if ((enabledMethods.includes("razorpay") || enabledMethods.includes("stripe")) && (!phone.trim() || phone.replace(/\D/g, "").length < 10)) {
+      const msg = "Please enter your valid contact phone number (with country code, e.g. +919876543210) to connect payment gateways.";
+      setGatewayError(msg);
+      toast.error(msg);
+      return;
+    }
+
+    if ((enabledMethods.includes("bank") || enabledMethods.includes("razorpay")) && accountNumber.trim() && !accountNumber.includes("*")) {
       if (confirmAccountNumber.trim() && accountNumber.trim() !== confirmAccountNumber.trim()) {
         toast.error("Bank Account Number and Confirm Account Number do not match. Please verify.");
         return;
@@ -446,10 +568,22 @@ export default function CreatorSetupPage() {
 
     setIsSubmitting(true);
     try {
+      const allEnabledMethods = [...enabledMethods];
+      if ((upiId.trim() || razorpayVpa.trim()) && !allEnabledMethods.includes("upi")) {
+        allEnabledMethods.push("upi");
+      }
+      if (bankName.trim() && accountNumber.trim() && !allEnabledMethods.includes("bank")) {
+        allEnabledMethods.push("bank");
+      }
+
       const payload = {
         brand_name: brandName.trim(),
         creator_name: creatorName.trim() || null,
         store_slug: storeSlug.trim().toLowerCase(),
+        phone: phone.trim() || null,
+        country: country || "IN",
+        business_type: businessType || "individual",
+        pan: pan.trim().toUpperCase() || null,
         tagline: tagline.trim() || null,
         bio: bio.trim() || null,
         support_email: supportEmail.trim() || null,
@@ -462,7 +596,7 @@ export default function CreatorSetupPage() {
           linkedin: linkedinUrl.trim() || undefined,
         },
         payout_method: payoutMethod,
-        enabled_payment_methods: enabledMethods,
+        enabled_payment_methods: allEnabledMethods,
         payout_stripe_email: stripeEmail.trim() || null,
         payout_stripe_account_id: stripeAccountId.trim() || null,
         payout_stripe_payment_link: stripePaymentLink.trim() || null,
@@ -490,14 +624,38 @@ export default function CreatorSetupPage() {
 
       const res = await api.put("/creator/profile", payload);
       setProfileData(res);
-      setSuccessData(res);
-      if (res.is_payout_setup_completed) {
-        toast.success("Bank & Payout settings successfully verified! Customer purchases are now ACTIVE on your storefront.");
+      if (res?.payout_razorpay_account_id) setRazorpayAccountId(res.payout_razorpay_account_id);
+      if (res?.payout_stripe_account_id) setStripeAccountId(res.payout_stripe_account_id);
+
+      // Sync user profile across all tabs and stores immediately
+      try {
+        await useAuthStore.getState().fetchProfile();
+      } catch (syncErr) {
+        console.warn("Global auth profile sync notice:", syncErr);
+      }
+
+      if (res?.stripe_onboarding_url && !res?.is_payout_setup_completed) {
+        setStripeOnboardingUrl(res.stripe_onboarding_url);
+        toast.info("Storefront saved! Redirecting you to Stripe to complete your real payout bank connection...");
+        window.location.href = res.stripe_onboarding_url;
+        return;
+      }
+
+      if (res?.is_payout_setup_completed) {
+        setSuccessData(res);
+        toast.success("Storefront & payment gateway connected! You can now sell templates.");
       } else {
-        toast.warning("Profile saved, but bank account or payout details are incomplete. Customer purchases remain paused until connected.");
+        const msg = "Profile saved, but a verified payment gateway is still required before customer purchases or selling templates can go live.";
+        setGatewayError(msg);
+        toast.warning(msg);
       }
     } catch (err) {
-      toast.error(err.message || "Failed to update creator profile.");
+      const msg =
+        err?.response?.data?.detail ||
+        err?.message ||
+        "There is some issue connecting your storefront or payment method right now. Please try again later.";
+      setGatewayError(msg);
+      toast.error(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -667,17 +825,45 @@ export default function CreatorSetupPage() {
             </div>
 
             <div className="creator-success-actions">
+              {(() => {
+                const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+                const rawRedirect =
+                  params.get("redirect") ||
+                  params.get("redirectTarget") ||
+                  params.get("next") ||
+                  params.get("returnTo");
+                const retailId =
+                  params.get("retailTemplateId") ||
+                  params.get("templateId") ||
+                  params.get("template_id") ||
+                  params.get("retail");
+                const safeRedirect =
+                  rawRedirect && rawRedirect.startsWith("/") && !rawRedirect.startsWith("//")
+                    ? rawRedirect
+                    : null;
+                const sellTarget =
+                  safeRedirect ||
+                  (retailId
+                    ? `/dashboard?tab=creator-studio&retail=${encodeURIComponent(retailId)}`
+                    : "/dashboard?tab=creator-studio");
+                return (
+                  <Link to={sellTarget} className="creator-btn-primary">
+                    <ShoppingBag className="w-4 h-4 mr-2" />
+                    <span>
+                      {safeRedirect || retailId
+                        ? "Continue to Sell Template"
+                        : "Go to Creator Studio to Sell Templates"}
+                    </span>
+                  </Link>
+                );
+              })()}
               <Link
                 to={`/creator/${successData.creator_store_slug || storeSlug}`}
-                className="creator-btn-primary"
+                className="creator-btn-secondary"
               >
                 <Store className="w-4 h-4 mr-2" />
                 <span>Visit My Storefront</span>
                 <ExternalLink className="w-4 h-4 ml-1.5" />
-              </Link>
-              <Link to="/dashboard?tab=creator-studio" className="creator-btn-secondary">
-                <ShoppingBag className="w-4 h-4 mr-2" />
-                <span>Go to Creator Studio to Sell Templates</span>
               </Link>
               <button
                 type="button"
@@ -695,23 +881,77 @@ export default function CreatorSetupPage() {
             <div className="creator-header">
               <div className="creator-badge">
                 <Sparkles className="w-3.5 h-3.5 text-[#dfb180]" />
-                <span>Extreme Creator Portal</span>
+                <span>Creator onboarding</span>
               </div>
-              <h1 className="creator-title">Creator Storefront &amp; Payout Setup</h1>
-              <p className="creator-subtitle">
-                Configure your brand identity, dedicated storefront on our domain, and select your
-                preferred payout gateway to start selling your AI-generated websites.
-              </p>
+              <div className="creator-hero-layout">
+                <div>
+                  <p className="creator-hero-kicker">YOUR CREATOR BUSINESS, READY TO LAUNCH</p>
+                  <h1 className="creator-title">Build your storefront.</h1>
+                  <p className="creator-subtitle">
+                    Set up your brand, choose how buyers can pay, and decide where your templates appear.
+                    You can update these details anytime.
+                  </p>
+                </div>
+                <div className="creator-hero-note">
+                  <span className="creator-hero-note-icon"><Store className="w-5 h-5" /></span>
+                  <span><strong>One setup,</strong><br />ready for every launch.</span>
+                </div>
+              </div>
+              <nav className="creator-setup-progress" aria-label="Setup sections">
+                <a href="#creator-step-profile"><span>01</span><span>Brand &amp; profile</span><ChevronRight className="w-3.5 h-3.5" /></a>
+                <a href="#creator-step-payout"><span>02</span><span>Payments</span><ChevronRight className="w-3.5 h-3.5" /></a>
+                <a href="#creator-step-distribution"><span>03</span><span>Distribution</span><CheckCircle2 className="w-3.5 h-3.5" /></a>
+              </nav>
             </div>
+
+            {sellRedirectReason === "sell_requires_storefront" && (
+              <div className="p-4 rounded-xl bg-[#dfb180]/10 border border-[#dfb180]/40 text-amber-100 flex items-start gap-3 mb-6">
+                <Crown className="w-5 h-5 text-[#dfb180] shrink-0 mt-0.5" />
+                <div className="flex-1 text-xs">
+                  <h4 className="font-bold text-[#dfb180] text-sm">Complete Storefront &amp; Payment Connection First</h4>
+                  <p className="text-slate-300 mt-1 leading-relaxed">
+                    Before selling or listing templates on Site Studio, please enter your complete creator details, bank account information, and connect a verified payment gateway below.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {gatewayError && (
+              <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/35 text-rose-200 flex items-start gap-3 mb-6">
+                <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                <div className="flex-1 text-xs">
+                  <h4 className="font-bold text-rose-300 text-sm">Payment Gateway Connection Issue</h4>
+                  <p className="text-rose-200/90 mt-1 leading-relaxed">{gatewayError}</p>
+                </div>
+              </div>
+            )}
+
+            {stripeOnboardingUrl && (
+              <div className="p-4 rounded-xl bg-indigo-500/15 border border-indigo-500/40 text-indigo-100 flex items-center justify-between gap-4 mb-6">
+                <div className="text-xs">
+                  <h4 className="font-bold text-indigo-300 text-sm">Finish Connecting Stripe Express Account</h4>
+                  <p className="text-slate-300 mt-0.5">
+                    Click to link your real bank account on Stripe hosted onboarding.
+                  </p>
+                </div>
+                <a
+                  href={stripeOnboardingUrl}
+                  className="px-4 py-2 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white font-bold text-xs shrink-0 flex items-center gap-1.5"
+                >
+                  <span>Complete Stripe Onboarding</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+            )}
 
             {/* Bank Connection Status Banner */}
             {profileData && !profileData.is_payout_setup_completed && (
               <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 flex items-start gap-3 mb-6">
                 <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
                 <div className="flex-1 text-sm">
-                  <h4 className="font-bold text-amber-200">Action Required: Bank Account Not Connected</h4>
+                  <h4 className="font-bold text-amber-200">Action Required: Payment Account Not Connected</h4>
                   <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                    Your storefront checkout is currently paused. Please configure your bank account, UPI ID, or Stripe Connect in Step 2 below so customers can purchase your templates directly to your account.
+                    Your storefront checkout is currently paused. Complete your creator details and connect Razorpay, Stripe Express, Bank Account, or UPI below to sell templates.
                   </p>
                 </div>
               </div>
@@ -720,20 +960,20 @@ export default function CreatorSetupPage() {
               <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-200 flex items-center gap-3 mb-6">
                 <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
                 <div className="flex-1 text-xs">
-                  <span className="font-semibold text-emerald-300">Bank &amp; Payout Gateway Connected:</span>
-                  <span className="text-slate-300 ml-1.5">Direct purchases are active on your storefront. Customer template payments route directly to your account.</span>
+                  <span className="font-semibold text-emerald-300">Real Payment Account Connected:</span>
+                  <span className="text-slate-300 ml-1.5">Direct purchases are active on your storefront. Payments route securely to your verified account.</span>
                 </div>
               </div>
             )}
 
             {/* ── SECTION 1: BRANDING & CREATOR IDENTITY ── */}
-            <div className="creator-card">
+            <div className="creator-card" id="creator-step-profile">
               <div className="creator-card-header">
                 <div className="creator-step-badge">Step 1</div>
                 <div>
                   <h3 className="creator-card-title">Brand &amp; Creator Identity</h3>
                   <p className="creator-card-desc">
-                    How you and your studio will appear on our domain and to customers.
+                    Required business, contact, and identity details for your storefront and payment gateway account creation.
                   </p>
                 </div>
               </div>
@@ -757,17 +997,81 @@ export default function CreatorSetupPage() {
                 </div>
 
                 <div className="creator-field">
-                  <label className="creator-label">Creator's Name (Display Name)</label>
+                  <label className="creator-label">
+                    Creator Legal / Display Name <span className="text-rose-400">*</span>
+                  </label>
                   <input
                     type="text"
+                    required
                     placeholder="e.g. Alex Morgan"
                     value={creatorName}
                     onChange={(e) => setCreatorName(e.target.value)}
                     className="creator-input"
                   />
-                  <span className="creator-field-hint">Your personal creator display name.</span>
+                  <span className="creator-field-hint">Required for Razorpay/Stripe account registration.</span>
                 </div>
               </div>
+
+              <div className="creator-grid-3">
+                <div className="creator-field">
+                  <label className="creator-label">
+                    Contact Phone Number <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    placeholder="e.g. +919876543210"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="creator-input font-mono"
+                  />
+                  <span className="creator-field-hint">Required for Razorpay Linked Account auto-creation.</span>
+                </div>
+
+                <div className="creator-field">
+                  <label className="creator-label">Country / Region</label>
+                  <select
+                    value={country}
+                    onChange={(e) => setCountry(e.target.value)}
+                    className="creator-input"
+                  >
+                    <option value="IN">India (INR / UPI / Razorpay)</option>
+                    <option value="US">United States (USD / Stripe)</option>
+                    <option value="GB">United Kingdom (GBP / Stripe)</option>
+                    <option value="DE">European Union (EUR / SEPA)</option>
+                    <option value="CA">Canada (CAD / Stripe)</option>
+                    <option value="AU">Australia (AUD / Stripe)</option>
+                    <option value="SG">Singapore (SGD / Stripe)</option>
+                  </select>
+                </div>
+
+                <div className="creator-field">
+                  <label className="creator-label">Business Entity Type</label>
+                  <select
+                    value={businessType}
+                    onChange={(e) => setBusinessType(e.target.value)}
+                    className="creator-input"
+                  >
+                    <option value="individual">Individual / Freelancer</option>
+                    <option value="proprietorship">Sole Proprietorship</option>
+                    <option value="llp">LLP / Partnership</option>
+                    <option value="private_limited">Private Limited / LLC</option>
+                  </select>
+                </div>
+              </div>
+
+              {country === "IN" && (
+                <div className="creator-field">
+                  <label className="creator-label">PAN Number (Optional — speeds up Razorpay Route KYC)</label>
+                  <input
+                    type="text"
+                    maxLength={10}
+                    placeholder="e.g. ABCDE1234F"
+                    value={pan}
+                    onChange={(e) => setPan(e.target.value.toUpperCase())}
+                    className="creator-input font-mono uppercase"
+                  />
+                </div>
+              )}
 
               {/* Dedicated Storefront URL on our domain */}
               <div className="creator-field">
@@ -926,7 +1230,7 @@ export default function CreatorSetupPage() {
             </div>
 
             {/* ── SECTION 2: PAYMENT SECTION ── */}
-            <div className="creator-card">
+            <div className="creator-card" id="creator-step-payout">
               <div className="creator-card-header">
                 <div className="creator-step-badge">Step 2</div>
                 <div>
@@ -1036,7 +1340,7 @@ export default function CreatorSetupPage() {
               </div>
 
               {/* Dynamic Payout Fields for all enabled gateways */}
-              <div className="space-y-4 pt-2">
+              <div className="creator-payout-details space-y-4 pt-2">
                 <div className="border-t border-white/10 pt-4">
                   <h4 className="text-sm font-bold text-foreground mb-1">
                     Payout &amp; Account Details ({enabledMethods.length} method{enabledMethods.length === 1 ? "" : "s"} enabled)
@@ -1048,14 +1352,51 @@ export default function CreatorSetupPage() {
 
                 {/* Stripe Details */}
                 {enabledMethods.includes("stripe") && (
-                  <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
-                    <div className="flex items-center gap-2 text-indigo-400 font-bold text-sm">
-                      <CreditCard className="w-4 h-4" />
-                      <span>Stripe Connect &amp; Direct Cards</span>
-                      {payoutMethod === "stripe" && (
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-normal">Primary Gateway</span>
-                      )}
+                  <div className="creator-payout-method-panel p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-indigo-400 font-bold text-sm">
+                        <CreditCard className="w-4 h-4" />
+                        <span>Stripe Connect &amp; Direct Cards</span>
+                        {payoutMethod === "stripe" && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-normal">Primary Gateway</span>
+                        )}
+                        {profileData?.gateway_connections?.stripe && stripeAccountId && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">
+                            ✓ Verified ({stripeAccountId})
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAutoConnectStripe}
+                        disabled={isProvisioningStripe}
+                        className="px-3 py-1.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-400/40 text-indigo-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                      >
+                        {isProvisioningStripe ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Connecting Stripe...</span>
+                          </>
+                        ) : (
+                          <>
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>{stripeAccountId ? "Verify / Resume Stripe Onboarding" : "Auto-Create & Connect Stripe Account"}</span>
+                          </>
+                        )}
+                      </button>
                     </div>
+                    <p className="text-[11px] text-zinc-400">
+                      Auto-creating Express accounts requires your platform Stripe account to be activated at{" "}
+                      <a
+                        href="https://dashboard.stripe.com/account/onboarding"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-indigo-400 underline hover:text-indigo-300"
+                      >
+                        dashboard.stripe.com/account/onboarding
+                      </a>
+                      . Alternatively, you can enter your existing Stripe Account ID (<code>acct_...</code>), paste your direct Stripe Payment Link (<code>https://buy.stripe.com/...</code>), or connect with <strong>Razorpay Route / Direct UPI</strong> below.
+                    </p>
                     <div className="creator-grid-3">
                       <div className="creator-field">
                         <label className="creator-label">Stripe Account Email</label>
@@ -1068,17 +1409,17 @@ export default function CreatorSetupPage() {
                         />
                       </div>
                       <div className="creator-field">
-                        <label className="creator-label">Stripe Connect Account ID (Optional)</label>
+                        <label className="creator-label">Stripe Connect Account ID</label>
                         <input
                           type="text"
-                          placeholder="acct_1N..."
+                          placeholder="Auto-created via button or acct_1..."
                           value={stripeAccountId}
                           onChange={(e) => setStripeAccountId(e.target.value)}
-                          className="creator-input"
+                          className="creator-input font-mono"
                         />
                       </div>
                       <div className="creator-field">
-                        <label className="creator-label">Stripe Payment Link URL (Optional)</label>
+                        <label className="creator-label">Real Stripe Payment Link URL (Optional)</label>
                         <input
                           type="url"
                           placeholder="https://buy.stripe.com/..."
@@ -1093,17 +1434,45 @@ export default function CreatorSetupPage() {
 
                 {/* Razorpay Details */}
                 {enabledMethods.includes("razorpay") && (
-                  <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
-                    <div className="flex items-center gap-2 text-blue-400 font-bold text-sm">
-                      <Zap className="w-4 h-4" />
-                      <span>Razorpay &amp; UPI Settlements</span>
-                      {payoutMethod === "razorpay" && (
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-normal">Primary Gateway</span>
-                      )}
+                  <div className="creator-payout-method-panel p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-blue-400 font-bold text-sm">
+                        <Zap className="w-4 h-4" />
+                        <span>Razorpay Route &amp; UPI Settlements</span>
+                        {payoutMethod === "razorpay" && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-normal">Primary Gateway</span>
+                        )}
+                        {razorpayAccountId && (razorpayAccountId.startsWith("acc_") || razorpayAccountId.startsWith("fa_")) && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">
+                            ✓ Connected ({razorpayAccountId})
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAutoConnectRazorpay}
+                        disabled={isProvisioningRazorpay}
+                        className="px-3 py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/40 text-blue-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                      >
+                        {isProvisioningRazorpay ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Creating Razorpay Account...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Zap className="w-3.5 h-3.5" />
+                            <span>{razorpayAccountId ? "Verify Razorpay Account" : "Auto-Create & Connect Razorpay Account"}</span>
+                          </>
+                        )}
+                      </button>
                     </div>
+                    <p className="text-[11px] text-zinc-400">
+                      Fill in your phone number above and your Bank Account / IFSC below, then click <strong>Auto-Create &amp; Connect Razorpay Account</strong> (or Save). Site Studio will automatically register a real Razorpay payout account for you.
+                    </p>
                     <div className="creator-grid-2">
                       <div className="creator-field">
-                        <label className="creator-label">Razorpay UPI VPA ID</label>
+                        <label className="creator-label">Razorpay UPI VPA ID (Optional Backup)</label>
                         <input
                           type="text"
                           placeholder="yourname@okhdfcbank"
@@ -1113,13 +1482,13 @@ export default function CreatorSetupPage() {
                         />
                       </div>
                       <div className="creator-field">
-                        <label className="creator-label">Razorpay Route / Linked Account ID</label>
+                        <label className="creator-label">Razorpay Route / Linked Account ID (Auto-Generated)</label>
                         <input
                           type="text"
-                          placeholder="acc_xxxxxx"
+                          placeholder="Auto-created when connected (acc_... or fa_...)"
                           value={razorpayAccountId}
                           onChange={(e) => setRazorpayAccountId(e.target.value)}
-                          className="creator-input"
+                          className="creator-input font-mono"
                         />
                       </div>
                     </div>
@@ -1129,7 +1498,7 @@ export default function CreatorSetupPage() {
 
                 {/* UPI Details */}
                 {enabledMethods.includes("upi") && (
-                  <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
+                  <div className="creator-payout-method-panel p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-green-400 font-bold text-sm">
                         <Smartphone className="w-4 h-4" />
@@ -1171,9 +1540,9 @@ export default function CreatorSetupPage() {
                   </div>
                 )}
 
-                {/* Bank Wire Details */}
-                {enabledMethods.includes("bank") && (
-                  <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
+                {/* Bank Wire Details (Always visible when Bank or Razorpay is enabled) */}
+                {(enabledMethods.includes("bank") || enabledMethods.includes("razorpay")) && (
+                  <div className="creator-payout-method-panel p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
                         <Building2 className="w-4 h-4" />
@@ -1219,18 +1588,18 @@ export default function CreatorSetupPage() {
                         <label className="creator-label">
                           Account Number / IBAN <span className="text-rose-400">*</span>
                         </label>
-                        <div className="relative">
+                        <div className="creator-input-password-wrap">
                           <input
                             type={showAccountNumber ? "text" : "password"}
                             placeholder="Enter bank account number"
                             value={accountNumber}
                             onChange={(e) => setAccountNumber(e.target.value)}
-                            className="creator-input pr-14"
+                            className="creator-input pr-16"
                           />
                           <button
                             type="button"
                             onClick={() => setShowAccountNumber(!showAccountNumber)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400 hover:text-white transition"
+                            className="creator-password-toggle-btn"
                           >
                             {showAccountNumber ? "Hide" : "Show"}
                           </button>
@@ -1257,7 +1626,7 @@ export default function CreatorSetupPage() {
                           )}
                         </div>
                         <input
-                          type="text"
+                          type={showAccountNumber ? "text" : "password"}
                           placeholder="Re-enter account number to confirm"
                           value={confirmAccountNumber}
                           onChange={(e) => setConfirmAccountNumber(e.target.value)}
@@ -1308,7 +1677,7 @@ export default function CreatorSetupPage() {
 
                 {/* Crypto / Web3 Details */}
                 {enabledMethods.includes("crypto") && (
-                  <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
+                  <div className="creator-payout-method-panel p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
                     <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
                       <Coins className="w-4 h-4" />
                       <span>Crypto / Web3 Wallet Settlements</span>
@@ -1365,7 +1734,7 @@ export default function CreatorSetupPage() {
                   enabledMethods.includes("cashapp") ||
                   enabledMethods.includes("paystack") ||
                   enabledMethods.includes("custom")) && (
-                  <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
+                  <div className="creator-payout-method-panel p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
                     <div className="text-zinc-300 font-bold text-sm">Global Peer-to-Peer &amp; Regional Options</div>
                     <div className="creator-grid-2">
                       {enabledMethods.includes("wise") && (
@@ -1435,7 +1804,7 @@ export default function CreatorSetupPage() {
             </div>
 
             {/* ── SECTION 3: STOREFRONT & DISTRIBUTION CHOICE ── */}
-            <div className="creator-card">
+            <div className="creator-card" id="creator-step-distribution">
               <div className="creator-card-header">
                 <div className="creator-step-badge">Step 3</div>
                 <div>

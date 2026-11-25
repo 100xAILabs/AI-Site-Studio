@@ -18,13 +18,14 @@ import {
   Zap,
 } from "lucide-react";
 import Link from "@/components/Link";
+import { motion, useReducedMotion } from "framer-motion";
 import { HomepageBadge, HomepageButton, HomepageContainer } from "./HomepageDesignSystem";
 import styles from "./HomepageHero.module.css";
 
 const STATS = [
-  { icon: Layers3, value: "100+", label: "Premium Templates" },
+  { icon: Layers3, value: "Templates", label: "Marketplace" },
   { icon: Zap, value: "AI", label: "Studio Builder" },
-  { icon: InfinityIcon, value: "Endless", label: "Creative Possibilities" },
+  { icon: InfinityIcon, value: "Responsive", label: "Preview & Publish" },
 ];
 
 function BuilderVisual() {
@@ -103,10 +104,11 @@ function SparkleGlyph() {
 }
 
 export default function HomepageHero() {
+  const reduceMotion = useReducedMotion();
   return (
     <section className={styles.heroSection} aria-labelledby="homepage-hero-title">
       <HomepageContainer className={styles.heroContainer}>
-        <div className={styles.heroCopy}>
+        <motion.div className={styles.heroCopy} initial={reduceMotion ? false : { opacity: 0, y: 22 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1] }}>
           <HomepageBadge className={styles.heroBadge}><span className={styles.badgeSparkle}>✦</span> The Creative Platform</HomepageBadge>
           <h1 className={styles.heroTitle} id="homepage-hero-title">
             <span>Build Something</span>
@@ -132,9 +134,9 @@ export default function HomepageHero() {
               </div>
             ))}
           </div>
-        </div>
+        </motion.div>
 
-        <BuilderVisual />
+        <motion.div initial={reduceMotion ? false : { opacity: 0, scale: 0.96, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}><BuilderVisual /></motion.div>
       </HomepageContainer>
     </section>
   );

@@ -7,24 +7,25 @@
   --popover-foreground: 0 0% 7%;
   --surface: 0 0% 100%;
   --surface-foreground: 0 0% 7%;
-  --surface-secondary: 0 0% 96%;
-  --secondary: 0 0% 96%;
+  --surface-secondary: 240 10% 96.9%;
+  --secondary: 240 10% 96.9%;
   --secondary-foreground: 0 0% 7%;
-  --muted: 0 0% 96%;
+  --muted: 240 10% 96.9%;
   --muted-foreground: 0 0% 45.5%;
-  --accent: 258 90% 66%;
+  --accent: 262 83% 58%;
   --accent-foreground: 0 0% 100%;
-  --border: 0 0% 90%;
-  --input: 0 0% 90%;
-  --ring: 258 90% 66%;
-  --primary: 258 90% 66%;
+  --border: 240 3% 90%;
+  --input: 240 3% 90%;
+  --ring: 262 83% 58%;
+  --primary: 262 83% 58%;
   --primary-foreground: 0 0% 100%;
   --home-background: #ffffff;
   --home-text: #111111;
-  --home-surface: #f5f5f5;
-  --home-border: #e5e5e5;
-  --home-accent: #8b5cf6;
+  --home-surface: #f5f5f7;
+  --home-border: #e5e5e7;
+  --home-accent: #7c3aed;
   --home-muted: #737373;
+  --home-accent-soft: #ede9fe;
   --home-on-accent: #ffffff;
   --home-spacing-1: 0.25rem;
   --home-spacing-2: 0.5rem;
@@ -47,32 +48,33 @@
 }
 
 :global(.dark) .scope {
-  --background: 0 0% 3.5%;
-  --foreground: 0 0% 98%;
-  --card: 0 0% 9%;
-  --card-foreground: 0 0% 98%;
-  --popover: 0 0% 9%;
-  --popover-foreground: 0 0% 98%;
-  --surface: 0 0% 9%;
-  --surface-foreground: 0 0% 98%;
-  --surface-secondary: 0 0% 9%;
-  --secondary: 0 0% 9%;
-  --secondary-foreground: 0 0% 98%;
-  --muted: 0 0% 9%;
-  --muted-foreground: 0 0% 64%;
+  --background: 240 14% 4%;
+  --foreground: 0 0% 100%;
+  --card: 240 4% 10%;
+  --card-foreground: 0 0% 100%;
+  --popover: 240 4% 10%;
+  --popover-foreground: 0 0% 100%;
+  --surface: 240 4% 10%;
+  --surface-foreground: 0 0% 100%;
+  --surface-secondary: 240 4% 10%;
+  --secondary: 240 4% 10%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 240 4% 10%;
+  --muted-foreground: 240 4% 64%;
   --accent: 258 90% 66%;
   --accent-foreground: 0 0% 100%;
-  --border: 0 0% 19%;
-  --input: 0 0% 19%;
+  --border: 240 7% 17%;
+  --input: 240 7% 17%;
   --ring: 258 90% 66%;
   --primary: 258 90% 66%;
   --primary-foreground: 0 0% 100%;
-  --home-background: #090909;
-  --home-text: #fafafa;
-  --home-surface: #171717;
-  --home-border: #303030;
+  --home-background: #09090b;
+  --home-text: #ffffff;
+  --home-surface: #18181b;
+  --home-border: #29292f;
   --home-accent: #8b5cf6;
-  --home-muted: #a3a3a3;
+  --home-muted: #a1a1aa;
+  --home-accent-soft: #211638;
   --home-on-accent: #ffffff;
   --home-shadow-card: 0 12px 32px rgb(0 0 0 / 0.28);
   --home-shadow-button: 0 5px 18px rgb(139 92 246 / 0.24);
@@ -117,10 +119,10 @@
 
 .buttonPrimary {
   color: var(--home-on-accent);
-  background: #7c3aed;
+  background: var(--home-accent);
   box-shadow: var(--home-shadow-button);
 }
-.buttonPrimary:hover:not(:disabled) { background: #6d28d9; }
+.buttonPrimary:hover:not(:disabled) { filter: brightness(0.94); }
 .buttonSecondary {
   color: var(--home-text);
   border-color: var(--home-border);
@@ -145,10 +147,9 @@
   font-weight: 650;
   line-height: 1;
 }
-.badgeAccent { color: #6d28d9; border-color: rgb(139 92 246 / 0.22); background: rgb(139 92 246 / 0.1); }
+.badgeAccent { color: var(--home-accent); border-color: color-mix(in srgb, var(--home-accent) 22%, transparent); background: var(--home-accent-soft); }
 .badgeNeutral { color: var(--home-muted); border-color: var(--home-border); background: var(--home-surface); }
 .badgeDark { color: #fafafa; border-color: #303030; background: #171717; }
-:global(.dark) .badgeAccent { color: #c4b5fd; }
 
 .sectionHeading { max-width: 46rem; }
 .alignLeft { text-align: left; }

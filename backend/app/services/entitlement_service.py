@@ -43,6 +43,24 @@ class EntitlementService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    async def _get_purchased_topup_credits(self, user_id: uuid.UUID) -> int:
+        """Sum AI credits from completed standalone token-pack purchases (never wiped by free-tier caps)."""
+        from app.models.order import Order, OrderStatus
+        stmt = select(Order).where(
+            Order.user_id == user_id,
+            Order.status == OrderStatus.COMPLETED,
+        )
+        res = await self.db.execute(stmt)
+        total = 0
+        for ord_obj in res.scalars().all():
+            meta = getattr(ord_obj, "extra_metadata", None) or {}
+            if isinstance(meta, dict) and meta.get("type") == "ai_credits" and meta.get("credits_to_add"):
+                try:
+                    total += int(meta["credits_to_add"])
+                except (TypeError, ValueError):
+                    pass
+        return total
+
     # -----------------------------------------------------------------------
     # PRIMARY USER SUBSCRIPTION & PLAN SUMMARY
     # -----------------------------------------------------------------------
@@ -66,7 +84,8 @@ class EntitlementService:
                     tier_on_user = "free"
                     user.subscription_tier = "free"
                     user.subscription_status = "expired"
-                    user.ai_credits = 0  # Unused tokens from finished plan expire completely
+                    purchased_topups = await self._get_purchased_topup_credits(user.id)
+                    user.ai_credits = min(user.ai_credits or 0, purchased_topups) if purchased_topups > 0 else 0
                     self.db.add(user)
                     if sub:
                         sub.plan_id = "free"
@@ -107,6 +126,7 @@ class EntitlementService:
         now = datetime.now(timezone.utc)
 
         # 1. Check if paid subscription plan has expired / finished
+        purchased_topups = await self._get_purchased_topup_credits(user.id)
         if plan_id != "free":
             expires_at = user.subscription_expires_at or sub.current_period_end
             if expires_at:
@@ -116,7 +136,7 @@ class EntitlementService:
                     plan_id = "free"
                     user.subscription_tier = "free"
                     user.subscription_status = "expired"
-                    user.ai_credits = 0  # When plan is finished, credits expire completely
+                    user.ai_credits = min(user.ai_credits or 0, purchased_topups) if purchased_topups > 0 else 0
                     sub.plan_id = "free"
                     sub.status = "expired"
                     self.db.add(user)
@@ -134,20 +154,22 @@ class EntitlementService:
             in_grace_period = now <= grace_end
 
         # AI Credits policy:
-        # If user is on free tier after an expired or canceled subscription: credits remain 0 (no free rollover)
+        # Preserve any standalone purchased token packs, while capping unpurchased free/expired subscription rollovers.
         if plan_id == "free" and getattr(user, "subscription_status", "") in ("expired", "canceled"):
-            user.ai_credits = 0
-            self.db.add(user)
-            await self.db.flush()
-        # For active free tier accounts: ensure credits cannot exceed 10 (exactly 1 website generation allowance)
-        elif plan_id == "free" and (user.ai_credits is None or user.ai_credits > 10):
+            capped_credits = min(user.ai_credits or 0, purchased_topups) if purchased_topups > 0 else 0
+            if user.ai_credits != capped_credits:
+                user.ai_credits = capped_credits
+                self.db.add(user)
+                await self.db.flush()
+        # For active free tier accounts: cap free signup credits at 10 while preserving purchased top-up credits
+        elif plan_id == "free" and (user.ai_credits is None or user.ai_credits > (10 + purchased_topups)):
             gen_count_stmt = select(func.count(UsageLedger.id)).where(
                 UsageLedger.user_id == user.id,
                 UsageLedger.operation.in_(["website_generation", "multipage_generation"]),
             )
             gen_count_res = await self.db.execute(gen_count_stmt)
             gen_count = int(gen_count_res.scalar() or 0)
-            user.ai_credits = max(0, 10 - (gen_count * 10))
+            user.ai_credits = max(0, 10 - (gen_count * 10)) + purchased_topups
             self.db.add(user)
             await self.db.flush()
 
@@ -393,6 +415,7 @@ class EntitlementService:
         template_id: Optional[uuid.UUID] = None,
         template_slug: Optional[str] = None,
         is_custom_domain: bool = False,
+        use_tokens: bool = False,
     ) -> Tuple[bool, str]:
         """
         Validates deployment creation permissions before launching builds.
@@ -400,6 +423,7 @@ class EntitlementService:
         - Free: 1 trial deployment for 7 days. Permanent 1-trial-per-template history. Subdomain only.
         - Pro: max 3 deployment slots. 1 included hosted website. Custom domain for included site.
         - Extreme: fair-use slots. 3 included hosted websites. Custom domain for 3 included sites.
+        - Token-funded deploy (`use_tokens=True`): lets users deploy using Studio AI tokens without a subscription.
         """
         is_admin = getattr(user.role, "value", user.role) == "admin"
         if is_admin:
@@ -415,6 +439,32 @@ class EntitlementService:
                 False,
                 "Custom domain connection is not supported on the Free Starter tier. Upgrade to Pro (1 website) or Extreme (3 websites) to connect custom domains.",
             )
+
+        # Check if user purchased an active commercial license for this template (Lifetime deployment entitlement)
+        if template_id:
+            from app.models.license import License
+            lic_stmt = select(License).where(
+                License.user_id == user.id,
+                or_(
+                    License.template_id == template_id,
+                    License.notes.ilike(f"%{template_id}%"),
+                ),
+                License.is_active == True,
+            )
+            lic_res = await self.db.execute(lic_stmt)
+            if lic_res.scalars().first():
+                return True, "Commercial license verified: Lifetime deployment approved."
+
+        # Explicit pay-as-you-go token deployment (no subscription required)
+        if use_tokens:
+            dep_cost = get_operation_cost("site_deployment")
+            available_credits = user.ai_credits if user.ai_credits is not None else 0
+            if available_credits < dep_cost:
+                return (
+                    False,
+                    f"Insufficient Studio tokens to deploy (available: {available_credits}, required: {dep_cost}). Buy a one-time Token Pack to continue.",
+                )
+            return True, f"Token deployment approved ({dep_cost} Studio tokens)."
 
         # 2. Free Tier Specific Restrictions
         if plan_id == "free":

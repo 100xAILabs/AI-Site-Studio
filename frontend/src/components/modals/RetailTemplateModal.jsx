@@ -42,6 +42,20 @@ export default function RetailTemplateModal({
     user?.role === "admin" ||
     user?.role === "super_admin";
 
+  // Check live creator storefront & connected payment setup status
+  const { data: liveCreatorProfile } = useQuery({
+    queryKey: ["creator-profile-retail-gate", user?.id],
+    queryFn: async () => await api.get("/creator/profile", authToken),
+    enabled: Boolean(isOpen && isExtreme && authToken),
+    staleTime: 1000 * 15,
+  });
+
+  const isStorefrontConnected = Boolean(
+    liveCreatorProfile
+      ? liveCreatorProfile.is_creator_onboarding_completed && liveCreatorProfile.is_payout_setup_completed
+      : user?.is_creator_onboarding_completed && user?.is_payout_setup_completed
+  );
+
   const [retailPrice, setRetailPrice] = useState("29");
   const [title, setTitle] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -264,6 +278,39 @@ export default function RetailTemplateModal({
               </button>
               <button type="button" onClick={onClose} className="rtm-btn-secondary">
                 Maybe Later
+              </button>
+            </div>
+          </div>
+        ) : !isStorefrontConnected ? (
+          /* ── CASE 2B: EXTREME USER MUST CREATE STOREFRONT & CONNECT REAL PAYMENT ACCOUNT FIRST ── */
+          <div className="rtm-body rtm-gate-state">
+            <div className="rtm-gate-badge">
+              <AlertCircle className="w-5 h-5 text-amber-400" />
+              <span>Storefront &amp; Payment Setup Required</span>
+            </div>
+
+            <h4 className="rtm-gate-title">
+              Connect Your Storefront &amp; Real Payment Account First
+            </h4>
+            <p className="rtm-gate-desc">
+              Before listing or selling any website template, please complete your creator storefront details and connect a real, verified payment method (Razorpay, Stripe Express, UPI, or Bank Account) on the Storefront Setup page.
+            </p>
+
+            <div className="rtm-gate-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  navigate(`/creator/setup?reason=sell_requires_storefront&retailTemplate=${encodeURIComponent(template.id)}`);
+                }}
+                className="rtm-btn-upgrade"
+              >
+                <Crown className="w-4 h-4 mr-2" />
+                <span>Go to Storefront &amp; Payment Setup</span>
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </button>
+              <button type="button" onClick={onClose} className="rtm-btn-secondary">
+                Cancel
               </button>
             </div>
           </div>

@@ -3,7 +3,7 @@
 import { HomepageDesignScope } from "@/components/homepage/HomepageDesignSystem";
 import HomepageNavbar from "@/components/homepage/HomepageNavbar";
 import HomepageHero from "@/components/homepage/HomepageHero";
-import PopularTemplatesSection from "@/components/landing/PopularTemplatesSection";
+import HomepageContentSections, { HomepageFooter } from "@/components/homepage/HomepageContentSections";
 import "./Page.css";
 
 export default function HomePage() {
@@ -13,9 +13,9 @@ export default function HomePage() {
       <main className="home-studio-main">
         <HomepageHero />
 
-        {/* Popular Templates Section with Big Curated Cards */}
-        <PopularTemplatesSection />
+        <HomepageContentSections />
       </main>
+      <HomepageFooter />
     </HomepageDesignScope>
   );
 }

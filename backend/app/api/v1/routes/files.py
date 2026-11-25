@@ -85,7 +85,7 @@ async def get_stored_file(
                     authorized = True
                 else:
                     try:
-                        from app.models.template import Template
+                        from app.models.template import Template,TemplateStatus
                         from app.models.order import Order, OrderItem, OrderStatus
                         from sqlalchemy import select, or_
 
@@ -185,6 +185,16 @@ async def get_stored_file(
             local_path = storage.local_file_path(stored_file.storage_key)
             if local_path.is_file():
                 raw_zip_bytes = local_path.read_bytes()
+
+        if not raw_zip_bytes:
+            try:
+                from app.core.local_project_manager import LocalProjectManager
+                lpm = LocalProjectManager()
+                raw_zip_bytes = lpm.export_project_zip(str(file_uuid))
+                if not raw_zip_bytes and template_id:
+                    raw_zip_bytes = lpm.export_project_zip(str(template_id))
+            except Exception:
+                pass
 
         if raw_zip_bytes:
             from app.services.watermark_service import user_qualifies_for_clean_template, process_zip_package

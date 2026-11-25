@@ -39,6 +39,23 @@ _SITE_RESOLUTION_CACHE: Dict[str, Tuple[str, str, float]] = {}
 _CACHE_TTL_SECONDS = 300  # 5 minutes
 
 
+def invalidate_site_cache(
+    site_id: str | None = None,
+    subdomain: str | None = None,
+    domain: str | None = None,
+) -> None:
+    """Clear cached resolution entries whenever site files, status, or domains change."""
+    candidates = []
+    for raw in (site_id, subdomain, domain):
+        if raw:
+            clean = str(raw).strip().lower()
+            candidates.extend([clean, clean.upper(), clean.split(".")[0], clean.split(".")[0].upper()])
+            if clean.startswith("www."):
+                candidates.append(clean[4:])
+    for key in candidates:
+        _SITE_RESOLUTION_CACHE.pop(key, None)
+
+
 async def _log_server_access(target_id: str, method: str, path: str, status_code: int, client_host: str = ""):
     """Records server-side HTTP request telemetry into the deployment logs asynchronously."""
     # Only record errors or page visits, never static assets
@@ -276,6 +293,10 @@ async def serve_tenant_workload(
 
     # Sanitize requested file path and enforce directory jail to prevent LFI
     safe_path = filepath.strip("/\\")
+    path_segments = [seg for seg in safe_path.replace("\\", "/").split("/") if seg]
+    if any(seg != ".well-known" and seg.startswith(".") for seg in path_segments):
+        raise HTTPException(status_code=403, detail="Access denied: Restricted configuration path.")
+
     site_dir_resolved = site_dir.resolve()
 
     if not safe_path:
@@ -397,12 +418,21 @@ async def serve_tenant_workload(
 
             if branding_meta:
                 import html as html_lib
-                b_name = html_lib.escape(str(branding_meta.get("brand_name") or "Creator"))
-                b_slug = branding_meta.get("creator_slug") or ""
-                b_logo = branding_meta.get("logo_url") or ""
+                import re as re_lib
+                b_name = html_lib.escape(str(branding_meta.get("brand_name") or "Creator"), quote=True)
+                raw_slug = re_lib.sub(r"[^a-zA-Z0-9_-]", "", str(branding_meta.get("creator_slug") or ""))
+                b_slug = html_lib.escape(raw_slug, quote=True)
+                raw_logo = str(branding_meta.get("logo_url") or "").strip()
+                safe_logo = ""
+                if raw_logo and (
+                    raw_logo.startswith("https://")
+                    or raw_logo.startswith("http://")
+                    or (raw_logo.startswith("/") and not raw_logo.startswith("//"))
+                ):
+                    safe_logo = html_lib.escape(raw_logo, quote=True)
                 b_storefront = f"/creator/{b_slug}" if b_slug else "/"
-                if b_logo:
-                    logo_icon_html = f'<img src="{b_logo}" alt="{b_name}" class="creator-badge-logo" onerror="this.style.display=\'none\'" />'
+                if safe_logo:
+                    logo_icon_html = f'<img src="{safe_logo}" alt="{b_name}" class="creator-badge-logo" onerror="this.style.display=\'none\'" />'
                 else:
                     logo_icon_html = '✦'
                 creator_badge = f"""

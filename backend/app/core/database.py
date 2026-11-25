@@ -131,6 +131,10 @@ async def init_db() -> None:
             await conn.execute(text("ALTER TYPE paymentgateway ADD VALUE IF NOT EXISTS 'upi';"))
         except Exception:
             pass
+        try:
+            await conn.execute(text("ALTER TYPE paymentgateway ADD VALUE IF NOT EXISTS 'bank_transfer';"))
+        except Exception:
+            pass
         for status_val in [
             'DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'PUBLISHED', 'SUSPENDED', 'ARCHIVED',
             'draft', 'submitted', 'under_review', 'approved', 'rejected', 'published', 'suspended', 'archived',

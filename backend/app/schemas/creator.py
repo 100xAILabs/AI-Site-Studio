@@ -66,11 +66,54 @@ class CreatorSetupRequest(BaseModel):
     payout_mercadopago_email: Optional[str] = Field(None, max_length=255)
     payout_custom_instructions: Optional[str] = Field(None, max_length=2000)
 
+    # Creator identity / compliance fields for real payment gateway provisioning (Stripe Express / Razorpay Route)
+    phone: Optional[str] = Field(None, max_length=30)
+    country: Optional[str] = Field("IN", max_length=5)
+    business_type: Optional[str] = Field("individual", max_length=50)
+    pan: Optional[str] = Field(None, max_length=20)
+
     # Storefront distribution choice
     # "marketplace": Global Site Studio marketplace
     # "storefront": Dedicated storefront on our domain (/creator/{slug})
     # "both": Dual distribution (both global marketplace + dedicated storefront)
     storefront_distribution: str = Field("both", description="Distribution mode: marketplace, storefront, or both")
+
+
+class RazorpayProvisionRequest(BaseModel):
+    brand_name: Optional[str] = Field(None, max_length=100)
+    creator_name: Optional[str] = Field(None, max_length=100)
+    email: Optional[str] = Field(None, max_length=255)
+    phone: Optional[str] = Field(None, max_length=30)
+    business_type: Optional[str] = Field("individual", max_length=50)
+    pan: Optional[str] = Field(None, max_length=20)
+    bank_name: Optional[str] = Field(None, max_length=255)
+    account_number: Optional[str] = Field(None, max_length=100)
+    ifsc_code: Optional[str] = Field(None, max_length=50)
+    account_holder_name: Optional[str] = Field(None, max_length=255)
+    upi_vpa: Optional[str] = Field(None, max_length=255)
+    existing_account_id: Optional[str] = Field(None, max_length=100)
+
+
+class StripeConnectProvisionRequest(BaseModel):
+    brand_name: Optional[str] = Field(None, max_length=100)
+    email: Optional[str] = Field(None, max_length=255)
+    country: Optional[str] = Field("US", max_length=5)
+    existing_account_id: Optional[str] = Field(None, max_length=100)
+    return_url: Optional[str] = Field(None, max_length=500)
+    refresh_url: Optional[str] = Field(None, max_length=500)
+
+
+class GatewayConnectResponse(BaseModel):
+    success: bool
+    provider: str
+    connected: bool = False
+    account_id: Optional[str] = None
+    account_type: Optional[str] = None
+    status_label: str = "unverified"
+    onboarding_url: Optional[str] = None
+    message: Optional[str] = None
+    error: Optional[str] = None
+    technical_detail: Optional[str] = None
 
 
 class CreatorProfileResponse(BaseModel):
@@ -119,6 +162,11 @@ class CreatorProfileResponse(BaseModel):
     payout_custom_instructions: Optional[str] = None
     payout_alerts: Optional[List[Dict[str, Any]]] = None
     creator_payout_details: Optional[Dict[str, Any]] = None
+    phone: Optional[str] = None
+    country: Optional[str] = "IN"
+    business_type: Optional[str] = "individual"
+    stripe_onboarding_url: Optional[str] = None
+    gateway_connections: Optional[Dict[str, Any]] = None
     storefront_distribution: Optional[str] = "both"
     is_creator_onboarding_completed: bool = False
     is_payout_setup_completed: bool = False

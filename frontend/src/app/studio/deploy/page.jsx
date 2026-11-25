@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import {
   Rocket,
@@ -18,6 +18,8 @@ import {
   Palette,
   Cpu,
   Lock,
+  Coins,
+  Code2,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import { useAppAuth, useAppUser } from "@/lib/auth";
@@ -34,6 +36,8 @@ export default function StudioDeployPage() {
   const buildStore = useStudioBuildStore();
 
   const queryName = searchParams.get("name") || "";
+  const initialDeployToken = searchParams.get("token") || "";
+  const initialLicenseId = searchParams.get("license") || "";
   const initialTemplateId = searchParams.get("template") || localStorage.getItem("last_studio_template_id") || "";
   const creatorSlugParam = searchParams.get("creatorSlug") || searchParams.get("creator") || "";
 
@@ -41,7 +45,9 @@ export default function StudioDeployPage() {
   const [userTemplates, setUserTemplates] = useState([]);
   const [purchasedTemplates, setPurchasedTemplates] = useState([]);
   const [templatesLoading, setTemplatesLoading] = useState(true);
-  const [selectedTemplateCategory, setSelectedTemplateCategory] = useState("all"); // "all" | "purchased" | "studio" | "edited"
+  const [selectedTemplateCategory, setSelectedTemplateCategory] = useState(
+    initialLicenseId || creatorSlugParam ? "purchased" : "all"
+  ); // "all" | "purchased" | "studio" | "edited"
   const [selectedTemplateId, setSelectedTemplateId] = useState(initialTemplateId || "");
   const [template, setTemplate] = useState(null);
 
@@ -57,6 +63,70 @@ export default function StudioDeployPage() {
     (queryName || "").toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")
   );
   const [deploying, setDeploying] = useState(false);
+
+  const userTier = String(user?.subscription_tier || "free").toLowerCase();
+  const hasPaidSubscription = ["pro", "creator_pro", "extreme", "agency", "enterprise"].includes(userTier);
+  const [deployWithTokens, setDeployWithTokens] = useState(!hasPaidSubscription);
+  const [showBuyTokensInline, setShowBuyTokensInline] = useState(false);
+
+  useEffect(() => {
+    setDeployWithTokens(!hasPaidSubscription);
+  }, [hasPaidSubscription]);
+
+  // Purchased project activation on entry via ?license= or ?token=
+  const autoActivatedLicense = useRef("");
+
+  const activatePurchasedProject = async () => {
+    if (!initialLicenseId && !initialDeployToken) return;
+    try {
+      const token = await getToken();
+      const res = await api.post(
+        "/licenses/activate-key",
+        {
+          license_id: initialLicenseId || undefined,
+          template_id: initialTemplateId || undefined,
+          key: initialDeployToken || undefined,
+          project_name: queryName || undefined,
+        },
+        token
+      );
+      if (res?.draft_project_id || res?.template_id) {
+        const targetId = res.draft_project_id || res.template_id;
+        setSelectedTemplateId(targetId);
+        const [templatesRes, purchasesRes, ordersRes] = await Promise.all([
+          api.get("/templates/my-templates", token).catch(() => []),
+          api.get("/licenses/my-purchases", token).catch(() => []),
+          api.get("/orders", token).catch(() => []),
+        ]);
+        setUserTemplates(Array.isArray(templatesRes) ? templatesRes : []);
+        const licItems = (Array.isArray(purchasesRes) ? purchasesRes : []).map((p) => ({
+          id: p.custom_draft_id || p.template_id,
+          template_id: p.template_id,
+          custom_draft_id: p.custom_draft_id,
+          license_id: p.license_id,
+          title: p.template_title || "Purchased Template",
+          thumbnail_url: p.thumbnail_url,
+          framework: p.framework || "html",
+          studio_edit_url: p.studio_edit_url,
+          originCategory: "purchased",
+        }));
+        const orderItems = (Array.isArray(ordersRes) ? ordersRes : [])
+          .filter((o) => o.status === "completed")
+          .flatMap((o) => (o.items || []).map((i) => ({ id: i.template_id || i.id, title: i.title, originCategory: "purchased" })));
+        setPurchasedTemplates(licItems.length > 0 ? licItems : orderItems);
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || err?.message || "Could not load purchased template.");
+    }
+  };
+
+  useEffect(() => {
+    const sig = `${initialLicenseId}|${initialDeployToken}`;
+    if ((!initialLicenseId && !initialDeployToken) || !user || autoActivatedLicense.current === sig) return;
+    autoActivatedLicense.current = sig;
+    activatePurchasedProject();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialLicenseId, initialDeployToken, user?.id]);
 
   // Subdomain live availability check state
   const [subdomainStatus, setSubdomainStatus] = useState({
@@ -108,8 +178,9 @@ export default function StudioDeployPage() {
       setDomainsLoading(true);
       try {
         const token = await getToken();
-        const [templatesRes, ordersRes, domainsRes, deploysRes] = await Promise.all([
+        const [templatesRes, purchasesRes, ordersRes, domainsRes, deploysRes] = await Promise.all([
           api.get("/templates/my-templates", token).catch(() => []),
+          api.get("/licenses/my-purchases", token).catch(() => []),
           api.get("/orders", token).catch(() => []),
           api.get("/deployments/domains/my-domains", token).catch(() => []),
           api.get("/deployments", token).catch(() => []),
@@ -119,8 +190,21 @@ export default function StudioDeployPage() {
           const tpls = Array.isArray(templatesRes) ? templatesRes : [];
           setUserTemplates(tpls);
 
+          const licPurchased = (Array.isArray(purchasesRes) ? purchasesRes : []).map((p) => ({
+            id: p.custom_draft_id || p.template_id,
+            template_id: p.template_id,
+            custom_draft_id: p.custom_draft_id,
+            license_id: p.license_id,
+            title: p.template_title || "Purchased Template",
+            thumbnail_url: p.thumbnail_url,
+            framework: p.framework || "html",
+            pages_count: 1,
+            studio_edit_url: p.studio_edit_url,
+            originCategory: "purchased",
+          }));
+
           const orders = Array.isArray(ordersRes) ? ordersRes : [];
-          const purchased = orders
+          const orderPurchased = orders
             .filter((o) => o.status === "completed")
             .flatMap((o) =>
               (o.items || []).map((i) => ({
@@ -132,6 +216,10 @@ export default function StudioDeployPage() {
                 originCategory: "purchased",
               }))
             );
+          const mergedPurchasedMap = new Map();
+          orderPurchased.forEach((p) => { if (p.id) mergedPurchasedMap.set(p.id, p); });
+          licPurchased.forEach((p) => { if (p.id) mergedPurchasedMap.set(p.id, p); });
+          const purchased = Array.from(mergedPurchasedMap.values());
           setPurchasedTemplates(purchased);
 
           // Parse all configured domains from account
@@ -432,6 +520,7 @@ export default function StudioDeployPage() {
         accepted_hosting_terms: true,
         custom_domain: domainMode === "configured" && selectedConfiguredDomain ? selectedConfiguredDomain : null,
         creator_slug: creatorSlugParam || null,
+        use_tokens: Boolean(deployWithTokens),
       };
 
       const result = await api.post("/deployments", payload, token);
@@ -779,8 +868,20 @@ export default function StudioDeployPage() {
                         <span className={isSelected ? "text-[#b5804f] dark:text-[#dfb180] font-bold" : "text-[hsl(var(--muted-foreground))]"}>
                           {isSelected ? "Selected for Deploy" : "Click to select"}
                         </span>
-                        <div className={`deploy-select-indicator ${isSelected ? "selected" : ""}`}>
-                          {isSelected && <Check className="w-3 h-3 text-[#171717] stroke-[3]" />}
+                        <div className="flex items-center gap-2">
+                          {tpl.id && tpl.id !== "studio-project" && (
+                            <Link
+                              to={tpl.studio_edit_url || `/preview?template=${encodeURIComponent(tpl.custom_draft_id || tpl.id)}&mode=live`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="px-2 py-1 rounded-md bg-white/5 hover:bg-white/15 border border-white/10 text-[10px] font-bold text-[#dfb180] inline-flex items-center gap-1 transition"
+                            >
+                              <Code2 className="w-3 h-3" />
+                              <span>Edit in Studio</span>
+                            </Link>
+                          )}
+                          <div className={`deploy-select-indicator ${isSelected ? "selected" : ""}`}>
+                            {isSelected && <Check className="w-3 h-3 text-[#171717] stroke-[3]" />}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -987,7 +1088,18 @@ export default function StudioDeployPage() {
             <div className="deploy-summary-strip space-y-2.5 text-xs">
               <div className="deploy-summary-row">
                 <span className="deploy-summary-label">Selected Project:</span>
-                <span className="deploy-summary-value truncate max-w-[280px]">{displayTitle}</span>
+                <div className="flex items-center gap-2">
+                  <span className="deploy-summary-value truncate max-w-[240px]">{displayTitle}</span>
+                  {targetIdentifier && targetIdentifier !== "studio-project" && (
+                    <Link
+                      to={`/preview?template=${encodeURIComponent(targetIdentifier)}&mode=live`}
+                      className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/15 text-[#dfb180] font-bold text-[11px] inline-flex items-center gap-1 border border-[#dfb180]/30 transition"
+                    >
+                      <Code2 className="w-3 h-3" />
+                      <span>Edit Code</span>
+                    </Link>
+                  )}
+                </div>
               </div>
               <div className="deploy-summary-row">
                 <span className="deploy-summary-label">Live Address:</span>
@@ -1017,6 +1129,74 @@ export default function StudioDeployPage() {
                   <Lock className="w-3.5 h-3.5" /> Free Auto-Provisioned TLS 1.3
                 </span>
               </div>
+            </div>
+
+            {/* Studio Token Balance & Pay-As-You-Go Deployment Option */}
+            <div className="mt-4 p-4 rounded-xl border border-[#dfb180]/30 bg-black/30 space-y-3 text-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-[#dfb180]/15 border border-[#dfb180]/30 flex items-center justify-center text-[#dfb180]">
+                    <Coins className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-[hsl(var(--foreground))]">
+                      Studio Token Balance: <span className="text-[#dfb180] font-mono">{user?.ai_credits ?? 0} Tokens</span>
+                    </div>
+                    <p className="text-[11px] text-[hsl(var(--muted-foreground))]">
+                      Use tokens to edit code &amp; deploy websites anytime — no monthly subscription required.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowBuyTokensInline((v) => !v)}
+                  className="px-3 py-1.5 rounded-lg bg-[#dfb180]/15 hover:bg-[#dfb180]/25 text-[#dfb180] border border-[#dfb180]/40 font-bold text-xs inline-flex items-center gap-1.5 transition cursor-pointer shrink-0"
+                >
+                  <Coins className="w-3.5 h-3.5" />
+                  <span>{showBuyTokensInline ? "Hide Token Packs" : "Buy Tokens (No Subscription)"}</span>
+                </button>
+              </div>
+
+              <label className="flex items-center gap-2.5 pt-2 border-t border-white/10 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={deployWithTokens}
+                  onChange={(e) => setDeployWithTokens(e.target.checked)}
+                  className="rounded text-[#c89666] focus:ring-0"
+                />
+                <span className="text-[hsl(var(--foreground))] font-medium">
+                  {hasPaidSubscription
+                    ? "Deploy using 10 Studio Tokens instead of plan slots"
+                    : "Deploy permanently using 10 Studio Tokens (No subscription required)"}
+                </span>
+              </label>
+
+              {showBuyTokensInline && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2">
+                  {[
+                    { id: "tokens_50", credits: 50, price: userTier.includes("extreme") ? "$4" : userTier === "pro" ? "$6" : "$10", label: "Starter Pack" },
+                    { id: "tokens_200", credits: 200, price: userTier.includes("extreme") ? "$12" : userTier === "pro" ? "$18" : "$30", label: "Creator Pack" },
+                    { id: "tokens_500", credits: 500, price: userTier.includes("extreme") ? "$24" : userTier === "pro" ? "$35" : "$60", label: "Studio Pack" },
+                  ].map((pack) => (
+                    <button
+                      key={pack.id}
+                      type="button"
+                      onClick={() => navigate(`/checkout?pack=${pack.id}`)}
+                      className="p-3 rounded-xl border border-white/10 hover:border-[#dfb180] bg-white/5 hover:bg-[#dfb180]/10 text-left transition cursor-pointer flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-400 font-bold">{pack.label}</div>
+                        <div className="font-bold text-sm text-white">{pack.credits} Tokens</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-mono font-extrabold text-[#dfb180]">{pack.price}</div>
+                        <div className="text-[10px] text-emerald-400 font-semibold">One-time</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Deploy Action Button */}

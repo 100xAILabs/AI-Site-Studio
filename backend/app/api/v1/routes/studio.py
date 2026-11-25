@@ -146,7 +146,11 @@ async def _check_user_can_plan_or_generate(user: User, db: AsyncSession, action:
     if is_admin:
         return True, ""
 
-    # Check if subscription has expired / finished
+    # Check if subscription has expired / finished (while preserving standalone purchased token packs)
+    from app.services.entitlement_service import EntitlementService
+    ent_svc = EntitlementService(db)
+    purchased_topups = await ent_svc._get_purchased_topup_credits(user.id)
+
     now_utc = datetime.now(timezone.utc)
     tier = (user.subscription_tier or "free").lower()
     if tier != "free" and user.subscription_expires_at:
@@ -158,12 +162,13 @@ async def _check_user_can_plan_or_generate(user: User, db: AsyncSession, action:
         if expires < now_utc:
             user.subscription_tier = "free"
             user.subscription_status = "expired"
-            user.ai_credits = 0  # Finished plan = 0 tokens
+            user.ai_credits = min(user.ai_credits or 0, purchased_topups) if purchased_topups > 0 else 0
             db.add(user)
             await db.flush()
     elif tier == "free" and getattr(user, "subscription_status", "") in ("expired", "canceled"):
-        if (user.ai_credits or 0) > 0:
-            user.ai_credits = 0
+        capped = min(user.ai_credits or 0, purchased_topups) if purchased_topups > 0 else 0
+        if (user.ai_credits or 0) != capped:
+            user.ai_credits = capped
             db.add(user)
             await db.flush()
 
@@ -259,7 +264,11 @@ async def get_studio_quota(
     """
     is_admin = getattr(current_user, "role", "") in ("admin", "super_admin") or getattr(current_user, "is_admin", False)
 
-    # Check if subscription has expired / finished
+    # Check if subscription has expired / finished (while preserving standalone purchased token packs)
+    from app.services.entitlement_service import EntitlementService
+    ent_svc = EntitlementService(db)
+    purchased_topups = await ent_svc._get_purchased_topup_credits(current_user.id)
+
     now_utc = datetime.now(timezone.utc)
     tier = (current_user.subscription_tier or "free").lower()
     if tier != "free" and current_user.subscription_expires_at:
@@ -271,14 +280,15 @@ async def get_studio_quota(
         if expires < now_utc:
             current_user.subscription_tier = "free"
             current_user.subscription_status = "expired"
-            current_user.ai_credits = 0
+            current_user.ai_credits = min(current_user.ai_credits or 0, purchased_topups) if purchased_topups > 0 else 0
             db.add(current_user)
             await db.commit()
             await db.refresh(current_user)
             tier = "free"
     elif tier == "free" and getattr(current_user, "subscription_status", "") in ("expired", "canceled"):
-        if (current_user.ai_credits or 0) > 0:
-            current_user.ai_credits = 0
+        capped = min(current_user.ai_credits or 0, purchased_topups) if purchased_topups > 0 else 0
+        if (current_user.ai_credits or 0) != capped:
+            current_user.ai_credits = capped
             db.add(current_user)
             await db.commit()
             await db.refresh(current_user)

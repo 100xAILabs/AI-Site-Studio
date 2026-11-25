@@ -121,6 +121,26 @@ export default function CreatorStudio({
     staleTime: 1000 * 30,
   });
 
+  const { data: pendingBankTransfers = [] } = useQuery({
+    queryKey: ["creator-pending-bank-transfers", user?.id],
+    queryFn: async () => {
+      const res = await api.get("/creator/payments/bank-transfers/pending", authToken);
+      return Array.isArray(res) ? res : [];
+    },
+    enabled: !!authToken && isExtreme && activeTab === "orders",
+    staleTime: 10 * 1000,
+  });
+
+  const reviewBankTransferMutation = useMutation({
+    mutationFn: ({ paymentId, decision }) => api.patch(
+      `/creator/payments/bank-transfers/${paymentId}/review`, { decision }, authToken
+    ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["creator-pending-bank-transfers", user?.id] });
+      queryClient.invalidateQueries({ queryKey: ["creator-earnings", user?.id] });
+    },
+  });
+
   // Fetch Creator's Templates
   const {
     data: myTemplates = [],
@@ -162,7 +182,27 @@ export default function CreatorStudio({
   });
 
   const isBankConnected = creatorProfile ? creatorProfile.is_payout_setup_completed : Boolean(user?.is_payout_setup_completed);
+  const isStorefrontAndPayoutConnected = Boolean(
+    isBankConnected &&
+    (creatorProfile ? creatorProfile.is_creator_onboarding_completed : user?.is_creator_onboarding_completed)
+  );
   const payoutAlerts = creatorProfile?.payout_alerts || user?.extra_metadata?.payout_alerts || [];
+  const currentStoreSlug = creatorProfile?.creator_store_slug || user?.creator_store_slug || "";
+  const currentBrandName = creatorProfile?.creator_brand_name || user?.creator_brand_name || user?.full_name || user?.username || "Extreme Creator";
+  const hasStorefront = Boolean(currentStoreSlug);
+
+  const handleSellOrRetailTrigger = (templateItem = null) => {
+    if (!isStorefrontAndPayoutConnected) {
+      navigate("/creator/setup?reason=sell_requires_storefront");
+      return;
+    }
+    if (templateItem) {
+      setSelectedTemplateForRetail(templateItem);
+      setIsRetailModalOpen(true);
+    } else {
+      setActiveTab("add-template");
+    }
+  };
 
   // Resubmit rejected template for review
   const resubmitMutation = useMutation({
@@ -367,17 +407,39 @@ export default function CreatorStudio({
         </div>
 
         <div className="cs-header-actions">
-          <Link
-            href={user?.creator_store_slug ? `/creator/${user.creator_store_slug}` : "/creator/setup"}
-            className="cs-btn-secondary"
-            title="View Your Dedicated Storefront on Our Domain"
-          >
-            <Store className="w-4 h-4 text-[#dfb180]" />
-            <span>{user?.creator_store_slug ? "My Storefront" : "Storefront Setup"}</span>
-          </Link>
+          {hasStorefront ? (
+            <>
+              <Link
+                href={`/creator/${currentStoreSlug}`}
+                className="cs-btn-primary"
+                title="View Your Dedicated Storefront on Our Domain"
+              >
+                <Store className="w-4 h-4 text-[#dfb180]" />
+                <span>Visit Storefront</span>
+                <ExternalLink className="w-3.5 h-3.5 ml-1" />
+              </Link>
+              <Link
+                href="/creator/setup"
+                className="cs-btn-secondary"
+                title="Edit Storefront Branding & Settings"
+              >
+                <Settings className="w-4 h-4" />
+                <span>Storefront Setup</span>
+              </Link>
+            </>
+          ) : (
+            <Link
+              href="/creator/setup"
+              className="cs-btn-secondary"
+              title="View Your Dedicated Storefront on Our Domain"
+            >
+              <Store className="w-4 h-4 text-[#dfb180]" />
+              <span>Storefront Setup</span>
+            </Link>
+          )}
           <button
             type="button"
-            onClick={() => setActiveTab("add-template")}
+            onClick={() => handleSellOrRetailTrigger()}
             className="cs-btn-primary"
           >
             <PlusCircle className="w-4 h-4" />
@@ -417,19 +479,27 @@ export default function CreatorStudio({
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Recent Checkout Attempts Paused ({payoutAlerts.length})</span>
+                  <span>Payment &amp; Checkout Alerts ({payoutAlerts.length})</span>
                 </span>
-                <span className="text-[10px] text-amber-300/80">Connect bank to capture future sales</span>
+                <Link to="/creator/setup" className="text-[11px] text-amber-300 hover:text-amber-200 underline font-semibold flex items-center gap-1">
+                  <span>Update Payment Methods</span>
+                  <ArrowRight className="w-3 h-3" />
+                </Link>
               </div>
               <div className="space-y-1.5">
                 {payoutAlerts.slice(0, 3).map((alert, idx) => (
-                  <div key={idx} className="p-2.5 rounded-lg bg-black/40 border border-amber-500/20 text-xs flex items-start gap-2.5">
+                  <div key={idx} className="p-3 rounded-lg bg-black/40 border border-amber-500/30 text-xs flex items-start gap-2.5">
                     <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                     <div className="flex-1">
-                      <p className="text-slate-200 leading-snug">{alert.message || alert.title}</p>
-                      <span className="text-[10px] text-zinc-400 mt-1 block">
-                        {alert.created_at ? new Date(alert.created_at).toLocaleString() : "Recently"}
-                      </span>
+                      <p className="text-slate-200 leading-snug font-medium">{alert.message || alert.title}</p>
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-[10px] text-zinc-400 block">
+                          {alert.created_at ? new Date(alert.created_at).toLocaleString() : "Recently"}
+                        </span>
+                        <Link to="/creator/setup" className="text-[11px] text-[#dfb180] hover:underline font-semibold">
+                          Fix in Creator Setup &rarr;
+                        </Link>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -653,19 +723,19 @@ export default function CreatorStudio({
                     Your Dedicated Storefront on Our Domain
                   </h4>
                   <span className="cs-storefront-tag">
-                    {user?.creator_brand_name || "Branded"}
+                    {currentBrandName}
                   </span>
                 </div>
                 <div className="cs-storefront-desc">
-                  {user?.creator_store_slug ? (
+                  {currentStoreSlug ? (
                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
                       <span>Live at:</span>
-                      <code>/creator/{user.creator_store_slug}</code>
+                      <code>/creator/{currentStoreSlug}</code>
                       <button
                         type="button"
                         onClick={() =>
                           handleCopyStorefront(
-                            `${typeof window !== "undefined" ? window.location.origin : ""}/creator/${user.creator_store_slug}`
+                            `${typeof window !== "undefined" ? window.location.origin : ""}/creator/${currentStoreSlug}`
                           )
                         }
                         style={{
@@ -698,14 +768,14 @@ export default function CreatorStudio({
                       <span>
                         Gateway:{" "}
                         <strong style={{ color: "#e2e8f0", textTransform: "capitalize" }}>
-                          {user.payout_method || "Stripe"}
+                          {creatorProfile?.payout_method || user?.payout_method || "Razorpay"}
                         </strong>
                       </span>
                       <span style={{ color: "#64748b" }}>•</span>
                       <span>
                         Distribution:{" "}
                         <strong style={{ color: "#e2e8f0", textTransform: "capitalize" }}>
-                          {user.storefront_distribution || "Dual (Both)"}
+                          {creatorProfile?.storefront_distribution || user?.storefront_distribution || "Dual (Both)"}
                         </strong>
                       </span>
                     </div>
@@ -716,9 +786,9 @@ export default function CreatorStudio({
               </div>
             </div>
             <div className="cs-storefront-actions">
-              {user?.creator_store_slug ? (
+              {currentStoreSlug ? (
                 <Link
-                  href={`/creator/${user.creator_store_slug}`}
+                  href={`/creator/${currentStoreSlug}`}
                   className="cs-btn-primary"
                 >
                   <Store className="w-3.5 h-3.5" />
@@ -731,7 +801,7 @@ export default function CreatorStudio({
                 className="cs-btn-secondary"
               >
                 <Settings className="w-3.5 h-3.5" />
-                <span>{user?.creator_store_slug ? "Edit Setup" : "Setup Storefront"}</span>
+                <span>{currentStoreSlug ? "Edit Setup" : "Setup Storefront"}</span>
               </Link>
             </div>
           </div>
@@ -754,7 +824,7 @@ export default function CreatorStudio({
               </div>
               <button
                 type="button"
-                onClick={() => setActiveTab("add-template")}
+                onClick={() => handleSellOrRetailTrigger()}
                 className="cs-retail-btn"
               >
                 <span>Select &amp; Retail Now</span>
@@ -859,7 +929,7 @@ export default function CreatorStudio({
                   <div className="cs-empty-action">
                     <button
                       type="button"
-                      onClick={() => setActiveTab("add-template")}
+                      onClick={() => handleSellOrRetailTrigger()}
                       className="cs-btn-primary text-xs"
                     >
                       <Sparkles className="w-3.5 h-3.5" />
@@ -921,7 +991,7 @@ export default function CreatorStudio({
 
             <button
               type="button"
-              onClick={() => setActiveTab("add-template")}
+              onClick={() => handleSellOrRetailTrigger()}
               className="cs-btn-primary"
             >
               <PlusCircle className="w-4 h-4" />
@@ -1045,10 +1115,7 @@ export default function CreatorStudio({
                         {!t.is_marketplace && (
                           <button
                             type="button"
-                            onClick={() => {
-                              setSelectedTemplateForRetail(t);
-                              setIsRetailModalOpen(true);
-                            }}
+                            onClick={() => handleSellOrRetailTrigger(t)}
                             className="cs-btn-primary px-3 py-1.5 text-xs"
                           >
                             <span>Retail</span>
@@ -1132,10 +1199,7 @@ export default function CreatorStudio({
 
                     <button
                       type="button"
-                      onClick={() => {
-                        setSelectedTemplateForRetail(item);
-                        setIsRetailModalOpen(true);
-                      }}
+                      onClick={() => handleSellOrRetailTrigger(item)}
                       className="cs-btn-primary w-full justify-center text-xs py-2 mt-2"
                     >
                       <Tag className="w-3.5 h-3.5" />
@@ -1153,6 +1217,38 @@ export default function CreatorStudio({
       {/* TAB 4: SALES & ORDERS                                                 */}
       {/* ═════════════════════════════════════════════════════════════════════ */}
       {activeTab === "orders" && (
+        <div className="space-y-5">
+        <div className="cs-card">
+          <div className="cs-card-header">
+            <div>
+              <h3 className="cs-card-title">Bank Transfers to Review</h3>
+              <p className="cs-card-desc">Confirm the reference appears in your bank account before approving. Approval releases the buyer’s template.</p>
+            </div>
+          </div>
+          {pendingBankTransfers.length === 0 ? (
+            <p className="py-5 text-xs text-muted-foreground">No bank transfer references are waiting for review.</p>
+          ) : (
+            <div className="cs-table-wrap">
+              <table className="cs-table">
+                <thead><tr><th>Order</th><th>Reference</th><th>Amount</th><th>Submitted</th><th>Review</th></tr></thead>
+                <tbody>
+                  {pendingBankTransfers.map((transfer) => (
+                    <tr key={transfer.id}>
+                      <td className="font-mono text-xs font-bold">{transfer.order_number}</td>
+                      <td className="font-mono text-xs">{transfer.reference}</td>
+                      <td className="font-semibold">{transfer.currency} {Number(transfer.amount).toFixed(2)}</td>
+                      <td className="text-xs text-muted-foreground">{transfer.submitted_at ? new Date(transfer.submitted_at).toLocaleString() : "—"}</td>
+                      <td className="flex gap-2">
+                        <button type="button" disabled={reviewBankTransferMutation.isPending} onClick={() => reviewBankTransferMutation.mutate({ paymentId: transfer.id, decision: "approve" })} className="px-3 py-1 rounded-lg bg-emerald-600 text-white text-xs font-semibold disabled:opacity-50">Confirm received</button>
+                        <button type="button" disabled={reviewBankTransferMutation.isPending} onClick={() => reviewBankTransferMutation.mutate({ paymentId: transfer.id, decision: "reject" })} className="px-3 py-1 rounded-lg bg-white/5 border border-white/10 text-zinc-300 text-xs font-semibold disabled:opacity-50">Reject</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
         <div className="cs-card">
           <div className="cs-card-header">
             <div>
@@ -1217,6 +1313,7 @@ export default function CreatorStudio({
               </table>
             </div>
           )}
+        </div>
         </div>
       )}
 

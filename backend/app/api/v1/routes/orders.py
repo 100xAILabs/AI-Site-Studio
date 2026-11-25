@@ -133,11 +133,14 @@ async def create_order(
         if template.seller_id == current_user.id:
             raise HTTPException(status_code=400, detail="You cannot purchase your own template.")
 
-        # Prevent duplicate purchase of already owned template
+        # Commercial licensing allows purchasing additional deployment licenses.
+        # Log repeat purchases so multiple deployments receive unique license keys.
         if template.id in owned_ids:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"You already own '{template.title}'. Access it anytime in your My Purchases library.",
+            logger.info(
+                "User %s purchasing additional commercial license for already-owned template %s (%s)",
+                current_user.id,
+                template.id,
+                template.title,
             )
 
         subtotal += template.price

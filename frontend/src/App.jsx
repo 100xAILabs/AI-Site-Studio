@@ -49,6 +49,7 @@ const CreatorCheckoutPage = lazy(() => import('./app/creator/checkout/page.jsx')
 const CreatorTemplateDetailsPage = lazy(() => import('./app/creator/template/page.jsx'));
 const CreatorDemoPage = lazy(() => import('./app/creator/demo/page.jsx'));
 const AuthCompletePage = lazy(() => import('./app/auth/complete/page.jsx'));
+const PurchasesPage = lazy(() => import('./app/purchases/page.jsx'));
 
 
 import SupportButton from './components/support/SupportButton.jsx';
@@ -85,7 +86,7 @@ function ProtectedRoute({ children, requiredRole }) {
     );
   }
   if (!isSignedIn) {
-    return <Navigate to={`/sign-in?from=${encodeURIComponent(location.pathname)}`} replace />;
+    return <Navigate to={`/sign-in?from=${encodeURIComponent(location.pathname + location.search)}`} replace />;
   }
   if (requiredRole && user?.role !== requiredRole && user?.role !== 'admin') {
     // Basic role restriction (admin bypasses)
@@ -136,6 +137,9 @@ function AppRouteContent() {
           <Route path="/storybook" element={<StorybookPage />} />
           <Route path="/cart" element={<Checkout />} />
           <Route path="/checkout" element={<Checkout />} />
+          <Route path="/purchases" element={<ProtectedRoute><PurchasesPage /></ProtectedRoute>} />
+          <Route path="/purchased" element={<Navigate to="/purchases" replace />} />
+          <Route path="/dashboard/purchases" element={<Navigate to="/purchases" replace />} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/deployments/:id" element={<ProtectedRoute><DeployedWebsiteDetailsPage /></ProtectedRoute>} />
           <Route path="/dashboard/deployments/:id" element={<ProtectedRoute><DeployedWebsiteDetailsPage /></ProtectedRoute>} />

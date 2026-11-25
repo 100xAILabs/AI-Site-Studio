@@ -68,6 +68,15 @@ class Settings(BaseSettings):
                 or len(self.SECRET_KEY) < 32
             ):
                 raise ValueError("Insecure SECRET_KEY configured in a non-local environment.")
+            if (
+                self.USER_WORKLOAD_MODE == "remote_oracle"
+                and (
+                    not self.USER_WORKLOAD_SYNC_SECRET
+                    or self.USER_WORKLOAD_SYNC_SECRET == "oracle-workload-sync-secret-change-in-production"
+                    or len(self.USER_WORKLOAD_SYNC_SECRET) < 16
+                )
+            ):
+                raise ValueError("Insecure USER_WORKLOAD_SYNC_SECRET configured for remote_oracle mode.")
         return self
 
     @model_validator(mode="after")
@@ -273,6 +282,10 @@ class Settings(BaseSettings):
     STRIPE_HOSTING_PRICE_ID: str = "price_1UXKrELCbq2D9IftDIrZXbYc"
     HOSTING_GRACE_PERIOD_DAYS: int = 3
     DEPLOYMENT_HOST_IP: str = ""
+
+    # -- Strict Real Payment Enforcement ---------------------------------------
+    # Keep False in real dev/prod so fake/mock/demo payments are never used.
+    ALLOW_MOCK_PAYMENTS: bool = False
 
     # -- UPI Direct Payment ----------------------------------------------------
     UPI_MERCHANT_VPA: str = ""

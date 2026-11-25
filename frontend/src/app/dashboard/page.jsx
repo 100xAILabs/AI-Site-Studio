@@ -331,6 +331,33 @@ function Dashboard() {
     } catch { }
   };
 
+  const [deploymentKeyInput, setDeploymentKeyInput] = useState("");
+  const [isImportingKey, setIsImportingKey] = useState(false);
+  const [importedTemplateSuccess, setImportedTemplateSuccess] = useState(null);
+
+  const handleImportDeploymentKey = async (e) => {
+    if (e) e.preventDefault();
+    const cleanKey = (deploymentKeyInput || "").trim();
+    if (!cleanKey) {
+      toast.error("Please enter a valid Token ID or Deployment Key (e.g. site-... or DEP-...)");
+      return;
+    }
+    setIsImportingKey(true);
+    try {
+      const res = await api.post("/deployments/import-by-key", { key: cleanKey }, authToken);
+      setImportedTemplateSuccess(res);
+      toast.success(res?.message || "Website template successfully imported into your Deployments!");
+      qc.invalidateQueries({ queryKey: ["deployments"] });
+      qc.invalidateQueries({ queryKey: ["seller-templates"] });
+      qc.invalidateQueries({ queryKey: ["orders"] });
+      qc.invalidateQueries({ queryKey: ["myPurchasedTemplates"] });
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || err?.message || "Failed to import template. Please verify the key.");
+    } finally {
+      setIsImportingKey(false);
+    }
+  };
+
   const handlePurgeAllDrafts = async () => {
     if (!window.confirm("Move all customized draft projects to trash? You can recover them within 7 days.")) {
       return;
@@ -861,7 +888,14 @@ function Dashboard() {
       setUserCity(user.city || "");
       setUserCurrencyPref(user.currency || "USD");
       const tabParam = searchParams.get("tab");
-      if (tabParam) {
+      const importKeyParam = searchParams.get("importKey");
+      if (importKeyParam) {
+        setDeploymentKeyInput(importKeyParam);
+        setActiveTab("deployments");
+      } else if (tabParam === "purchased" || tabParam === "purchases") {
+        setActiveTab("buyer-templates");
+        setTemplatesSubTab("purchased");
+      } else if (tabParam) {
         setActiveTab(tabParam);
       } else if (activeTab === "buyer-home") {
         if (isAdmin) {
@@ -2756,7 +2790,13 @@ function Dashboard() {
               {templatesSubTab === "uploaded" ? (
                 <button
                   type="button"
-                  onClick={() => setActiveTab("retail-website")}
+                  onClick={() => {
+                    if (!user?.is_creator_onboarding_completed || !user?.is_payout_setup_completed) {
+                      router.push("/creator/setup?reason=sell_requires_storefront&redirect=/dashboard?tab=retail-website");
+                      return;
+                    }
+                    setActiveTab("retail-website");
+                  }}
                   className="mt-cta-btn"
                 >
                   <ShoppingBag className="w-4 h-4" />
@@ -3010,6 +3050,45 @@ function Dashboard() {
                           <span className="text-[10px] font-medium text-muted-foreground">
                             {item.seller_name ? `by ${item.seller_name}` : "Verified"}
                           </span>
+                        </div>
+                      </div>
+
+                      {/* Cloud Deployment Key Quick Box */}
+                      <div className="mb-3 p-2.5 rounded-xl bg-black/40 border border-[#dfb180]/30 flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between text-[10px] font-bold text-[#dfb180] uppercase tracking-wider">
+                          <span className="flex items-center gap-1">
+                            <Key className="w-3 h-3" />
+                            <span>Cloud Deployment Key</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const rawCode = String(item.license_key || item.template_id || item.id).replace("LIC-", "").replace("DEP-", "").slice(0, 12).toUpperCase();
+                              const key = `DEP-${rawCode}`;
+                              navigator.clipboard.writeText(key);
+                              toast.success(`Copied Deployment Key ${key}!`);
+                            }}
+                            className="text-[#dfb180] hover:underline font-semibold bg-transparent border-0 cursor-pointer p-0"
+                          >
+                            Copy Key
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <code className="text-xs font-mono font-bold text-white truncate bg-white/5 px-2 py-1 rounded border border-white/10 flex-1">
+                            {item.deployment_key || (item.license_key ? `DEP-${item.license_key.replace("LIC-", "")}` : `DEP-${String(item.template_id || item.id).replace(/-/g, "").slice(0, 12).toUpperCase()}`)}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const rawCode = String(item.license_key || item.template_id || item.id).replace("LIC-", "").replace("DEP-", "").replace("site-", "").slice(0, 12).toLowerCase();
+                              const key = item.token_id || `site-${rawCode}`;
+                              navigate(`/dashboard?tab=deployments&importKey=${encodeURIComponent(key)}`);
+                            }}
+                            className="px-2.5 py-1 rounded-md bg-[#dfb180] hover:bg-[#ebd2b0] text-[#09090b] text-[11px] font-bold transition shrink-0 cursor-pointer shadow-sm"
+                            title="Import key directly into Deployment Dashboard"
+                          >
+                            Import ➔
+                          </button>
                         </div>
                       </div>
 
@@ -3513,7 +3592,13 @@ function Dashboard() {
               </p>
               {canRetail ? (
                 <button
-                  onClick={() => setActiveTab("creator-studio")}
+                  onClick={() => {
+                    if (!user?.is_creator_onboarding_completed || !user?.is_payout_setup_completed) {
+                      router.push("/creator/setup?reason=sell_requires_storefront&redirect=/dashboard?tab=creator-studio");
+                      return;
+                    }
+                    setActiveTab("creator-studio");
+                  }}
                   className="mt-empty-btn"
                 >
                   <Sparkles className="w-4 h-4" /> Open Creator Studio
@@ -3839,7 +3924,13 @@ function Dashboard() {
               {canRetail && (
                 <button
                   type="button"
-                  onClick={() => setActiveTab("creator-studio")}
+                  onClick={() => {
+                    if (!user?.is_creator_onboarding_completed || !user?.is_payout_setup_completed) {
+                      router.push("/creator/setup?reason=sell_requires_storefront&redirect=/dashboard?tab=creator-studio");
+                      return;
+                    }
+                    setActiveTab("creator-studio");
+                  }}
                   className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#dfb180]/20 to-[#c89666]/20 hover:from-[#dfb180]/30 hover:to-[#c89666]/30 border border-[#dfb180]/60 text-xs font-bold text-[#dfb180] flex items-center gap-1.5 transition cursor-pointer shadow-sm hover:shadow-[0_0_12px_rgba(223,177,128,0.3)]"
                   title="Open Creator Studio to sell and retail your templates"
                 >
@@ -3910,6 +4001,7 @@ function Dashboard() {
                       : [
                         { id: "buyer-home", label: "Dashboard", icon: LayoutDashboard },
                         { id: "marketplace-redirect", label: "Marketplace", icon: ShoppingBag, isLink: true, url: "/marketplace" },
+                        { id: "purchased-keys", label: "Purchased & Keys", icon: Key, isLink: true, url: "/purchases" },
                         { id: "buyer-templates", label: "My Templates", icon: Folder },
                         { id: "customized-files", label: "Customized Files", icon: Sparkles },
                         { id: "studio-projects", label: "Studio Projects", icon: Cpu },
@@ -4009,7 +4101,13 @@ function Dashboard() {
                       {canRetail && (
                         <button
                           type="button"
-                          onClick={() => setActiveTab("creator-studio")}
+                          onClick={() => {
+                            if (!user?.is_creator_onboarding_completed || !user?.is_payout_setup_completed) {
+                              router.push("/creator/setup?reason=sell_requires_storefront&redirect=/dashboard?tab=creator-studio");
+                              return;
+                            }
+                            setActiveTab("creator-studio");
+                          }}
                           className="db-banner-btn"
                           style={{
                             background: "linear-gradient(135deg, #dfb180 0%, #b8860b 100%)",
@@ -4731,7 +4829,13 @@ function Dashboard() {
                                     {/* Retail on Marketplace Action */}
                                     <button
                                       type="button"
-                                      onClick={() => setRetailModalTemplate(item)}
+                                      onClick={() => {
+                                        if (!user?.is_creator_onboarding_completed || !user?.is_payout_setup_completed) {
+                                          router.push(`/creator/setup?reason=sell_requires_storefront&retailTemplate=${encodeURIComponent(item.id)}`);
+                                          return;
+                                        }
+                                        setRetailModalTemplate(item);
+                                      }}
                                       className="db-btn-retail"
                                       title="Retail this generated website on the marketplace"
                                       style={{
@@ -5718,6 +5822,28 @@ function Dashboard() {
                         <span>Deploy a Project</span>
                       </Link>
                     </div>
+                  </div>
+
+                  {/* ── Quick Link to Purchased Templates ── */}
+                  <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-[#dfb180]/15 via-[#c89666]/10 to-transparent border border-[#dfb180]/30 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-[#dfb180]/20 text-[#dfb180] flex items-center justify-center shrink-0 mt-0.5 border border-[#dfb180]/30">
+                        <Rocket className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-white">Deploy Purchased &amp; Studio Templates</h4>
+                        <p className="text-xs text-[#a8a29e] mt-1 max-w-xl leading-relaxed">
+                          Open the Deployment Studio to customize your purchased websites, edit live code, and launch using Studio tokens.
+                        </p>
+                      </div>
+                    </div>
+                    <Link
+                      to="/studio/deploy"
+                      className="px-4 py-2.5 rounded-xl bg-[#dfb180] hover:bg-[#ebd2b0] text-[#09090b] font-bold text-xs inline-flex items-center gap-2 transition shrink-0 shadow-md"
+                    >
+                      <Rocket className="w-3.5 h-3.5" />
+                      <span>Open Deployment Studio</span>
+                    </Link>
                   </div>
 
                   {deploymentsLoading && (!deploymentsData || deploymentsData.length === 0) ? (

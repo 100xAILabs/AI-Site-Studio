@@ -24,8 +24,19 @@ _DEPLOYMENTS_ROOT = _STATIC_ROOT / "deployments"
 
 TEXT_EXTENSIONS = {
     ".html", ".htm", ".css", ".js", ".mjs", ".jsx", ".ts", ".tsx",
-    ".json", ".svg", ".txt", ".md", ".xml", ".env", ".webmanifest"
+    ".json", ".svg", ".txt", ".md", ".xml", ".webmanifest"
 }
+
+
+def _is_hidden_or_sensitive_path(relative_path: str) -> bool:
+    """Block dotfiles (.env, .git, .npmrc, .htaccess) from being read, edited, or served."""
+    parts = [p for p in str(relative_path or "").replace("\\", "/").split("/") if p]
+    for p in parts:
+        if p == ".well-known":
+            continue
+        if p.startswith("."):
+            return True
+    return False
 
 
 class DeploymentHealingService:
@@ -119,11 +130,14 @@ class DeploymentHealingService:
         Safely reads a text file from the deployment directory.
         Guarantees protection against directory traversal attacks.
         """
+        if _is_hidden_or_sensitive_path(relative_path):
+            return False, "Access denied: Sensitive or hidden files cannot be accessed.", ""
+
         current_dir = self.get_site_current_dir(site_id).resolve()
         target_path = (current_dir / relative_path).resolve()
 
-        # Security check: must reside inside current_dir
-        if not str(target_path).startswith(str(current_dir)):
+        # Security check: must reside strictly inside current_dir
+        if os.path.commonpath((str(current_dir), str(target_path))) != str(current_dir):
             return False, "Access denied: Path traversal detected.", ""
 
         if not target_path.exists() or not target_path.is_file():
@@ -150,6 +164,9 @@ class DeploymentHealingService:
         """
         Safely writes updated code to the deployment directory and version snapshot.
         """
+        if _is_hidden_or_sensitive_path(relative_path):
+            return False, "Access denied: Sensitive or hidden files cannot be modified in live web storage."
+
         current_dir = self.get_site_current_dir(deployment.site_id).resolve()
         target_path = (current_dir / relative_path).resolve()
 

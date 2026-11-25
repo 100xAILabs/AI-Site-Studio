@@ -54,6 +54,12 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _is_platform_admin(user: User) -> bool:
+    """Return True if the user holds a platform admin or super_admin role."""
+    role_val = getattr(user.role, "value", user.role)
+    return str(role_val or "").lower() in ("admin", "super_admin")
+
+
 @router.get("/hosting-price")
 async def get_hosting_price(
     current_user: User = Depends(get_current_user),
@@ -1221,6 +1227,9 @@ async def verify_domain_ownership(
     await db.commit()
     await db.refresh(existing_domain)
 
+    from app.api.v1.routes.site_router import invalidate_site_cache
+    invalidate_site_cache(site_id=deployment.site_id, subdomain=deployment.subdomain, domain=clean_domain)
+
     return {
         "success": True,
         "status": "verified",
@@ -1278,6 +1287,9 @@ async def disconnect_domain_from_deployment(
 
     await db.commit()
     await db.refresh(deployment)
+
+    from app.api.v1.routes.site_router import invalidate_site_cache
+    invalidate_site_cache(site_id=deployment.site_id, subdomain=deployment.subdomain, domain=old_domain)
 
     return {
         "success": True,
@@ -1472,11 +1484,25 @@ async def create_deployment(
     )
 
     purchase_item_id = None
+    has_commercial_license = False
     if payload.template_id:
         template_result = await db.execute(select(Template).where(Template.id == payload.template_id))
         template = template_result.scalar_one_or_none()
         if not template:
             raise HTTPException(status_code=404, detail="Template not found.")
+        from app.models.license import License
+        lic_res = await db.execute(
+            select(License).where(
+                License.user_id == current_user.id,
+                or_(
+                    License.template_id == template.id,
+                    License.notes.ilike(f"%{template.id}%"),
+                ),
+                License.is_active.is_(True),
+            ).limit(1)
+        )
+        has_commercial_license = lic_res.scalars().first() is not None
+
         # Always check for a completed purchase record for this user and template to obtain the permanent unique purchase ID
         purchase_result = await db.execute(
             select(OrderItem.id).join(Order, Order.id == OrderItem.order_id).where(
@@ -1486,29 +1512,46 @@ async def create_deployment(
             ).order_by(OrderItem.created_at.desc()).limit(1)
         )
         found_purchase_id = purchase_result.scalar_one_or_none()
-        if found_purchase_id:
+        if found_purchase_id or has_commercial_license:
             purchase_item_id = found_purchase_id
             can_deploy = True
         else:
             can_deploy = (
                 (template.is_free and template.status == TemplateStatus.PUBLISHED)
                 or (template.seller_id == current_user.id and getattr(template, "template_origin", "") != "custom_draft")
+                or (template.seller_id == current_user.id and bool(payload.use_tokens))
                 or is_extreme
             )
         if not can_deploy:
             raise HTTPException(status_code=403, detail="Purchase or own this template before deploying it.")
 
-        # Idempotent Deployment: Whenever a user deploys the same template again,
-        # use the stable unique purchase/site identifier and redeploy with new details instead of creating a duplicate!
+        # Idempotent redeploy when redeploying the exact same project name; allow distinct projects when licensed or token-funded
         existing_stmt = select(Deployment).where(
             Deployment.user_id == current_user.id,
             Deployment.template_id == payload.template_id,
             Deployment.status != "deleted"
-        ).order_by(Deployment.created_at.desc())
-        existing_res = await db.execute(existing_stmt)
+        )
+        if has_commercial_license or payload.use_tokens:
+            existing_stmt = existing_stmt.where(
+                func.lower(Deployment.project_name) == payload.project_name.strip().lower()
+            )
+        existing_res = await db.execute(existing_stmt.order_by(Deployment.created_at.desc()))
         existing_deployment = existing_res.scalars().first()
 
         if existing_deployment:
+            if payload.use_tokens and not is_pro and not is_extreme and not _is_platform_admin(current_user):
+                from app.services.entitlement_service import EntitlementService
+                ent_redep = EntitlementService(db)
+                can_tok, tok_reason, _ = await ent_redep.check_ai_generation_entitlement(current_user, "site_deployment")
+                if not can_tok:
+                    raise HTTPException(status_code=402, detail=tok_reason)
+                await ent_redep.deduct_ai_credits(
+                    user=current_user,
+                    operation="site_deployment",
+                    deployment_id=existing_deployment.id,
+                    provider="system",
+                    model_name="deployment",
+                )
             # Update existing deployment with newly supplied configuration details
             if payload.project_name and payload.project_name.strip():
                 existing_deployment.project_name = payload.project_name.strip()
@@ -1584,13 +1627,15 @@ async def create_deployment(
     # Check active website allowances and tier policies via central EntitlementService
     from app.services.entitlement_service import EntitlementService
     ent_svc = EntitlementService(db)
+    use_token_deploy = bool(payload.use_tokens)
     can_create, block_reason = await ent_svc.can_create_deployment(
         user=current_user,
         template_id=payload.template_id,
         is_custom_domain=False,
+        use_tokens=use_token_deploy,
     )
     if not can_create:
-        raise HTTPException(status_code=403, detail=block_reason)
+        raise HTTPException(status_code=402 if use_token_deploy else 403, detail=block_reason)
 
     count_res = await db.execute(
         select(func.count(Deployment.id)).where(
@@ -1605,6 +1650,8 @@ async def create_deployment(
             payload.provider == "local"
             and settings.STRIPE_HOSTING_PRICE_ID
             and not is_extreme
+            and not use_token_deploy
+            and not has_commercial_license
             and not (is_pro and active_sites < 3)
             and not (not is_pro and active_sites == 0)  # Free tier includes 7-day trial
         )
@@ -1616,7 +1663,7 @@ async def create_deployment(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
-        custom_site_id = f"SITE-PUR-{str(purchase_item_id)[:8].upper()}" if purchase_item_id else None
+        custom_site_id = f"SITE-PUR-{str(purchase_item_id)[:8].upper()}" if (purchase_item_id and not use_token_deploy and active_sites == 0) else None
 
         # Phase 4: Secrets Validation & Environment Pre-Flight
         if payload.env_vars:
@@ -1628,6 +1675,11 @@ async def create_deployment(
                 err_msg = "; ".join(val_res["errors"])
                 raise HTTPException(status_code=400, detail=f"Configuration secrets error: {err_msg}")
             payload.env_vars = val_res["sanitized_env"]
+
+        if use_token_deploy and not is_pro and not is_extreme and not _is_platform_admin(current_user):
+            ok_tok, tok_err, _ = await ent_svc.check_ai_generation_entitlement(current_user, "site_deployment")
+            if not ok_tok:
+                raise HTTPException(status_code=402, detail=tok_err)
 
         deployment = await service.create_deployment(
             user=current_user,
@@ -1641,8 +1693,18 @@ async def create_deployment(
             creator_branding=payload.creator_branding,
             creator_slug=payload.creator_slug,
         )
-        # Apply 7-day trial window for Free tier deployments and record permanent trial history
-        if not is_pro and not is_extreme and not is_admin:
+        if use_token_deploy and not is_pro and not is_extreme and not _is_platform_admin(current_user):
+            await ent_svc.deduct_ai_credits(
+                user=current_user,
+                operation="site_deployment",
+                deployment_id=deployment.id,
+                provider="system",
+                model_name="deployment",
+            )
+            await db.commit()
+            await db.refresh(deployment)
+        # Apply 7-day trial window only for unpurchased Free-tier trials (not commercial licenses or token-funded deploys)
+        elif not is_pro and not is_extreme and not _is_platform_admin(current_user) and not has_commercial_license and not use_token_deploy:
             deployment.trial_expires_at = datetime.now(timezone.utc) + timedelta(days=7)
             await ent_svc.record_deployment_trial(
                 user_id=current_user.id,
@@ -1672,6 +1734,201 @@ async def create_deployment(
     background_tasks.add_task(DeploymentService.run_deployment_pipeline, deployment.id, "v1.0")
 
     return deployment
+
+
+class DeploymentKeyImportRequest(BaseModel):
+    key: Optional[str] = Field(default=None, max_length=100)
+    license_id: Optional[str] = None
+    template_id: Optional[str] = None
+    project_name: Optional[str] = None
+
+
+@router.post("/import-by-key")
+async def import_deployment_by_key(
+    payload: DeploymentKeyImportRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Imports a purchased template owned by the authenticated user into their
+    Deployment Dashboard (by license_id, template_id, or exact deployment key/token).
+    Strictly tenant-scoped to `current_user.id`.
+    """
+    from app.models.license import License
+    from app.services.template_service import create_or_get_buyer_draft_copy
+
+    raw_input = (payload.key or "").strip()
+    if not raw_input and not payload.license_id and not payload.template_id:
+        raise HTTPException(status_code=400, detail="Please provide a valid Deployment Key, template, or license.")
+
+    resolved_project_name = payload.project_name
+
+    # Normalize clean_code up front so it is always defined
+    clean_code = raw_input
+    for pfx in ["site-", "SITE-", "site_", "SITE_", "DEP-", "dep-", "LIC-", "lic-"]:
+        if clean_code.startswith(pfx):
+            clean_code = clean_code[len(pfx):]
+    clean_code = clean_code.strip().upper()
+
+    # Fetch ONLY licenses owned by the authenticated user
+    import json
+    all_user_lics_res = await db.execute(
+        select(License)
+        .options(
+            selectinload(License.template).selectinload(Template.seller),
+            selectinload(License.order),
+        )
+        .where(
+            License.user_id == current_user.id,
+            License.is_active.is_(True),
+        )
+        .order_by(desc(License.created_at))
+    )
+    user_licenses = all_user_lics_res.scalars().all()
+    license_record = None
+
+    if payload.license_id:
+        for cand in user_licenses:
+            if str(cand.id) == str(payload.license_id).strip():
+                license_record = cand
+                break
+
+    if not license_record and payload.template_id:
+        target_tid = str(payload.template_id).strip()
+        for cand in user_licenses:
+            if str(cand.template_id) == target_tid:
+                license_record = cand
+                break
+            if cand.notes and cand.notes.strip().startswith("{"):
+                try:
+                    meta = json.loads(cand.notes)
+                    if str(meta.get("custom_draft_id") or "") == target_tid:
+                        license_record = cand
+                        break
+                except Exception:
+                    pass
+
+    # 1. Search exact project_token in License notes for this user
+    if not license_record and raw_input:
+        for cand in user_licenses:
+            if cand.notes and cand.notes.strip().startswith("{"):
+                try:
+                    meta = json.loads(cand.notes)
+                    for tok in (meta.get("project_tokens") or []):
+                        if tok.get("token_id", "").strip().lower() == raw_input.lower():
+                            license_record = cand
+                            if not resolved_project_name:
+                                resolved_project_name = tok.get("name")
+                            break
+                except Exception:
+                    pass
+            if license_record:
+                break
+
+    # 2. Exact key match strictly within current user's active licenses (never cross-tenant substring lookup)
+    if not license_record and raw_input and len(clean_code) >= 4:
+        target_lic_key = f"LIC-{clean_code}"
+        target_dep_key = f"DEP-{clean_code}"
+        for cand in user_licenses:
+            cand_key = (cand.license_key or "").strip()
+            cand_upper = cand_key.upper()
+            cand_base = cand_upper.replace("LIC-", "").replace("DEP-", "").strip()
+            if (
+                cand_key == raw_input
+                or cand_upper == target_lic_key
+                or cand_upper == target_dep_key
+                or cand_base == clean_code
+            ):
+                license_record = cand
+                break
+
+    if not license_record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Purchased template license not found under your account.",
+        )
+
+    # Strict ownership check
+    if license_record.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This purchased template belongs to another registered account.",
+        )
+
+    marketplace_template = license_record.template
+    if not marketplace_template:
+        raise HTTPException(status_code=404, detail="Associated website template not found.")
+
+    # 1. Create or get private editable draft copy under buyer's account
+    try:
+        buyer_draft = await create_or_get_buyer_draft_copy(db, current_user.id, marketplace_template)
+        meta = {}
+        if license_record.notes and license_record.notes.strip().startswith("{"):
+            try:
+                meta = json.loads(license_record.notes)
+            except Exception:
+                pass
+        meta["custom_draft_id"] = str(buyer_draft.id)
+        license_record.notes = json.dumps(meta)
+        await db.commit()
+        await db.refresh(buyer_draft)
+    except Exception as e_copy:
+        logger.warning("Error creating buyer draft from deployment key: %s", e_copy)
+        buyer_draft = marketplace_template
+
+    target_template_id = buyer_draft.id
+
+    # 2. Check if user already has an active deployment for this template/draft
+    dep_stmt = select(Deployment).where(
+        Deployment.user_id == current_user.id,
+        Deployment.template_id.in_([marketplace_template.id, buyer_draft.id]),
+        Deployment.status != "deleted",
+    )
+    dep_res = await db.execute(dep_stmt)
+    existing_deployment = dep_res.scalars().first()
+
+    deployment_record = existing_deployment
+
+    lic_key_base = license_record.license_key.replace("LIC-", "").replace("DEP-", "").upper()
+    clean_token = raw_input if raw_input.startswith("site-") else f"site-{lic_key_base.lower()}"
+    clean_dep_key = f"DEP-{lic_key_base}" if lic_key_base else f"DEP-{clean_code}"
+
+    # 3. If no deployment exists yet, provision an initial deployment entry so it appears on the Deployments Dashboard
+    if not deployment_record:
+        try:
+            svc = DeploymentService(db, "local")
+            project_title = resolved_project_name or payload.project_name or buyer_draft.title or marketplace_template.title
+            site_code = lic_key_base[:8] if lic_key_base else clean_code[:8]
+            if not site_code:
+                site_code = uuid.uuid4().hex[:8].upper()
+            site_id = f"SITE-KEY-{site_code}"
+            deployment_record = await svc.create_deployment(
+                user=current_user,
+                project_name=project_title,
+                template_id=target_template_id,
+                provider_type="local",
+                site_id=site_id,
+            )
+        except Exception as e_dep:
+            logger.info("Auto deployment creation notice on key activation: %s", e_dep)
+
+    title = resolved_project_name or buyer_draft.title or marketplace_template.title
+    framework_val = marketplace_template.framework.value if hasattr(marketplace_template.framework, "value") else str(marketplace_template.framework or "HTML")
+
+    return {
+        "success": True,
+        "message": f"Website '{title}' successfully imported! You can now edit the code in Studio and deploy it live.",
+        "token_id": clean_token,
+        "deployment_key": clean_dep_key,
+        "template_id": str(marketplace_template.id),
+        "draft_project_id": str(target_template_id),
+        "deployment_id": str(deployment_record.id) if deployment_record else None,
+        "title": title,
+        "framework": framework_val,
+        "thumbnail_url": buyer_draft.thumbnail_url or marketplace_template.thumbnail_url,
+        "studio_edit_url": f"/preview?template={target_template_id}&mode=live",
+        "deploy_url": f"/studio/deploy?template={target_template_id}",
+    }
 
 
 @router.get("", response_model=List[DeploymentResponse])
@@ -1787,7 +2044,7 @@ async def get_deployment_full_details(
         select(Deployment)
         .where(
             Deployment.id == deployment_id,
-            or_(Deployment.user_id == current_user.id, current_user.role == "admin"),
+            Deployment.user_id == current_user.id if not _is_platform_admin(current_user) else True,
         )
         .options(
             selectinload(Deployment.versions),
@@ -1885,6 +2142,8 @@ async def redeploy_deployment(
     service = DeploymentService(db)
     try:
         deployment = await service.redeploy(current_user, deployment_id)
+        from app.api.v1.routes.site_router import invalidate_site_cache
+        invalidate_site_cache(site_id=deployment.site_id, subdomain=deployment.subdomain, domain=deployment.custom_domain)
         background_tasks.add_task(DeploymentService.run_deployment_pipeline, deployment.id, deployment.current_version)
         return deployment
     except Exception as e:
@@ -2018,6 +2277,11 @@ async def rollback_deployment(
     success, result_msg = await service.rollback_to_version(current_user, deployment_id, payload.target_version)
     if not success:
         raise HTTPException(status_code=400, detail=result_msg)
+    d_res = await db.execute(select(Deployment).where(Deployment.id == deployment_id))
+    d_obj = d_res.scalar_one_or_none()
+    if d_obj:
+        from app.api.v1.routes.site_router import invalidate_site_cache
+        invalidate_site_cache(site_id=d_obj.site_id, subdomain=d_obj.subdomain, domain=d_obj.custom_domain)
     return {"message": f"Successfully rolled back to version {payload.target_version}", "live_url": result_msg}
 
 
@@ -2041,6 +2305,8 @@ async def suspend_deployment(
     deployment.status = "suspended"
     deployment.is_suspended = True
     await db.commit()
+    from app.api.v1.routes.site_router import invalidate_site_cache
+    invalidate_site_cache(site_id=deployment.site_id, subdomain=deployment.subdomain, domain=deployment.custom_domain)
     return {"message": f"Deployment {deployment.site_id} is now suspended."}
 
 
@@ -2066,6 +2332,8 @@ async def resume_deployment(
     deployment.status = "live"
     deployment.is_suspended = False
     await db.commit()
+    from app.api.v1.routes.site_router import invalidate_site_cache
+    invalidate_site_cache(site_id=deployment.site_id, subdomain=deployment.subdomain, domain=deployment.custom_domain)
     return {"message": f"Deployment {deployment.site_id} is now active.", "live_url": deployment.live_url}
 
 
@@ -2133,8 +2401,13 @@ async def delete_deployment(
                 logger.exception("Could not suspend deployment %s after storage removal failed", deployment.id)
         raise HTTPException(status_code=502, detail=f"Could not remove the deployment from {deployment.provider}.")
 
+    old_site_id = deployment.site_id
+    old_sub = deployment.subdomain
+    old_dom = deployment.custom_domain
     await db.delete(deployment)
     await db.commit()
+    from app.api.v1.routes.site_router import invalidate_site_cache
+    invalidate_site_cache(site_id=old_site_id, subdomain=old_sub, domain=old_dom)
     return {"message": f"Deployment {deployment_id} deleted successfully."}
 
 
@@ -2190,6 +2463,7 @@ async def update_custom_domain(
     deployment = d_res.scalar_one_or_none()
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found.")
+    old_domain = deployment.custom_domain
     if not custom_domain:
         domain_res = await db.execute(select(Domain).where(Domain.deployment_id == deployment.id, Domain.domain_type == "custom"))
         for domain_record in domain_res.scalars().all():
@@ -2197,6 +2471,8 @@ async def update_custom_domain(
         deployment.custom_domain = None
         await db.commit()
         await db.refresh(deployment)
+        from app.api.v1.routes.site_router import invalidate_site_cache
+        invalidate_site_cache(site_id=deployment.site_id, subdomain=deployment.subdomain, domain=old_domain)
         return deployment
 
     if custom_domain and custom_domain.strip():
@@ -2293,6 +2569,8 @@ async def update_custom_domain(
 
     await db.commit()
     await db.refresh(deployment)
+    from app.api.v1.routes.site_router import invalidate_site_cache
+    invalidate_site_cache(site_id=deployment.site_id, subdomain=deployment.subdomain, domain=deployment.custom_domain)
     return deployment
 
 
@@ -2356,6 +2634,7 @@ async def add_custom_domain(
 ):
     """
     Maps a custom domain (e.g. 'www.mybrand.com') to a deployment with pending verification.
+    Enforces tier allowances, protected system domains, and domain uniqueness.
     """
     d_res = await db.execute(select(Deployment).where(Deployment.id == deployment_id, Deployment.user_id == current_user.id))
     deployment = d_res.scalar_one_or_none()
@@ -2364,7 +2643,32 @@ async def add_custom_domain(
     if deployment.provider == "vercel":
         raise HTTPException(status_code=400, detail="Connect custom domains for this deployment in Vercel.")
 
-    clean_domain = payload.domain.strip().lower()
+    user_tier = str(getattr(current_user, "subscription_tier", "free") or "free").lower()
+    is_admin = _is_platform_admin(current_user)
+    is_extreme = user_tier in ("extreme", "agency", "enterprise") or is_admin
+    is_pro = current_user.is_pro_subscriber
+
+    if not is_pro and not is_extreme and not is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Custom domains require Studio Pro or Extreme. Free websites use *.site-studio.live subdomains.",
+        )
+
+    clean_domain = (payload.domain or "").strip().lower().replace("https://", "").replace("http://", "").strip("/")
+    if "." not in clean_domain or len(clean_domain) < 4 or " " in clean_domain:
+        raise HTTPException(status_code=400, detail="Please enter a valid domain name (e.g. 'www.mybrand.com').")
+
+    from app.services.dns_verification_service import PROTECTED_SYSTEM_DOMAINS
+    for protected in PROTECTED_SYSTEM_DOMAINS:
+        if clean_domain == protected or clean_domain.endswith(f".{protected}"):
+            raise HTTPException(status_code=403, detail=f"Domain '{clean_domain}' is protected and cannot be linked.")
+
+    existing_dom = await db.execute(
+        select(Domain).where(Domain.domain == clean_domain, Domain.user_id != current_user.id)
+    )
+    if existing_dom.scalars().first():
+        raise HTTPException(status_code=409, detail=f"Domain '{clean_domain}' is already registered under another account.")
+
     token = f"aisitestudio-verify-{uuid.uuid4().hex[:12]}"
 
     domain_record = Domain(
@@ -2440,6 +2744,8 @@ async def update_environment_variables(
     deployment.env_vars = payload.env_vars
     await db.commit()
     await db.refresh(deployment)
+    from app.api.v1.routes.site_router import invalidate_site_cache
+    invalidate_site_cache(site_id=deployment.site_id, subdomain=deployment.subdomain, domain=deployment.custom_domain)
     return deployment
 
 
@@ -2555,7 +2861,7 @@ async def get_deployment_files(
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found.")
 
-    is_admin = getattr(current_user, "is_superuser", False) or getattr(current_user, "role", "") == "admin"
+    is_admin = _is_platform_admin(current_user)
     if deployment.user_id != current_user.id and not is_admin:
         raise HTTPException(status_code=403, detail="Access denied: You do not own this deployment.")
 
@@ -2590,7 +2896,7 @@ async def get_deployment_file_content(
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found.")
 
-    is_admin = getattr(current_user, "is_superuser", False) or getattr(current_user, "role", "") == "admin"
+    is_admin = _is_platform_admin(current_user)
     if deployment.user_id != current_user.id and not is_admin:
         raise HTTPException(status_code=403, detail="Access denied: You do not own this deployment.")
 
@@ -2632,7 +2938,7 @@ async def save_deployment_file(
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found.")
 
-    is_admin = getattr(current_user, "is_superuser", False) or getattr(current_user, "role", "") == "admin"
+    is_admin = _is_platform_admin(current_user)
     if deployment.user_id != current_user.id and not is_admin:
         raise HTTPException(status_code=403, detail="Access denied: You do not own this deployment.")
 
@@ -2705,7 +3011,7 @@ async def ai_edit_deployment(
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found.")
 
-    is_admin = getattr(current_user, "is_superuser", False) or getattr(current_user, "role", "") == "admin"
+    is_admin = _is_platform_admin(current_user)
     if deployment.user_id != current_user.id and not is_admin:
         raise HTTPException(status_code=403, detail="Access denied: You do not own this deployment.")
 

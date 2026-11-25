@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -47,7 +47,7 @@ export default function CreatorCheckoutPage() {
   const [guestEmail, setGuestEmail] = useState("");
   const [guestName, setGuestName] = useState("");
 
-  const [paymentGateway, setPaymentGateway] = useState("upi"); // "upi" | "stripe" | "razorpay"
+  const [paymentGateway, setPaymentGateway] = useState("upi"); // "upi" | "stripe" | "razorpay" | "bank_transfer"
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [purchasedTemplates, setPurchasedTemplates] = useState([]);
@@ -58,6 +58,10 @@ export default function CreatorCheckoutPage() {
   const [utrInput, setUtrInput] = useState("");
   const [copiedVpa, setCopiedVpa] = useState(false);
   const [isVerifyingUpi, setIsVerifyingUpi] = useState(false);
+  const [bankTransferData, setBankTransferData] = useState(null);
+  const [bankTransferReference, setBankTransferReference] = useState("");
+  const [isSubmittingBankReference, setIsSubmittingBankReference] = useState(false);
+  const [bankTransferSubmitted, setBankTransferSubmitted] = useState(false);
 
   // Fetch Creator Storefront info
   const { data: storefront, isLoading: sfLoading } = useQuery({
@@ -68,7 +72,7 @@ export default function CreatorCheckoutPage() {
       return res;
     },
     enabled: Boolean(creatorSlug),
-    staleTime: 60 * 1000,
+    staleTime: 5 * 1000,
   });
 
   const brandName = storefront?.brand_name || "Creator Storefront";
@@ -76,6 +80,34 @@ export default function CreatorCheckoutPage() {
   const creatorUpiVpa =
     storefront?.payment_options?.upi?.vpa ||
     storefront?.payment_options?.razorpay?.vpa;
+
+  const paymentOpts = storefront?.payment_options || null;
+  const upiEnabled = paymentOpts ? Boolean(paymentOpts.upi?.enabled || creatorUpiVpa) : Boolean(creatorUpiVpa);
+  const stripeEnabled = paymentOpts ? Boolean(paymentOpts.stripe?.enabled) : false;
+  const razorpayEnabled = paymentOpts ? Boolean(paymentOpts.razorpay?.enabled) : false;
+  const bankTransferEnabled = paymentOpts ? Boolean(paymentOpts.bank_transfer?.enabled) : false;
+  const anyGatewayEnabled = upiEnabled || stripeEnabled || razorpayEnabled || bankTransferEnabled;
+
+  useEffect(() => {
+    if (!storefront?.payment_options) return;
+    if (paymentGateway === "upi" && !upiEnabled) {
+      if (razorpayEnabled) setPaymentGateway("razorpay");
+      else if (stripeEnabled) setPaymentGateway("stripe");
+      else if (bankTransferEnabled) setPaymentGateway("bank_transfer");
+    } else if (paymentGateway === "stripe" && !stripeEnabled) {
+      if (razorpayEnabled) setPaymentGateway("razorpay");
+      else if (upiEnabled) setPaymentGateway("upi");
+      else if (bankTransferEnabled) setPaymentGateway("bank_transfer");
+    } else if (paymentGateway === "razorpay" && !razorpayEnabled) {
+      if (stripeEnabled) setPaymentGateway("stripe");
+      else if (upiEnabled) setPaymentGateway("upi");
+      else if (bankTransferEnabled) setPaymentGateway("bank_transfer");
+    } else if (paymentGateway === "bank_transfer" && !bankTransferEnabled) {
+      if (razorpayEnabled) setPaymentGateway("razorpay");
+      else if (stripeEnabled) setPaymentGateway("stripe");
+      else if (upiEnabled) setPaymentGateway("upi");
+    }
+  }, [storefront, paymentGateway, upiEnabled, stripeEnabled, razorpayEnabled, bankTransferEnabled]);
 
   // Filter items strictly for this creator, enforcing single-license per template
   const creatorItems = useMemo(() => {
@@ -93,6 +125,8 @@ export default function CreatorCheckoutPage() {
   }, [creatorItems]);
 
   const orderTotal = subtotal;
+  const orderCurrency = String(creatorItems[0]?.price_currency || creatorItems[0]?.currency || "USD").toUpperCase();
+  const formatOrderAmount = (amount) => new Intl.NumberFormat(undefined, { style: "currency", currency: orderCurrency }).format(amount);
 
   // Authoritative store owner detection
   const isOwner = Boolean(
@@ -107,6 +141,84 @@ export default function CreatorCheckoutPage() {
     setCopiedVpa(true);
     setTimeout(() => setCopiedVpa(false), 2000);
   };
+
+  // Dynamically load Razorpay Checkout JS SDK on demand
+  const loadRazorpaySdk = () =>
+    new Promise((resolve) => {
+      if (typeof window !== "undefined" && window.Razorpay) {
+        resolve(true);
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.async = true;
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+
+  // Handle return from external Stripe Checkout redirect (strict cryptographic session verification)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const searchParams = new URLSearchParams(window.location.search);
+    const orderId = searchParams.get("order_id");
+    const isStripeSuccess = searchParams.get("success") === "true";
+    const sessionId = searchParams.get("session_id");
+
+    if (orderId && isStripeSuccess && sessionId) {
+      const verifyReturnOrder = async () => {
+        setIsProcessing(true);
+        setErrorMessage("");
+        try {
+          const token = await getToken();
+          await api.post(
+            "/payment/verify",
+            {
+              order_id: orderId,
+              gateway: "stripe",
+              gateway_order_id: sessionId,
+              gateway_payment_id: sessionId,
+              gateway_signature: "stripe_session_retrieve",
+            },
+            token ?? undefined
+          );
+          completeOrderSuccess({ id: orderId });
+        } catch (vErr) {
+          console.error("Stripe verification error:", vErr);
+          setErrorMessage(
+            vErr?.response?.data?.detail ||
+              vErr?.message ||
+              "Could not confirm Stripe payment. Please contact support or try again."
+          );
+          setIsProcessing(false);
+        }
+      };
+      verifyReturnOrder();
+    }
+  }, []);
+
+  // Auto-select creator's primary configured gateway
+  useEffect(() => {
+    const primary = storefront?.payment_options?.primary;
+    const accepted = storefront?.accepted_payment_methods || storefront?.payment_options?.accepted_methods || [];
+    if (primary === "upi" && upiEnabled) {
+      setPaymentGateway("upi");
+    } else if (primary === "bank" && bankTransferEnabled) {
+      setPaymentGateway("bank_transfer");
+    } else if (primary === "razorpay" && razorpayEnabled) {
+      setPaymentGateway("razorpay");
+    } else if (primary === "stripe" && stripeEnabled) {
+      setPaymentGateway("stripe");
+    } else if (upiEnabled) {
+      setPaymentGateway("upi");
+    } else if (accepted.includes("razorpay") && razorpayEnabled) {
+      setPaymentGateway("razorpay");
+    } else if (accepted.includes("stripe") && stripeEnabled) {
+      setPaymentGateway("stripe");
+    } else if (bankTransferEnabled) {
+      setPaymentGateway("bank_transfer");
+    }
+  }, [storefront, upiEnabled, razorpayEnabled, stripeEnabled, bankTransferEnabled]);
 
   const handlePlaceOrder = async () => {
     if (creatorItems.length === 0) return;
@@ -130,7 +242,7 @@ export default function CreatorCheckoutPage() {
     setErrorMessage("");
 
     try {
-      const token = await getToken();
+      let token = await getToken();
 
       const orderPayload = {
         items: creatorItems.map((i) => ({
@@ -157,6 +269,7 @@ export default function CreatorCheckoutPage() {
       if (orderRes?.auth_token && !token) {
         try {
           useAuthStore.getState().setSession(orderRes.auth_token, orderRes.user);
+          token = orderRes.auth_token;
         } catch (authErr) {
           console.warn("Auto session set notice:", authErr);
         }
@@ -187,93 +300,84 @@ export default function CreatorCheckoutPage() {
         return;
       }
 
+      if (paymentGateway === "bank_transfer") {
+        setBankTransferData({ ...targetPay, order: targetOrder, brandName });
+        setBankTransferReference("");
+        setBankTransferSubmitted(false);
+        setIsProcessing(false);
+        return;
+      }
+
       // ── STRIPE CONNECT AUTOMATED PAYOUT ROUTE ──
       if (paymentGateway === "stripe") {
         const checkoutUrl = targetPay?.checkout_url;
         if (checkoutUrl && checkoutUrl.startsWith("http") && !checkoutUrl.includes("mock_stripe")) {
-          // Redirect buyer to Stripe Hosted Checkout with connected account transfer_data
           window.location.href = checkoutUrl;
           return;
         }
-
-        // Test sandbox mock verification for Stripe
-        try {
-          await api.post(
-            "/payment/verify",
-            {
-              order_id: targetOrder.id,
-              gateway: "stripe",
-              gateway_order_id: targetPay?.gateway_order_id || `cs_mock_${targetOrder.id}`,
-              gateway_payment_id: targetPay?.key_id || `pi_mock_${targetOrder.id}`,
-              gateway_signature: "mock_signature_verified",
-            },
-            token ?? undefined
-          );
-          completeOrderSuccess(targetOrder);
-          return;
-        } catch (verErr) {
-          console.warn("Stripe sandbox verify notice:", verErr);
-          completeOrderSuccess(targetOrder);
-          return;
-        }
+        setErrorMessage("There is some issue processing your Stripe payment right now. Please try again later.");
+        setIsProcessing(false);
+        return;
       }
 
       // ── RAZORPAY GATEWAY ROUTE ──
       if (paymentGateway === "razorpay") {
-        if (typeof window !== "undefined" && window.Razorpay && !targetPay?.gateway_order_id?.startsWith("rzp_mock_")) {
-          const rzp = new window.Razorpay({
-            key: targetPay.key_id || "rzp_test_placeholder",
-            amount: targetPay.amount,
-            currency: targetPay.currency || "INR",
-            name: brandName,
-            description: `Order #${targetOrder.order_number || targetOrder.id?.slice(0, 8)}`,
-            order_id: targetPay.gateway_order_id,
-            prefill: {
-              email: user?.email || "",
-              name: user?.first_name || user?.email?.split("@")[0] || "",
-            },
-            theme: { color: "#dfb180" },
-            handler: async (resp) => {
-              try {
-                await api.post(
-                  "/payment/verify",
-                  {
-                    order_id: targetOrder.id,
-                    gateway_payment_id: resp.razorpay_payment_id,
-                    gateway_signature: resp.razorpay_signature,
-                    gateway_order_id: resp.razorpay_order_id,
-                    gateway: "razorpay",
-                  },
-                  token ?? undefined
-                );
-                completeOrderSuccess(targetOrder);
-              } catch (verErr) {
-                setErrorMessage("Payment verification failed. Please contact support.");
-                setIsProcessing(false);
-              }
-            },
-          });
-          rzp.open();
+        const loaded = await loadRazorpaySdk();
+        if (!loaded || typeof window === "undefined" || !window.Razorpay || !targetPay?.gateway_order_id || String(targetPay.gateway_order_id).startsWith("rzp_mock_") || targetPay?.key_id === "rzp_test_mockkey") {
+          setErrorMessage("There is some issue connecting to Razorpay right now. Please try again later.");
+          setIsProcessing(false);
           return;
         }
 
-        // Simulated test card checkout
-        await api.post(
-          "/payment/verify",
-          {
-            order_id: targetOrder.id,
-            gateway_payment_id: `pay_mock_${targetOrder.id}`,
-            gateway_signature: "mock_signature_verified",
-            gateway_order_id: targetPay?.gateway_order_id || `rzp_mock_${targetOrder.id}`,
-            gateway: "razorpay",
+        const rzp = new window.Razorpay({
+          key: targetPay.key_id,
+          amount: targetPay.amount,
+          currency: targetPay.currency || "INR",
+          name: brandName,
+          description: `Order #${targetOrder.order_number || targetOrder.id?.slice(0, 8)}`,
+          order_id: targetPay.gateway_order_id,
+          prefill: {
+            email: user?.email || guestEmail || "",
+            name: user?.first_name || guestName || user?.email?.split("@")[0] || "",
           },
-          token ?? undefined
-        );
-        completeOrderSuccess(targetOrder);
+          theme: { color: "#dfb180" },
+          handler: async (resp) => {
+            try {
+              await api.post(
+                "/payment/verify",
+                {
+                  order_id: targetOrder.id,
+                  gateway_payment_id: resp.razorpay_payment_id,
+                  gateway_signature: resp.razorpay_signature,
+                  gateway_order_id: resp.razorpay_order_id,
+                  gateway: "razorpay",
+                },
+                token ?? undefined
+              );
+              completeOrderSuccess(targetOrder);
+            } catch (verErr) {
+              setErrorMessage(
+                verErr?.response?.data?.detail || "Payment verification failed. Please contact support."
+              );
+              setIsProcessing(false);
+            }
+          },
+          modal: {
+            ondismiss: () => {
+              setIsProcessing(false);
+            },
+          },
+        });
+        rzp.on("payment.failed", (resp) => {
+          setErrorMessage(`Razorpay payment failed: ${resp?.error?.description || "Please try again."}`);
+          setIsProcessing(false);
+        });
+        rzp.open();
         return;
       }
 
-      completeOrderSuccess(targetOrder);
+      setErrorMessage("Please select a valid connected payment channel.");
+      setIsProcessing(false);
     } catch (err) {
       console.error("Order initiation error:", err);
       if (err?.status === 401 || err?.message?.includes("401") || err?.message?.toLowerCase().includes("not authenticated") || err?.message?.toLowerCase().includes("unauthorized")) {
@@ -284,29 +388,32 @@ export default function CreatorCheckoutPage() {
       const detailMsg =
         err?.response?.data?.detail ||
         err?.message ||
-        "Purchasing is currently paused or failed. Please check creator payout settings.";
+        "There is some issue processing your payment right now. Please try again later.";
       setErrorMessage(detailMsg);
       setIsProcessing(false);
     }
   };
 
-  // Direct UPI Verification with 12-digit UTR
+  // Strict Direct UPI Verification with genuine 12-digit UTR
   const handleVerifyUpiPayment = async () => {
     if (!upiData?.order?.id) return;
+    const cleanUtr = utrInput.trim();
+    if (!cleanUtr || !/^[A-Za-z0-9]{10,35}$/.test(cleanUtr)) {
+      setErrorMessage("Please enter your genuine 12-digit UPI UTR / Transaction Reference number after completing the transfer.");
+      return;
+    }
     setIsVerifyingUpi(true);
     setErrorMessage("");
 
     try {
       const token = await getToken();
-      const utr = utrInput.trim() || `UTR${Date.now()}`;
-
       await api.post(
         "/payment/verify",
         {
           order_id: upiData.order.id,
           gateway: "upi",
-          upi_utr: utr,
-          gateway_payment_id: utr,
+          upi_utr: cleanUtr,
+          gateway_payment_id: cleanUtr,
           gateway_order_id: upiData.gateway_order_id || `upi_${upiData.order.id}`,
         },
         token ?? undefined
@@ -316,9 +423,32 @@ export default function CreatorCheckoutPage() {
     } catch (err) {
       console.error("UPI verification error:", err);
       setErrorMessage(
-        err?.response?.data?.detail || "Could not confirm UPI transaction reference. Please re-check your UTR."
+        err?.response?.data?.detail || "Could not confirm UPI transaction reference. Please verify your UTR."
       );
       setIsVerifyingUpi(false);
+    }
+  };
+
+  const handleSubmitBankTransferReference = async () => {
+    if (!bankTransferData?.order?.id || !/^[A-Za-z0-9-]{8,40}$/.test(bankTransferReference.trim())) {
+      setErrorMessage("Enter the 8–40 character transfer reference provided by your bank.");
+      return;
+    }
+    setIsSubmittingBankReference(true);
+    setErrorMessage("");
+    try {
+      const token = await getToken();
+      await api.post("/payment/verify", {
+        order_id: bankTransferData.order.id,
+        gateway: "bank_transfer",
+        gateway_order_id: bankTransferData.gateway_order_id,
+        gateway_payment_id: bankTransferReference.trim(),
+      }, token ?? undefined);
+      setBankTransferSubmitted(true);
+    } catch (err) {
+      setErrorMessage(err?.response?.data?.detail || err?.message || "Could not submit the transfer reference.");
+    } finally {
+      setIsSubmittingBankReference(false);
     }
   };
 
@@ -438,9 +568,13 @@ export default function CreatorCheckoutPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
                         const tId = t.template_id || t.id || t.templateId;
-                        window.open(`/api/v1/templates/${tId}/download?format=zip`, "_blank");
+                        const userToken = (await getToken()) || localStorage.getItem("token") || "";
+                        window.open(
+                          `/api/v1/templates/${tId}/download-package?format=zip${userToken ? `&token=${encodeURIComponent(userToken)}` : ""}`,
+                          "_blank"
+                        );
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 text-white font-medium text-xs hover:bg-white/20 transition-all border border-white/15 cursor-pointer"
                     >
@@ -629,44 +763,86 @@ export default function CreatorCheckoutPage() {
                       <span>Select Payment Channel</span>
                     </h2>
 
+                    {storefront && (!anyGatewayEnabled || storefront.is_bank_connected === false) && (
+                      <div className="mb-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2.5">
+                        <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                        <span>
+                          {storefront.payout_status_message ||
+                            "This creator has not connected a verified payment gateway yet. Checkout is temporarily unavailable."}
+                        </span>
+                      </div>
+                    )}
+
                     <div className="cr-pay-methods-grid">
                       {/* 1. Direct UPI Channel */}
                       <button
                         type="button"
+                        disabled={!upiEnabled}
                         onClick={() => {
+                          if (!upiEnabled) return;
                           setPaymentGateway("upi");
                           setUpiData(null);
                         }}
-                        className={`cr-pay-method-btn ${paymentGateway === "upi" ? "active" : ""}`}
+                        className={`cr-pay-method-btn ${paymentGateway === "upi" ? "active" : ""} ${!upiEnabled ? "opacity-45 cursor-not-allowed" : ""}`}
                       >
                         <QrCode className="w-5 h-5 text-[#dfb180]" />
                         <span>Direct UPI &amp; QR</span>
+                        {!upiEnabled && (
+                          <span className="text-[10px] text-zinc-400 font-normal">Not connected</span>
+                        )}
                       </button>
 
                       {/* 2. Stripe Connected Account Channel */}
                       <button
                         type="button"
+                        disabled={!stripeEnabled}
                         onClick={() => {
+                          if (!stripeEnabled) return;
                           setPaymentGateway("stripe");
                           setUpiData(null);
                         }}
-                        className={`cr-pay-method-btn ${paymentGateway === "stripe" ? "active" : ""}`}
+                        className={`cr-pay-method-btn ${paymentGateway === "stripe" ? "active" : ""} ${!stripeEnabled ? "opacity-45 cursor-not-allowed" : ""}`}
                       >
                         <CreditCard className="w-5 h-5 text-[#dfb180]" />
                         <span>Stripe &amp; Cards</span>
+                        {!stripeEnabled && (
+                          <span className="text-[10px] text-zinc-400 font-normal">Not connected</span>
+                        )}
                       </button>
 
                       {/* 3. Razorpay Channel */}
                       <button
                         type="button"
+                        disabled={!razorpayEnabled}
                         onClick={() => {
+                          if (!razorpayEnabled) return;
                           setPaymentGateway("razorpay");
                           setUpiData(null);
                         }}
-                        className={`cr-pay-method-btn ${paymentGateway === "razorpay" ? "active" : ""}`}
+                        className={`cr-pay-method-btn ${paymentGateway === "razorpay" ? "active" : ""} ${!razorpayEnabled ? "opacity-45 cursor-not-allowed" : ""}`}
                       >
                         <Building2 className="w-5 h-5 text-[#dfb180]" />
                         <span>Razorpay</span>
+                        {!razorpayEnabled && (
+                          <span className="text-[10px] text-zinc-400 font-normal">Not connected</span>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={!bankTransferEnabled}
+                        onClick={() => {
+                          if (!bankTransferEnabled) return;
+                          setPaymentGateway("bank_transfer");
+                          setUpiData(null);
+                        }}
+                        className={`cr-pay-method-btn ${paymentGateway === "bank_transfer" ? "active" : ""} ${!bankTransferEnabled ? "opacity-45 cursor-not-allowed" : ""}`}
+                      >
+                        <Building2 className="w-5 h-5 text-[#dfb180]" />
+                        <span>Bank Transfer</span>
+                        {!bankTransferEnabled && (
+                          <span className="text-[10px] text-zinc-400 font-normal">Not connected</span>
+                        )}
                       </button>
                     </div>
 
@@ -680,6 +856,8 @@ export default function CreatorCheckoutPage() {
                           `Automated instant payout to ${brandName}'s Stripe Connected Account with dynamic payment methods.`}
                         {paymentGateway === "razorpay" &&
                           `Pay securely with Cards, Netbanking, or Wallets via Razorpay gateway.`}
+                        {paymentGateway === "bank_transfer" &&
+                          `Transfer the exact order amount to ${brandName}'s bank account. Your order is delivered after the transfer is reviewed.`}
                       </span>
                     </div>
 
@@ -775,8 +953,9 @@ export default function CreatorCheckoutPage() {
                               type="text"
                               value={utrInput}
                               onChange={(e) => setUtrInput(e.target.value)}
-                              placeholder="e.g. 432109876543 (or click confirm to complete)"
+                              placeholder="Enter 12-digit UTR / Ref ID from your UPI app"
                               className="cr-upi-utr-input"
+                              required
                             />
                             <button
                               type="button"
@@ -800,6 +979,59 @@ export default function CreatorCheckoutPage() {
                         </div>
                       </div>
                     )}
+
+                    {paymentGateway === "bank_transfer" && bankTransferData && (
+                      <div className="cr-bank-transfer-box">
+                        {bankTransferSubmitted ? (
+                          <div className="cr-bank-transfer-pending">
+                            <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                            <div>
+                              <h3>Transfer reference submitted</h3>
+                              <p>Your order stays pending until the creator’s bank confirms the payment. We’ll enable your downloads after review.</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="cr-bank-transfer-header">
+                              <div>
+                                <h3>Pay by bank transfer</h3>
+                                <p>These details are shown only for your order. Send the exact amount below.</p>
+                              </div>
+                              <strong>{bankTransferData.currency} {(bankTransferData.amount / 100).toFixed(2)}</strong>
+                            </div>
+                            <div className="cr-bank-transfer-details">
+                              {[
+                                ["Account holder", bankTransferData.bank_transfer_details?.account_holder_name],
+                                ["Bank", bankTransferData.bank_transfer_details?.bank_name],
+                                ["Account number", bankTransferData.bank_transfer_details?.account_number],
+                                ["IFSC / Routing", bankTransferData.bank_transfer_details?.ifsc_code],
+                                ["SWIFT / BIC", bankTransferData.bank_transfer_details?.swift_code],
+                                ["IBAN", bankTransferData.bank_transfer_details?.iban],
+                              ].filter(([, value]) => Boolean(value)).map(([label, value]) => (
+                                <div className="cr-bank-transfer-row" key={label}>
+                                  <span>{label}</span><code>{value}</code>
+                                </div>
+                              ))}
+                            </div>
+                            <label className="cr-bank-transfer-label" htmlFor="bank-transfer-reference">Bank transfer reference</label>
+                            <div className="cr-bank-transfer-submit">
+                              <input
+                                id="bank-transfer-reference"
+                                type="text"
+                                autoComplete="off"
+                                value={bankTransferReference}
+                                onChange={(event) => setBankTransferReference(event.target.value)}
+                                placeholder="Reference / UTR from your bank"
+                              />
+                              <button type="button" onClick={handleSubmitBankTransferReference} disabled={isSubmittingBankReference}>
+                                {isSubmittingBankReference ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit reference"}
+                              </button>
+                            </div>
+                            <p className="cr-bank-transfer-footnote">We only ask for the transfer reference. Never enter your bank password, card number, or login code here.</p>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -813,7 +1045,7 @@ export default function CreatorCheckoutPage() {
 
                     <div className="cr-summary-row">
                       <span>Subtotal ({creatorItems.length} {creatorItems.length === 1 ? "item" : "items"})</span>
-                      <span className="font-semibold text-white">${subtotal.toFixed(2)}</span>
+                      <span className="font-semibold text-white">{formatOrderAmount(subtotal)}</span>
                     </div>
 
                     <div className="cr-summary-row">
@@ -828,7 +1060,7 @@ export default function CreatorCheckoutPage() {
 
                     <div className="cr-summary-row total">
                       <span>Total</span>
-                      <span className="text-[#dfb180] font-bold">${orderTotal.toFixed(2)}</span>
+                      <span className="text-[#dfb180] font-bold">{formatOrderAmount(orderTotal)}</span>
                     </div>
 
                     {storefront?.is_bank_connected === false && (
@@ -855,7 +1087,7 @@ export default function CreatorCheckoutPage() {
                       <div className="p-3.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-center text-xs text-purple-300 font-medium">
                         You are logged in as the creator of this store. You already have owner access to all files.
                       </div>
-                    ) : !(paymentGateway === "upi" && upiData) ? (
+                    ) : !(paymentGateway === "upi" && upiData) && !(paymentGateway === "bank_transfer" && bankTransferData) ? (
                       <button
                         type="button"
                         onClick={handlePlaceOrder}
@@ -869,15 +1101,17 @@ export default function CreatorCheckoutPage() {
                           </>
                         ) : !isSignedIn && (!guestEmail || !guestEmail.includes("@")) ? (
                           <>
-                            <span>Enter Email to Pay ${orderTotal.toFixed(2)} &amp; Download</span>
+                            <span>Enter Email to Pay {formatOrderAmount(orderTotal)} &amp; Download</span>
                             <ArrowRight className="w-4 h-4" />
                           </>
                         ) : (
                           <>
                             <span>
                               {paymentGateway === "upi"
-                                ? `Generate UPI QR & Pay $${orderTotal.toFixed(2)}`
-                                : `Pay $${orderTotal.toFixed(2)} & Download`}
+                                ? `Generate UPI QR & Pay ${formatOrderAmount(orderTotal)}`
+                                : paymentGateway === "bank_transfer"
+                                  ? `Continue with bank transfer ${formatOrderAmount(orderTotal)}`
+                                  : `Pay ${formatOrderAmount(orderTotal)} & Download`}
                             </span>
                             <ArrowRight className="w-4 h-4" />
                           </>
@@ -886,7 +1120,11 @@ export default function CreatorCheckoutPage() {
                     ) : (
                       <div className="p-3 rounded-xl bg-[#dfb180]/10 border border-[#dfb180]/20 text-center">
                         <span className="text-xs text-[#dfb180] font-medium">
-                          Scan the QR code on the left or submit UTR to complete your order.
+                          {paymentGateway === "upi"
+                            ? "Scan the QR code on the left, pay, and submit your UTR."
+                            : bankTransferSubmitted
+                              ? "Your bank transfer reference is submitted for review."
+                              : "Use the bank details above, then submit your transfer reference for review."}
                         </span>
                       </div>
                     )}

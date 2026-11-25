@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import hmac
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -244,6 +245,7 @@ async def initiate_payment(
     order = result.scalar_one_or_none()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    authenticated_buyer = current_user is not None
     if not current_user:
         current_user = await db.scalar(select(User).where(User.id == order.user_id))
     if not current_user or order.user_id != current_user.id:
@@ -255,6 +257,24 @@ async def initiate_payment(
             c_res = await db.execute(select(User).where(User.id == uuid.UUID(creator_id_meta)))
             c_user = c_res.scalar_one_or_none()
             if c_user and not getattr(c_user, "is_payout_setup_completed", False):
+                # Inform creator dashboard to connect their bank / payout method
+                try:
+                    c_meta = dict(c_user.extra_metadata or {})
+                    existing_alerts = list(c_meta.get("payout_alerts") or [])
+                    new_alert = {
+                        "id": str(uuid.uuid4())[:8],
+                        "type": "checkout_blocked_unlinked_bank",
+                        "title": "Customer Checkout Paused - Payout Setup Needed",
+                        "message": f"A customer attempted to purchase from your store for Order #{order.order_number}, but checkout is paused until you connect your bank or payout method.",
+                        "order_number": str(order.order_number),
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                    c_meta["payout_alerts"] = [new_alert] + existing_alerts[:19]
+                    c_user.extra_metadata = c_meta
+                    await db.commit()
+                except Exception as alert_err:
+                    logger.warning("Failed to record creator alert: %s", alert_err)
+
                 raise HTTPException(
                     status_code=400,
                     detail=f"Purchasing from {c_user.creator_brand_name or 'this creator'} is temporarily paused: creator has not connected their bank account yet."
@@ -278,7 +298,7 @@ async def initiate_payment(
     if order.status != OrderStatus.PENDING:
         raise HTTPException(status_code=400, detail="Order is not in PENDING state")
 
-    is_mock_allowed = settings.ENVIRONMENT in ("development", "local", "test")
+    is_mock_allowed = (settings.ENVIRONMENT == "test") or getattr(settings, "ALLOW_MOCK_PAYMENTS", False)
 
     # Resolve seller attribution for marketplace payment routing & earning split
     seller = None
@@ -306,6 +326,83 @@ async def initiate_payment(
     is_extreme = bool(getattr(seller, "is_extreme_subscriber", False) or getattr(seller, "can_retail_templates", False))
     platform_fee_rate = Decimal("0.0") if is_extreme else Decimal("0.10")
 
+    # Offline bank transfers reveal creator bank details only to the authenticated
+    # buyer who owns this order. Orders stay pending until the creator reconciles the
+    # submitted transfer reference against the creator's bank statement.
+    if data.gateway == PaymentGateway.BANK_TRANSFER:
+        if not authenticated_buyer:
+            raise HTTPException(status_code=401, detail="Sign in to the buyer account for this order to view bank transfer details.")
+        if not seller:
+            raise HTTPException(status_code=400, detail="Bank transfer is available only for creator storefront orders.")
+        seller_details = dict(seller.creator_payout_details or {})
+        account_number = seller.payout_account_number
+        if (
+            "bank" not in (seller_details.get("enabled_methods") or [])
+            and "bank_transfer" not in (seller_details.get("enabled_methods") or [])
+            and seller.payout_method != "bank"
+        ):
+            raise HTTPException(status_code=409, detail="This creator has not enabled bank transfer payments.")
+        if (
+            not seller.payout_bank_name
+            or not account_number
+            or not seller.payout_account_holder_name
+            or not (seller.payout_ifsc_code or seller_details.get("iban") or seller_details.get("swift_code"))
+        ):
+            raise HTTPException(status_code=409, detail="This creator has not completed bank transfer setup.")
+
+        currency = str((order.extra_metadata or {}).get("currency") or "USD").upper()[:3]
+        creator_country = str(seller_details.get("country") or "").upper()
+        local_currency = {"IN": "INR", "US": "USD", "GB": "GBP", "DE": "EUR", "CA": "CAD", "AU": "AUD", "SG": "SGD"}.get(creator_country)
+        if local_currency and currency != local_currency and not (seller_details.get("swift_code") or seller_details.get("iban")):
+            raise HTTPException(
+                status_code=409,
+                detail=f"This order is in {currency}, but the creator's bank is configured for {local_currency}. The creator must add valid SWIFT/BIC or IBAN details for an international transfer, or enable a compatible payment processor.",
+            )
+        existing_result = await db.execute(select(Payment).where(Payment.order_id == order.id).with_for_update())
+        payment = existing_result.scalar_one_or_none()
+        if payment and payment.gateway != PaymentGateway.BANK_TRANSFER:
+            if payment.status != PaymentStatus.PENDING:
+                raise HTTPException(status_code=409, detail="A different payment method has already been used for this order.")
+            payment.gateway = PaymentGateway.BANK_TRANSFER
+            payment.gateway_payment_id = None
+            payment.gateway_signature = None
+            payment.gateway_response = None
+            payment.gateway_order_id = f"bank_{order.id}"
+            payment.amount = order.total
+            payment.currency = currency
+        elif payment and payment.status == PaymentStatus.FAILED:
+            payment.status = PaymentStatus.PENDING
+            payment.gateway_payment_id = None
+            payment.gateway_signature = None
+            payment.gateway_response = None
+        elif not payment:
+            payment = Payment(
+                order_id=order.id,
+                gateway=PaymentGateway.BANK_TRANSFER,
+                gateway_order_id=f"bank_{order.id}",
+                amount=order.total,
+                currency=currency,
+            )
+            db.add(payment)
+        await db.commit()
+        return PaymentInitResponse(
+            gateway=PaymentGateway.BANK_TRANSFER,
+            gateway_order_id=payment.gateway_order_id,
+            amount=_minor(order.total),
+            currency=currency,
+            key_id="",
+            order_id=str(order.id),
+            merchant_name=seller.creator_brand_name or seller.full_name or seller.username,
+            bank_transfer_details={
+                "bank_name": seller.payout_bank_name,
+                "account_holder_name": seller.payout_account_holder_name,
+                "account_number": account_number,
+                "ifsc_code": seller.payout_ifsc_code,
+                "swift_code": seller_details.get("swift_code"),
+                "iban": seller_details.get("iban"),
+            },
+        )
+
     # ── 1. STRIPE PAYMENT INITIATION ──
     if data.gateway == PaymentGateway.STRIPE:
         usd_amount = Decimal(str(order.total)).quantize(Decimal("0.01"))
@@ -313,17 +410,29 @@ async def initiate_payment(
 
         existing_result = await db.execute(select(Payment).where(Payment.order_id == order.id))
         existing_payment = existing_result.scalar_one_or_none()
-        if existing_payment and existing_payment.gateway == PaymentGateway.STRIPE and existing_payment.gateway_order_id:
-            checkout_url = f"{settings.FRONTEND_URL}/checkout?session_id={existing_payment.gateway_order_id}"
-            return PaymentInitResponse(
-                gateway=PaymentGateway.STRIPE,
-                gateway_order_id=existing_payment.gateway_order_id,
-                amount=amount_in_cents,
-                currency="USD",
-                key_id=settings.STRIPE_PUBLISHABLE_KEY or "pk_test_mock",
-                order_id=str(order.id),
-                checkout_url=checkout_url,
-            )
+        if (
+            existing_payment
+            and existing_payment.gateway == PaymentGateway.STRIPE
+            and existing_payment.gateway_order_id
+            and existing_payment.gateway_order_id.startswith("cs_")
+            and settings.STRIPE_SECRET_KEY
+        ):
+            try:
+                import stripe
+                stripe.api_key = settings.STRIPE_SECRET_KEY
+                existing_sess = await asyncio.to_thread(stripe.checkout.Session.retrieve, existing_payment.gateway_order_id)
+                if getattr(existing_sess, "status", None) == "open" and getattr(existing_sess, "url", None):
+                    return PaymentInitResponse(
+                        gateway=PaymentGateway.STRIPE,
+                        gateway_order_id=existing_sess.id,
+                        amount=amount_in_cents,
+                        currency="USD",
+                        key_id=settings.STRIPE_PUBLISHABLE_KEY or "",
+                        order_id=str(order.id),
+                        checkout_url=existing_sess.url,
+                    )
+            except Exception as ex_s_err:
+                logger.info(f"Existing Stripe session could not be reused ({ex_s_err}); creating fresh session.")
 
         is_stripe_configured = bool(
             settings.STRIPE_SECRET_KEY
@@ -338,7 +447,8 @@ async def initiate_payment(
         seller_stripe_account_id = None
         if seller:
             seller_stripe_account_id = (
-                getattr(seller, "payout_stripe_account_id", None)
+                getattr(seller, "stripe_connect_account_id", None)
+                or getattr(seller, "payout_stripe_account_id", None)
                 or (seller.creator_payout_details or {}).get("stripe_account_id")
             )
 
@@ -350,7 +460,17 @@ async def initiate_payment(
 
         app_fee_cents = int(round(amount_in_cents * float(platform_fee_rate)))
         payment_intent_data = None
-        if seller_stripe_account_id and str(seller_stripe_account_id).strip().startswith("acct_"):
+
+        # Verify whether the seller Stripe account ID is a syntactically valid Stripe connected account (e.g. acct_1234567890ABCDEF)
+        # and not a test placeholder string like 'acct_test_creator_payout_id'
+        is_real_stripe_acct = bool(
+            seller_stripe_account_id
+            and str(seller_stripe_account_id).strip().startswith("acct_")
+            and not any(x in str(seller_stripe_account_id).lower() for x in ("test", "mock", "placeholder", "dummy", "creator_payout"))
+            and re.match(r"^acct_[a-zA-Z0-9]{14,30}$", str(seller_stripe_account_id).strip())
+        )
+
+        if is_real_stripe_acct:
             payment_intent_data = {
                 "transfer_data": {
                     "destination": str(seller_stripe_account_id).strip(),
@@ -363,6 +483,16 @@ async def initiate_payment(
             }
             if app_fee_cents > 0:
                 payment_intent_data["application_fee_amount"] = app_fee_cents
+
+        creator_slug_meta = (order.extra_metadata or {}).get("creator_slug")
+        if creator_slug_meta:
+            success_url = f"{settings.FRONTEND_URL}/creator/{creator_slug_meta}/checkout?success=true&order_id={order.id}&session_id={{CHECKOUT_SESSION_ID}}"
+            cancel_url = f"{settings.FRONTEND_URL}/creator/{creator_slug_meta}/checkout?cancelled=true"
+            mock_checkout_url = f"{settings.FRONTEND_URL}/creator/{creator_slug_meta}/checkout?mock_stripe=true&order_id={order.id}"
+        else:
+            success_url = f"{settings.FRONTEND_URL}/checkout?success=true&order_id={order.id}&session_id={{CHECKOUT_SESSION_ID}}"
+            cancel_url = f"{settings.FRONTEND_URL}/checkout?cancelled=true"
+            mock_checkout_url = f"{settings.FRONTEND_URL}/checkout?mock_stripe=true&order_id={order.id}"
 
         if is_stripe_configured:
             try:
@@ -383,8 +513,8 @@ async def initiate_payment(
                     "mode": "payment",
                     "client_reference_id": str(order.id),
                     "customer_email": current_user.email,
-                    "success_url": f"{settings.FRONTEND_URL}/checkout?success=true&order_id={order.id}&session_id={{CHECKOUT_SESSION_ID}}",
-                    "cancel_url": f"{settings.FRONTEND_URL}/checkout?cancelled=true",
+                    "success_url": success_url,
+                    "cancel_url": cancel_url,
                     "metadata": {
                         "order_id": str(order.id),
                         "order_number": str(order.order_number),
@@ -395,29 +525,91 @@ async def initiate_payment(
                 if payment_intent_data:
                     session_params["payment_intent_data"] = payment_intent_data
 
-                session = await asyncio.to_thread(stripe.checkout.Session.create, **session_params)
-                stripe_session_id = session.id
-                checkout_url = session.url
+                try:
+                    session = await asyncio.to_thread(stripe.checkout.Session.create, **session_params)
+                    stripe_session_id = session.id
+                    checkout_url = session.url
+                except Exception as create_err:
+                    err_msg = str(create_err)
+                    # NEVER divert creator storefront funds to the platform account.
+                    # Only retry on platform account if this is a platform-owned order without an external creator.
+                    if not seller and ("destination" in err_msg.lower() or "transfer_data" in err_msg.lower() or "payment method" in err_msg.lower()):
+                        logger.warning(f"Platform Stripe retry triggered: {err_msg}. Retrying Checkout on the platform account with Dashboard-configured payment methods...")
+                        session_params.pop("payment_intent_data", None)
+                        session = await asyncio.to_thread(stripe.checkout.Session.create, **session_params)
+                        stripe_session_id = session.id
+                        checkout_url = session.url
+                    else:
+                        raise create_err
             except Exception as s_err:
-                logger.warning(f"Stripe session creation failed: {s_err}")
+                err_text = str(s_err)
+                logger.warning(f"Stripe session creation failed: {err_text}")
+
+                # Inform creator dashboard to update their payment methods
+                if seller:
+                    try:
+                        s_meta = dict(seller.extra_metadata or {})
+                        existing_alerts = list(s_meta.get("payout_alerts") or [])
+                        if "payment method" in err_text.lower():
+                            alert_msg = (
+                                f"Action Required: A customer tried to purchase for Order #{order.order_number}, "
+                                f"but your Stripe account has no active payment methods for USD. Please activate Card payments in your Stripe Dashboard or update your payout methods in Creator Setup."
+                            )
+                        elif "destination" in err_text.lower():
+                            alert_msg = (
+                                f"Action Required: A customer tried to pay for Order #{order.order_number}, "
+                                f"but your connected Stripe account ID was rejected by Stripe. Please update your Stripe Connected Account ID in Creator Setup."
+                            )
+                        else:
+                            alert_msg = (
+                                f"Payment attempt for Order #{order.order_number} encountered a gateway error: {err_text[:120]}. "
+                                f"Please review and update your payment method settings in Creator Setup."
+                            )
+
+                        new_alert = {
+                            "id": str(uuid.uuid4())[:8],
+                            "type": "payment_gateway_configuration_error",
+                            "title": "Payment Method Update Required",
+                            "message": alert_msg,
+                            "order_number": str(order.order_number),
+                            "created_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                        s_meta["payout_alerts"] = [new_alert] + existing_alerts[:19]
+                        seller.extra_metadata = s_meta
+                        await db.commit()
+                    except Exception as alert_err:
+                        logger.warning(f"Failed to record seller payout alert: {alert_err}")
+
                 if is_mock_allowed:
                     mock_pi = f"pi_mock_{uuid.uuid4().hex[:12]}"
                     stripe_session_id = f"{mock_pi}_secret_{uuid.uuid4().hex[:12]}"
                     checkout_url = (
                         seller_stripe_payment_link
                         if seller_stripe_payment_link
-                        else f"{settings.FRONTEND_URL}/checkout?mock_stripe=true&order_id={order.id}"
+                        else mock_checkout_url
                     )
                 else:
-                    raise HTTPException(status_code=502, detail=f"Stripe payment gateway connection failed: {s_err}")
+                    raise HTTPException(
+                        status_code=502,
+                        detail="There is some issue processing your Stripe payment right now. Please try again later.",
+                    )
         else:
-            mock_pi = f"pi_mock_{uuid.uuid4().hex[:12]}"
-            stripe_session_id = f"{mock_pi}_secret_{uuid.uuid4().hex[:12]}"
-            checkout_url = (
-                seller_stripe_payment_link
-                if seller_stripe_payment_link
-                else f"{settings.FRONTEND_URL}/checkout?mock_stripe=true&order_id={order.id}"
-            )
+            if is_mock_allowed:
+                mock_pi = f"pi_mock_{uuid.uuid4().hex[:12]}"
+                stripe_session_id = f"{mock_pi}_secret_{uuid.uuid4().hex[:12]}"
+                checkout_url = (
+                    seller_stripe_payment_link
+                    if seller_stripe_payment_link
+                    else mock_checkout_url
+                )
+            elif seller_stripe_payment_link and str(seller_stripe_payment_link).startswith(("https://buy.stripe.com/", "https://checkout.stripe.com/")):
+                stripe_session_id = f"plink_{uuid.uuid4().hex[:16]}"
+                checkout_url = str(seller_stripe_payment_link).strip()
+            else:
+                raise HTTPException(
+                    status_code=503,
+                    detail="There is some issue connecting to Stripe right now. Please try again later.",
+                )
 
         if existing_payment:
             existing_payment.gateway = PaymentGateway.STRIPE
@@ -456,6 +648,24 @@ async def initiate_payment(
                 or (seller.creator_payout_details or {}).get("razorpay_vpa")
             )
         if not upi_vpa:
+            if seller:
+                try:
+                    s_meta = dict(seller.extra_metadata or {})
+                    existing_alerts = list(s_meta.get("payout_alerts") or [])
+                    new_alert = {
+                        "id": str(uuid.uuid4())[:8],
+                        "type": "missing_upi_id",
+                        "title": "UPI Payment Method Missing",
+                        "message": f"A customer selected Direct UPI for Order #{order.order_number}, but you have not configured a UPI ID yet. Please add your UPI ID in Creator Setup.",
+                        "order_number": str(order.order_number),
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                    s_meta["payout_alerts"] = [new_alert] + existing_alerts[:19]
+                    seller.extra_metadata = s_meta
+                    await db.commit()
+                except Exception as alert_err:
+                    logger.warning("Failed to record seller UPI alert: %s", alert_err)
+
             raise HTTPException(
                 status_code=400,
                 detail=f"{getattr(seller, 'creator_brand_name', 'The creator')} has not configured a UPI ID for direct payments."
@@ -540,7 +750,12 @@ async def initiate_payment(
         or "mock" in settings.RAZORPAY_KEY_ID.lower()
     )
 
-    if is_mock_key and is_mock_allowed:
+    if is_mock_key:
+        if not is_mock_allowed:
+            raise HTTPException(
+                status_code=503,
+                detail="There is some issue connecting to Razorpay right now. Please try again later.",
+            )
         mock_order_id = f"rzp_mock_{uuid.uuid4().hex[:12]}"
         payment = Payment(
             order_id=order.id,
@@ -562,31 +777,85 @@ async def initiate_payment(
         )
 
     rz_order_id = None
+    seller_rzp_account_id = (
+        (seller.creator_payout_details or {}).get("razorpay_account_id")
+        if seller else None
+    )
+    is_valid_route_acc = bool(
+        seller_rzp_account_id
+        and str(seller_rzp_account_id).strip().startswith("acc_")
+        and not any(x in str(seller_rzp_account_id).lower() for x in ("test", "mock", "placeholder"))
+    )
+
     try:
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=UserWarning)
             import razorpay
         client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-        rz_order = await asyncio.to_thread(
-            client.order.create,
-            {
-                "amount": amount_in_paise,
-                "currency": "INR",
-                "receipt": str(order.id)[:40],
-                "notes": {
-                    "order_number": order.order_number,
-                    "user_email": current_user.email,
-                }
+        rzp_order_payload = {
+            "amount": amount_in_paise,
+            "currency": "INR",
+            "receipt": str(order.id)[:40],
+            "notes": {
+                "order_id": str(order.id),
+                "order_number": order.order_number,
+                "user_email": current_user.email,
+                "seller_id": str(seller_id) if seller_id else "",
             }
-        )
+        }
+        if is_valid_route_acc:
+            transfer_paise = int(round(amount_in_paise * (1.0 - float(platform_fee_rate))))
+            if transfer_paise > 0:
+                rzp_order_payload["transfers"] = [{
+                    "account": str(seller_rzp_account_id).strip(),
+                    "amount": transfer_paise,
+                    "currency": "INR",
+                    "notes": {
+                        "order_id": str(order.id),
+                        "seller_id": str(seller_id) if seller_id else "",
+                    },
+                    "linked_account_notes": ["order_id"],
+                    "on_hold": False,
+                }]
+
+        try:
+            rz_order = await asyncio.to_thread(client.order.create, rzp_order_payload)
+        except Exception as route_err:
+            # NEVER divert creator storefront funds to the platform account.
+            # Only retry on platform account if this is a platform-owned order without an external creator.
+            if not seller and "transfers" in rzp_order_payload and ("transfer" in str(route_err).lower() or "account" in str(route_err).lower()):
+                logger.warning(f"Razorpay Route transfer order failed ({route_err}); retrying standard merchant order capture.")
+                rzp_order_payload.pop("transfers", None)
+                rz_order = await asyncio.to_thread(client.order.create, rzp_order_payload)
+            else:
+                raise route_err
         rz_order_id = rz_order["id"]
     except Exception as rz_err:
         logger.warning(f"Razorpay order create failed: {rz_err}")
+        if seller:
+            try:
+                s_meta = dict(seller.extra_metadata or {})
+                existing_alerts = list(s_meta.get("payout_alerts") or [])
+                s_meta["payout_alerts"] = [{
+                    "id": str(uuid.uuid4())[:8],
+                    "type": "razorpay_gateway_error",
+                    "title": "Razorpay Checkout Error",
+                    "message": f"A customer attempted Razorpay checkout for Order #{order.order_number}, but Razorpay returned: {str(rz_err)[:120]}. Please check your Razorpay setup.",
+                    "order_number": str(order.order_number),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }] + existing_alerts[:19]
+                seller.extra_metadata = s_meta
+                await db.commit()
+            except Exception:
+                pass
         if is_mock_allowed:
             rz_order_id = f"rzp_mock_{uuid.uuid4().hex[:12]}"
         else:
-            raise HTTPException(status_code=502, detail=f"Could not connect to Razorpay payment gateway: {rz_err}")
+            raise HTTPException(
+                status_code=502,
+                detail="There is some issue connecting to Razorpay right now. Please try again later.",
+            )
 
     payment = Payment(
         order_id=order.id,
@@ -697,11 +966,24 @@ async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Op
                         if tmpl.seller_id and tmpl.seller_id != order.user_id:
                             # Check if earning record already created (idempotent)
                             if item.id not in existing_earning_item_ids:
+                                # Check if seller is Extreme subscriber with 0% platform commission fee
+                                seller_obj = None
+                                if tmpl.seller_id:
+                                    s_res = await db.execute(select(User).where(User.id == tmpl.seller_id))
+                                    seller_obj = s_res.scalar_one_or_none()
+                                is_seller_extreme = bool(
+                                    seller_obj and (
+                                        getattr(seller_obj, "is_extreme_subscriber", False)
+                                        or getattr(seller_obj, "can_retail_templates", False)
+                                        or str(getattr(seller_obj, "subscription_tier", "")).lower() in ("extreme", "agency", "enterprise")
+                                    )
+                                )
+                                effective_comm_rate = Decimal("0.00") if is_seller_extreme else comm_rate
                                 gross = Decimal(str(item.price))
-                                platform_fee = round(gross * (comm_rate / Decimal("100.00")), 2)
+                                platform_fee = round(gross * (effective_comm_rate / Decimal("100.00")), 2)
                                 net_earning = gross - platform_fee
                                 now_utc = datetime.now(timezone.utc)
-                                holding_until = now_utc + timedelta(days=hold_days)
+                                holding_until = now_utc + timedelta(days=0 if is_seller_extreme else hold_days)
 
                                 creator_earning = CreatorEarning(
                                     order_id=order.id,
@@ -709,7 +991,7 @@ async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Op
                                     template_id=tmpl.id,
                                     creator_id=tmpl.seller_id,
                                     gross_amount=gross,
-                                    platform_commission_percent=comm_rate,
+                                    platform_commission_percent=effective_comm_rate,
                                     platform_fee=platform_fee,
                                     platform_commission_amount=platform_fee,
                                     net_creator_earning=net_earning,
@@ -717,7 +999,7 @@ async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Op
                                     currency=getattr(tmpl, "price_currency", "USD") or "USD",
                                     holding_until=holding_until,
                                     available_at=holding_until,
-                                    status=EarningStatus.PENDING,
+                                    status=EarningStatus.AVAILABLE if is_seller_extreme else EarningStatus.PENDING,
                                 )
                                 db.add(creator_earning)
                                 existing_earning_item_ids.add(item.id)
@@ -734,7 +1016,7 @@ async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Op
                     target_user = user_res.scalar_one_or_none()
                     if target_user:
                         target_user.ai_credits = (target_user.ai_credits or 0) + credits_to_add
-                        order.extra_metadata["credits_credited"] = True
+                        order.extra_metadata = {**order.extra_metadata, "credits_credited": True}
                         logger.info("Credited %d AI tokens to user %s. New balance: %d", credits_to_add, target_user.email, target_user.ai_credits)
             except Exception as cred_err:
                 logger.warning("Could not credit AI tokens for order %s: %s", order.id, cred_err)
@@ -761,7 +1043,7 @@ async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Op
                     plan_cfg = get_plan_config(plan_id)
                     sub_credits = int(order.extra_metadata.get("credits_to_add") or plan_cfg.get("included_ai_credits", 0))
                     target_user.ai_credits = sub_credits
-                    order.extra_metadata["credits_credited"] = True
+                    order.extra_metadata = {**order.extra_metadata, "credits_credited": True}
 
                     # Synchronize authoritative primary UserSubscription record
                     try:
@@ -866,6 +1148,38 @@ async def verify_payment(
         ).hexdigest()
 
         if hmac.compare_digest(generated_signature, data.gateway_signature):
+            # In real non-test runtime, also query Razorpay Payments API to confirm capture/amount
+            if settings.ENVIRONMENT != "test" and settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET:
+                try:
+                    import warnings
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", category=UserWarning)
+                        import razorpay
+                    rz_client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+                    rz_pay = await asyncio.to_thread(rz_client.payment.fetch, data.gateway_payment_id)
+                    rz_status = str(rz_pay.get("status") or "").lower()
+                    rz_ord_id = rz_pay.get("order_id")
+                    rz_amt = int(rz_pay.get("amount") or 0)
+
+                    if rz_ord_id and rz_ord_id != payment.gateway_order_id:
+                        raise HTTPException(status_code=400, detail="Razorpay payment does not belong to this order.")
+                    expected_paise = _minor(payment.amount)
+                    if rz_amt and abs(rz_amt - expected_paise) > 5:
+                        raise HTTPException(status_code=400, detail="Razorpay payment amount mismatch.")
+                    if rz_status == "authorized":
+                        await asyncio.to_thread(rz_client.payment.capture, data.gateway_payment_id, rz_amt)
+                        rz_status = "captured"
+                    if rz_status != "captured":
+                        raise HTTPException(status_code=400, detail=f"Payment has not been captured by Razorpay (status: {rz_status}).")
+                except HTTPException:
+                    raise
+                except Exception as fetch_err:
+                    logger.warning(f"Razorpay payment.fetch verification failed: {fetch_err}")
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Could not verify captured transaction with Razorpay. Please try again.",
+                    )
+
             payment.status = PaymentStatus.CAPTURED
             payment.gateway = PaymentGateway.RAZORPAY
             payment.gateway_payment_id = data.gateway_payment_id
@@ -883,14 +1197,22 @@ async def verify_payment(
         else:
             raise HTTPException(status_code=400, detail="Razorpay signature verification failed. Invalid signature.")
 
+    is_mock_allowed = (settings.ENVIRONMENT == "test") or getattr(settings, "ALLOW_MOCK_PAYMENTS", False)
+
     # 2. Stripe payment verification (Client-side Session verification)
     if data.gateway == PaymentGateway.STRIPE:
         is_stripe_mock = (
             data.gateway_signature in ("mock_signature_verified", "stripe_mock_sig")
             or (data.gateway_payment_id and data.gateway_payment_id.startswith("pay_mock_"))
+            or (data.gateway_order_id and data.gateway_order_id.startswith(("cs_mock_", "pi_mock_")))
         )
 
         if is_stripe_mock:
+            if not is_mock_allowed:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Mock or demo Stripe confirmations are disabled. Please complete payment via Stripe Checkout.",
+                )
             if not payment:
                 payment = Payment(
                     order_id=order.id,
@@ -913,15 +1235,26 @@ async def verify_payment(
             await db.commit()
             return PaymentVerifyResponse(
                 success=True,
-                message="Payment verified successfully via Stripe (Sandbox Mock).",
+                message="Payment verified successfully via Stripe (Test).",
                 order_id=str(order.id),
             )
-        elif settings.STRIPE_SECRET_KEY:
+
+        target_session_id = data.gateway_order_id or (payment.gateway_order_id if payment else None)
+        if settings.STRIPE_SECRET_KEY and target_session_id and str(target_session_id).startswith("cs_"):
             try:
                 import stripe
                 stripe.api_key = settings.STRIPE_SECRET_KEY
-                session = await asyncio.to_thread(stripe.checkout.Session.retrieve, data.gateway_order_id)
+                session = await asyncio.to_thread(stripe.checkout.Session.retrieve, target_session_id)
+                sess_order_id = (getattr(session, "metadata", None) or {}).get("order_id") or getattr(session, "client_reference_id", None)
+                if sess_order_id and str(sess_order_id) != str(order.id):
+                    raise HTTPException(status_code=400, detail="Stripe session does not match this order.")
+
                 if session.payment_status == "paid":
+                    expected_cents = _minor(order.total)
+                    paid_cents = getattr(session, "amount_total", None)
+                    if paid_cents is not None and abs(int(paid_cents) - expected_cents) > 5:
+                        raise HTTPException(status_code=400, detail="Stripe payment amount mismatch.")
+
                     if not payment:
                         payment = Payment(
                             order_id=order.id,
@@ -949,18 +1282,75 @@ async def verify_payment(
                     )
                 else:
                     raise HTTPException(status_code=400, detail=f"Stripe payment is not completed. Status: {session.payment_status}")
+            except HTTPException:
+                raise
             except Exception as st_err:
                 logger.warning(f"Stripe checkout retrieve failed: {st_err}")
                 raise HTTPException(status_code=400, detail=f"Stripe verification failed: {st_err}")
 
-    # 3. Direct UPI payment verification (UTR / transaction reference confirmation)
+    # Bank transfers are offline and cannot be automatically verified from a
+    # reference string. Record the reference, but do not capture or fulfill until
+    # the creator confirms receipt in their bank account.
+    if data.gateway == PaymentGateway.BANK_TRANSFER:
+        if not payment or payment.gateway != PaymentGateway.BANK_TRANSFER:
+            raise HTTPException(status_code=400, detail="Start bank transfer checkout before submitting a transfer reference.")
+        if payment.status != PaymentStatus.PENDING:
+            raise HTTPException(status_code=409, detail="This bank transfer has already been reviewed.")
+        if (payment.gateway_payment_id or "").startswith("BANKREF:"):
+            raise HTTPException(status_code=409, detail="A transfer reference is already awaiting review for this order.")
+        if data.gateway_order_id != payment.gateway_order_id:
+            raise HTTPException(status_code=400, detail="Bank transfer order reference mismatch.")
+        raw_reference = (data.gateway_payment_id or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9-]{8,40}", raw_reference):
+            raise HTTPException(status_code=400, detail="Enter the 8–40 character transfer reference shown by your bank.")
+        if any(bad in raw_reference.lower() for bad in ("test", "mock", "demo", "fake")):
+            raise HTTPException(status_code=400, detail="Enter the genuine transfer reference from your bank.")
+        bank_ref = f"BANKREF:{raw_reference}"
+        dup = await db.execute(select(Payment.id).where(Payment.gateway_payment_id == bank_ref, Payment.order_id != order.id).limit(1))
+        if dup.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="This transfer reference has already been submitted.")
+        payment.gateway_payment_id = bank_ref
+        await db.commit()
+        return PaymentVerifyResponse(
+            success=True,
+            message="Transfer reference received. Your order will be completed after the payment is confirmed.",
+            order_id=str(order.id),
+        )
+
+    # 3. Direct UPI payment verification (strict non-empty, unique 10-35 char bank UTR required)
     if data.gateway == PaymentGateway.UPI:
-        utr_ref = (
+        raw_utr = (
             data.upi_utr
             or data.gateway_payment_id
             or data.gateway_signature
-            or f"upi_utr_{uuid.uuid4().hex[:12]}"
-        )
+            or ""
+        ).strip()
+        if not is_mock_allowed:
+            if not raw_utr or not re.match(r"^[A-Za-z0-9]{10,35}$", raw_utr):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Please enter your valid 12-digit UPI UTR / Bank Transaction Reference number (10-35 alphanumeric characters) after completing payment.",
+                )
+            lower_utr = raw_utr.lower()
+            if any(bad in lower_utr for bad in ("test", "mock", "demo", "fake")) or lower_utr in ("1234567890", "123456789012", "000000000000"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid UTR reference. Please provide the genuine UTR / reference number from your UPI app.",
+                )
+            dup_utr = await db.execute(
+                select(Payment.id).where(
+                    Payment.gateway_payment_id == raw_utr,
+                    Payment.order_id != order.id,
+                    Payment.status == PaymentStatus.CAPTURED,
+                ).limit(1)
+            )
+            if dup_utr.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=409,
+                    detail="This UPI UTR / Transaction Reference has already been used for another order.",
+                )
+
+        utr_ref = raw_utr or f"upi_utr_{uuid.uuid4().hex[:12]}"
         if not payment:
             payment = Payment(
                 order_id=order.id,
@@ -987,7 +1377,7 @@ async def verify_payment(
             order_id=str(order.id),
         )
 
-    # 4. Simulated card flow (Razorpay test mode in development / sandbox)
+    # 4. Simulated card flow (strictly limited to test environment)
     is_card_mock = (
         data.gateway == PaymentGateway.RAZORPAY
         and (
@@ -998,8 +1388,8 @@ async def verify_payment(
     )
 
     if is_card_mock:
-        if settings.ENVIRONMENT not in ("development", "local", "test"):
-            raise HTTPException(status_code=400, detail="Mock payments are not allowed in this environment.")
+        if not is_mock_allowed:
+            raise HTTPException(status_code=400, detail="Mock or demo payments are disabled. Complete real Razorpay Checkout to verify payment.")
         if not payment:
             payment = Payment(
                 order_id=order.id,
@@ -1849,7 +2239,7 @@ async def purchase_tokens(
     db.add(order)
     await db.flush()
 
-    is_mock_allowed = settings.ENVIRONMENT in ("development", "local", "test")
+    is_mock_allowed = (settings.ENVIRONMENT == "test") or getattr(settings, "ALLOW_MOCK_PAYMENTS", False)
 
     # ── 1. STRIPE TOKEN PACK CHECKOUT ──
     if payload.gateway == PaymentGateway.STRIPE:
@@ -1869,7 +2259,6 @@ async def purchase_tokens(
                 stripe.api_key = settings.STRIPE_SECRET_KEY
                 session = await asyncio.to_thread(
                     stripe.checkout.Session.create,
-                    payment_method_types=["card"],
                     line_items=[{
                         "price_data": {
                             "currency": "usd",
@@ -1903,8 +2292,10 @@ async def purchase_tokens(
                     stripe_session_id = f"cs_mock_tok_{uuid.uuid4().hex[:12]}"
                     checkout_url = f"{settings.FRONTEND_URL}/dashboard?tab=ai-tokens&mock_stripe=true&order_id={order.id}"
                 else:
-                    raise HTTPException(status_code=502, detail=f"Stripe checkout failed: {s_err}")
+                    raise HTTPException(status_code=502, detail="There is some issue processing your Stripe payment right now. Please try again later.")
         else:
+            if not is_mock_allowed:
+                raise HTTPException(status_code=503, detail="Stripe payment gateway is unavailable right now. Please try again later.")
             stripe_session_id = f"cs_mock_tok_{uuid.uuid4().hex[:12]}"
             checkout_url = f"{settings.FRONTEND_URL}/dashboard?tab=ai-tokens&mock_stripe=true&order_id={order.id}"
 
@@ -1971,8 +2362,10 @@ async def purchase_tokens(
             if is_mock_allowed:
                 rz_order_id = f"rzp_mock_tok_{uuid.uuid4().hex[:12]}"
             else:
-                raise HTTPException(status_code=502, detail=f"Razorpay order failed: {err}")
+                raise HTTPException(status_code=502, detail="There is some issue connecting to Razorpay right now. Please try again later.")
     else:
+        if not is_mock_allowed:
+            raise HTTPException(status_code=503, detail="Razorpay payment gateway is unavailable right now. Please try again later.")
         rz_order_id = f"rzp_mock_tok_{uuid.uuid4().hex[:12]}"
 
     payment = Payment(
@@ -2069,7 +2462,7 @@ async def purchase_plan(
     db.add(order)
     await db.flush()
 
-    is_mock_allowed = settings.ENVIRONMENT in ("development", "local", "test")
+    is_mock_allowed = (settings.ENVIRONMENT == "test") or getattr(settings, "ALLOW_MOCK_PAYMENTS", False)
 
     # ── 1. STRIPE SUBSCRIPTION CHECKOUT ──
     if payload.gateway == PaymentGateway.STRIPE:
@@ -2088,7 +2481,6 @@ async def purchase_plan(
                 stripe.api_key = settings.STRIPE_SECRET_KEY
                 session = await asyncio.to_thread(
                     stripe.checkout.Session.create,
-                    payment_method_types=["card"],
                     line_items=[{
                         "price_data": {
                             "currency": "usd",
@@ -2122,8 +2514,10 @@ async def purchase_plan(
                     stripe_session_id = f"cs_mock_sub_{uuid.uuid4().hex[:12]}"
                     checkout_url = f"{settings.FRONTEND_URL}/subscribe?mock_stripe=true&order_id={order.id}"
                 else:
-                    raise HTTPException(status_code=502, detail=f"Stripe subscription checkout failed: {s_err}")
+                    raise HTTPException(status_code=502, detail="There is some issue connecting to Stripe right now. Please try again later.")
         else:
+            if not is_mock_allowed:
+                raise HTTPException(status_code=503, detail="Stripe payment gateway is unavailable right now. Please try again later.")
             stripe_session_id = f"cs_mock_sub_{uuid.uuid4().hex[:12]}"
             checkout_url = f"{settings.FRONTEND_URL}/subscribe?mock_stripe=true&order_id={order.id}"
 
@@ -2190,8 +2584,10 @@ async def purchase_plan(
             if is_mock_allowed:
                 rz_order_id = f"rzp_mock_sub_{uuid.uuid4().hex[:12]}"
             else:
-                raise HTTPException(status_code=502, detail=f"Razorpay subscription order failed: {err}")
+                raise HTTPException(status_code=502, detail="There is some issue connecting to Razorpay right now. Please try again later.")
     else:
+        if not is_mock_allowed:
+            raise HTTPException(status_code=503, detail="Razorpay payment gateway is unavailable right now. Please try again later.")
         rz_order_id = f"rzp_mock_sub_{uuid.uuid4().hex[:12]}"
 
     payment = Payment(

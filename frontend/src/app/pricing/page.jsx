@@ -189,6 +189,85 @@ export default function PricingPage() {
             })}
           </div>
 
+          {/* ── 2b. Standalone Pay-As-You-Go Token Packs (No Subscription Required) ── */}
+          <div className="pricing-tokens-section">
+            <div className="pricing-tokens-header">
+              <div className="pricing-pill-badge">
+                <Coins className="w-4 h-4 text-[#dfb180]" />
+                <span>Pay-As-You-Go · No Subscription</span>
+              </div>
+              <h2 className="faq-title">Buy Standalone Studio Tokens</h2>
+              <p className="pricing-hero-sub" style={{ marginBottom: "2rem" }}>
+                Need tokens to edit code, run AI updates, or deploy purchased websites without a monthly subscription? Purchase a one-time token pack anytime.
+              </p>
+            </div>
+
+            <div className="pricing-tokens-grid">
+              {[
+                {
+                  id: "tokens_50",
+                  label: "Starter Pack",
+                  credits: 50,
+                  price: 10,
+                  proPrice: 6,
+                  extremePrice: 4,
+                  desc: "Ideal for editing copy, saving live changes, and launching projects.",
+                },
+                {
+                  id: "tokens_200",
+                  label: "Creator Pack",
+                  credits: 200,
+                  price: 30,
+                  proPrice: 18,
+                  extremePrice: 12,
+                  desc: "Best balance for multiple site customizations and cloud deployments.",
+                  featured: true,
+                },
+                {
+                  id: "tokens_500",
+                  label: "Studio Fleet Pack",
+                  credits: 500,
+                  price: 60,
+                  proPrice: 35,
+                  extremePrice: 24,
+                  desc: "High-volume token reserve that stays in your account until spent.",
+                },
+              ].map((pack) => (
+                <div
+                  key={pack.id}
+                  className={`pricing-tier-card ${pack.featured ? "featured" : ""}`}
+                >
+                  <div>
+                    <div className="tier-top-meta">
+                      <span className="tier-badge pro">{pack.label}</span>
+                      <h3 className="tier-name">{pack.credits} Studio Tokens</h3>
+                      <p className="tier-desc">{pack.desc}</p>
+                    </div>
+                    <div className="tier-price-box">
+                      <div className="tier-price-row">
+                        <span className="tier-currency">$</span>
+                        <span className={`tier-amount ${pack.featured ? "highlight" : ""}`}>{pack.price}</span>
+                        <span className="tier-period">one-time</span>
+                      </div>
+                      <div className="tier-sub-billing">
+                        Pro pays ${pack.proPrice} · Extreme pays ${pack.extremePrice}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/checkout?pack=${pack.id}`)}
+                    className={`tier-cta-btn ${pack.featured ? "primary" : "outline"}`}
+                  >
+                    <Coins className="w-4 h-4" />
+                    <span>Buy {pack.credits} Tokens</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
           {/* ── FAQ ── */}
           <div className="pricing-faq-section">
             <h2 className="faq-title">Frequently Asked Questions</h2>

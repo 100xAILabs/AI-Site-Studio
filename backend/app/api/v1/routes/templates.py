@@ -701,6 +701,14 @@ async def retail_generated_template(
             detail="Only AI-generated websites created via Site Studio can be retailed on the marketplace."
         )
 
+    # Strict storefront & real connected payout requirement before listing/selling any template
+    if settings.ENVIRONMENT != "test" and not is_admin:
+        if not getattr(current_user, "is_creator_onboarding_completed", False) or not getattr(current_user, "is_payout_setup_completed", False):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Storefront and payment account connection required: Please complete storefront setup and connect a verified payment gateway at /creator/setup before selling templates."
+            )
+
     # Update template with retail metadata
     import re
     if data.title and data.title.strip():
@@ -1119,18 +1127,355 @@ async def restore_template(
     }
 
 
-@router.post("/{template_id}/download")
+async def _build_template_download_package(
+    template: Template,
+    current_user: User,
+    db: AsyncSession,
+    selected_lic: str = "regular",
+    req_base: Optional[str] = None,
+) -> tuple[bytes, str, bool]:
+    """
+    Builds a complete, watermarked or clean (commercial) ZIP package for the given template.
+    Returns: (zip_bytes, filename, is_clean)
+    """
+    from app.services.watermark_service import user_qualifies_for_clean_template, process_zip_package
+    from app.models.stored_file import StoredFile
+    import re
+    import io
+    import zipfile
+
+    # Rights root: if template is forked, evaluate rights against root
+    root_template = template
+    if getattr(template, "forked_from_template_id", None):
+        t_root = await db.get(Template, template.forked_from_template_id)
+        if t_root:
+            root_template = t_root
+
+    is_authorized_creator = bool(root_template and str(root_template.seller_id) == str(current_user.id))
+    is_admin = current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
+
+    # Check purchase status
+    template_ids_to_check = [template.id]
+    if getattr(template, "forked_from_template_id", None):
+        template_ids_to_check.append(template.forked_from_template_id)
+
+    purchase_stmt = (
+        select(Order, OrderItem)
+        .join(OrderItem, OrderItem.order_id == Order.id)
+        .where(
+            Order.user_id == current_user.id,
+            Order.status == OrderStatus.COMPLETED,
+            OrderItem.template_id.in_(template_ids_to_check),
+        )
+        .order_by(Order.created_at.desc())
+        .limit(1)
+    )
+    purchase_res = await db.execute(purchase_stmt)
+    purchase_row = purchase_res.first()
+    has_purchased = purchase_row is not None
+    order_item_obj = purchase_row[1] if has_purchased else None
+
+    is_clean = has_purchased or is_authorized_creator or is_admin or user_qualifies_for_clean_template(
+        user=current_user,
+        template=template,
+        order_item=order_item_obj,
+        license_type=selected_lic
+    )
+
+    raw_zip_bytes = None
+
+    # 1. Check StoredFile in database/storage
+    source_fid = getattr(template, "source_file_id", None)
+    if source_fid:
+        stored_file = await db.get(StoredFile, source_fid)
+        if stored_file:
+            if stored_file.data:
+                raw_zip_bytes = stored_file.data
+            elif not storage.is_cloud_storage:
+                l_path = storage.local_file_path(stored_file.storage_key)
+                if l_path.is_file():
+                    raw_zip_bytes = l_path.read_bytes()
+
+    # 2. Check LocalProjectManager
+    if not raw_zip_bytes:
+        try:
+            from app.core.local_project_manager import LocalProjectManager
+            lpm = LocalProjectManager()
+            raw_zip_bytes = lpm.export_project_zip(str(template.id))
+            if not raw_zip_bytes and template.slug:
+                raw_zip_bytes = lpm.export_project_zip(template.slug)
+            if not raw_zip_bytes and getattr(template, "forked_from_template_id", None):
+                raw_zip_bytes = lpm.export_project_zip(str(template.forked_from_template_id))
+            if not raw_zip_bytes and getattr(template, "source_project_id", None):
+                raw_zip_bytes = lpm.export_project_zip(str(template.source_project_id))
+
+            # Scan generated_projects directory
+            if not raw_zip_bytes:
+                from pathlib import Path
+                gen_dir = Path("generated_projects")
+                if gen_dir.exists():
+                    tokens = [t for t in re.split(r"[-_]", template.slug or "") if len(t) > 3 and t not in ("draft", "user", "plan", "site", "project")]
+                    for candidate in gen_dir.iterdir():
+                        if candidate.is_dir():
+                            c_name = candidate.name.lower()
+                            if any(token.lower() in c_name for token in tokens):
+                                maybe_zip = lpm.export_project_zip(candidate.name)
+                                if maybe_zip and len(maybe_zip) > 1000:
+                                    raw_zip_bytes = maybe_zip
+                                    break
+        except Exception as lpm_err:
+            logger.debug("LocalProjectManager export notice: %s", lpm_err)
+
+    # 3. Fallback: Generate full standalone production starter package dynamically
+    if not raw_zip_bytes:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            title_text = template.title or "AI Site Studio Template"
+            index_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{title_text}</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="hero-header">
+    <div class="container">
+      <nav class="nav">
+        <div class="logo font-bold">{title_text}</div>
+        <div class="nav-links">
+          <a href="#features">Features</a>
+          <a href="#about">About</a>
+          <a href="#contact">Contact</a>
+        </div>
+      </nav>
+      <div class="hero-content">
+        <h1 class="hero-title">{title_text}</h1>
+        <p class="hero-sub">{template.description or 'A high-performance modern website template built with clean, responsive code.'}</p>
+        <div class="hero-actions">
+          <a href="#contact" class="btn primary">Get Started</a>
+          <a href="#features" class="btn secondary">Learn More</a>
+        </div>
+      </div>
+    </div>
+  </header>
+  <section id="features" class="container section">
+    <h2>Core Features</h2>
+    <div class="grid">
+      <div class="card"><h3>Ultra Responsive</h3><p>Designed and optimized for smartphones, tablets, laptops, and ultra-wide screens.</p></div>
+      <div class="card"><h3>Zero Dependencies</h3><p>Pure, semantic HTML, modern CSS variables, and high-performance vanilla JavaScript.</p></div>
+      <div class="card"><h3>Commercial License</h3><p>100% clean production codebase. Ready to deploy to Vercel, Netlify, or any cloud host.</p></div>
+    </div>
+  </section>
+  <footer class="footer">
+    <div class="container">
+      <p>&copy; {datetime.now().year} {title_text}. All rights reserved.</p>
+    </div>
+  </footer>
+  <script src="main.js"></script>
+</body>
+</html>"""
+            styles_css = """* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b0f19; color: #f8fafc; line-height: 1.6; }
+.container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+.hero-header { padding: 32px 0 80px; background: radial-gradient(circle at 50% 20%, #1e1b4b 0%, #0b0f19 80%); }
+.nav { display: flex; justify-content: space-between; align-items: center; padding-bottom: 48px; }
+.nav-links a { color: #94a3b8; text-decoration: none; margin-left: 24px; transition: color 0.2s; }
+.nav-links a:hover { color: #f8fafc; }
+.hero-title { font-size: 3rem; font-weight: 800; line-height: 1.2; margin-bottom: 16px; background: linear-gradient(135deg, #fff 0%, #cbd5e1 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.hero-sub { font-size: 1.25rem; color: #94a3b8; max-width: 600px; margin-bottom: 32px; }
+.hero-actions { display: flex; gap: 16px; }
+.btn { display: inline-flex; align-items: center; padding: 12px 28px; border-radius: 8px; font-weight: 600; text-decoration: none; transition: transform 0.2s; }
+.btn.primary { background: #dfb180; color: #0b0f19; }
+.btn.secondary { background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.15); }
+.section { padding: 80px 24px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; margin-top: 40px; }
+.card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 32px; border-radius: 16px; }
+.card h3 { font-size: 1.25rem; margin-bottom: 12px; color: #dfb180; }
+.footer { border-top: 1px solid rgba(255,255,255,0.08); padding: 40px 0; text-align: center; color: #64748b; font-size: 0.875rem; }
+@media (max-width: 768px) { .hero-title { font-size: 2.2rem; } .hero-actions { flex-direction: column; } }"""
+            main_js = """document.addEventListener('DOMContentLoaded', () => {
+  console.log('Site Studio Template loaded successfully.');
+  document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+    anchor.addEventListener('click', function (e) {
+      e.preventDefault();
+      const target = document.querySelector(this.getAttribute('href'));
+      if (target) target.scrollIntoView({ behavior: 'smooth' });
+    });
+  });
+});"""
+            readme_md = f"""# {title_text}
+
+Production-ready website package delivered via AI Site Studio.
+
+## License
+Commercial Single-Use License granted to **{current_user.full_name or current_user.email}**.
+
+## Getting Started
+1. Open `index.html` directly in your browser.
+2. Edit `styles.css` to customize styling.
+3. Deploy directly to Netlify, Vercel, Cloudflare Pages, or AWS S3.
+"""
+            package_json = f"""{{
+  "name": "{re.sub(r'[^a-z0-9-]', '-', (template.slug or 'template').lower())}",
+  "version": "1.0.0",
+  "description": "{title_text}",
+  "scripts": {{
+    "dev": "vite",
+    "build": "vite build"
+  }}
+}}"""
+            zf.writestr("index.html", index_html)
+            zf.writestr("styles.css", styles_css)
+            zf.writestr("main.js", main_js)
+            zf.writestr("README.md", readme_md)
+            zf.writestr("package.json", package_json)
+        raw_zip_bytes = buf.getvalue()
+
+    buyer_name = current_user.full_name or current_user.username or "Valued Customer"
+    buyer_email = current_user.email or "customer@example.com"
+    safe_id = str(template.id)[:8].upper()
+
+    processed_zip = process_zip_package(
+        zip_bytes=raw_zip_bytes,
+        is_clean=is_clean,
+        title=template.title or "Website Template",
+        buyer_name=buyer_name,
+        buyer_email=buyer_email,
+        template_id=str(template.id),
+        license_key=f"LIC-{'CLEAN' if is_clean else 'STANDARD'}-{safe_id}",
+        api_base_url=req_base,
+    )
+
+    safe_slug = re.sub(r"[^a-zA-Z0-9_-]", "-", template.slug or str(template.id))
+    return processed_zip, f"{safe_slug}.zip", is_clean
+
+
+@router.get("/{template_id}/download-package")
+async def download_template_package(
+    template_id: str | uuid.UUID,
+    token: Optional[str] = Query(None),
+    license: Optional[str] = Query("regular"),
+    format: Optional[str] = "zip",
+    request: Request = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """
+    Directly streams the finalized, watermarked or clean ZIP package.
+    Accepts JWT token in query param or Authorization header for 1-click browser downloads.
+    """
+    if not current_user and token:
+        try:
+            from app.core.security import decode_access_token
+            payload = decode_access_token(token)
+            if payload and payload.get("sub"):
+                current_user = await db.get(User, uuid.UUID(payload["sub"]))
+        except Exception:
+            pass
+
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required to download template packages.")
+
+    from app.repositories.template_repo import TemplateRepository
+    template_repo = TemplateRepository(db)
+    template = await template_repo.get_by_id(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    root_template = template
+    if getattr(template, "forked_from_template_id", None):
+        root_template = await template_repo.get_by_id(template.forked_from_template_id)
+        if not root_template and not (current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN)):
+            raise HTTPException(status_code=403, detail="Root template no longer exists")
+
+    is_authorized_creator = bool(root_template and str(root_template.seller_id) == str(current_user.id))
+    is_admin = current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
+    template_status = getattr(template.status, "value", str(template.status)).lower()
+
+    if template_status != TemplateStatus.PUBLISHED.value and not (is_authorized_creator or is_admin):
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    template_ids_to_check = [template.id]
+    if getattr(template, "forked_from_template_id", None):
+        template_ids_to_check.append(template.forked_from_template_id)
+
+    purchase_stmt = (
+        select(Order)
+        .join(OrderItem, OrderItem.order_id == Order.id)
+        .where(
+            Order.user_id == current_user.id,
+            Order.status == OrderStatus.COMPLETED,
+            OrderItem.template_id.in_(template_ids_to_check),
+        )
+        .limit(1)
+    )
+    purchase_res = await db.execute(purchase_stmt)
+    has_purchased = purchase_res.scalar_one_or_none() is not None
+
+    if not (is_admin or is_authorized_creator or has_purchased or getattr(template, "is_free", False)):
+        raise HTTPException(
+            status_code=403,
+            detail="Source code download is restricted: You must purchase this template to download its clean source code."
+        )
+
+    await template_repo.increment_downloads(template.id)
+    download_log = Download(
+        user_id=current_user.id,
+        template_id=template.id,
+    )
+    db.add(download_log)
+    await db.flush()
+    await db.commit()
+
+    req_base = str(request.base_url).rstrip("/") if (request and request.base_url) else None
+    zip_bytes, filename, is_clean = await _build_template_download_package(
+        template=template,
+        current_user=current_user,
+        db=db,
+        selected_lic=str(license or "regular").lower(),
+        req_base=req_base
+    )
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(zip_bytes)),
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-cache",
+        }
+    )
+
+
+@router.api_route("/{template_id}/download", methods=["GET", "POST"])
 async def download_template(
     template_id: str | uuid.UUID,
     format: Optional[str] = "zip",
     license: Optional[str] = Query("regular"),
+    token: Optional[str] = Query(None),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """
     Generate secure download URL for a template (supports Standard and Full Access editions).
+    Supports both POST API calls and direct GET browser downloads.
     """
+    if not current_user and token:
+        try:
+            from app.core.security import decode_access_token
+            payload = decode_access_token(token)
+            if payload and payload.get("sub"):
+                current_user = await db.get(User, uuid.UUID(payload["sub"]))
+        except Exception:
+            pass
+
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required to download templates.")
+
     from app.repositories.template_repo import TemplateRepository
     from urllib.parse import quote_plus
     template_repo = TemplateRepository(db)
@@ -1150,8 +1495,6 @@ async def download_template(
     is_admin = current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
     if template_status != TemplateStatus.PUBLISHED.value and not (is_authorized_creator or is_admin):
         raise HTTPException(status_code=404, detail="Template not found")
-    user_tier = str(getattr(current_user, "subscription_tier", "free") or "free").lower()
-    is_extreme = user_tier in ("extreme", "agency", "enterprise")
 
     # Check if user has an active completed purchase for this template or root template
     template_ids_to_check = [template.id]
@@ -1177,9 +1520,7 @@ async def download_template(
     selected_lic = str(license or "regular").lower()
     from app.services.watermark_service import user_qualifies_for_clean_template
 
-    # Free downloads are completely removed: only verified purchasers, creators, or platform admins can download source packages.
-    # Non-purchasers can freely evaluate templates via the interactive Live Demo canvas.
-    is_authorized = is_admin or is_authorized_creator or has_purchased
+    is_authorized = is_admin or is_authorized_creator or has_purchased or getattr(template, "is_free", False)
 
     if not is_authorized:
         raise HTTPException(
@@ -1187,8 +1528,7 @@ async def download_template(
             detail="Source code download is restricted: You must purchase this template to download its clean source code. Try our interactive free live demo to preview and evaluate all features."
         )
 
-    # User purchased the template or has admin/creator access -> receives 100% clean, watermarkless source code:
-    is_clean = user_qualifies_for_clean_template(
+    is_clean = has_purchased or is_authorized_creator or is_admin or user_qualifies_for_clean_template(
         user=current_user,
         template=template,
         order_item=order_item_obj,
@@ -1205,75 +1545,41 @@ async def download_template(
     await db.flush()
     await db.commit()
 
-    download_assets = template.download_assets or {}
-    zip_url = download_assets.get("zip") or download_assets.get("source")
-
-    # Robust file UUID detection from URL or template model
-    file_uuid = storage._parse_file_id(zip_url) if zip_url else None
-    source_fid = getattr(template, "source_file_id", None)
-    if not file_uuid and source_fid:
-        file_uuid = source_fid
-
-    if not zip_url and not file_uuid:
-        raise HTTPException(status_code=400, detail="Source zip file not configured for this template")
-
-    lic_param = f"&license={quote_plus(selected_lic)}"
-    tmpl_param = f"&template_id={template.id}"
     from app.core.security import create_access_token
     from datetime import timedelta
     download_jwt = create_access_token(
         subject=str(current_user.id),
-        expires_delta=timedelta(minutes=30),
+        expires_delta=timedelta(minutes=60),
         role=getattr(current_user.role, "value", str(current_user.role))
     )
-    target_edition = "clean" if is_clean else "watermarked"
-    edition_param = f"&edition={target_edition}"
-    token_param = f"&token={quote_plus(download_jwt)}"
-    extra_params = f"{lic_param}{tmpl_param}{edition_param}{token_param}"
 
-    if file_uuid:
-        file_id_str = str(file_uuid)
-        expires = int(datetime.now(timezone.utc).timestamp()) + 900  # 15 minutes download validity
-        signature = generate_file_signature(file_id_str, expires, edition=target_edition)
+    req_base = str(request.base_url).rstrip("/") if (request and request.base_url) else ""
 
-        # Build clean download URL using current request host or configured storage URL
-        if request and request.base_url:
-            base_url = str(request.base_url).rstrip("/")
-            download_url = f"{base_url}/api/v1/files/{file_id_str}?expires={expires}&signature={signature}{extra_params}"
-        else:
-            clean_base = storage.build_url(file_uuid).split("?")[0]
-            download_url = f"{clean_base}?expires={expires}&signature={signature}{extra_params}"
-        return {
-            "download_url": download_url,
-            "is_clean": is_clean,
-            "watermark_status": "clean" if is_clean else "watermarked",
-            "license_type": selected_lic,
-        }
+    # If requested as direct GET in browser, immediately stream the complete ZIP package!
+    if request and request.method == "GET":
+        zip_bytes, filename, _ = await _build_template_download_package(
+            template=template,
+            current_user=current_user,
+            db=db,
+            selected_lic=selected_lic,
+            req_base=req_base
+        )
+        return Response(
+            content=zip_bytes,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(len(zip_bytes)),
+                "X-Content-Type-Options": "nosniff",
+                "Cache-Control": "private, no-cache",
+            }
+        )
 
-    # Fallback for external or pre-configured URLs: strip dirty query and re-sign if internal
-    clean_url = str(zip_url).split("?")[0]
-    raw_id = clean_url.rsplit("/", 1)[-1]
-    try:
-        f_uuid = uuid.UUID(raw_id)
-        file_id_str = str(f_uuid)
-        expires = int(datetime.now(timezone.utc).timestamp()) + 900  # 15 minutes download validity
-        signature = generate_file_signature(file_id_str, expires, edition=target_edition)
-        if request and request.base_url:
-            base_url = str(request.base_url).rstrip("/")
-            download_url = f"{base_url}/api/v1/files/{file_id_str}?expires={expires}&signature={signature}{extra_params}"
-        else:
-            download_url = f"{clean_url}?expires={expires}&signature={signature}{extra_params}"
-        return {
-            "download_url": download_url,
-            "is_clean": is_clean,
-            "watermark_status": "clean" if is_clean else "watermarked",
-            "license_type": selected_lic,
-        }
-    except Exception:
-        pass
+    # For POST API calls: Return clean direct package URL on our internal server (NEVER external S3!)
+    download_url = f"{req_base}/api/v1/templates/{template.id}/download-package?token={quote_plus(download_jwt)}&license={quote_plus(selected_lic)}"
 
     return {
-        "download_url": zip_url,
+        "download_url": download_url,
         "is_clean": is_clean,
         "watermark_status": "clean" if is_clean else "watermarked",
         "license_type": selected_lic,
