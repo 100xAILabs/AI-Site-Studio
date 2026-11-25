@@ -43,7 +43,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_current_user_optional
 from app.models.user import User
 from app.models.template import Template
 from app.models.order import Order, OrderItem, OrderStatus
@@ -229,7 +229,7 @@ async def get_country_tax_rates():
 async def initiate_payment(
     data: PaymentInitRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """
     Create a payment order with Razorpay.
@@ -244,7 +244,9 @@ async def initiate_payment(
     order = result.scalar_one_or_none()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    if order.user_id != current_user.id:
+    if not current_user:
+        current_user = await db.scalar(select(User).where(User.id == order.user_id))
+    if not current_user or order.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
     creator_id_meta = (order.extra_metadata or {}).get("creator_id")
@@ -797,7 +799,7 @@ async def _fulfill_order_licenses(db: AsyncSession, order: Order, user_email: Op
 async def verify_payment(
     data: PaymentVerifyRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """
     Verify payment from the client-side.
@@ -807,7 +809,11 @@ async def verify_payment(
     order_uuid = uuid.UUID(data.order_id)
     result = await db.execute(select(Order).where(Order.id == order_uuid).with_for_update())
     order = result.scalar_one_or_none()
-    if not order or order.user_id != current_user.id:
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if not current_user:
+        current_user = await db.scalar(select(User).where(User.id == order.user_id))
+    if not current_user or order.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Order not found")
 
     if order.status == OrderStatus.COMPLETED:

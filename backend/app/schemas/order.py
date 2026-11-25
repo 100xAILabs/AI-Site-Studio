@@ -23,6 +23,8 @@ class OrderCreate(BaseModel):
     notes: Optional[str] = None
     country_code: Optional[str] = "US"
     creator_slug: Optional[str] = None
+    buyer_email: Optional[str] = None
+    buyer_name: Optional[str] = None
 
 
 class OrderItemResponse(BaseModel):
@@ -73,6 +75,7 @@ class OrderResponse(BaseModel):
     extra_metadata: Optional[dict] = None
     items: List[OrderItemResponse] = []
     user: Optional[OrderUserResponse] = None
+    auth_token: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

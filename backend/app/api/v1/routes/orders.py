@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 from app.core.database import get_db
 from app.core.config import settings
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_current_user_optional
 from app.models.user import User
 from app.models.template import Template, TemplateStatus
 from app.models.order import Order, OrderItem, OrderStatus
@@ -60,10 +60,48 @@ def _generate_order_number() -> str:
 async def create_order(
     data: OrderCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
-    """Create a new order. Returns the order with PENDING status ready for payment."""
+    """Create a new order. Supports both authenticated users and direct creator storefront buyers."""
     from app.models.license import License
+    from app.models.user import UserRole
+
+    # Handle unauthenticated buyer on direct creator storefront
+    if not current_user:
+        if not data.buyer_email or "@" not in str(data.buyer_email):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required. Please sign in or provide a valid email address to complete your order.",
+            )
+        clean_email = data.buyer_email.strip().lower()
+        u_res = await db.execute(select(User).where(User.email == clean_email))
+        buyer = u_res.scalar_one_or_none()
+        if not buyer:
+            buyer = User(
+                email=clean_email,
+                username=clean_email.split("@")[0] + "_" + uuid.uuid4().hex[:4],
+                full_name=data.buyer_name.strip() if data.buyer_name else clean_email.split("@")[0],
+                role=UserRole.BUYER,
+                is_active=True,
+                is_verified=True,
+            )
+            # Link to creator if order is routed via a creator's storefront
+            if data.creator_slug:
+                c_res = await db.execute(
+                    select(User).where(
+                        (User.creator_store_slug == data.creator_slug.strip().lower()) |
+                        (User.username == data.creator_slug.strip().lower())
+                    )
+                )
+                c_obj = c_res.scalar_one_or_none()
+                if c_obj:
+                    buyer.client_of_creator_id = c_obj.id
+                    buyer.client_of_creator_slug = c_obj.creator_store_slug or data.creator_slug
+                    buyer.client_of_brand = c_obj.creator_brand_name or c_obj.full_name or c_obj.username
+            db.add(buyer)
+            await db.flush()
+        current_user = buyer
+
     subtotal = Decimal("0")
     order_items = []
 
@@ -225,7 +263,14 @@ async def create_order(
         )
         .where(Order.id == order.id)
     )
-    return OrderResponse.model_validate(refreshed.scalar_one())
+    order_obj = refreshed.scalar_one()
+    resp = OrderResponse.model_validate(order_obj)
+    from app.core.security import create_access_token
+    resp.auth_token = create_access_token(
+        subject=str(current_user.id),
+        role=current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    )
+    return resp
 
 
 @router.get("", response_model=List[OrderResponse])

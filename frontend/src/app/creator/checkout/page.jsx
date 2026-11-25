@@ -29,7 +29,10 @@ import {
   Building2,
   Lock,
   Rocket,
+  User,
+  Mail,
 } from "lucide-react";
+import { useAuthStore } from "@/store/authStore";
 import "./checkout.css";
 
 export default function CreatorCheckoutPage() {
@@ -40,6 +43,9 @@ export default function CreatorCheckoutPage() {
   const { user, isSignedIn } = useAppUser();
   const { getToken } = useAppAuth();
   const { items, removeItem, clearCart } = useCartStore();
+
+  const [guestEmail, setGuestEmail] = useState("");
+  const [guestName, setGuestName] = useState("");
 
   const [paymentGateway, setPaymentGateway] = useState("upi"); // "upi" | "stripe" | "razorpay"
   const [isProcessing, setIsProcessing] = useState(false);
@@ -88,6 +94,13 @@ export default function CreatorCheckoutPage() {
 
   const orderTotal = subtotal;
 
+  // Authoritative store owner detection
+  const isOwner = Boolean(
+    (user?.id && (storefront?.creator_id || storefront?.user_id) && (String(user.id) === String(storefront.creator_id) || String(user.id) === String(storefront.user_id))) ||
+    (user?.email && (storefront?.support_email || storefront?.email) && user.email.toLowerCase() === (storefront.support_email || storefront.email).toLowerCase()) ||
+    (user?.creator_store_slug && creatorSlug && user.creator_store_slug.toLowerCase() === creatorSlug.toLowerCase())
+  );
+
   const handleCopyVpa = (vpa) => {
     if (!vpa) return;
     navigator.clipboard.writeText(vpa);
@@ -97,10 +110,20 @@ export default function CreatorCheckoutPage() {
 
   const handlePlaceOrder = async () => {
     if (creatorItems.length === 0) return;
+    if (isOwner) {
+      setErrorMessage(
+        "You are currently signed in as the creator of this store. Creators already have full access to their source code and cannot purchase their own template. To test purchasing, please use an incognito window or sign in with a client account."
+      );
+      return;
+    }
     if (storefront?.is_bank_connected === false) {
       setErrorMessage(
         `${brandName} has not connected their bank account or verified payout gateway yet. Purchasing is temporarily paused.`
       );
+      return;
+    }
+    if (!isSignedIn && (!guestEmail || !guestEmail.includes("@"))) {
+      setErrorMessage("Please enter your delivery email address below to receive your template downloads and license.");
       return;
     }
     setIsProcessing(true);
@@ -109,19 +132,35 @@ export default function CreatorCheckoutPage() {
     try {
       const token = await getToken();
 
+      const orderPayload = {
+        items: creatorItems.map((i) => ({
+          template_id: i.templateId || i.id,
+          license_type: i.licenseType || "regular",
+        })),
+        country_code: "US",
+        creator_slug: creatorSlug,
+      };
+
+      if (!token && guestEmail) {
+        orderPayload.buyer_email = guestEmail.trim().toLowerCase();
+        orderPayload.buyer_name = guestName.trim() || undefined;
+      }
+
       // 1. Create order linked directly to this creator with seller_id attribution
       const orderRes = await api.post(
         "/orders",
-        {
-          items: creatorItems.map((i) => ({
-            template_id: i.templateId || i.id,
-            license_type: i.licenseType || "regular",
-          })),
-          country_code: "US",
-          creator_slug: creatorSlug,
-        },
+        orderPayload,
         token ?? undefined
       );
+
+      // Auto-authenticate guest client if backend returned session token
+      if (orderRes?.auth_token && !token) {
+        try {
+          useAuthStore.getState().setSession(orderRes.auth_token, orderRes.user);
+        } catch (authErr) {
+          console.warn("Auto session set notice:", authErr);
+        }
+      }
 
       const targetOrder = orderRes?.order || orderRes;
 
@@ -237,6 +276,11 @@ export default function CreatorCheckoutPage() {
       completeOrderSuccess(targetOrder);
     } catch (err) {
       console.error("Order initiation error:", err);
+      if (err?.status === 401 || err?.message?.includes("401") || err?.message?.toLowerCase().includes("not authenticated") || err?.message?.toLowerCase().includes("unauthorized")) {
+        setErrorMessage("Authentication required. Please enter your email address below or sign in to complete your purchase.");
+        setIsProcessing(false);
+        return;
+      }
       const detailMsg =
         err?.response?.data?.detail ||
         err?.message ||
@@ -495,6 +539,89 @@ export default function CreatorCheckoutPage() {
                     </div>
                   </div>
 
+                  {/* Owner Banner */}
+                  {isOwner && (
+                    <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/25 text-purple-300 text-xs flex flex-col gap-1.5 mb-4">
+                      <div className="flex items-center gap-2 font-semibold text-purple-200">
+                        <Store className="w-4 h-4 shrink-0 text-purple-400" />
+                        <span>Creator Storefront Owner Account</span>
+                      </div>
+                      <p className="text-slate-300 leading-relaxed">
+                        You are signed in as <strong>{user?.email}</strong> (the owner/creator of {brandName}). You already have complete owner access to all source files and cannot purchase your own templates.
+                      </p>
+                      <p className="text-[11px] text-zinc-400">
+                        To test purchasing as a customer, please open an incognito window or sign in with a client account.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Client Status or Guest Email Delivery Box */}
+                  {!isSignedIn ? (
+                    <div className="cr-checkout-card">
+                      <div className="flex items-center justify-between mb-2">
+                        <h2 className="cr-card-title !mb-0">
+                          <Mail className="w-4 h-4 text-[#dfb180]" />
+                          <span>Delivery Email &amp; Client Account</span>
+                        </h2>
+                        <Link
+                          to={`/creator/${creatorSlug}/login?redirect=${encodeURIComponent(`/creator/${creatorSlug}/checkout`)}`}
+                          className="text-xs text-[#dfb180] hover:underline flex items-center gap-1 font-medium"
+                        >
+                          <User className="w-3.5 h-3.5" />
+                          <span>Already a client? Sign In</span>
+                        </Link>
+                      </div>
+                      <p className="text-xs text-zinc-400 mb-3">
+                        Enter your email address to receive your instant ZIP code download, commercial license, and cloud deployment access.
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-medium text-zinc-300 mb-1">
+                            Your Email Address <span className="text-rose-400">*</span>
+                          </label>
+                          <input
+                            type="email"
+                            placeholder="you@example.com"
+                            value={guestEmail}
+                            onChange={(e) => setGuestEmail(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[#dfb180] transition-all"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-medium text-zinc-300 mb-1">
+                            Your Full Name <span className="text-zinc-500">(Optional)</span>
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="John Doe"
+                            value={guestName}
+                            onChange={(e) => setGuestName(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[#dfb180] transition-all"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/10 mb-4 flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-full bg-[#dfb180]/20 text-[#dfb180] flex items-center justify-center font-bold text-xs">
+                          {(user?.first_name || user?.email || "U").charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="font-semibold text-white">{user?.email}</div>
+                          <div className="text-[11px] text-[#dfb180]">
+                            {isOwner ? "Store Owner & Creator ✦" : `Client Account of ${brandName}`}
+                          </div>
+                        </div>
+                      </div>
+                      <span className="text-emerald-400 text-[11px] font-medium flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Ready to Checkout</span>
+                      </span>
+                    </div>
+                  )}
+
                   {/* Payment Channels Card */}
                   <div className="cr-checkout-card">
                     <h2 className="cr-card-title">
@@ -724,7 +851,11 @@ export default function CreatorCheckoutPage() {
                     )}
 
                     {/* Primary Action Button */}
-                    {!(paymentGateway === "upi" && upiData) ? (
+                    {isOwner ? (
+                      <div className="p-3.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-center text-xs text-purple-300 font-medium">
+                        You are logged in as the creator of this store. You already have owner access to all files.
+                      </div>
+                    ) : !(paymentGateway === "upi" && upiData) ? (
                       <button
                         type="button"
                         onClick={handlePlaceOrder}
@@ -735,6 +866,11 @@ export default function CreatorCheckoutPage() {
                           <>
                             <Loader2 className="w-4 h-4 animate-spin" />
                             <span>Routing Payment to Creator...</span>
+                          </>
+                        ) : !isSignedIn && (!guestEmail || !guestEmail.includes("@")) ? (
+                          <>
+                            <span>Enter Email to Pay ${orderTotal.toFixed(2)} &amp; Download</span>
+                            <ArrowRight className="w-4 h-4" />
                           </>
                         ) : (
                           <>

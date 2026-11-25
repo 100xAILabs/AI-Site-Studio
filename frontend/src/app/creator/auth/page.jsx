@@ -58,12 +58,13 @@ export default function CreatorClientAuthPage({ isRegister: defaultRegister = fa
 
   const brandName = storefront?.brand_name || "Creator Storefront";
 
-  // If already signed in, redirect straight back to the creator storefront
+  // If already signed in, redirect straight back to redirect target or creator storefront
   useEffect(() => {
     if (isSignedIn && user) {
-      navigate(`/creator/${creatorSlug}`, { replace: true });
+      const redirectTarget = searchParams.get("redirect") || `/creator/${creatorSlug}`;
+      navigate(redirectTarget, { replace: true });
     }
-  }, [isSignedIn, user, creatorSlug, navigate]);
+  }, [isSignedIn, user, creatorSlug, navigate, searchParams]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -102,7 +103,8 @@ export default function CreatorClientAuthPage({ isRegister: defaultRegister = fa
         }
 
         // Auto-attributed and logged in
-        navigate(`/creator/${creatorSlug}`, { replace: true });
+        const redirectTarget = searchParams.get("redirect") || `/creator/${creatorSlug}`;
+        navigate(redirectTarget, { replace: true });
       } else {
         const res = await signInWithEmail({
           email: email.trim().toLowerCase(),
@@ -124,7 +126,8 @@ export default function CreatorClientAuthPage({ isRegister: defaultRegister = fa
           return;
         }
 
-        navigate(`/creator/${creatorSlug}`, { replace: true });
+        const redirectTarget = searchParams.get("redirect") || `/creator/${creatorSlug}`;
+        navigate(redirectTarget, { replace: true });
       }
     } catch (err) {
       setError(err?.message || "Authentication failed. Please check your credentials.");
