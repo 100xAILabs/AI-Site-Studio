@@ -1,0 +1,205 @@
+.scope {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 7%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 7%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 7%;
+  --surface: 0 0% 100%;
+  --surface-foreground: 0 0% 7%;
+  --surface-secondary: 0 0% 96%;
+  --secondary: 0 0% 96%;
+  --secondary-foreground: 0 0% 7%;
+  --muted: 0 0% 96%;
+  --muted-foreground: 0 0% 45.5%;
+  --accent: 258 90% 66%;
+  --accent-foreground: 0 0% 100%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 258 90% 66%;
+  --primary: 258 90% 66%;
+  --primary-foreground: 0 0% 100%;
+  --home-background: #ffffff;
+  --home-text: #111111;
+  --home-surface: #f5f5f5;
+  --home-border: #e5e5e5;
+  --home-accent: #8b5cf6;
+  --home-muted: #737373;
+  --home-on-accent: #ffffff;
+  --home-spacing-1: 0.25rem;
+  --home-spacing-2: 0.5rem;
+  --home-spacing-3: 0.75rem;
+  --home-spacing-4: 1rem;
+  --home-spacing-6: 1.5rem;
+  --home-spacing-8: 2rem;
+  --home-spacing-12: 3rem;
+  --home-radius-sm: 0.5rem;
+  --home-radius-md: 0.875rem;
+  --home-radius-lg: 1.25rem;
+  --home-radius-pill: 999px;
+  --home-shadow-card: 0 10px 30px rgb(17 17 17 / 0.06);
+  --home-shadow-button: 0 5px 16px rgb(139 92 246 / 0.2);
+  color: var(--home-text);
+  background: var(--home-background);
+  font-family: Inter, Geist, Manrope, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  transition: color 220ms ease, background-color 220ms ease;
+  color-scheme: light;
+}
+
+:global(.dark) .scope {
+  --background: 0 0% 3.5%;
+  --foreground: 0 0% 98%;
+  --card: 0 0% 9%;
+  --card-foreground: 0 0% 98%;
+  --popover: 0 0% 9%;
+  --popover-foreground: 0 0% 98%;
+  --surface: 0 0% 9%;
+  --surface-foreground: 0 0% 98%;
+  --surface-secondary: 0 0% 9%;
+  --secondary: 0 0% 9%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 0 0% 9%;
+  --muted-foreground: 0 0% 64%;
+  --accent: 258 90% 66%;
+  --accent-foreground: 0 0% 100%;
+  --border: 0 0% 19%;
+  --input: 0 0% 19%;
+  --ring: 258 90% 66%;
+  --primary: 258 90% 66%;
+  --primary-foreground: 0 0% 100%;
+  --home-background: #090909;
+  --home-text: #fafafa;
+  --home-surface: #171717;
+  --home-border: #303030;
+  --home-accent: #8b5cf6;
+  --home-muted: #a3a3a3;
+  --home-on-accent: #ffffff;
+  --home-shadow-card: 0 12px 32px rgb(0 0 0 / 0.28);
+  --home-shadow-button: 0 5px 18px rgb(139 92 246 / 0.24);
+  color-scheme: dark;
+}
+
+.container {
+  width: min(100% - 2.5rem, 80rem);
+  margin-inline: auto;
+}
+
+.containerNarrow { max-width: 48rem; }
+.containerStandard { max-width: 68rem; }
+.containerWide { max-width: 80rem; }
+
+.button {
+  display: inline-flex;
+  min-height: 2.875rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  border: 1px solid transparent;
+  border-radius: var(--home-radius-pill);
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 650;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.button:hover:not(:disabled) { transform: translateY(-1px); }
+.button:active:not(:disabled) { transform: translateY(0); }
+.button:focus-visible,
+.badge:focus-visible,
+.card:focus-visible {
+  outline: 3px solid var(--home-accent);
+  outline-offset: 3px;
+}
+.button:disabled { cursor: not-allowed; opacity: 0.55; }
+
+.buttonPrimary {
+  color: var(--home-on-accent);
+  background: #7c3aed;
+  box-shadow: var(--home-shadow-button);
+}
+.buttonPrimary:hover:not(:disabled) { background: #6d28d9; }
+.buttonSecondary {
+  color: var(--home-text);
+  border-color: var(--home-border);
+  background: var(--home-background);
+}
+.buttonSecondary:hover:not(:disabled) { background: var(--home-surface); }
+.buttonQuiet { color: var(--home-text); background: transparent; }
+.buttonQuiet:hover:not(:disabled) { background: var(--home-surface); }
+.buttonSmall { min-height: 2.375rem; padding: 0.55rem 1rem; font-size: 0.875rem; }
+.buttonMedium { padding: 0.75rem 1.25rem; }
+.buttonLarge { min-height: 3.25rem; padding: 0.9rem 1.6rem; font-size: 1rem; }
+
+.badge {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid transparent;
+  border-radius: var(--home-radius-pill);
+  padding: 0.4rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1;
+}
+.badgeAccent { color: #6d28d9; border-color: rgb(139 92 246 / 0.22); background: rgb(139 92 246 / 0.1); }
+.badgeNeutral { color: var(--home-muted); border-color: var(--home-border); background: var(--home-surface); }
+.badgeDark { color: #fafafa; border-color: #303030; background: #171717; }
+:global(.dark) .badgeAccent { color: #c4b5fd; }
+
+.sectionHeading { max-width: 46rem; }
+.alignLeft { text-align: left; }
+.alignCenter { margin-inline: auto; text-align: center; }
+.eyebrow {
+  margin: 0 0 var(--home-spacing-3);
+  color: var(--home-accent);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+.headingTitle {
+  margin: 0;
+  color: var(--home-text);
+  font-size: clamp(1.85rem, 3.2vw, 3rem);
+  font-weight: 680;
+  letter-spacing: -0.045em;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+.headingDescription {
+  max-width: 42rem;
+  margin: var(--home-spacing-4) 0 0;
+  color: var(--home-muted);
+  font-size: clamp(0.975rem, 1.3vw, 1.125rem);
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+.alignCenter .headingDescription { margin-inline: auto; }
+
+.card {
+  min-width: 0;
+  border: 1px solid var(--home-border);
+  border-radius: var(--home-radius-md);
+  color: var(--home-text);
+  background: var(--home-background);
+  box-shadow: var(--home-shadow-card);
+  transition: border-color 180ms ease, background-color 220ms ease, box-shadow 180ms ease;
+}
+.cardSurface { padding: var(--home-spacing-6); }
+.cardQuiet { box-shadow: none; }
+.cardRaised { padding: var(--home-spacing-6); }
+.cardRaised:hover { border-color: color-mix(in srgb, var(--home-accent) 35%, var(--home-border)); box-shadow: 0 14px 36px rgb(17 17 17 / 0.1); }
+
+@media (max-width: 640px) {
+  .container { width: min(100% - 2rem, 80rem); }
+  .cardSurface, .cardRaised { padding: var(--home-spacing-4); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scope, .button, .card { transition-duration: 0.01ms; }
+}
